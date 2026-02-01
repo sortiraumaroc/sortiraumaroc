@@ -1,0 +1,84 @@
+{
+  "formatVersion": 1,
+  "passTypeIdentifier": "{{PASS_TYPE_ID}}",
+  "teamIdentifier": "{{TEAM_ID}}",
+  "organizationName": "Sortir Au Maroc",
+  "description": "Réservation Sortir Au Maroc",
+  "serialNumber": "{{SERIAL_NUMBER}}",
+  "backgroundColor": "rgb(163, 0, 29)",
+  "foregroundColor": "rgb(255, 255, 255)",
+  "labelColor": "rgb(255, 200, 200)",
+  "logoText": "Sortir Au Maroc",
+  "generic": {
+    "primaryFields": [
+      {
+        "key": "restaurant",
+        "label": "RESTAURANT",
+        "value": "{{RESTAURANT_NAME}}"
+      }
+    ],
+    "secondaryFields": [
+      {
+        "key": "date",
+        "label": "DATE",
+        "value": "{{DATE}}"
+      },
+      {
+        "key": "time",
+        "label": "HEURE",
+        "value": "{{TIME}}"
+      }
+    ],
+    "auxiliaryFields": [
+      {
+        "key": "guests",
+        "label": "PERSONNES",
+        "value": "{{PARTY_SIZE}}"
+      },
+      {
+        "key": "reference",
+        "label": "RÉFÉRENCE",
+        "value": "{{BOOKING_REFERENCE}}"
+      }
+    ],
+    "backFields": [
+      {
+        "key": "guestName",
+        "label": "Nom du client",
+        "value": "{{GUEST_NAME}}"
+      },
+      {
+        "key": "guestPhone",
+        "label": "Téléphone",
+        "value": "{{GUEST_PHONE}}"
+      },
+      {
+        "key": "address",
+        "label": "Adresse",
+        "value": "{{ADDRESS}}"
+      },
+      {
+        "key": "terms",
+        "label": "Conditions",
+        "value": "Merci d'arriver 10 minutes avant l'heure de votre réservation. En cas d'annulation, veuillez nous prévenir au moins 2 heures à l'avance."
+      },
+      {
+        "key": "website",
+        "label": "Site web",
+        "value": "https://sortiraumaroc.ma"
+      }
+    ]
+  },
+  "barcode": {
+    "format": "PKBarcodeFormatQR",
+    "message": "{{BOOKING_REFERENCE}}",
+    "messageEncoding": "iso-8859-1"
+  },
+  "barcodes": [
+    {
+      "format": "PKBarcodeFormatQR",
+      "message": "{{BOOKING_REFERENCE}}",
+      "messageEncoding": "iso-8859-1"
+    }
+  ]
+}

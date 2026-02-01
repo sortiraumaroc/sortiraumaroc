@@ -1,0 +1,380 @@
+/** @import must precede all other statements */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Intra:wght@600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap");
+@import url("https://db.onlinewebfonts.com/c/82a65f21ecc4c989707a50e19eafaf1c?family=Circular+Std");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /**
+   * Tailwind CSS theme
+   * tailwind.config.ts expects the following color variables to be expressed as HSL values.
+   * A different format will require also updating the theme in tailwind.config.ts.
+  */
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 8%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 8%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 8%;
+
+    --primary: 354 100% 32%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 354 100% 32%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+
+    --accent: 354 100% 32%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 354 100% 32%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 354 100% 32%;
+
+    /* CMS controlled text style tokens (HSL) */
+    --cms-text-primary: var(--primary);
+    --cms-text-secondary: var(--muted-foreground);
+    --cms-text-accent: 262 83% 40%;
+    --cms-text-success: 142 72% 28%;
+    --cms-text-warning: 28 90% 38%;
+    --cms-text-danger: 0 74% 40%;
+    --cms-text-info: 199 89% 38%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 0 0% 98%;
+
+    --sidebar-foreground: 240 5.3% 26.1%;
+
+    --sidebar-primary: 354 100% 32%;
+
+    --sidebar-primary-foreground: 0 0% 100%;
+
+    --sidebar-accent: 240 4.8% 95.9%;
+
+    --sidebar-accent-foreground: 240 5.9% 10%;
+
+    --sidebar-border: 220 13% 91%;
+
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+
+    /* CMS controlled text style tokens (HSL) */
+    --cms-text-primary: var(--primary);
+    --cms-text-secondary: var(--muted-foreground);
+    --cms-text-accent: 262 83% 72%;
+    --cms-text-success: 142 70% 60%;
+    --cms-text-warning: 28 90% 65%;
+    --cms-text-danger: 0 85% 70%;
+    --cms-text-info: 199 89% 65%;
+
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    font-family: "Circular Std", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  :where(p, span, li, h1, h2, h3, h4, h5, h6, a, button, label, td, th) {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  pre,
+  code {
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  /*
+   * iOS Safari auto-zooms when focusing inputs with font-size < 16px.
+   * This keeps the layout stable on mobile while still allowing user pinch-zoom.
+   */
+  @supports (-webkit-touch-callout: none) {
+    @media (max-width: 640px) {
+      input,
+      select,
+      textarea {
+        font-size: 16px !important;
+      }
+    }
+  }
+}
+
+@layer components {
+  /* Force white background on autofilled inputs */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  input:-webkit-autofill:active {
+    -webkit-box-shadow: 0 0 0 1000px white inset !important;
+    box-shadow: 0 0 0 1000px white inset !important;
+    -webkit-text-fill-color: #1f2937 !important;
+    background-color: white !important;
+  }
+
+  /* Dark gray italic text for inputs and selects */
+  .input-text {
+    @apply italic text-gray-700;
+  }
+
+  .select-text {
+    @apply italic text-gray-700;
+  }
+
+  .dropdown-text {
+    @apply italic text-gray-700;
+  }
+
+  /* CMS controlled text style tokens */
+  .cms-text-style--default {
+    color: hsl(var(--foreground));
+  }
+
+  .cms-text-style--primary {
+    color: hsl(var(--cms-text-primary));
+  }
+
+  .cms-text-style--secondary {
+    color: hsl(var(--cms-text-secondary));
+  }
+
+  .cms-text-style--accent {
+    color: hsl(var(--cms-text-accent));
+  }
+
+  .cms-text-style--success {
+    color: hsl(var(--cms-text-success));
+  }
+
+  .cms-text-style--warning {
+    color: hsl(var(--cms-text-warning));
+  }
+
+  .cms-text-style--danger {
+    color: hsl(var(--cms-text-danger));
+  }
+
+  .cms-text-style--info {
+    color: hsl(var(--cms-text-info));
+  }
+
+  /* Placeholder styling */
+  input::placeholder,
+  textarea::placeholder,
+  select {
+    @apply italic text-gray-700;
+  }
+
+  select option {
+    @apply italic text-gray-700;
+  }
+}
+
+/* ============================================
+   Sortir Au Maroc (SAM) Calendar Styles (react-day-picker v9)
+   ============================================ */
+.sam-calendar .rdp-root {
+  --rdp-accent-color: hsl(354 100% 32%);
+  --rdp-accent-background-color: hsl(354 100% 32% / 0.1);
+  --rdp-day-height: 44px;
+  --rdp-day-width: 44px;
+  --rdp-day_button-border-radius: 100%;
+  --rdp-day_button-height: 40px;
+  --rdp-day_button-width: 40px;
+  --rdp-selected-border: 2px solid var(--rdp-accent-color);
+  --rdp-today-color: var(--rdp-accent-color);
+  --rdp-outside-opacity: 0.4;
+  --rdp-disabled-opacity: 0.3;
+  --rdp-weekday-opacity: 1;
+  width: 100%;
+  max-width: 100%;
+}
+
+.sam-calendar .rdp-months {
+  width: 100%;
+  max-width: 100%;
+  justify-content: center;
+}
+
+.sam-calendar .rdp-month {
+  width: 100%;
+}
+
+.sam-calendar .rdp-month_caption {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 2.5rem 1rem;
+  position: relative;
+}
+
+.sam-calendar .rdp-caption_label {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #0f172a;
+  text-transform: capitalize;
+}
+
+.sam-calendar .rdp-nav {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 0.5rem;
+}
+
+.sam-calendar .rdp-button_previous,
+.sam-calendar .rdp-button_next {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9999px;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.sam-calendar .rdp-button_previous:hover,
+.sam-calendar .rdp-button_next:hover {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.sam-calendar .rdp-month_grid {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.sam-calendar .rdp-weekday {
+  color: #64748b;
+  font-weight: 500;
+  font-size: 0.875rem;
+  padding: 0.5rem 0;
+  text-align: center;
+  text-transform: lowercase;
+}
+
+.sam-calendar .rdp-day {
+  text-align: center;
+  padding: 0.125rem;
+}
+
+.sam-calendar .rdp-day_button {
+  width: 40px;
+  height: 40px;
+  border-radius: 9999px;
+  background: transparent;
+  border: none;
+  color: #0f172a;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+}
+
+.sam-calendar .rdp-day_button:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+
+.sam-calendar .rdp-today .rdp-day_button {
+  color: hsl(354 100% 32%);
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1px hsl(354 100% 32% / 0.3);
+}
+
+.sam-calendar .rdp-selected .rdp-day_button {
+  background: hsl(354 100% 32%) !important;
+  color: white !important;
+  font-weight: 600;
+}
+
+.sam-calendar .rdp-selected .rdp-day_button:hover {
+  background: hsl(354 100% 28%) !important;
+}
+
+.sam-calendar .rdp-outside .rdp-day_button {
+  color: #cbd5e1;
+}
+
+.sam-calendar .rdp-disabled .rdp-day_button {
+  color: #cbd5e1;
+  cursor: not-allowed;
+}
+
+.sam-calendar .rdp-disabled .rdp-day_button:hover {
+  background: transparent;
+}
+
+.sam-calendar .rdp-hidden {
+  visibility: hidden;
+}

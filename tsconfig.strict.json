@@ -1,0 +1,23 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "include": [
+    "client/lib/shared/**/*",
+    "shared/**/*",
+    "server/lib/**/*",
+    "server/middleware/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
+}
