@@ -227,24 +227,25 @@ export function ProfileWaitlist(props: { items: ConsumerWaitlistItem[]; onReload
   };
 
   const renderSection = (args: { title: string; items: ConsumerWaitlistItem[]; emptyText: string }) => {
+    if (!args.items.length) return null;
     return (
-      <div className="space-y-3">
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <div className="text-sm font-extrabold text-slate-900">{args.title}</div>
+          <div className="text-sm font-semibold text-slate-700">{args.title}</div>
           <div className="text-xs text-slate-500 tabular-nums">{args.items.length}</div>
         </div>
-
-        {args.items.length ? <div className="space-y-4">{args.items.map(renderCard)}</div> : <div className="text-sm text-slate-600">{args.emptyText}</div>}
+        <div className="space-y-4">{args.items.map(renderCard)}</div>
       </div>
     );
   };
 
   return (
     <div className="space-y-6">
+      {/* Header with refresh button */}
       <div className="flex items-center justify-between gap-2">
         <div>
-          <div className="text-sm font-extrabold text-slate-900">{t("profile.waitlist.title")}</div>
-          <div className="text-xs text-slate-600">{t("profile.waitlist.subtitle")}</div>
+          <div className="text-base font-bold text-foreground">{t("profile.waitlist.title")}</div>
+          <div className="text-sm text-slate-600">{t("profile.waitlist.subtitle")}</div>
         </div>
         <Button variant="outline" size="sm" onClick={props.onReload} disabled={Boolean(props.loading)}>
           {t("common.refresh")}
@@ -253,21 +254,24 @@ export function ProfileWaitlist(props: { items: ConsumerWaitlistItem[]; onReload
 
       {props.error ? <div className="text-sm text-red-600">{props.error}</div> : null}
 
+      {/* Empty state */}
       {!items.length && !props.loading ? (
-        <div className="rounded-lg border-2 border-slate-200 bg-white p-6 text-slate-700">
-          <div className="font-bold text-foreground">{t("profile.waitlist.empty.title")}</div>
-          <div className="mt-2 text-sm text-slate-600">{t("profile.waitlist.empty.subtitle")}</div>
-          <div className="mt-2 text-sm text-slate-600">{t("profile.waitlist.empty.hint")}</div>
-          <Button variant="outline" className="mt-4" onClick={() => navigate("/profile?tab=bookings")}>{t("profile.tabs.bookings")}</Button>
+        <div className="text-center py-8">
+          <div className="text-slate-500 text-sm">{t("profile.waitlist.empty.title")}</div>
+          <div className="mt-1 text-slate-400 text-xs">{t("profile.waitlist.empty.subtitle")}</div>
+          <div className="mt-1 text-slate-400 text-xs">{t("profile.waitlist.empty.hint")}</div>
+          <Button variant="outline" size="sm" className="mt-4" onClick={() => navigate("/profile?tab=bookings")}>
+            {t("profile.tabs.bookings")}
+          </Button>
         </div>
       ) : null}
 
-      {items.length ? (
-        <div className="space-y-6">
-          {renderSection({ title: t("profile.waitlist.section.active"), items: activeItems, emptyText: t("profile.waitlist.section.active_empty") })}
-          {renderSection({ title: t("profile.waitlist.section.expired"), items: expiredItems, emptyText: t("profile.waitlist.section.expired_empty") })}
-        </div>
-      ) : null}
+      {/* Active items - shown first */}
+      {renderSection({ title: t("profile.waitlist.section.active"), items: activeItems, emptyText: "" })}
+
+      {/* Expired items - shown after with visual separation */}
+      {expiredItems.length > 0 && activeItems.length > 0 ? <div className="border-t border-slate-200" /> : null}
+      {renderSection({ title: t("profile.waitlist.section.expired"), items: expiredItems, emptyText: "" })}
     </div>
   );
 }

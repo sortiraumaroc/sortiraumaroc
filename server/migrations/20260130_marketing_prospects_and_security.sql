@@ -122,8 +122,8 @@ create table if not exists public.marketing_email_campaigns (
   subject text not null,
   content_html text not null,
   content_text text,
-  from_name text default 'Sam''Booking',
-  from_email text default 'contact@sambooking.ma',
+  from_name text default 'Sortir Au Maroc',
+  from_email text default 'contact@sortiraumaroc.ma',
   reply_to text,
 
   -- Targeting

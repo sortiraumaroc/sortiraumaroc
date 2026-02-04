@@ -687,7 +687,7 @@ export const previewAdminEmail: RequestHandler = async (req, res) => {
 
   const rendered = await renderSambookingEmail({
     emailId,
-    fromKey: (["hello", "support", "pro", "finance", "no-reply"].includes(fromKey) ? fromKey : "hello") as SambookingSenderKey,
+    fromKey: (["hello", "support", "pro", "finance", "noreply"].includes(fromKey) ? fromKey : "hello") as SambookingSenderKey,
     to: ["preview@sortiraumaroc.ma"],
     subject,
     bodyText,
@@ -723,4 +723,192 @@ export const listAdminEmailSends: RequestHandler = async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
 
   return res.json({ ok: true, items: data ?? [] });
+};
+
+// ---------------------------------------------------------------------------
+// Email Branding Logo Upload
+// ---------------------------------------------------------------------------
+
+const EMAIL_LOGO_BUCKET = "email-assets";
+const MAX_EMAIL_LOGO_BYTES = 2 * 1024 * 1024; // 2MB
+
+function looksLikePng(buf: Buffer): boolean {
+  return buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+}
+
+function looksLikeJpeg(buf: Buffer): boolean {
+  return buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+}
+
+function looksLikeWebp(buf: Buffer): boolean {
+  return buf.length >= 12 && buf.slice(0, 4).toString() === "RIFF" && buf.slice(8, 12).toString() === "WEBP";
+}
+
+async function ensureEmailAssetsBucket(supabase: ReturnType<typeof getAdminSupabase>): Promise<void> {
+  try {
+    const exists = await supabase.storage.getBucket(EMAIL_LOGO_BUCKET);
+    if (!exists.error) return;
+
+    const msg = String(exists.error.message ?? "").toLowerCase();
+    const status = (exists.error as any)?.statusCode ?? (exists.error as any)?.status ?? null;
+
+    if (status === 404 || msg.includes("not found") || msg.includes("does not exist")) {
+      await supabase.storage.createBucket(EMAIL_LOGO_BUCKET, { public: true, fileSizeLimit: MAX_EMAIL_LOGO_BYTES });
+    }
+  } catch (e) {
+    console.error("[ensureEmailAssetsBucket] error:", e);
+  }
+}
+
+export const uploadEmailBrandingLogo: RequestHandler = async (req, res) => {
+  if (!requireSuperadmin(req, res)) return;
+
+  const contentType = asString(req.header("content-type")).toLowerCase();
+  let ext: "png" | "jpg" | "webp" | null = null;
+
+  if (contentType.includes("image/png")) ext = "png";
+  else if (contentType.includes("image/jpeg")) ext = "jpg";
+  else if (contentType.includes("image/webp")) ext = "webp";
+  else return res.status(400).json({ error: "unsupported_image_type" });
+
+  const body = req.body as unknown;
+  if (!Buffer.isBuffer(body) || body.length === 0) return res.status(400).json({ error: "missing_image_body" });
+  if (body.length > MAX_EMAIL_LOGO_BYTES) return res.status(413).json({ error: "image_too_large" });
+
+  // Signature checks
+  const signatureOk =
+    (ext === "jpg" && looksLikeJpeg(body)) ||
+    (ext === "png" && looksLikePng(body)) ||
+    (ext === "webp" && looksLikeWebp(body));
+  if (!signatureOk) return res.status(400).json({ error: "invalid_image_signature" });
+
+  const supabase = getAdminSupabase();
+  await ensureEmailAssetsBucket(supabase);
+
+  const now = new Date();
+  const id = randomBytes(8).toString("hex");
+  const storagePath = `logo/${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${id}.${ext}`;
+
+  // Delete old logo if exists
+  const { data: currentBranding } = await supabase.from("email_branding_settings").select("logo_url").eq("id", 1).single();
+  if (currentBranding?.logo_url && currentBranding.logo_url.includes(`/${EMAIL_LOGO_BUCKET}/`)) {
+    const oldPath = currentBranding.logo_url.split(`/${EMAIL_LOGO_BUCKET}/`)[1];
+    if (oldPath) {
+      await supabase.storage.from(EMAIL_LOGO_BUCKET).remove([oldPath]);
+    }
+  }
+
+  const { error: uploadError } = await supabase.storage.from(EMAIL_LOGO_BUCKET).upload(storagePath, body, {
+    contentType,
+    upsert: false,
+  });
+
+  if (uploadError) return res.status(500).json({ error: uploadError.message });
+
+  const { data: urlData } = supabase.storage.from(EMAIL_LOGO_BUCKET).getPublicUrl(storagePath);
+  const publicUrl = urlData?.publicUrl ?? "";
+
+  // Auto-update branding settings with new logo URL
+  const { error: updateError } = await supabase.from("email_branding_settings").update({ logo_url: publicUrl }).eq("id", 1);
+  if (updateError) {
+    console.error("[uploadEmailBrandingLogo] update branding error:", updateError);
+  }
+
+  return res.json({
+    ok: true,
+    url: publicUrl,
+    path: storagePath,
+    size_bytes: body.length,
+  });
+};
+
+export const deleteEmailBrandingLogo: RequestHandler = async (req, res) => {
+  if (!requireSuperadmin(req, res)) return;
+
+  const supabase = getAdminSupabase();
+
+  const { data: currentBranding } = await supabase.from("email_branding_settings").select("logo_url").eq("id", 1).single();
+  if (currentBranding?.logo_url && currentBranding.logo_url.includes(`/${EMAIL_LOGO_BUCKET}/`)) {
+    const oldPath = currentBranding.logo_url.split(`/${EMAIL_LOGO_BUCKET}/`)[1];
+    if (oldPath) {
+      await supabase.storage.from(EMAIL_LOGO_BUCKET).remove([oldPath]);
+    }
+  }
+
+  // Set logo_url to null
+  const { error } = await supabase.from("email_branding_settings").update({ logo_url: null }).eq("id", 1);
+  if (error) return res.status(500).json({ error: error.message });
+
+  return res.json({ ok: true });
+};
+
+// ---------------------------------------------------------------------------
+// Bulk replace text in all email templates (Sam'Booking -> Sam)
+// ---------------------------------------------------------------------------
+
+export const bulkReplaceInEmailTemplates: RequestHandler = async (req, res) => {
+  if (!requireSuperadmin(req, res)) return;
+
+  const supabase = getAdminSupabase();
+
+  // Fetch all templates
+  const { data: templates, error: fetchError } = await supabase
+    .from("email_templates")
+    .select("id,subject_fr,subject_en,body_fr,body_en,cta_label_fr,cta_label_en,name");
+
+  if (fetchError) return res.status(500).json({ error: fetchError.message });
+  if (!templates || templates.length === 0) return res.json({ ok: true, updated: 0 });
+
+  // Patterns to replace
+  const replacements: [RegExp, string][] = [
+    // Sam'Booking -> Sam
+    [/Sam'Booking/g, "Sam"],
+    [/Sam'booking/g, "Sam"],
+    [/SamBooking/g, "Sam"],
+    [/Sambooking/g, "Sam"],
+    // URLs: sambooking.ma -> sam.ma
+    [/www\.sambooking\.ma/g, "www.sam.ma"],
+    [/https:\/\/sambooking\.ma/g, "https://sam.ma"],
+    [/http:\/\/sambooking\.ma/g, "https://sam.ma"],
+    [/sambooking\.ma/g, "sam.ma"],
+  ];
+
+  let updatedCount = 0;
+  const changes: Array<{ id: string; name: string; fields: string[] }> = [];
+
+  for (const tpl of templates as any[]) {
+    const updates: Record<string, string> = {};
+    const changedFields: string[] = [];
+
+    const fieldsToCheck = ["subject_fr", "subject_en", "body_fr", "body_en", "cta_label_fr", "cta_label_en", "name"];
+
+    for (const field of fieldsToCheck) {
+      const original = tpl[field];
+      if (typeof original !== "string") continue;
+
+      let updated = original;
+      for (const [pattern, replacement] of replacements) {
+        updated = updated.replace(pattern, replacement);
+      }
+
+      if (updated !== original) {
+        updates[field] = updated;
+        changedFields.push(field);
+      }
+    }
+
+    if (Object.keys(updates).length > 0) {
+      const { error: updateError } = await supabase
+        .from("email_templates")
+        .update(updates)
+        .eq("id", tpl.id);
+
+      if (!updateError) {
+        updatedCount++;
+        changes.push({ id: tpl.id, name: tpl.name || tpl.id, fields: changedFields });
+      }
+    }
+  }
+
+  return res.json({ ok: true, updated: updatedCount, changes });
 };

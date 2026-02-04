@@ -21,7 +21,7 @@ Votre avis compte énormément pour nous et pour l''établissement. Prenez quelq
 
 En laissant un avis, vous contribuez à améliorer la qualité des services proposés.
 
-À très bientôt sur Sam''Booking !',
+À très bientôt sur Sortir Au Maroc !',
   'Laisser un avis',
   '{{review_url}}',
   'Thank you for visiting {{establishment}}!',
@@ -33,7 +33,7 @@ Your feedback means a lot to us and to the establishment. Take a few seconds to 
 
 By leaving a review, you help improve the quality of services offered.
 
-See you soon on Sam''Booking!',
+See you soon on Sortir Au Maroc!',
   'Leave a review'
 ) ON CONFLICT (key) DO UPDATE SET
   name = EXCLUDED.name,
@@ -438,7 +438,7 @@ VALUES (
   'Joyeux anniversaire {{user_name}} !',
   'Bonjour {{user_name}},
 
-Toute l''équipe Sam''Booking vous souhaite un très joyeux anniversaire !
+Toute l''équipe Sortir Au Maroc vous souhaite un très joyeux anniversaire !
 
 Pour célébrer ce jour spécial, découvrez nos établissements partenaires qui proposent des offres spéciales pour les anniversaires.
 
@@ -448,7 +448,7 @@ Passez une excellente journée !',
   'Happy birthday {{user_name}}!',
   'Hello {{user_name}},
 
-The entire Sam''Booking team wishes you a very happy birthday!
+The entire Sortir Au Maroc team wishes you a very happy birthday!
 
 To celebrate this special day, discover our partner establishments that offer special birthday deals.
 
@@ -473,7 +473,7 @@ VALUES (
   '{{user_name}}, vous nous manquez !',
   'Bonjour {{user_name}},
 
-Cela fait un moment que nous ne vous avons pas vu sur Sam''Booking !
+Cela fait un moment que nous ne vous avons pas vu sur Sortir Au Maroc !
 
 De nombreux nouveaux établissements ont rejoint notre plateforme et proposent des expériences uniques.
 
@@ -483,7 +483,7 @@ Revenez découvrir les nouveautés et réservez votre prochaine sortie.',
   '{{user_name}}, we miss you!',
   'Hello {{user_name}},
 
-It''s been a while since we''ve seen you on Sam''Booking!
+It''s been a while since we''ve seen you on Sortir Au Maroc!
 
 Many new establishments have joined our platform and offer unique experiences.
 
@@ -590,9 +590,9 @@ VALUES (
   'Votre mot de passe a été modifié',
   'Bonjour {{user_name}},
 
-Votre mot de passe Sam''Booking a été modifié avec succès.
+Votre mot de passe Sortir Au Maroc a été modifié avec succès.
 
-Si vous n''êtes pas à l''origine de cette modification, veuillez nous contacter immédiatement à support@sambooking.ma ou réinitialiser votre mot de passe.
+Si vous n''êtes pas à l''origine de cette modification, veuillez nous contacter immédiatement à support@sortiraumaroc.ma ou réinitialiser votre mot de passe.
 
 Date de modification : {{date}}
 Adresse IP : {{ip_address}}',
@@ -601,9 +601,9 @@ Adresse IP : {{ip_address}}',
   'Your password has been changed',
   'Hello {{user_name}},
 
-Your Sam''Booking password has been successfully changed.
+Your Sortir Au Maroc password has been successfully changed.
 
-If you did not make this change, please contact us immediately at support@sambooking.ma or reset your password.
+If you did not make this change, please contact us immediately at support@sortiraumaroc.ma or reset your password.
 
 Date of change: {{date}}
 IP address: {{ip_address}}',

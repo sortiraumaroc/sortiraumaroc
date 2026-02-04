@@ -3,10 +3,11 @@ import { createClient } from "@supabase/supabase-js";
 import crypto from "node:crypto";
 import { sendSambookingEmail } from "../email";
 import { requireSuperadmin } from "./admin";
+import ExcelJS from "exceljs";
 
 // Types
 type ImportRow = {
-  // Établissement
+  // Établissement - infos de base
   nom: string;
   universe?: string;
   subcategory?: string;
@@ -14,17 +15,27 @@ type ImportRow = {
   adresse?: string;
   code_postal?: string;
   region?: string;
+  pays?: string;
+  // Contact
   telephone?: string;
   whatsapp?: string;
   email_etablissement?: string;
   site_web?: string;
+  instagram?: string;
+  facebook?: string;
+  // Descriptions
   description_courte?: string;
   description_longue?: string;
+  // Informations pratiques
   horaires?: string;
   prix_min?: string;
   prix_max?: string;
+  devise?: string;
+  // SEO & Visibilité
   tags?: string;
   amenities?: string;
+  latitude?: string;
+  longitude?: string;
   // Pro (optionnel - peut être renseigné plus tard)
   pro_email?: string;
   pro_nom?: string;
@@ -47,21 +58,30 @@ type ImportResult = {
 type ExportRow = {
   id: string;
   nom: string;
+  slug: string;
+  username: string;
   universe: string;
   subcategory: string;
   ville: string;
   adresse: string;
   code_postal: string;
   region: string;
+  pays: string;
   telephone: string;
   whatsapp: string;
   email_etablissement: string;
   site_web: string;
+  instagram: string;
+  facebook: string;
   description_courte: string;
   description_longue: string;
+  latitude: string;
+  longitude: string;
   status: string;
   verified: boolean;
   premium: boolean;
+  booking_enabled: boolean;
+  menu_digital_enabled: boolean;
   created_at: string;
   pro_email: string;
   pro_nom: string;
@@ -166,6 +186,7 @@ function getFirstDefined(raw: Record<string, string>, ...keys: string[]): string
 // Helper: Normalize row to ImportRow
 function normalizeRow(raw: Record<string, string>): ImportRow {
   return {
+    // Infos de base
     nom: getFirstDefined(raw, "nom", "name", "etablissement"),
     universe: getFirstDefined(raw, "universe", "categorie", "category"),
     subcategory: getFirstDefined(raw, "subcategory", "sous_categorie"),
@@ -173,17 +194,28 @@ function normalizeRow(raw: Record<string, string>): ImportRow {
     adresse: getFirstDefined(raw, "adresse", "address"),
     code_postal: getFirstDefined(raw, "code_postal", "postal_code", "cp"),
     region: raw.region || "",
+    pays: getFirstDefined(raw, "pays", "country") || "MA",
+    // Contact
     telephone: getFirstDefined(raw, "telephone", "phone", "tel"),
     whatsapp: raw.whatsapp || "",
     email_etablissement: getFirstDefined(raw, "email_etablissement", "email"),
     site_web: getFirstDefined(raw, "site_web", "website", "url"),
+    instagram: getFirstDefined(raw, "instagram", "insta"),
+    facebook: getFirstDefined(raw, "facebook", "fb"),
+    // Descriptions
     description_courte: getFirstDefined(raw, "description_courte", "description_short"),
     description_longue: getFirstDefined(raw, "description_longue", "description_long", "description"),
+    // Infos pratiques
     horaires: getFirstDefined(raw, "horaires", "hours", "opening_hours"),
     prix_min: getFirstDefined(raw, "prix_min", "price_min"),
     prix_max: getFirstDefined(raw, "prix_max", "price_max"),
+    devise: getFirstDefined(raw, "devise", "currency") || "MAD",
+    // SEO & Visibilité
     tags: raw.tags || "",
     amenities: getFirstDefined(raw, "amenities", "equipements"),
+    latitude: getFirstDefined(raw, "latitude", "lat"),
+    longitude: getFirstDefined(raw, "longitude", "lng", "lon"),
+    // Pro
     pro_email: getFirstDefined(raw, "pro_email", "proprietaire_email", "owner_email"),
     pro_nom: getFirstDefined(raw, "pro_nom", "proprietaire_nom", "owner_name"),
     pro_prenom: getFirstDefined(raw, "pro_prenom", "proprietaire_prenom"),
@@ -291,20 +323,653 @@ Vous pouvez accéder à votre espace Pro pour :
   });
 }
 
+// ============================================
+// TAXONOMY DEFINITIONS FOR EXCEL EXPORT
+// ============================================
+
+const UNIVERSES = [
+  { id: "restaurants", label: "Manger & Boire" },
+  { id: "sport", label: "Sport & Bien-être" },
+  { id: "loisirs", label: "Loisirs" },
+  { id: "hebergement", label: "Hébergement" },
+  { id: "culture", label: "Culture" },
+  { id: "shopping", label: "Shopping" },
+  { id: "rentacar", label: "Se déplacer" },
+];
+
+const SUBCATEGORIES: Record<string, string[]> = {
+  restaurants: [
+    "Français", "Asiatique", "Italien", "Marocain", "Japonais", "Oriental", "Steakhouse",
+    "Brunch", "Café", "Afghan", "Africain", "Algérien", "Allemand", "Américain", "Anglais",
+    "Argentin", "Basque", "Brésilien", "Cambodgien", "Chinois", "Colombien", "Coréen",
+    "Créole", "Crêperie", "Cubain", "Cuisine des îles", "Cuisine du monde", "Cuisine traditionnelle",
+    "Égyptien", "Espagnol", "Éthiopien", "Fruits de mer", "Fusion", "Grec", "Hawaïen",
+    "Indien", "Iranien", "Israélien", "Latino", "Libanais", "Méditerranéen", "Mexicain",
+    "Pakistanais", "Péruvien", "Portugais", "Provençal", "Russe", "Scandinave", "Syrien",
+    "Thaïlandais", "Tunisien", "Turc", "Vegan", "Végétarien", "Vietnamien"
+  ],
+  sport: [
+    "Hammam", "Spa", "Massage", "Institut beauté", "Coiffeur / Barber", "Yoga / Pilates",
+    "Salle de sport", "Coach personnel", "Padel", "Tennis", "Foot 5", "Crossfit", "Piscine",
+    "Arts martiaux", "Autres"
+  ],
+  loisirs: [
+    "Escape game", "Karting", "Quad / Buggy", "Jet ski / Paddle", "Parachute / Parapente",
+    "Golf", "Balades (cheval / chameau)", "Aquapark", "Bowling", "Laser game", "Surf / Kite", "Autres"
+  ],
+  hebergement: [
+    "Hôtel 5 étoiles", "Hôtel 4 étoiles", "Hôtel 3 étoiles", "Hôtel 2 étoiles", "Hôtel boutique",
+    "Palace", "Resort", "Riad traditionnel", "Riad de luxe", "Maison d'hôtes", "Chambre d'hôtes",
+    "Villa", "Appartement", "Studio", "Loft", "Auberge", "Gîte", "Chalet", "Bungalow", "Glamping", "Camping"
+  ],
+  culture: [
+    "Musée d'art", "Musée d'histoire", "Musée des sciences", "Galerie d'art", "Exposition temporaire",
+    "Monument historique", "Palais", "Château", "Médina", "Site archéologique", "Mosquée",
+    "Théâtre", "Opéra", "Salle de concert", "Festival", "Spectacle", "Concert", "Ballet",
+    "Visite guidée", "Visite audioguidée", "Atelier créatif", "Cours de cuisine", "Dégustation", "Autres"
+  ],
+  shopping: [
+    "Mode femme", "Mode homme", "Mode enfant", "Prêt-à-porter", "Haute couture", "Créateur",
+    "Vintage", "Seconde main", "Chaussures", "Maroquinerie", "Sacs", "Accessoires",
+    "Bijoux fantaisie", "Bijoux précieux", "Montres", "Lunettes", "Parfumerie", "Cosmétiques",
+    "Décoration", "Mobilier", "Art de la table", "Linge de maison", "Tapis",
+    "Artisanat local", "Artisanat marocain", "Poterie", "Céramique", "Textile", "Cuir",
+    "Épicerie fine", "Traiteur", "Pâtisserie", "Chocolaterie", "Thé et café",
+    "Concept store", "Centre commercial", "Souk", "Marché", "Autres"
+  ],
+  rentacar: [
+    "Citadine", "Compacte", "Berline", "SUV", "4x4", "Crossover", "Monospace", "Break",
+    "Coupé", "Cabriolet", "Pick-up", "Utilitaire", "Minibus", "Van", "Camping-car",
+    "Moto", "Scooter", "Quad", "Vélo", "Vélo électrique", "Trottinette électrique",
+    "Voiture de luxe", "Voiture de sport", "Voiture électrique", "Voiture hybride",
+    "Voiture avec chauffeur"
+  ],
+};
+
+const AMBIANCES = [
+  "Romantique", "Décontracté", "Familial", "Branché", "Cosy", "Terrasse", "Rooftop",
+  "Vue panoramique", "Design", "Traditionnel", "Festif", "Intimiste", "Business",
+  "Gastronomique", "Lounge", "Live music", "En plein air", "Bord de mer", "Piscine", "Jardin"
+];
+
+const AMENITIES_BY_UNIVERSE: Record<string, string[]> = {
+  restaurants: [
+    "WiFi gratuit", "Climatisation", "Terrasse", "Parking", "Réservation en ligne",
+    "Carte bancaire acceptée", "Livraison", "À emporter", "Service voiturier",
+    "Accès PMR", "Espace enfants", "Espace fumeur", "Musique live", "Écran TV"
+  ],
+  sport: [
+    "Vestiaires", "Douches", "Sauna", "Hammam", "Jacuzzi", "Piscine", "Parking",
+    "WiFi", "Serviettes fournies", "Casiers", "Coach disponible", "Cours collectifs",
+    "Espace détente", "Bar à jus", "Boutique", "Accessible PMR"
+  ],
+  loisirs: [
+    "Parking gratuit", "Vestiaires", "Cafétéria", "Boutique souvenirs", "Photos incluses",
+    "Accessible aux enfants", "Groupe accepté", "Réservation obligatoire", "Équipement fourni"
+  ],
+  hebergement: [
+    "Piscine intérieure", "Piscine extérieure", "Spa", "Hammam", "Sauna", "Jacuzzi",
+    "Salle de sport", "Restaurant", "Bar", "Room service", "Petit-déjeuner inclus",
+    "Parking gratuit", "WiFi gratuit", "Climatisation", "Terrasse", "Balcon", "Jardin",
+    "Vue sur mer", "Vue sur montagne", "Animaux acceptés", "Accessible PMR", "Ascenseur",
+    "Conciergerie", "Navette aéroport", "Kids club", "Plage privée", "Golf", "Tennis",
+    "Cuisine équipée", "Lave-linge", "Coffre-fort", "Minibar"
+  ],
+  culture: [
+    "Audioguide disponible", "Visite guidée", "Boutique", "Cafétéria", "Accessible PMR",
+    "Parking", "Groupe accepté", "Scolaires acceptés", "Réservation recommandée"
+  ],
+  shopping: [
+    "Parking", "Climatisation", "Livraison", "Click & collect", "Emballage cadeau",
+    "Carte cadeau", "Programme fidélité", "Détaxe", "Personal shopper", "Retouches"
+  ],
+  rentacar: [
+    "Kilométrage illimité", "Assurance tous risques", "Assistance 24h/24",
+    "Livraison à l'aéroport", "Livraison à domicile", "Retour flexible",
+    "Annulation gratuite", "Deuxième conducteur gratuit", "Jeune conducteur accepté",
+    "Climatisation", "GPS", "Bluetooth", "Siège bébé disponible"
+  ],
+};
+
+const MOROCCAN_CITIES = [
+  "Casablanca", "Rabat", "Marrakech", "Fès", "Tanger", "Agadir", "Meknès", "Oujda",
+  "Kénitra", "Tétouan", "Salé", "Nador", "Mohammedia", "El Jadida", "Béni Mellal",
+  "Taza", "Khémisset", "Taourirt", "Khouribga", "Safi", "Settat", "Larache",
+  "Guelmim", "Berrechid", "Essaouira", "Ouarzazate", "Al Hoceïma", "Dakhla",
+  "Laâyoune", "Ifrane", "Errachidia", "Tinghir", "Chefchaouen", "Asilah", "Oualidia"
+];
+
+const MOROCCAN_REGIONS = [
+  "Casablanca-Settat", "Rabat-Salé-Kénitra", "Marrakech-Safi", "Fès-Meknès",
+  "Tanger-Tétouan-Al Hoceïma", "Souss-Massa", "Oriental", "Béni Mellal-Khénifra",
+  "Drâa-Tafilalet", "Laâyoune-Sakia El Hamra", "Dakhla-Oued Ed-Dahab", "Guelmim-Oued Noun"
+];
+
 export function registerAdminImportExportRoutes(router: Router): void {
-  // Download CSV template
-  router.get("/api/admin/import-export/template", ((req, res) => {
-    const template = [
-      "nom;universe;subcategory;ville;adresse;code_postal;region;telephone;whatsapp;email_etablissement;site_web;description_courte;description_longue;horaires;prix_min;prix_max;tags;amenities;pro_email;pro_nom;pro_prenom;pro_telephone;pro_entreprise",
-      "Spa Oasis;sport;spa;Marrakech;123 Rue Mohammed V;40000;Marrakech-Safi;+212524000000;+212600000000;contact@spa-oasis.ma;https://spa-oasis.ma;Spa de luxe au cœur de Marrakech;Description détaillée du spa...;Lun-Dim: 9h-21h;200;1500;relaxation,bien-être;hammam,piscine,sauna;proprietaire@email.com;Benali;Ahmed;+212600000001;Spa Oasis SARL",
-    ].join("\n");
+  // Download Excel template with dropdowns and validation
+  router.get("/api/admin/import-export/excel-template", (async (req, res) => {
+    try {
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = "Sortir Au Maroc";
+      workbook.created = new Date();
+
+      // ============================================
+      // SHEET 1: Établissements (main data entry)
+      // ============================================
+      const mainSheet = workbook.addWorksheet("Établissements", {
+        properties: { tabColor: { argb: "FFA3001D" } },
+      });
+
+      // Define columns
+      mainSheet.columns = [
+        { header: "Nom *", key: "nom", width: 30 },
+        { header: "Univers *", key: "universe", width: 20 },
+        { header: "Sous-catégorie", key: "subcategory", width: 25 },
+        { header: "Ville *", key: "ville", width: 18 },
+        { header: "Région", key: "region", width: 25 },
+        { header: "Adresse", key: "adresse", width: 35 },
+        { header: "Code postal", key: "code_postal", width: 12 },
+        { header: "Téléphone", key: "telephone", width: 18 },
+        { header: "WhatsApp", key: "whatsapp", width: 18 },
+        { header: "Email établissement", key: "email_etablissement", width: 28 },
+        { header: "Site web", key: "site_web", width: 30 },
+        { header: "Instagram", key: "instagram", width: 20 },
+        { header: "Facebook", key: "facebook", width: 20 },
+        { header: "Description courte", key: "description_courte", width: 40 },
+        { header: "Description longue", key: "description_longue", width: 50 },
+        { header: "Horaires", key: "horaires", width: 30 },
+        { header: "Prix min (MAD)", key: "prix_min", width: 14 },
+        { header: "Prix max (MAD)", key: "prix_max", width: 14 },
+        { header: "Ambiance", key: "ambiance", width: 20 },
+        { header: "Équipements (séparés par ,)", key: "amenities", width: 40 },
+        { header: "Tags (séparés par ,)", key: "tags", width: 30 },
+        { header: "Latitude", key: "latitude", width: 12 },
+        { header: "Longitude", key: "longitude", width: 12 },
+        { header: "Email PRO", key: "pro_email", width: 28 },
+        { header: "Nom PRO", key: "pro_nom", width: 18 },
+        { header: "Prénom PRO", key: "pro_prenom", width: 18 },
+        { header: "Téléphone PRO", key: "pro_telephone", width: 18 },
+      ];
+
+      // Style header row
+      const headerRow = mainSheet.getRow(1);
+      headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      headerRow.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFA3001D" },
+      };
+      headerRow.alignment = { vertical: "middle", horizontal: "center" };
+      headerRow.height = 25;
+
+      // Add example rows
+      mainSheet.addRow({
+        nom: "Le Jardin Secret",
+        universe: "restaurants",
+        subcategory: "Français",
+        ville: "Marrakech",
+        region: "Marrakech-Safi",
+        adresse: "32 Rue Moulay Ali, Médina",
+        code_postal: "40000",
+        telephone: "+212524378040",
+        whatsapp: "+212661234567",
+        email_etablissement: "contact@jardinsecret.ma",
+        site_web: "https://jardinsecret.ma",
+        instagram: "@jardinsecretmarrakech",
+        description_courte: "Restaurant gastronomique dans un riad historique",
+        ambiance: "Romantique",
+        amenities: "WiFi gratuit,Climatisation,Terrasse,Parking",
+        prix_min: 350,
+        prix_max: 800,
+      });
+
+      mainSheet.addRow({
+        nom: "Spa Oasis Wellness",
+        universe: "sport",
+        subcategory: "Spa",
+        ville: "Casablanca",
+        region: "Casablanca-Settat",
+        adresse: "Boulevard Anfa, Quartier Gauthier",
+        telephone: "+212522987654",
+        ambiance: "Cosy",
+        amenities: "Hammam,Piscine,Sauna,Jacuzzi,Parking",
+        prix_min: 200,
+        prix_max: 1500,
+      });
+
+      // Freeze header row
+      mainSheet.views = [{ state: "frozen", ySplit: 1 }];
+
+      // ============================================
+      // SHEET 2: Référentiel (hidden data for dropdowns)
+      // ============================================
+      const refSheet = workbook.addWorksheet("_Référentiel", {
+        state: "veryHidden", // Hidden from users
+      });
+
+      // Column A: Universes
+      refSheet.getColumn(1).values = ["Univers", ...UNIVERSES.map((u) => u.id)];
+
+      // Column B: Villes
+      refSheet.getColumn(2).values = ["Villes", ...MOROCCAN_CITIES];
+
+      // Column C: Régions
+      refSheet.getColumn(3).values = ["Régions", ...MOROCCAN_REGIONS];
+
+      // Column D: Ambiances
+      refSheet.getColumn(4).values = ["Ambiances", ...AMBIANCES];
+
+      // Columns E-K: Subcategories by universe
+      const universeIds = UNIVERSES.map((u) => u.id);
+      universeIds.forEach((univId, idx) => {
+        const col = 5 + idx;
+        const subs = SUBCATEGORIES[univId] || [];
+        refSheet.getColumn(col).values = [univId, ...subs];
+      });
+
+      // ============================================
+      // SHEET 3: Guide taxonomie (visible reference)
+      // ============================================
+      const guideSheet = workbook.addWorksheet("Guide taxonomie", {
+        properties: { tabColor: { argb: "FF28A745" } },
+      });
+
+      // Title
+      guideSheet.mergeCells("A1:D1");
+      guideSheet.getCell("A1").value = "📚 GUIDE DE LA TAXONOMIE - SORTIR AU MAROC";
+      guideSheet.getCell("A1").font = { bold: true, size: 16, color: { argb: "FFA3001D" } };
+      guideSheet.getCell("A1").alignment = { horizontal: "center" };
+      guideSheet.getRow(1).height = 30;
+
+      let currentRow = 3;
+
+      // Universes section
+      guideSheet.getCell(`A${currentRow}`).value = "🌍 UNIVERS DISPONIBLES";
+      guideSheet.getCell(`A${currentRow}`).font = { bold: true, size: 14 };
+      currentRow++;
+
+      guideSheet.getCell(`A${currentRow}`).value = "Code";
+      guideSheet.getCell(`B${currentRow}`).value = "Label";
+      guideSheet.getCell(`C${currentRow}`).value = "Sous-catégories";
+      guideSheet.getRow(currentRow).font = { bold: true };
+      currentRow++;
+
+      for (const univ of UNIVERSES) {
+        const subs = SUBCATEGORIES[univ.id] || [];
+        guideSheet.getCell(`A${currentRow}`).value = univ.id;
+        guideSheet.getCell(`B${currentRow}`).value = univ.label;
+        guideSheet.getCell(`C${currentRow}`).value = subs.slice(0, 10).join(", ") + (subs.length > 10 ? "..." : "");
+        currentRow++;
+      }
+
+      currentRow += 2;
+
+      // Cities section
+      guideSheet.getCell(`A${currentRow}`).value = "🏙️ VILLES DU MAROC";
+      guideSheet.getCell(`A${currentRow}`).font = { bold: true, size: 14 };
+      currentRow++;
+
+      const citiesPerRow = 5;
+      for (let i = 0; i < MOROCCAN_CITIES.length; i += citiesPerRow) {
+        const chunk = MOROCCAN_CITIES.slice(i, i + citiesPerRow);
+        chunk.forEach((city, idx) => {
+          guideSheet.getCell(currentRow, idx + 1).value = city;
+        });
+        currentRow++;
+      }
+
+      currentRow += 2;
+
+      // Regions section
+      guideSheet.getCell(`A${currentRow}`).value = "📍 RÉGIONS DU MAROC";
+      guideSheet.getCell(`A${currentRow}`).font = { bold: true, size: 14 };
+      currentRow++;
+
+      for (const region of MOROCCAN_REGIONS) {
+        guideSheet.getCell(`A${currentRow}`).value = region;
+        currentRow++;
+      }
+
+      currentRow += 2;
+
+      // Ambiances section
+      guideSheet.getCell(`A${currentRow}`).value = "✨ AMBIANCES";
+      guideSheet.getCell(`A${currentRow}`).font = { bold: true, size: 14 };
+      currentRow++;
+
+      for (let i = 0; i < AMBIANCES.length; i += 4) {
+        const chunk = AMBIANCES.slice(i, i + 4);
+        chunk.forEach((amb, idx) => {
+          guideSheet.getCell(currentRow, idx + 1).value = amb;
+        });
+        currentRow++;
+      }
+
+      currentRow += 2;
+
+      // Amenities section
+      guideSheet.getCell(`A${currentRow}`).value = "🛠️ ÉQUIPEMENTS PAR UNIVERS";
+      guideSheet.getCell(`A${currentRow}`).font = { bold: true, size: 14 };
+      currentRow++;
+
+      for (const [univId, amenities] of Object.entries(AMENITIES_BY_UNIVERSE)) {
+        const univLabel = UNIVERSES.find((u) => u.id === univId)?.label || univId;
+        guideSheet.getCell(`A${currentRow}`).value = univLabel;
+        guideSheet.getCell(`A${currentRow}`).font = { bold: true };
+        guideSheet.getCell(`B${currentRow}`).value = amenities.join(", ");
+        currentRow++;
+      }
+
+      // Set column widths for guide
+      guideSheet.getColumn(1).width = 25;
+      guideSheet.getColumn(2).width = 25;
+      guideSheet.getColumn(3).width = 60;
+      guideSheet.getColumn(4).width = 20;
+      guideSheet.getColumn(5).width = 20;
+
+      // ============================================
+      // Add data validations (dropdowns) to main sheet
+      // ============================================
+
+      // Universe dropdown (column B)
+      const universeList = UNIVERSES.map((u) => u.id).join(",");
+      for (let row = 2; row <= 500; row++) {
+        mainSheet.getCell(`B${row}`).dataValidation = {
+          type: "list",
+          allowBlank: true,
+          formulae: [`"${universeList}"`],
+          showErrorMessage: true,
+          errorTitle: "Univers invalide",
+          error: "Veuillez sélectionner un univers dans la liste",
+        };
+      }
+
+      // Ville dropdown (column D)
+      for (let row = 2; row <= 500; row++) {
+        mainSheet.getCell(`D${row}`).dataValidation = {
+          type: "list",
+          allowBlank: true,
+          formulae: [`_Référentiel!$B$2:$B$${MOROCCAN_CITIES.length + 1}`],
+          showErrorMessage: true,
+          errorTitle: "Ville invalide",
+          error: "Veuillez sélectionner une ville dans la liste",
+        };
+      }
+
+      // Region dropdown (column E)
+      for (let row = 2; row <= 500; row++) {
+        mainSheet.getCell(`E${row}`).dataValidation = {
+          type: "list",
+          allowBlank: true,
+          formulae: [`_Référentiel!$C$2:$C$${MOROCCAN_REGIONS.length + 1}`],
+          showErrorMessage: true,
+          errorTitle: "Région invalide",
+          error: "Veuillez sélectionner une région dans la liste",
+        };
+      }
+
+      // Ambiance dropdown (column S = 19)
+      for (let row = 2; row <= 500; row++) {
+        mainSheet.getCell(`S${row}`).dataValidation = {
+          type: "list",
+          allowBlank: true,
+          formulae: [`_Référentiel!$D$2:$D$${AMBIANCES.length + 1}`],
+          showErrorMessage: true,
+          errorTitle: "Ambiance invalide",
+          error: "Veuillez sélectionner une ambiance dans la liste",
+        };
+      }
+
+      // Mark required columns with light red background in header notes
+      // (conditional formatting for blanks not fully supported by exceljs)
+      mainSheet.getCell("A1").note = "Champ obligatoire";
+      mainSheet.getCell("B1").note = "Champ obligatoire - Sélectionnez dans la liste";
+      mainSheet.getCell("D1").note = "Champ obligatoire - Sélectionnez dans la liste";
+
+      // ============================================
+      // SHEET 4: Sous-catégories détaillées
+      // ============================================
+      const subcatSheet = workbook.addWorksheet("Sous-catégories", {
+        properties: { tabColor: { argb: "FF17A2B8" } },
+      });
+
+      subcatSheet.columns = [
+        { header: "Univers", key: "universe", width: 20 },
+        { header: "Sous-catégorie", key: "subcategory", width: 35 },
+      ];
+
+      const subcatHeaderRow = subcatSheet.getRow(1);
+      subcatHeaderRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      subcatHeaderRow.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FF17A2B8" },
+      };
+
+      for (const [univId, subs] of Object.entries(SUBCATEGORIES)) {
+        const univLabel = UNIVERSES.find((u) => u.id === univId)?.label || univId;
+        for (const sub of subs) {
+          subcatSheet.addRow({ universe: univLabel, subcategory: sub });
+        }
+      }
+
+      // Generate buffer and send
+      const buffer = await workbook.xlsx.writeBuffer();
+
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", 'attachment; filename="template_etablissements_sam.xlsx"');
+      res.send(Buffer.from(buffer));
+    } catch (error) {
+      console.error("[Excel Template] Error:", error);
+      res.status(500).json({ error: "Erreur lors de la génération du fichier Excel" });
+    }
+  }) as RequestHandler);
+
+  // Keep CSV taxonomy for backwards compatibility
+  router.get("/api/admin/import-export/taxonomy", ((req, res) => {
+    // Create a comprehensive taxonomy reference file
+    const lines: string[] = [];
+
+    // Sheet 1: Universes & Subcategories
+    lines.push("=== UNIVERS ET SOUS-CATÉGORIES ===");
+    lines.push("universe;universe_label;subcategory");
+    for (const univ of UNIVERSES) {
+      const subs = SUBCATEGORIES[univ.id] || [];
+      if (subs.length === 0) {
+        lines.push(`${univ.id};${univ.label};`);
+      } else {
+        for (const sub of subs) {
+          lines.push(`${univ.id};${univ.label};${sub}`);
+        }
+      }
+    }
+
+    lines.push("");
+    lines.push("=== AMBIANCES ===");
+    lines.push("ambiance");
+    for (const amb of AMBIANCES) {
+      lines.push(amb);
+    }
+
+    lines.push("");
+    lines.push("=== ÉQUIPEMENTS PAR UNIVERS ===");
+    lines.push("universe;amenity");
+    for (const [univ, amenities] of Object.entries(AMENITIES_BY_UNIVERSE)) {
+      for (const am of amenities) {
+        lines.push(`${univ};${am}`);
+      }
+    }
+
+    lines.push("");
+    lines.push("=== VILLES DU MAROC ===");
+    lines.push("ville");
+    for (const city of MOROCCAN_CITIES) {
+      lines.push(city);
+    }
+
+    lines.push("");
+    lines.push("=== RÉGIONS DU MAROC ===");
+    lines.push("region");
+    for (const region of MOROCCAN_REGIONS) {
+      lines.push(region);
+    }
+
+    const content = lines.join("\n");
 
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", 'attachment; filename="template_etablissements.csv"');
+    res.setHeader("Content-Disposition", 'attachment; filename="taxonomie_sam.csv"');
+    res.send("\ufeff" + content); // BOM for Excel UTF-8
+  }) as RequestHandler);
+
+  // Download CSV template
+  router.get("/api/admin/import-export/template", ((req, res) => {
+    // Headers avec tous les champs supportés
+    const headers = [
+      // Infos de base (obligatoires: nom, ville)
+      "nom",
+      "universe",
+      "subcategory",
+      "ville",
+      "adresse",
+      "code_postal",
+      "region",
+      "pays",
+      // Contact
+      "telephone",
+      "whatsapp",
+      "email_etablissement",
+      "site_web",
+      "instagram",
+      "facebook",
+      // Descriptions
+      "description_courte",
+      "description_longue",
+      // Infos pratiques
+      "horaires",
+      "prix_min",
+      "prix_max",
+      "devise",
+      // SEO & Visibilité
+      "tags",
+      "amenities",
+      "latitude",
+      "longitude",
+      // Propriétaire PRO (optionnel)
+      "pro_email",
+      "pro_nom",
+      "pro_prenom",
+      "pro_telephone",
+      "pro_entreprise",
+    ];
+
+    // Exemples de données
+    const examples = [
+      // Restaurant
+      [
+        "Le Jardin Secret",
+        "restaurants",
+        "gastronomique",
+        "Marrakech",
+        "32 Rue Moulay Ali;Médina",
+        "40000",
+        "Marrakech-Safi",
+        "MA",
+        "+212524378040",
+        "+212661234567",
+        "contact@jardinsecret.ma",
+        "https://jardinsecret.ma",
+        "@jardinsecretmarrakech",
+        "LeJardinSecretMarrakech",
+        "Restaurant gastronomique dans un riad historique",
+        "Niché au cœur de la médina de Marrakech, Le Jardin Secret vous propose une expérience culinaire raffinée dans un cadre exceptionnel. Notre chef propose une cuisine marocaine revisitée avec des produits frais du terroir.",
+        "Mar-Dim: 12h-15h et 19h-23h",
+        "350",
+        "800",
+        "MAD",
+        "gastronomique,romantique,terrasse",
+        "wifi,climatisation,terrasse,parking",
+        "31.6295",
+        "-7.9811",
+        "ahmed.benali@email.com",
+        "Benali",
+        "Ahmed",
+        "+212661000001",
+        "Jardin Secret SARL",
+      ],
+      // Spa
+      [
+        "Spa Oasis Wellness",
+        "sport",
+        "spa",
+        "Casablanca",
+        "Boulevard Anfa;Quartier Gauthier",
+        "20000",
+        "Casablanca-Settat",
+        "MA",
+        "+212522987654",
+        "+212662345678",
+        "info@spaoasis.ma",
+        "https://spaoasis.ma",
+        "@spaoasiscasa",
+        "",
+        "Spa de luxe avec hammam traditionnel",
+        "Spa Oasis Wellness vous offre une parenthèse de bien-être au cœur de Casablanca. Découvrez nos soins signature, notre hammam traditionnel et nos massages relaxants.",
+        "Lun-Dim: 9h-21h",
+        "200",
+        "1500",
+        "MAD",
+        "bien-être,relaxation,hammam",
+        "hammam,piscine,sauna,jacuzzi,parking",
+        "33.5883",
+        "-7.6114",
+        "sarah.alami@email.com",
+        "Alami",
+        "Sarah",
+        "+212662000002",
+        "Oasis Wellness SA",
+      ],
+      // Hôtel
+      [
+        "Riad Atlas",
+        "hebergement",
+        "riad",
+        "Fès",
+        "15 Derb Sidi Ahmed;Fès el-Bali",
+        "30000",
+        "Fès-Meknès",
+        "MA",
+        "+212535634000",
+        "+212663456789",
+        "reservation@riadatlas.ma",
+        "https://riadatlas.ma",
+        "@riadatlasfes",
+        "RiadAtlasFes",
+        "Riad authentique dans la médina de Fès",
+        "Le Riad Atlas vous accueille dans un cadre traditionnel entièrement restauré. Nos 8 chambres et suites offrent confort moderne et décoration artisanale fassi.",
+        "Check-in: 14h / Check-out: 12h",
+        "800",
+        "2500",
+        "MAD",
+        "riad,authentique,piscine",
+        "wifi,piscine,terrasse,climatisation,petit-dejeuner",
+        "34.0616",
+        "-4.9775",
+        "",
+        "",
+        "",
+        "",
+        "",
+      ],
+    ];
+
+    const template = [headers.join(";"), ...examples.map((row) => row.join(";"))].join("\n");
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="template_etablissements_sam.csv"');
     res.send("\ufeff" + template); // BOM for Excel UTF-8
   }) as RequestHandler);
 
-  // Preview import (validate without saving)
+  // Preview import (validate without saving + check for existing establishments)
   router.post("/api/admin/import-export/preview", (async (req, res) => {
     try {
       const { content, format } = req.body as { content: string; format?: "csv" | "json" };
@@ -330,32 +995,101 @@ export function registerAdminImportExportRoutes(router: Router): void {
         return res.status(400).json({ error: "Aucune donnée trouvée" });
       }
 
+      // Get Supabase client to check for existing establishments
+      const supabase = getSupabaseAdmin();
+
+      // Extract all names and cities for batch lookup
+      const normalizedRows = rows.map(normalizeRow);
+      const nameCityPairs = normalizedRows
+        .filter((r) => r.nom && r.ville)
+        .map((r) => ({ name: r.nom.trim().toLowerCase(), city: r.ville.trim().toLowerCase() }));
+
+      // Fetch existing establishments that might match
+      const { data: existingEstablishments } = await supabase
+        .from("establishments")
+        .select("id, name, city, status, phone")
+        .or(
+          nameCityPairs
+            .slice(0, 100) // Limit to prevent too large query
+            .map((p) => `and(name.ilike.%${p.name.replace(/'/g, "''")}%,city.ilike.%${p.city.replace(/'/g, "''")}%)`)
+            .join(",")
+        );
+
+      // Create a map for quick lookup
+      const existingMap = new Map<string, { id: string; name: string; city: string; status: string; phone: string | null }>();
+      if (existingEstablishments) {
+        for (const est of existingEstablishments) {
+          const key = `${est.name?.toLowerCase().trim()}|${est.city?.toLowerCase().trim()}`;
+          existingMap.set(key, est);
+        }
+      }
+
       const preview: Array<{
         row: number;
         data: ImportRow;
         valid: boolean;
         error?: string;
+        existingMatch?: {
+          id: string;
+          name: string;
+          city: string;
+          status: string;
+          phone: string | null;
+        };
+        isNew: boolean;
       }> = [];
 
-      for (let i = 0; i < rows.length; i++) {
-        const normalized = normalizeRow(rows[i]);
+      for (let i = 0; i < normalizedRows.length; i++) {
+        const normalized = normalizedRows[i];
         const error = validateRow(normalized);
+
+        // Check if establishment already exists
+        const lookupKey = `${normalized.nom?.toLowerCase().trim()}|${normalized.ville?.toLowerCase().trim()}`;
+        const existing = existingMap.get(lookupKey);
+
+        // Also check for partial matches (same name, different city OR same city with similar name)
+        let partialMatch: typeof existing = undefined;
+        if (!existing && normalized.nom && normalized.ville) {
+          for (const [, est] of existingMap) {
+            // Same name, different city
+            if (est.name?.toLowerCase().trim() === normalized.nom.toLowerCase().trim()) {
+              partialMatch = est;
+              break;
+            }
+            // Same city, similar name (contains)
+            if (
+              est.city?.toLowerCase().trim() === normalized.ville.toLowerCase().trim() &&
+              (est.name?.toLowerCase().includes(normalized.nom.toLowerCase()) ||
+                normalized.nom.toLowerCase().includes(est.name?.toLowerCase() || ""))
+            ) {
+              partialMatch = est;
+              break;
+            }
+          }
+        }
+
         preview.push({
           row: i + 1,
           data: normalized,
           valid: !error,
           error: error || undefined,
+          existingMatch: existing || partialMatch || undefined,
+          isNew: !existing && !partialMatch,
         });
       }
 
       const validCount = preview.filter((p) => p.valid).length;
       const invalidCount = preview.filter((p) => !p.valid).length;
+      const newCount = preview.filter((p) => p.valid && p.isNew).length;
+      const existingCount = preview.filter((p) => p.valid && !p.isNew).length;
 
       return res.json({
         total: rows.length,
         valid: validCount,
         invalid: invalidCount,
-        preview: preview.slice(0, 50), // Return first 50 for preview
+        newCount,
+        existingCount,
+        preview: preview.slice(0, 100), // Return first 100 for preview
       });
     } catch (error) {
       console.error("[Import] Preview error:", error);
@@ -471,6 +1205,7 @@ export function registerAdminImportExportRoutes(router: Router): void {
             address: normalized.adresse?.trim() || null,
             postal_code: normalized.code_postal?.trim() || null,
             region: normalized.region?.trim() || null,
+            country_code: normalized.pays?.trim() || "MA",
             phone: normalized.telephone?.trim() || null,
             whatsapp: normalized.whatsapp?.trim() || null,
             website: normalized.site_web?.trim() || null,
@@ -487,8 +1222,13 @@ export function registerAdminImportExportRoutes(router: Router): void {
               imported: true,
               imported_at: new Date().toISOString(),
               email_etablissement: normalized.email_etablissement || null,
+              instagram: normalized.instagram || null,
+              facebook: normalized.facebook || null,
               prix_min: normalized.prix_min ? parseFloat(normalized.prix_min) : null,
               prix_max: normalized.prix_max ? parseFloat(normalized.prix_max) : null,
+              devise: normalized.devise || "MAD",
+              latitude: normalized.latitude ? parseFloat(normalized.latitude) : null,
+              longitude: normalized.longitude ? parseFloat(normalized.longitude) : null,
               awaiting_pro_assignment: !proInfo, // Flag for establishments without Pro
             },
             created_at: new Date().toISOString(),
@@ -601,12 +1341,15 @@ export function registerAdminImportExportRoutes(router: Router): void {
       let query = supabase.from("establishments").select(`
         id,
         name,
+        slug,
+        username,
         universe,
         subcategory,
         city,
         address,
         postal_code,
         region,
+        country_code,
         phone,
         whatsapp,
         website,
@@ -615,6 +1358,8 @@ export function registerAdminImportExportRoutes(router: Router): void {
         status,
         verified,
         premium,
+        booking_enabled,
+        menu_digital_enabled,
         created_at,
         created_by,
         extra
@@ -653,21 +1398,30 @@ export function registerAdminImportExportRoutes(router: Router): void {
         return {
           id: e.id,
           nom: e.name || "",
+          slug: e.slug || "",
+          username: e.username || "",
           universe: e.universe || "",
           subcategory: e.subcategory || "",
           ville: e.city || "",
           adresse: e.address || "",
           code_postal: e.postal_code || "",
           region: e.region || "",
+          pays: e.country_code || "MA",
           telephone: e.phone || "",
           whatsapp: e.whatsapp || "",
           email_etablissement: (extra.email_etablissement as string) || "",
           site_web: e.website || "",
+          instagram: (extra.instagram as string) || "",
+          facebook: (extra.facebook as string) || "",
           description_courte: e.description_short || "",
           description_longue: e.description_long || "",
+          latitude: (extra.latitude as string) || "",
+          longitude: (extra.longitude as string) || "",
           status: e.status || "",
           verified: e.verified || false,
           premium: e.premium || false,
+          booking_enabled: e.booking_enabled || false,
+          menu_digital_enabled: e.menu_digital_enabled || false,
           created_at: e.created_at || "",
           pro_email: pro?.email || "",
           pro_nom: [pro?.first_name, pro?.last_name].filter(Boolean).join(" ") || "",

@@ -9,16 +9,30 @@ function clamp(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
 }
 
+export type BookingSource = "platform" | "direct_link";
+
 export type CommissionSnapshot = {
   commission_percent: number | null;
   commission_amount: number | null;
-  source: "establishment_override" | "category" | "finance_rules" | "none";
+  source: "establishment_override" | "category" | "finance_rules" | "none" | "direct_link_exempt";
 };
 
 export async function computeCommissionSnapshotForEstablishment(args: {
   establishmentId: string;
   depositCents: number | null;
+  bookingSource?: BookingSource;
 }): Promise<CommissionSnapshot> {
+  // ---------------------------------------------------------------------------
+  // DIRECT LINK EXEMPTION: Reservations via book.sam.ma/:username are NOT commissioned
+  // ---------------------------------------------------------------------------
+  if (args.bookingSource === "direct_link") {
+    return {
+      commission_percent: 0,
+      commission_amount: 0,
+      source: "direct_link_exempt",
+    };
+  }
+
   const supabase = getAdminSupabase();
 
   const deposit = typeof args.depositCents === "number" && Number.isFinite(args.depositCents) ? Math.max(0, Math.round(args.depositCents)) : null;
@@ -114,12 +128,24 @@ export async function computeCommissionSnapshotForEstablishment(args: {
 
 /**
  * Compute pack commission for an establishment.
- * Priority: establishment pack override > establishment override > category > global
+ * Priority: direct_link_exempt > establishment pack override > establishment override > category > global
  */
 export async function computePackCommissionSnapshotForEstablishment(args: {
   establishmentId: string;
   amountCents: number | null;
+  bookingSource?: BookingSource;
 }): Promise<CommissionSnapshot> {
+  // ---------------------------------------------------------------------------
+  // DIRECT LINK EXEMPTION: Pack purchases via book.sam.ma/:username are NOT commissioned
+  // ---------------------------------------------------------------------------
+  if (args.bookingSource === "direct_link") {
+    return {
+      commission_percent: 0,
+      commission_amount: 0,
+      source: "direct_link_exempt",
+    };
+  }
+
   const supabase = getAdminSupabase();
 
   const amount = typeof args.amountCents === "number" && Number.isFinite(args.amountCents) ? Math.max(0, Math.round(args.amountCents)) : null;

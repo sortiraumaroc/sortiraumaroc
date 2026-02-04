@@ -20,15 +20,21 @@ import {
   RotateCcw,
   Pause,
   Play,
+  Package,
+  Check,
+  Video,
+  Settings,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SectionHeader as SectionHeaderTooltip } from "@/components/ui/section-header";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -50,6 +56,9 @@ import {
 import { useToast } from "@/hooks/use-toast";
 
 import { MenuDigitalPlans } from "@/components/pro/visibility/MenuDigitalPlans";
+import { MenuDigitalSync } from "@/components/pro/visibility/MenuDigitalSync";
+import { UsernameSubscriptionSection } from "@/components/pro/visibility/UsernameSubscriptionSection";
+import { ProVisibilityOrders } from "@/components/pro/visibility/ProVisibilityOrders";
 
 import {
   createProCampaign,
@@ -60,9 +69,13 @@ import {
   validateProVisibilityPromoCode,
   checkoutProVisibilityCart,
   confirmProVisibilityOrder,
+  getEstablishmentUsername,
+  getMenuDigitalStatus,
   type VisibilityOffer,
   type VisibilityCartItem,
   type VisibilityPromoValidationResponse,
+  type UsernameInfo,
+  type MenuDigitalStatus,
 } from "@/lib/pro/api";
 import { formatMoney } from "@/lib/money";
 import type { Establishment, ProCampaign, ProRole } from "@/lib/pro/types";
@@ -141,16 +154,26 @@ function formatDurationDays(durationDays: number | null | undefined): string | n
   return `${days} jours`;
 }
 
-type SectionHeaderProps = {
+type ServiceSectionHeaderProps = {
   title: string;
   subtitle?: string;
+  icon?: typeof Video;
+  variant?: "pack" | "option";
 };
 
-function SectionHeader({ title, subtitle }: SectionHeaderProps) {
+function ServiceSectionHeader({ title, subtitle, icon: Icon, variant = "pack" }: ServiceSectionHeaderProps) {
+  const bgClass = variant === "pack" ? "bg-rose-50 border-rose-100" : "bg-blue-50 border-blue-100";
+  const iconColor = variant === "pack" ? "text-rose-600" : "text-blue-600";
+
   return (
-    <div className="-mx-6 px-6 py-3 rounded-md bg-rose-50 border border-rose-100">
-      <div className="font-semibold">{title}</div>
-      {subtitle ? <div className="text-xs text-slate-600">{subtitle}</div> : null}
+    <div className={`rounded-lg border p-4 ${bgClass}`}>
+      <div className="flex items-center gap-3">
+        {Icon && <Icon className={`w-5 h-5 ${iconColor}`} />}
+        <div>
+          <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+          {subtitle && <p className="text-sm text-slate-600">{subtitle}</p>}
+        </div>
+      </div>
     </div>
   );
 }
@@ -158,58 +181,106 @@ function SectionHeader({ title, subtitle }: SectionHeaderProps) {
 type OfferCardProps = {
   offer: VisibilityOffer;
   onAddToCart: (offerId: string) => void;
+  variant?: "pack" | "option";
 };
 
-function OfferCard({ offer, onAddToCart }: OfferCardProps) {
+function OfferCard({ offer, onAddToCart, variant = "pack" }: OfferCardProps) {
   const durationLabel = formatDurationDays(offer.duration_days);
   const deliverables = Array.isArray(offer.deliverables) ? offer.deliverables : [];
   const title = offer.title || "Offre";
 
+  // Calculate TTC (with 20% VAT)
+  const taxRateBps = offer.tax_rate_bps ?? 2000;
+  const taxAmount = Math.round((offer.price_cents * taxRateBps) / 10000);
+  const priceTTC = offer.price_cents + taxAmount;
+
+  const isPack = variant === "pack";
+  const cardClass = isPack
+    ? "border-rose-200 bg-gradient-to-br from-white to-rose-50/50"
+    : "border-blue-200 bg-gradient-to-br from-white to-blue-50/50";
+  const iconColor = isPack ? "text-rose-600" : "text-blue-600";
+  const checkColor = isPack ? "text-rose-600" : "text-blue-600";
+  const Icon = isPack ? Video : Settings;
+
   return (
-    <div className="rounded-lg border bg-white p-4 flex flex-col h-full gap-3 hover:shadow-md transition-shadow">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="font-semibold text-sm leading-5">{title}</div>
-          {offer.description ? <div className="text-xs text-slate-600 mt-1">{offer.description}</div> : null}
+    <Card className={`flex flex-col h-full ${cardClass}`}>
+      <CardHeader className="pb-4">
+        <div className="flex items-start justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Icon className={`w-5 h-5 ${iconColor}`} />
+              <CardTitle className="text-lg">{title}</CardTitle>
+            </div>
+            {offer.description && (
+              <CardDescription>{offer.description}</CardDescription>
+            )}
+          </div>
+          {durationLabel && (
+            <Badge variant="outline" className="text-slate-600">
+              {durationLabel}
+            </Badge>
+          )}
         </div>
-      </div>
+      </CardHeader>
 
-      {durationLabel ? <div className="text-xs text-slate-600">Durée : {durationLabel}</div> : null}
+      <CardContent className="space-y-4 flex-1 flex flex-col">
+        {/* Features list */}
+        {deliverables.length > 0 && (
+          <div className="space-y-2 flex-1">
+            <div className="text-sm font-medium text-slate-700">Inclus :</div>
+            <ul className="space-y-1.5">
+              {deliverables.slice(0, 6).map((d, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm text-slate-600">
+                  <Check className={`w-4 h-4 flex-shrink-0 mt-0.5 ${checkColor}`} />
+                  {d}
+                </li>
+              ))}
+              {deliverables.length > 6 && (
+                <li className="text-sm text-slate-500 pl-6">
+                  + {deliverables.length - 6} autres...
+                </li>
+              )}
+            </ul>
+          </div>
+        )}
 
-      {deliverables.length ? (
-        <ul className="text-xs text-slate-600 list-disc pl-4 space-y-1 flex-1">
-          {deliverables.slice(0, 4).map((d) => (
-            <li key={d}>{d}</li>
-          ))}
-          {deliverables.length > 4 ? (
-            <li className="list-none text-slate-500">+ {deliverables.length - 4} autres…</li>
-          ) : null}
-        </ul>
-      ) : (
-        <div className="flex-1" />
-      )}
+        {!deliverables.length && <div className="flex-1" />}
 
-      <div className="space-y-1">
-        <div className="flex items-baseline gap-2">
-          <div className="text-lg font-bold">{formatMoney(offer.price_cents, offer.currency)}</div>
-          {offer.allow_quantity ? <div className="text-xs text-slate-500">par unité</div> : null}
+        <Separator />
+
+        {/* Pricing */}
+        <div className="flex items-end justify-between">
+          <div>
+            {offer.price_cents > 0 ? (
+              <>
+                <div className="text-2xl font-bold text-slate-900">
+                  {formatMoney(offer.price_cents, offer.currency)}
+                  <span className="text-sm font-normal text-slate-500"> HT</span>
+                </div>
+                <div className="text-sm text-slate-500">
+                  {formatMoney(priceTTC, offer.currency)} TTC (TVA 20%)
+                </div>
+              </>
+            ) : (
+              <div className="text-lg font-semibold text-amber-600">Sur devis</div>
+            )}
+          </div>
+          {offer.allow_quantity && (
+            <div className="text-sm text-slate-500">par unité</div>
+          )}
         </div>
-        {offer.price_cents <= 0 ? <div className="text-xs text-amber-600 font-medium">Sur devis</div> : null}
-      </div>
 
-      {!offer.is_active ? (
-        <div className="text-xs text-slate-500 bg-slate-50 px-2 py-1 rounded">Non disponible</div>
-      ) : null}
-
-      <Button
-        size="sm"
-        className="w-full mt-auto"
-        disabled={!offer.is_active || offer.price_cents <= 0}
-        onClick={() => onAddToCart(offer.id)}
-      >
-        Ajouter au panier
-      </Button>
-    </div>
+        {/* Action button */}
+        <Button
+          size="lg"
+          className={`w-full ${isPack ? "bg-rose-600 hover:bg-rose-700" : ""}`}
+          disabled={!offer.is_active || offer.price_cents <= 0}
+          onClick={() => onAddToCart(offer.id)}
+        >
+          Ajouter au panier
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -217,13 +288,14 @@ type OfferGridProps = {
   offers: VisibilityOffer[];
   onAddToCart: (offerId: string) => void;
   className?: string;
+  variant?: "pack" | "option";
 };
 
-function OfferGrid({ offers, onAddToCart, className }: OfferGridProps) {
+function OfferGrid({ offers, onAddToCart, className, variant = "pack" }: OfferGridProps) {
   return (
     <div className={className ?? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"}>
       {offers.map((offer) => (
-        <OfferCard key={offer.id} offer={offer} onAddToCart={onAddToCart} />
+        <OfferCard key={offer.id} offer={offer} onAddToCart={onAddToCart} variant={variant} />
       ))}
     </div>
   );
@@ -232,14 +304,15 @@ function OfferGrid({ offers, onAddToCart, className }: OfferGridProps) {
 type OfferCarouselProps = {
   offers: VisibilityOffer[];
   onAddToCart: (offerId: string) => void;
+  variant?: "pack" | "option";
 };
 
-function OfferCarousel({ offers, onAddToCart }: OfferCarouselProps) {
+function OfferCarousel({ offers, onAddToCart, variant = "option" }: OfferCarouselProps) {
   return (
     <div className="flex items-stretch gap-4 overflow-x-auto pb-2 snap-x snap-mandatory [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {offers.map((offer) => (
-        <div key={offer.id} className="min-w-[280px] w-[280px] snap-start">
-          <OfferCard offer={offer} onAddToCart={onAddToCart} />
+        <div key={offer.id} className="min-w-[320px] w-[320px] snap-start">
+          <OfferCard offer={offer} onAddToCart={onAddToCart} variant={variant} />
         </div>
       ))}
     </div>
@@ -332,6 +405,14 @@ export function ProVisibilityTab({ establishment, role }: Props) {
 
   const [menuDigitalBilling, setMenuDigitalBilling] = useState<"monthly" | "annual">("annual");
 
+  // Menu Digital status state
+  const [menuDigitalStatus, setMenuDigitalStatus] = useState<MenuDigitalStatus | null>(null);
+  const [menuDigitalLoading, setMenuDigitalLoading] = useState(true);
+
+  // Username subscription state
+  const [usernameInfo, setUsernameInfo] = useState<UsernameInfo | null>(null);
+  const [usernameLoading, setUsernameLoading] = useState(true);
+
   const [promoCodeInput, setPromoCodeInput] = useState("");
   const [appliedPromo, setAppliedPromo] = useState<VisibilityPromoValidationResponse | null>(null);
   const [promoApplying, setPromoApplying] = useState(false);
@@ -376,9 +457,37 @@ export function ProVisibilityTab({ establishment, role }: Props) {
     }
   };
 
+  const loadUsernameInfo = async () => {
+    setUsernameLoading(true);
+    try {
+      const info = await getEstablishmentUsername(establishment.id);
+      setUsernameInfo(info);
+    } catch (e) {
+      console.error("Error loading username info:", e);
+      setUsernameInfo(null);
+    } finally {
+      setUsernameLoading(false);
+    }
+  };
+
+  const loadMenuDigitalStatus = async () => {
+    setMenuDigitalLoading(true);
+    try {
+      const status = await getMenuDigitalStatus(establishment.id);
+      setMenuDigitalStatus(status);
+    } catch (e) {
+      console.error("Error loading menu digital status:", e);
+      setMenuDigitalStatus(null);
+    } finally {
+      setMenuDigitalLoading(false);
+    }
+  };
+
   useEffect(() => {
     void loadCampaigns();
     void loadOffers();
+    void loadUsernameInfo();
+    void loadMenuDigitalStatus();
   }, [establishment.id]);
 
   useEffect(() => {
@@ -489,6 +598,7 @@ export function ProVisibilityTab({ establishment, role }: Props) {
     const options: VisibilityOffer[] = [];
     const menuDigital: VisibilityOffer[] = [];
     const mediaVideo: VisibilityOffer[] = [];
+    const usernameSubscription: VisibilityOffer[] = [];
     const other: VisibilityOffer[] = [];
 
     for (const o of offers) {
@@ -497,10 +607,11 @@ export function ProVisibilityTab({ establishment, role }: Props) {
       else if (t === "option") options.push(o);
       else if (t === "menu_digital") menuDigital.push(o);
       else if (t === "media_video") mediaVideo.push(o);
+      else if (t === "username_subscription") usernameSubscription.push(o);
       else other.push(o);
     }
 
-    return { packs, options, menuDigital, mediaVideo, other };
+    return { packs, options, menuDigital, mediaVideo, usernameSubscription, other };
   }, [offers]);
 
   const handleCheckout = async () => {
@@ -821,17 +932,30 @@ export function ProVisibilityTab({ establishment, role }: Props) {
 
       {error ? <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">{error}</div> : null}
 
-      {/* Marketplace */}
-      <Card>
-        <CardHeader>
-          <SectionHeaderTooltip
-            title="MARKETPLACE - OFFRES DISPONIBLES"
-            description="Achetez des services de visibilité pour votre établissement."
-            icon={ShoppingCart}
-            titleClassName="text-sm font-extrabold tracking-wide text-primary uppercase"
-          />
-        </CardHeader>
-        <CardContent className="space-y-4">
+      {/* Tabs: Marketplace / Commandes */}
+      <Tabs defaultValue="marketplace" className="w-full">
+        <TabsList className="grid w-full grid-cols-2 mb-4">
+          <TabsTrigger value="marketplace" className="gap-2">
+            <ShoppingCart className="w-4 h-4" />
+            Marketplace
+          </TabsTrigger>
+          <TabsTrigger value="commandes" className="gap-2">
+            <Package className="w-4 h-4" />
+            Mes commandes
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="marketplace">
+          <Card>
+            <CardHeader>
+              <SectionHeaderTooltip
+                title="OFFRES DISPONIBLES"
+                description="Achetez des services de visibilité pour votre établissement."
+                icon={ShoppingCart}
+                titleClassName="text-sm font-extrabold tracking-wide text-primary uppercase"
+              />
+            </CardHeader>
+            <CardContent className="space-y-4">
           {offersError ? (
             <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700 flex items-start gap-2">
               <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
@@ -847,30 +971,60 @@ export function ProVisibilityTab({ establishment, role }: Props) {
           ) : offers.length ? (
             <>
               <div className="space-y-6">
-                {offersByType.menuDigital.length ? (
-                  <MenuDigitalPlans
-                    offers={offersByType.menuDigital}
-                    billingCycle={menuDigitalBilling}
-                    onBillingCycleChange={setMenuDigitalBilling}
+                {/* Username Subscription Section - Top of marketplace */}
+                {(offersByType.usernameSubscription.length > 0 || !usernameLoading) && (
+                  <UsernameSubscriptionSection
+                    offer={offersByType.usernameSubscription[0] ?? null}
+                    usernameInfo={usernameInfo}
+                    establishmentId={establishment.id}
                     onAddToCart={handleAddToCart}
+                    onRefresh={loadUsernameInfo}
                   />
-                ) : null}
+                )}
+
+                {/* Menu Digital Section - Show sync if enabled, otherwise show plans */}
+                {!menuDigitalLoading && (
+                  menuDigitalStatus?.enabled ? (
+                    <MenuDigitalSync
+                      establishmentId={establishment.id}
+                      establishmentName={establishment.name || ""}
+                    />
+                  ) : offersByType.menuDigital.length ? (
+                    <MenuDigitalPlans
+                      offers={offersByType.menuDigital}
+                      billingCycle={menuDigitalBilling}
+                      onBillingCycleChange={setMenuDigitalBilling}
+                      onAddToCart={handleAddToCart}
+                    />
+                  ) : null
+                )}
 
                 {offersByType.packs.length ? (
-                  <div className="space-y-3">
-                    <SectionHeader title="SAM Media (packs)" subtitle="Vidéo + diffusion + sponsoring." />
+                  <div className="space-y-4">
+                    <ServiceSectionHeader
+                      title="SAM Media"
+                      subtitle="Vidéo professionnelle + diffusion + sponsoring"
+                      icon={Video}
+                      variant="pack"
+                    />
                     <OfferGrid
                       offers={offersByType.packs}
                       onAddToCart={handleAddToCart}
                       className="grid grid-cols-1 md:grid-cols-2 gap-4"
+                      variant="pack"
                     />
                   </div>
                 ) : null}
 
                 {offersByType.options.length ? (
-                  <div className="space-y-3">
-                    <SectionHeader title="Services complémentaires (options)" subtitle="Ajoutez des services à la carte." />
-                    <OfferCarousel offers={offersByType.options} onAddToCart={handleAddToCart} />
+                  <div className="space-y-4">
+                    <ServiceSectionHeader
+                      title="Services complémentaires"
+                      subtitle="Ajoutez des services à la carte pour booster votre visibilité"
+                      icon={Settings}
+                      variant="option"
+                    />
+                    <OfferCarousel offers={offersByType.options} onAddToCart={handleAddToCart} variant="option" />
                   </div>
                 ) : null}
 
@@ -1001,8 +1155,14 @@ export function ProVisibilityTab({ establishment, role }: Props) {
           ) : (
             <div className="text-sm text-slate-600 text-center py-8">Aucune offre disponible pour le moment.</div>
           )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="commandes">
+          <ProVisibilityOrders establishmentId={establishment.id} />
+        </TabsContent>
+      </Tabs>
 
       {/* Checkout Dialog */}
       <Dialog open={checkoutDialogOpen} onOpenChange={setCheckoutDialogOpen}>

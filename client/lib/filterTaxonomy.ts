@@ -57,7 +57,7 @@ export {
   type ShoppingService,
 
   // ============================================
-  // RENTACAR (LOUER UN VÉHICULE)
+  // RENTACAR (SE DÉPLACER)
   // ============================================
   VEHICLE_TYPES,
   type VehicleType,

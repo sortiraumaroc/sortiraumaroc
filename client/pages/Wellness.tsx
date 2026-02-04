@@ -430,6 +430,8 @@ export default function Wellness() {
   }, [id, title]);
 
   const bookingEstablishmentId = publicPayload?.establishment?.id ?? data.id;
+  // Booking is only enabled if the establishment has an email address registered
+  const hasEstablishmentEmail = Boolean(publicPayload?.establishment?.email);
 
   const [bookingOpen, setBookingOpen] = useState(false);
   const [showReportDialog, setShowReportDialog] = useState(false);
@@ -638,6 +640,7 @@ export default function Wellness() {
               onOpenChange={setBookingOpen}
               onViewMoreDates={onViewMoreDates}
               extraBookingQuery={{ title: data.name }}
+              bookingEnabled={hasEstablishmentEmail}
             />
           </div>
         </div>

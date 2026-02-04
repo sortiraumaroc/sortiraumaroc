@@ -34,13 +34,13 @@ export function ScrollToTopButton() {
       aria-label="Remonter en haut de la page"
       className={cn(
         // Base styles
-        "fixed z-50 flex items-center justify-center",
+        "fixed z-40 flex items-center justify-center",
         "w-12 h-12 rounded-full",
         "bg-primary text-white shadow-lg",
         "transition-all duration-300 ease-in-out",
         "hover:bg-primary/90 active:scale-95",
-        // Position: bottom right, above potential bottom nav
-        "bottom-20 right-4",
+        // Position: bottom right, above the sticky booking bar
+        "bottom-36 right-4",
         // Only show on mobile (hidden on md and up)
         "md:hidden",
         // Visibility based on scroll

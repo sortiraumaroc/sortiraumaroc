@@ -87,21 +87,15 @@ export function ProfileAvatarEditor({ initials, avatarDataUrl }: { initials: str
       <DialogTrigger asChild>
         <button
           type="button"
-          className="group flex items-center gap-0 md:gap-4"
+          className="group relative"
           aria-label="Modifier la photo de profil"
         >
-          <div className="relative">
-            <Avatar className="h-12 w-12 border-2 border-primary/20">
-              {avatarDataUrl ? <AvatarImage src={avatarDataUrl} alt="Photo de profil" /> : null}
-              <AvatarFallback className="bg-primary text-white font-bold">{initials}</AvatarFallback>
-            </Avatar>
-            <div className="absolute -bottom-1 -right-1 rounded-full border-2 border-white bg-primary text-white p-1 shadow-sm group-hover:bg-primary/90 transition-colors">
-              <Camera className="h-3.5 w-3.5" />
-            </div>
-          </div>
-          <div className="text-left hidden md:block">
-            <div className="text-xs font-bold text-slate-700">Photo de profil</div>
-            <div className="text-xs text-primary underline underline-offset-2">Cliquez pour modifier</div>
+          <Avatar className="h-12 w-12 border-2 border-primary/20">
+            {avatarDataUrl ? <AvatarImage src={avatarDataUrl} alt="Photo de profil" /> : null}
+            <AvatarFallback className="bg-primary text-white font-bold">{initials}</AvatarFallback>
+          </Avatar>
+          <div className="absolute -bottom-1 -right-1 rounded-full border-2 border-white bg-primary text-white p-1 shadow-sm group-hover:bg-primary/90 transition-colors">
+            <Camera className="h-3.5 w-3.5" />
           </div>
         </button>
       </DialogTrigger>

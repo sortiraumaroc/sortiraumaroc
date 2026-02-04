@@ -114,19 +114,16 @@ export function buildSystemNotificationsForToday({
   userId,
   establishment,
   invoicesDue,
-  now = new Date(),
 }: {
   userId: string;
   establishment: Establishment;
   invoicesDue: ProInvoice[];
-  now?: Date;
 }): ProNotification[] {
-  const base = now.getTime();
-  const iso = (t: number) => new Date(t).toISOString();
-
   const items: ProNotification[] = [];
 
   if (establishment.edit_status === "pending_modification") {
+    // Use establishment.updated_at as the real date of the moderation request
+    const moderationDate = establishment.updated_at ?? new Date().toISOString();
     items.push({
       id: `system-edit-status:${establishment.id}`,
       user_id: userId,
@@ -135,12 +132,17 @@ export function buildSystemNotificationsForToday({
       title: "Modération en cours",
       body: "Une modification de votre fiche est en cours de modération.",
       data: { targetTab: "establishment" },
-      created_at: iso(base - 1000 * 60 * 1),
+      created_at: moderationDate,
       read_at: null,
     });
   }
 
   if (invoicesDue.length) {
+    // Use the oldest invoice's due_date as the notification date
+    const oldestDueDate = invoicesDue
+      .map((inv) => inv.due_date)
+      .filter(Boolean)
+      .sort()[0] ?? new Date().toISOString();
     items.push({
       id: `system-invoices-due:${establishment.id}`,
       user_id: userId,
@@ -149,7 +151,7 @@ export function buildSystemNotificationsForToday({
       title: "Facture en attente",
       body: `${invoicesDue.length} facture${invoicesDue.length > 1 ? "s" : ""} en attente de paiement.`,
       data: { targetTab: "billing" },
-      created_at: iso(base - 1000 * 60 * 3),
+      created_at: oldestDueDate,
       read_at: null,
     });
   }

@@ -13,7 +13,7 @@ export const generateQRCode = (text: string): string => {
 
 /**
  * Generate a booking QR code payload
- * Format: SAMBOOKING:<bookingReference>
+ * Format: SAM:<bookingReference>
  */
 export type BookingQrMeta = {
   partySize?: number;
@@ -39,7 +39,7 @@ export const generateBookingQRPayload = (bookingReference: string, meta?: Bookin
   if (typeof unitMad === "number" && Number.isFinite(unitMad) && unitMad > 0) parts.push(`prepay_unit_mad=${Math.round(unitMad)}`);
   if (typeof totalMad === "number" && Number.isFinite(totalMad) && totalMad > 0) parts.push(`prepay_total_mad=${Math.round(totalMad)}`);
 
-  return `SAMBOOKING:${parts.join("|")}`;
+  return `SAM:${parts.join("|")}`;
 };
 
 /**

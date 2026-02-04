@@ -6,6 +6,8 @@ import {
   ArrowLeft,
   ArrowRight,
   Building2,
+  Check,
+  Copy,
   Edit,
   KeyRound,
   Loader2,
@@ -46,6 +48,7 @@ import {
   updateAdminProProfile,
   type AdminProProfile,
   type ProMembershipAdmin,
+  type RegeneratePasswordResponse,
 } from "@/lib/adminApi";
 
 type MembershipRow = {
@@ -114,6 +117,11 @@ export function AdminProUserDetailsPage() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [regeneratingPassword, setRegeneratingPassword] = useState(false);
+
+  // Credentials dialog state
+  const [credentialsDialogOpen, setCredentialsDialogOpen] = useState(false);
+  const [generatedCredentials, setGeneratedCredentials] = useState<{ email: string; password: string } | null>(null);
+  const [copiedField, setCopiedField] = useState<"email" | "password" | "both" | null>(null);
 
   // Edit form state (only fields that exist in the database)
   const [formData, setFormData] = useState({
@@ -214,17 +222,33 @@ export function AdminProUserDetailsPage() {
 
     setRegeneratingPassword(true);
     try {
-      await regenerateProUserPassword(undefined, userId);
-      toast({
-        title: "Mot de passe régénéré",
-        description: "Un nouveau mot de passe a été envoyé par email au Pro.",
-      });
+      const result = await regenerateProUserPassword(undefined, userId);
+      // Show credentials dialog with the generated password
+      setGeneratedCredentials(result.credentials);
+      setCredentialsDialogOpen(true);
+      setCopiedField(null);
     } catch (e) {
       const msg = e instanceof AdminApiError ? e.message : "Erreur lors de la régénération";
       toast({ title: "Erreur", description: msg, variant: "destructive" });
     } finally {
       setRegeneratingPassword(false);
     }
+  };
+
+  const copyToClipboard = async (text: string, field: "email" | "password" | "both") => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(null), 2000);
+    } catch {
+      toast({ title: "Erreur", description: "Impossible de copier", variant: "destructive" });
+    }
+  };
+
+  const copyBothCredentials = async () => {
+    if (!generatedCredentials) return;
+    const text = `Email: ${generatedCredentials.email}\nMot de passe: ${generatedCredentials.password}`;
+    await copyToClipboard(text, "both");
   };
 
   const columns = useMemo<ColumnDef<MembershipRow>[]>(() => {
@@ -462,6 +486,88 @@ export function AdminProUserDetailsPage() {
             <Button onClick={handleSave} disabled={saving}>
               <Save className="h-4 w-4 mr-2" />
               {saving ? "Enregistrement..." : "Enregistrer"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Credentials Dialog */}
+      <Dialog open={credentialsDialogOpen} onOpenChange={setCredentialsDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="h-5 w-5 text-primary" />
+              Identifiants provisoires
+            </DialogTitle>
+            <DialogDescription>
+              Le professionnel recevra ces identifiants par email et devra changer son mot de passe à la première connexion.
+            </DialogDescription>
+          </DialogHeader>
+
+          {generatedCredentials && (
+            <div className="space-y-4 py-4">
+              {/* Email field */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-slate-700">Email (login)</Label>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 bg-slate-100 rounded-md px-3 py-2 font-mono text-sm select-all">
+                    {generatedCredentials.email}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => copyToClipboard(generatedCredentials.email, "email")}
+                    className="shrink-0"
+                  >
+                    {copiedField === "email" ? (
+                      <Check className="h-4 w-4 text-green-600" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Password field */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-slate-700">Mot de passe provisoire</Label>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 bg-slate-100 rounded-md px-3 py-2 font-mono text-sm select-all break-all">
+                    {generatedCredentials.password}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => copyToClipboard(generatedCredentials.password, "password")}
+                    className="shrink-0"
+                  >
+                    {copiedField === "password" ? (
+                      <Check className="h-4 w-4 text-green-600" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Info box */}
+              <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-sm text-amber-800">
+                <strong>Note :</strong> Un email a été envoyé au professionnel avec ces identifiants. Il devra modifier son mot de passe lors de sa première connexion.
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={copyBothCredentials} className="gap-2">
+              {copiedField === "both" ? (
+                <Check className="h-4 w-4 text-green-600" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
+              Copier tout
+            </Button>
+            <Button onClick={() => setCredentialsDialogOpen(false)}>
+              Fermer
             </Button>
           </DialogFooter>
         </DialogContent>

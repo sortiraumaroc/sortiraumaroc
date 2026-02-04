@@ -8,6 +8,7 @@ import {
   CreditCard,
   ExternalLink,
   MessageSquare,
+  Pencil,
   QrCode,
   RefreshCcw,
   Save,
@@ -42,6 +43,11 @@ import { EstablishmentPendingProfileUpdatesPanel } from "@/components/admin/Esta
 import { buildConsumedByPurchase, getPackPurchaseConsumption } from "@/lib/packConsumption";
 import { AdminQrScanDetailsDialog } from "@/components/admin/establishment/AdminQrScanDetailsDialog";
 import { AdminReservationDetailsDialog } from "@/components/admin/establishment/AdminReservationDetailsDialog";
+import { AdminInventoryManager } from "@/components/admin/establishment/AdminInventoryManager";
+import { AdminGalleryManager } from "@/components/admin/establishment/AdminGalleryManager";
+import { AdminContactInfoCard } from "@/components/admin/establishment/AdminContactInfoCard";
+import { AdminTagsServicesCard } from "@/components/admin/establishment/AdminTagsServicesCard";
+import { AdminEstablishmentEditDialog } from "@/components/admin/establishment/AdminEstablishmentEditDialog";
 import { AdminEstablishmentBankDetailsCard } from "@/components/admin/establishment/AdminEstablishmentBankDetailsCard";
 import { AdminEstablishmentFinanceRulesCard } from "@/components/admin/establishment/AdminEstablishmentFinanceRulesCard";
 import { AdminEstablishmentBookingPolicyCard } from "@/components/admin/establishment/AdminEstablishmentBookingPolicyCard";
@@ -76,6 +82,8 @@ type EstablishmentDetails = {
   subcategory: string;
   createdAt: string;
   website: string;
+  lat?: number;
+  lng?: number;
 };
 
 type ReservationRow = {
@@ -278,6 +286,9 @@ export function AdminEstablishmentDetailsPage() {
   const [qrDetailsOpen, setQrDetailsOpen] = useState(false);
   const [selectedQrDetailsId, setSelectedQrDetailsId] = useState<string | null>(null);
 
+  // Edit establishment dialog
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+
   const fetchMessages = useCallback(async () => {
     if (!establishmentId || !selectedConversationId) return;
 
@@ -330,6 +341,8 @@ export function AdminEstablishmentDetailsPage() {
         subcategory: String(raw?.subcategory ?? ""),
         createdAt: String(raw?.created_at ?? ""),
         website: String(raw?.website ?? "").trim(),
+        lat: typeof raw?.lat === "number" ? raw.lat : undefined,
+        lng: typeof raw?.lng === "number" ? raw.lng : undefined,
       };
       setEst(mapped);
       setStatusDraft(mapped.status);
@@ -789,23 +802,43 @@ export function AdminEstablishmentDetailsPage() {
           <CardHeader className="p-4 pb-2">
             <CardTitle className="text-sm font-bold flex items-center justify-between gap-3">
               <div className="min-w-0 truncate">Fiche établissement</div>
-              {statusBadge(est.status)}
+              <div className="flex items-center gap-2">
+                {statusBadge(est.status)}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 h-7"
+                  onClick={() => setEditDialogOpen(true)}
+                >
+                  <Pencil className="h-3 w-3" />
+                  Modifier
+                </Button>
+              </div>
             </CardTitle>
           </CardHeader>
           <CardContent className="p-4 pt-0">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
               <div>
                 <div className="text-xs font-semibold text-slate-500">Ville</div>
                 <div className="font-medium text-slate-900">{est.city || "—"}</div>
               </div>
               <div>
                 <div className="text-xs font-semibold text-slate-500">Univers</div>
-                <div className="font-medium text-slate-900">{est.universe || est.subcategory || "—"}</div>
+                <div className="font-medium text-slate-900">{est.universe || "—"}</div>
               </div>
               <div>
-                <div className="text-xs font-semibold text-slate-500">Création</div>
-                <div className="font-medium text-slate-900">{formatLocal(est.createdAt)}</div>
+                <div className="text-xs font-semibold text-slate-500">Catégorie</div>
+                <div className="font-medium text-slate-900">{est.subcategory?.split("/")[0]?.trim() || "—"}</div>
               </div>
+              <div>
+                <div className="text-xs font-semibold text-slate-500">Sous-catégorie</div>
+                <div className="font-medium text-slate-900">{est.subcategory?.split("/")[1]?.trim() || "—"}</div>
+              </div>
+            </div>
+
+            <div className="mt-3 text-sm">
+              <div className="text-xs font-semibold text-slate-500">Création</div>
+              <div className="font-medium text-slate-900">{formatLocal(est.createdAt)}</div>
             </div>
 
             <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
@@ -888,6 +921,39 @@ export function AdminEstablishmentDetailsPage() {
           onAfterDecision={() => {
             void refresh();
           }}
+        />
+      ) : null}
+
+      {/* Gallery Manager - Gestion des photos */}
+      {est ? (
+        <AdminGalleryManager
+          establishmentId={est.id}
+          establishmentName={est.name}
+          establishmentLat={est.lat}
+          establishmentLng={est.lng}
+          establishmentCity={est.city}
+        />
+      ) : null}
+
+      {/* Contact Info Card - Entre Galerie et Inventaire */}
+      {est ? (
+        <AdminContactInfoCard establishmentId={est.id} />
+      ) : null}
+
+      {/* Admin Inventory Manager */}
+      {est ? (
+        <AdminInventoryManager
+          establishmentId={est.id}
+          establishmentName={est.name}
+          universe={est.universe}
+        />
+      ) : null}
+
+      {/* Tags et Services - Entre Inventaire et Réservations */}
+      {est ? (
+        <AdminTagsServicesCard
+          establishmentId={est.id}
+          universe={est.universe}
         />
       ) : null}
 
@@ -1290,6 +1356,15 @@ export function AdminEstablishmentDetailsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Edit Establishment Dialog */}
+      <AdminEstablishmentEditDialog
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+        establishment={est}
+        onSaved={() => void refresh()}
+      />
+
     </div>
   );
 }

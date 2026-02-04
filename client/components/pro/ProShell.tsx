@@ -58,12 +58,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 
 import {
   getProNotificationPreferences,
@@ -115,8 +109,10 @@ import { ProPrestatairesTab } from "@/components/pro/tabs/ProPrestatairesTab";
 import { ProReviewsTab } from "@/components/pro/tabs/ProReviewsTab";
 import { ProAdsTab } from "@/components/pro/ads/ProAdsTab";
 import { ProLiveNotifications } from "@/components/pro/ProLiveNotifications";
+import { ProNotificationsSheet } from "@/components/pro/ProNotificationsSheet";
 import { useProUnreadCount } from "@/lib/mediaFactory/unreadHook";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import { buildEstablishmentUrl } from "@/lib/establishmentUrl";
 
 type Props = {
   user: User;
@@ -582,7 +578,7 @@ export function ProShell({ user, onSignOut }: Props) {
                     {selected?.name ?? "ESPACE Pro"}
                   </h1>
                   <Badge className="bg-white/15 text-white border-white/20">
-                    ESPACE Pro
+                    ESPACE PRO
                   </Badge>
                   {editStatus ? (
                     <Badge
@@ -619,7 +615,7 @@ export function ProShell({ user, onSignOut }: Props) {
 
               {selected?.id ? (
                 <Link
-                  to={`/restaurant/${selected.id}`}
+                  to={buildEstablishmentUrl(selected)}
                   target="_blank"
                   rel="noreferrer"
                   className="h-10 w-10 rounded-full border border-white/30 bg-white/10 hover:bg-white/20 transition flex items-center justify-center"
@@ -630,77 +626,19 @@ export function ProShell({ user, onSignOut }: Props) {
                 </Link>
               ) : null}
 
-              <Sheet
+              <ProNotificationsSheet
                 open={notificationsOpen}
-                onOpenChange={(isOpen) => {
-                  setNotificationsOpen(isOpen);
-                  if (isOpen && unreadNotifications > 0 && selected?.id) {
-                    void markAllProNotificationsRead({ establishmentId: selected.id }).then(() => {
-                      setUnreadNotifications(0);
-                    }).catch(() => {
-                      // Ignore errors
-                    });
-                  }
+                onOpenChange={setNotificationsOpen}
+                establishment={selected}
+                user={user}
+                role={role}
+                unreadCount={unreadNotifications}
+                onUnreadCountChange={setUnreadNotifications}
+                onNavigateToTab={(tab) => {
+                  setNotificationsOpen(false);
+                  navigateToTab(tab);
                 }}
-              >
-                <button
-                  type="button"
-                  onClick={() => setNotificationsOpen(true)}
-                  disabled={!role}
-                  className="relative p-2 rounded-full border border-white/30 hover:bg-white/10 transition disabled:opacity-50"
-                  aria-label={
-                    unreadNotifications
-                      ? `Notifications (${unreadNotifications} non lues)`
-                      : "Notifications"
-                  }
-                  title="Notifications"
-                >
-                  <Bell className="w-5 h-5" />
-                  {unreadNotifications > 0 ? (
-                    <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[11px] font-extrabold flex items-center justify-center border-2 border-primary">
-                      {unreadNotifications > 99 ? "99+" : unreadNotifications}
-                    </span>
-                  ) : null}
-                </button>
-
-                <SheetContent side="right" className="p-0 w-full sm:max-w-xl">
-                  <div className="h-full flex flex-col">
-                    <SheetHeader className="p-4 border-b border-slate-200">
-                      <SheetTitle>Notifications</SheetTitle>
-                      <div className="mt-2 flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setNotificationsOpen(false);
-                            navigateToTab("notifications");
-                          }}
-                        >
-                          Ouvrir en plein écran
-                        </Button>
-                      </div>
-                    </SheetHeader>
-
-                    <div className="flex-1 overflow-auto p-4">
-                      {selected && role ? (
-                        <ProNotificationsTab
-                          establishment={selected}
-                          user={user}
-                          onNavigateToTab={(tab) => {
-                            setNotificationsOpen(false);
-                            navigateToTab(tab);
-                          }}
-                        />
-                      ) : (
-                        <div className="text-sm text-slate-600">
-                          Connectez-vous à un établissement pour voir les
-                          notifications.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </SheetContent>
-              </Sheet>
+              />
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

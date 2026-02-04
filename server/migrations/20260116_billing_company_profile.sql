@@ -61,7 +61,7 @@ insert into public.billing_company_profile (
 ) values (
   'default',
   'MINTA SARL',
-  'Sam’Booking',
+  'Sortir Au Maroc',
   'SARL',
   '003848820000094',
   '705569',

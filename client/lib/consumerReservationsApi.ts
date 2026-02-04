@@ -249,3 +249,50 @@ export function mapConsumerReservationToBookingRecord(r: ConsumerReservationRow)
     waitlistOffer: r.waitlist_offer ?? null,
   } as BookingRecord;
 }
+
+// ---------------------------------------------------------------------------
+// CREATE RESERVATION
+// ---------------------------------------------------------------------------
+
+type CreateReservationParams = {
+  establishmentId: string;
+  startsAt: string;
+  partySize: number;
+  slotId?: string | null;
+  bookingReference?: string;
+  kind?: string;
+  meta?: Record<string, unknown>;
+};
+
+type CreateReservationResponse = {
+  reservation: ConsumerReservationRow;
+};
+
+/**
+ * Create a new consumer reservation.
+ * The booking_source will be determined server-side based on the attribution cookie.
+ */
+export async function createConsumerReservation(
+  params: CreateReservationParams
+): Promise<CreateReservationResponse> {
+  const body = {
+    establishment_id: params.establishmentId,
+    starts_at: params.startsAt,
+    party_size: params.partySize,
+    slot_id: params.slotId || undefined,
+    booking_reference: params.bookingReference || undefined,
+    kind: params.kind || "restaurant",
+    meta: params.meta || {},
+  };
+
+  const result = await requestAuthedJson<{ reservation: ConsumerReservationRow }>(
+    "/api/consumer/reservations",
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+      credentials: "include", // Important: include cookies for attribution
+    }
+  );
+
+  return result;
+}

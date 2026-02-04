@@ -23,6 +23,7 @@ import {
   Eye,
   FileEdit,
   Filter,
+  Home,
   MousePointerClick,
   Pause,
   Play,
@@ -95,6 +96,8 @@ import {
   getAdRevenueStats,
   getAdOverview,
 } from "@/lib/admin/adsApi";
+
+import { AdminHomeTakeoverPanel } from "./AdminHomeTakeoverPanel";
 
 // =============================================================================
 // HELPERS
@@ -744,35 +747,35 @@ function CampaignsTab() {
             className="pl-9"
           />
         </div>
-        <Select value={filters.status} onValueChange={(v) => setFilters({ ...filters, status: v })}>
+        <Select value={filters.status || "__all__"} onValueChange={(v) => setFilters({ ...filters, status: v === "__all__" ? "" : v })}>
           <SelectTrigger className="w-[150px]">
             <SelectValue placeholder="Statut" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Tous statuts</SelectItem>
+            <SelectItem value="__all__">Tous statuts</SelectItem>
             <SelectItem value="active">Active</SelectItem>
             <SelectItem value="paused">En pause</SelectItem>
             <SelectItem value="completed">Terminée</SelectItem>
             <SelectItem value="draft">Brouillon</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={filters.moderation_status} onValueChange={(v) => setFilters({ ...filters, moderation_status: v })}>
+        <Select value={filters.moderation_status || "__all__"} onValueChange={(v) => setFilters({ ...filters, moderation_status: v === "__all__" ? "" : v })}>
           <SelectTrigger className="w-[150px]">
             <SelectValue placeholder="Modération" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Toutes</SelectItem>
+            <SelectItem value="__all__">Toutes</SelectItem>
             <SelectItem value="pending_review">En attente</SelectItem>
             <SelectItem value="approved">Approuvée</SelectItem>
             <SelectItem value="rejected">Rejetée</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={filters.type} onValueChange={(v) => setFilters({ ...filters, type: v })}>
+        <Select value={filters.type || "__all__"} onValueChange={(v) => setFilters({ ...filters, type: v === "__all__" ? "" : v })}>
           <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="Type" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Tous types</SelectItem>
+            <SelectItem value="__all__">Tous types</SelectItem>
             <SelectItem value="sponsored_result">Résultat sponsorisé</SelectItem>
             <SelectItem value="featured_pack">Pack mise en avant</SelectItem>
             <SelectItem value="home_takeover">Home takeover</SelectItem>
@@ -1136,7 +1139,7 @@ export function AdminAdsPanel() {
   return (
     <div className="space-y-6">
       <Tabs defaultValue="overview" className="w-full">
-        <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:inline-grid">
+        <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">
           <TabsTrigger value="overview" className="gap-2">
             <BarChart3 className="h-4 w-4" />
             <span className="hidden sm:inline">Vue d'ensemble</span>
@@ -1148,6 +1151,10 @@ export function AdminAdsPanel() {
           <TabsTrigger value="campaigns" className="gap-2">
             <TrendingUp className="h-4 w-4" />
             <span className="hidden sm:inline">Campagnes</span>
+          </TabsTrigger>
+          <TabsTrigger value="home-takeover" className="gap-2">
+            <Home className="h-4 w-4" />
+            <span className="hidden sm:inline">Home Takeover</span>
           </TabsTrigger>
           <TabsTrigger value="config" className="gap-2">
             <Settings2 className="h-4 w-4" />
@@ -1165,6 +1172,10 @@ export function AdminAdsPanel() {
 
         <TabsContent value="campaigns" className="mt-6">
           <CampaignsTab />
+        </TabsContent>
+
+        <TabsContent value="home-takeover" className="mt-6">
+          <AdminHomeTakeoverPanel />
         </TabsContent>
 
         <TabsContent value="config" className="mt-6">

@@ -17,6 +17,9 @@ import { notifyProMembers } from "../proNotifications";
 import { emitConsumerUserEvent } from "../consumerNotifications";
 import { sendLoggedEmail, sendTemplateEmail } from "../emailService";
 import { parseLacaissePayWebhook } from "./lacaissepay";
+import { createWalletRechargeInvoice } from "../ads/invoicing";
+import { ensureSubscriptionForOrder } from "../subscriptions/usernameSubscription";
+import { sendUsernameSubscriptionInvoiceEmail, orderContainsUsernameSubscription } from "../subscriptions/usernameInvoicing";
 
 import { formatLeJjMmAaAHeure } from "../../shared/datetime";
 import { NotificationEventType } from "../../shared/notifications";
@@ -440,6 +443,146 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
     return res.json({ ok: true, status: "OK" });
   }
 
+  // Handle LacaissePay payments for Ad Wallet Recharges
+  if (lacaisse && lacaisse.externalId.startsWith("WALLET_RECHARGE_")) {
+    const rechargeId = lacaisse.externalId.slice("WALLET_RECHARGE_".length).trim();
+    if (!rechargeId || !isUuid(rechargeId)) {
+      console.warn("[PaymentsWebhook] Invalid wallet recharge ID:", lacaisse.externalId);
+      return res.status(400).json({ ok: false, status: "ERROR", error: "invalid_recharge_id" });
+    }
+
+    // Only process successful payments
+    if (lacaisse.status !== "paid") {
+      console.log("[PaymentsWebhook] Wallet recharge not paid, status:", lacaisse.status);
+      return res.json({ ok: true, status: "OK", ignored: true });
+    }
+
+    const supabase = getAdminSupabase();
+    const amountCents = Math.round((Number(lacaisse.amount) || 0) * 100);
+
+    if (!amountCents || amountCents <= 0) {
+      return res.status(400).json({ ok: false, status: "ERROR", error: "invalid_amount" });
+    }
+
+    try {
+      // Find the pending transaction by reference
+      const { data: pendingTx } = await supabase
+        .from("ad_wallet_transactions")
+        .select("id, wallet_id, amount_cents")
+        .eq("reference_type", "lacaissepay_pending")
+        .ilike("description", `%${rechargeId.slice(0, 8)}%`)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      let walletId = (pendingTx as any)?.wallet_id;
+
+      // If we can't find the pending transaction, try to extract establishment from orderId pattern
+      if (!walletId) {
+        console.warn("[PaymentsWebhook] No pending transaction found for recharge:", rechargeId);
+        // We can't process without knowing which wallet to credit
+        return res.status(400).json({ ok: false, status: "ERROR", error: "wallet_not_found" });
+      }
+
+      // Get current wallet balance
+      const { data: wallet } = await supabase
+        .from("ad_wallets")
+        .select("id, balance_cents, total_credited_cents")
+        .eq("id", walletId)
+        .single();
+
+      if (!wallet) {
+        return res.status(404).json({ ok: false, status: "ERROR", error: "wallet_not_found" });
+      }
+
+      const currentBalance = (wallet as any).balance_cents ?? 0;
+      const totalCredited = (wallet as any).total_credited_cents ?? 0;
+      const newBalance = currentBalance + amountCents;
+
+      // Update the wallet balance
+      const { error: updateErr } = await supabase
+        .from("ad_wallets")
+        .update({
+          balance_cents: newBalance,
+          total_credited_cents: totalCredited + amountCents,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", walletId);
+
+      if (updateErr) {
+        console.error("[PaymentsWebhook] Failed to update wallet:", updateErr);
+        return res.status(500).json({ ok: false, status: "ERROR", error: updateErr.message });
+      }
+
+      // Create a confirmed credit transaction
+      const { error: txErr } = await supabase.from("ad_wallet_transactions").insert({
+        wallet_id: walletId,
+        type: "credit",
+        amount_cents: amountCents,
+        balance_after_cents: newBalance,
+        description: `Recharge confirmée - ${(amountCents / 100).toFixed(2)} MAD`,
+        reference_type: "lacaissepay_payment",
+        reference_id: lacaisse.operationId,
+      });
+
+      if (txErr) {
+        console.error("[PaymentsWebhook] Failed to create transaction:", txErr);
+        // Don't fail the webhook, the wallet is already credited
+      }
+
+      // Delete or update the pending transaction
+      if (pendingTx) {
+        await supabase
+          .from("ad_wallet_transactions")
+          .update({
+            reference_type: "lacaissepay_completed",
+            reference_id: lacaisse.operationId,
+            description: `Recharge complétée - ${(amountCents / 100).toFixed(2)} MAD`,
+          })
+          .eq("id", (pendingTx as any).id);
+      }
+
+      // Get establishment ID from wallet to create invoice
+      const { data: walletWithEstablishment } = await supabase
+        .from("ad_wallets")
+        .select("establishment_id")
+        .eq("id", walletId)
+        .maybeSingle();
+
+      const establishmentId = (walletWithEstablishment as any)?.establishment_id;
+
+      // Generate automatic invoice
+      if (establishmentId) {
+        try {
+          const invoice = await createWalletRechargeInvoice({
+            establishmentId,
+            amountCents,
+            paymentReference: lacaisse.operationId,
+          });
+
+          if (invoice) {
+            console.log("[PaymentsWebhook] Invoice created:", invoice.invoice_number);
+          }
+        } catch (invoiceErr) {
+          console.error("[PaymentsWebhook] Failed to create invoice:", invoiceErr);
+          // Don't fail the webhook, invoice generation is best-effort
+        }
+      }
+
+      console.log("[PaymentsWebhook] Wallet recharge completed:", {
+        walletId,
+        amountCents,
+        newBalance,
+        operationId: lacaisse.operationId,
+      });
+
+      return res.json({ ok: true, status: "OK", credited: amountCents });
+    } catch (err) {
+      console.error("[PaymentsWebhook] Wallet recharge error:", err);
+      return res.status(500).json({ ok: false, status: "ERROR", error: "internal_error" });
+    }
+  }
+
   // If LacaissePay posts its native payload, normalize it to our unified format for the existing logic.
   const normalized = lacaisse
     ? ({
@@ -841,6 +984,29 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
           idempotencyKey: invKey,
           issuedAtIso: event.paid_at ?? null,
         });
+
+        // Handle username subscription activation if order contains subscription item
+        try {
+          await ensureSubscriptionForOrder((existing as any).id, actor);
+
+          // Send invoice email for username subscription (best-effort)
+          try {
+            const emailResult = await sendUsernameSubscriptionInvoiceEmail({
+              orderId: (existing as any).id,
+              actor,
+            });
+            if (emailResult.ok) {
+              console.log(`Username subscription invoice email sent: ${emailResult.emailId}`);
+            } else {
+              console.warn(`Username subscription invoice email skipped: ${(emailResult as { ok: false; error: string }).error}`);
+            }
+          } catch (emailErr) {
+            console.error("Username subscription invoice email failed:", emailErr);
+          }
+        } catch (subErr) {
+          console.error("Username subscription activation failed:", subErr);
+          // Don't fail the webhook - the main payment succeeded
+        }
       }
     } catch (e) {
       console.error("finance pipeline failed (visibility_order webhook)", e);

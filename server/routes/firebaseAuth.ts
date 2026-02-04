@@ -158,7 +158,7 @@ export async function authenticateWithFirebase(
   res: Response
 ): Promise<void> {
   try {
-    const { idToken, phoneNumber: clientPhoneNumber } = req.body;
+    const { idToken, phoneNumber: clientPhoneNumber, referral_code: referralCode } = req.body;
 
     if (!idToken || typeof idToken !== "string") {
       res.status(400).json({ error: "Missing or invalid idToken" });
@@ -254,7 +254,7 @@ export async function authenticateWithFirebase(
       isNewUser = true;
 
       // Create consumer_users record
-      const { error: profileError } = await supabase
+      const { data: consumerUser, error: profileError } = await supabase
         .from("consumer_users")
         .insert({
           auth_user_id: userId,
@@ -263,7 +263,9 @@ export async function authenticateWithFirebase(
           status: "active",
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-        });
+        })
+        .select("id")
+        .single();
 
       if (profileError) {
         console.error(
@@ -271,6 +273,41 @@ export async function authenticateWithFirebase(
           profileError
         );
         // Don't fail - the auth user was created successfully
+      }
+
+      // Handle referral code if provided (only for new users)
+      if (referralCode && typeof referralCode === "string" && consumerUser?.id) {
+        try {
+          // Validate the referral code
+          const { data: validation } = await supabase.rpc("validate_referral_code", {
+            p_code: referralCode.trim(),
+          });
+
+          const validResult = Array.isArray(validation) ? validation[0] : validation;
+
+          if (validResult?.is_valid && validResult.partner_id) {
+            // Create the referral link
+            const { error: linkError } = await supabase
+              .from("referral_links")
+              .insert({
+                partner_id: validResult.partner_id,
+                referree_user_id: consumerUser.id,
+                referral_code_used: referralCode.trim().toUpperCase(),
+                source: "registration",
+              });
+
+            if (linkError) {
+              console.warn("[FirebaseAuth] Failed to create referral link:", linkError);
+            } else {
+              console.log("[FirebaseAuth] Referral link created for user:", consumerUser.id);
+            }
+          } else {
+            console.warn("[FirebaseAuth] Invalid referral code provided:", referralCode);
+          }
+        } catch (refError) {
+          console.error("[FirebaseAuth] Error processing referral:", refError);
+          // Don't fail registration if referral fails
+        }
       }
     }
 

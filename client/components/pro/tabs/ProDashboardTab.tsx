@@ -372,14 +372,14 @@ function TrendPillFromTrend({ trend, className }: { trend: Trend; className?: st
   return (
     <div
       className={cn(
-        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-bold tabular-nums",
+        "inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[10px] font-bold tabular-nums sm:gap-1 sm:px-2 sm:text-xs",
         tone,
         className,
       )}
       aria-label={`Évolution: ${trend.label}`}
     >
-      <Icon className="h-3.5 w-3.5" />
-      <span>{trend.label}</span>
+      <Icon className="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5" />
+      <span className="whitespace-nowrap">{trend.label}</span>
     </div>
   );
 }
@@ -400,14 +400,14 @@ function TrendPill({ current, previous, className, invertColors }: { current: nu
     return (
       <div
         className={cn(
-          "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-bold tabular-nums",
+          "inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[10px] font-bold tabular-nums sm:gap-1 sm:px-2 sm:text-xs",
           tone,
           className,
         )}
         aria-label={`Évolution: ${trend.label}`}
       >
-        <Icon className="h-3.5 w-3.5" />
-        <span>{trend.label}</span>
+        <Icon className="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5" />
+        <span className="whitespace-nowrap">{trend.label}</span>
       </div>
     );
   }

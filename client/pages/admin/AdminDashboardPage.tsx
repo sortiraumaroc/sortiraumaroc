@@ -13,14 +13,17 @@ import {
   Eye,
   FileText,
   Globe,
+  Link,
   Loader2,
   MapPin,
-  Megaphone,
   Package,
   Percent,
+  QrCode,
   RefreshCw,
+  Settings,
   TrendingUp,
   Users,
+  Video,
   Wallet,
   XCircle,
 } from "lucide-react";
@@ -60,7 +63,10 @@ type DashboardStats = {
   avgBasket: { value: number; delta: string };
   packsSold: { value: number; delta: string };
   packsRevenue: { value: number; delta: string };
-  mediaPacksSold: { value: number; delta: string };
+  usernameSubscriptionsSold: { value: number; delta: string };
+  menuDigitalSold: { value: number; delta: string };
+  videosSold: { value: number; delta: string };
+  complementaryServicesSold: { value: number; delta: string };
   pendingPayouts: { value: number; delta: string };
   visitors: { value: number; delta: string };
   pageViews: { value: number; delta: string };
@@ -518,14 +524,6 @@ export function AdminDashboardPage() {
             format="currency"
           />
           <KpiCard
-            label="Packs Média vendus"
-            value={stats?.mediaPacksSold.value ?? 0}
-            delta={stats?.mediaPacksSold.delta ?? "0%"}
-            icon={Megaphone}
-            period={period}
-            loading={loading}
-          />
-          <KpiCard
             label="Payout en attente"
             value={stats?.pendingPayouts.value ?? 0}
             delta={stats?.pendingPayouts.delta ?? "N/A"}
@@ -536,7 +534,46 @@ export function AdminDashboardPage() {
         </div>
       </div>
 
-      {/* Row 5: Traffic */}
+      {/* Row 5: Pro Services (Visibility) */}
+      <div>
+        <SectionTitle className="mb-3">Services Pro (Visibilité)</SectionTitle>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 lg:gap-4">
+          <KpiCard
+            label="Liens Perso vendus"
+            value={stats?.usernameSubscriptionsSold.value ?? 0}
+            delta={stats?.usernameSubscriptionsSold.delta ?? "0%"}
+            icon={Link}
+            period={period}
+            loading={loading}
+          />
+          <KpiCard
+            label="Menu Digital vendus"
+            value={stats?.menuDigitalSold.value ?? 0}
+            delta={stats?.menuDigitalSold.delta ?? "0%"}
+            icon={QrCode}
+            period={period}
+            loading={loading}
+          />
+          <KpiCard
+            label="Vidéos vendues"
+            value={stats?.videosSold.value ?? 0}
+            delta={stats?.videosSold.delta ?? "0%"}
+            icon={Video}
+            period={period}
+            loading={loading}
+          />
+          <KpiCard
+            label="Services complémentaires"
+            value={stats?.complementaryServicesSold.value ?? 0}
+            delta={stats?.complementaryServicesSold.delta ?? "0%"}
+            icon={Settings}
+            period={period}
+            loading={loading}
+          />
+        </div>
+      </div>
+
+      {/* Row 6: Traffic */}
       <div>
         <SectionTitle className="mb-3">Trafic & Conversion</SectionTitle>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 lg:gap-4">
@@ -748,7 +785,10 @@ function getMockStats(): DashboardStats {
 
     packsSold: { value: 1691, delta: "+2.4%" },
     packsRevenue: { value: 845500, delta: "+3.1%" },
-    mediaPacksSold: { value: 541, delta: "+1.6%" },
+    usernameSubscriptionsSold: { value: 87, delta: "+15.3%" },
+    menuDigitalSold: { value: 124, delta: "+22.8%" },
+    videosSold: { value: 67, delta: "+18.5%" },
+    complementaryServicesSold: { value: 45, delta: "+12.0%" },
     pendingPayouts: { value: 234500, delta: "N/A" },
 
     visitors: { value: 375760, delta: "+5.8%" },

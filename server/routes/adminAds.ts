@@ -8,7 +8,7 @@
  * - Gestion globale
  */
 
-import type { Router } from "express";
+import type { Router, RequestHandler } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
 import type { AdCampaign, AdModerationStatus } from "../ads/types";
 
@@ -27,6 +27,10 @@ function asNumber(v: unknown): number | undefined {
     return Number.isFinite(n) ? n : undefined;
   }
   return undefined;
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === "object" && !Array.isArray(v);
 }
 
 // =============================================================================
@@ -759,6 +763,320 @@ export const getAdsOverview: RequestHandler = async (req, res) => {
 };
 
 // =============================================================================
+// HOME TAKEOVER CALENDAR (ADMIN)
+// =============================================================================
+
+/**
+ * GET /api/admin/ads/home-takeover/calendar
+ * Récupère le calendrier admin de l'habillage home
+ */
+export const getAdminHomeTakeoverCalendar: RequestHandler = async (req, res) => {
+  const supabase = getAdminSupabase();
+
+  const startDate =
+    asString(req.query.start_date) ||
+    new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+  const endDate =
+    asString(req.query.end_date) ||
+    new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+
+  try {
+    const { data: calendar, error } = await supabase
+      .from("ad_home_takeover_calendar")
+      .select(`
+        id,
+        date,
+        price_cents,
+        status,
+        winning_bid_cents,
+        notes,
+        campaign_id,
+        establishment_id,
+        banner_desktop_url,
+        banner_mobile_url,
+        logo_url,
+        cta_text,
+        cta_url,
+        headline,
+        subheadline,
+        background_color,
+        text_color,
+        created_at,
+        updated_at,
+        campaign:pro_campaigns(
+          id,
+          title,
+          status,
+          moderation_status,
+          establishment:establishments(id, name, cover_url, slug)
+        ),
+        establishment:establishments(id, name, cover_url, slug)
+      `)
+      .gte("date", startDate)
+      .lte("date", endDate)
+      .order("date", { ascending: true });
+
+    if (error) {
+      console.error("[adminAds] Error fetching calendar:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+
+    return res.json({
+      ok: true,
+      calendar: calendar ?? [],
+    });
+  } catch (error) {
+    console.error("[adminAds] getAdminHomeTakeoverCalendar error:", error);
+    return res.status(500).json({ error: "Erreur serveur" });
+  }
+};
+
+/**
+ * PATCH /api/admin/ads/home-takeover/calendar/:date
+ * Modifier le statut/prix/assets d'un jour
+ */
+export const updateHomeTakeoverDay: RequestHandler = async (req, res) => {
+  const supabase = getAdminSupabase();
+  const date = req.params.date;
+
+  if (!isRecord(req.body)) {
+    return res.status(400).json({ error: "Corps de requête invalide" });
+  }
+
+  const priceCents = asNumber(req.body.price_cents);
+  const status = asString(req.body.status);
+  const notes = asString(req.body.notes);
+
+  // Nouveaux champs assets
+  const bannerDesktopUrl = asString(req.body.banner_desktop_url);
+  const bannerMobileUrl = asString(req.body.banner_mobile_url);
+  const logoUrl = asString(req.body.logo_url);
+  const ctaText = asString(req.body.cta_text);
+  const ctaUrl = asString(req.body.cta_url);
+  const headline = asString(req.body.headline);
+  const subheadline = asString(req.body.subheadline);
+  const backgroundColor = asString(req.body.background_color);
+  const textColor = asString(req.body.text_color);
+  const establishmentId = asString(req.body.establishment_id);
+
+  const updates: Record<string, any> = { updated_at: new Date().toISOString() };
+  if (priceCents !== null) updates.price_cents = priceCents;
+  if (status) updates.status = status;
+  if (notes !== undefined) updates.notes = notes;
+
+  // Assets (allow null/empty to clear values)
+  if (req.body.banner_desktop_url !== undefined) updates.banner_desktop_url = bannerDesktopUrl;
+  if (req.body.banner_mobile_url !== undefined) updates.banner_mobile_url = bannerMobileUrl;
+  if (req.body.logo_url !== undefined) updates.logo_url = logoUrl;
+  if (req.body.cta_text !== undefined) updates.cta_text = ctaText;
+  if (req.body.cta_url !== undefined) updates.cta_url = ctaUrl;
+  if (req.body.headline !== undefined) updates.headline = headline;
+  if (req.body.subheadline !== undefined) updates.subheadline = subheadline;
+  if (req.body.background_color !== undefined) updates.background_color = backgroundColor;
+  if (req.body.text_color !== undefined) updates.text_color = textColor;
+  if (req.body.establishment_id !== undefined) updates.establishment_id = establishmentId || null;
+
+  try {
+    // Vérifier si l'entrée existe
+    const { data: existing } = await supabase
+      .from("ad_home_takeover_calendar")
+      .select("id")
+      .eq("date", date)
+      .maybeSingle();
+
+    if (existing) {
+      const { error } = await supabase
+        .from("ad_home_takeover_calendar")
+        .update(updates)
+        .eq("date", date);
+
+      if (error) {
+        console.error("[adminAds] Error updating calendar day:", error);
+        return res.status(500).json({ error: "Erreur serveur" });
+      }
+    } else {
+      // Créer l'entrée si elle n'existe pas
+      const { error } = await supabase.from("ad_home_takeover_calendar").insert({
+        date,
+        price_cents: priceCents ?? 50000,
+        status: status || "available",
+        notes,
+        banner_desktop_url: bannerDesktopUrl,
+        banner_mobile_url: bannerMobileUrl,
+        logo_url: logoUrl,
+        cta_text: ctaText ?? "Découvrir",
+        cta_url: ctaUrl,
+        headline,
+        subheadline,
+        background_color: backgroundColor ?? "#000000",
+        text_color: textColor ?? "#FFFFFF",
+        establishment_id: establishmentId || null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      if (error) {
+        console.error("[adminAds] Error creating calendar day:", error);
+        return res.status(500).json({ error: "Erreur serveur" });
+      }
+    }
+
+    return res.json({ ok: true, date, updates });
+  } catch (error) {
+    console.error("[adminAds] updateHomeTakeoverDay error:", error);
+    return res.status(500).json({ error: "Erreur serveur" });
+  }
+};
+
+/**
+ * POST /api/admin/ads/home-takeover/calendar/:date/confirm
+ * Confirmer une réservation et facturer le PRO
+ */
+export const confirmHomeTakeoverReservation: RequestHandler = async (req, res) => {
+  const supabase = getAdminSupabase();
+  const date = req.params.date;
+
+  try {
+    // Récupérer l'entrée calendrier
+    const { data: entry } = await supabase
+      .from("ad_home_takeover_calendar")
+      .select(`
+        id,
+        campaign_id,
+        winning_bid_cents,
+        status,
+        campaign:pro_campaigns(id, establishment_id, status, moderation_status)
+      `)
+      .eq("date", date)
+      .maybeSingle();
+
+    if (!entry || !(entry as any).campaign_id) {
+      return res.status(404).json({ error: "Aucune réservation pour ce jour" });
+    }
+
+    if ((entry as any).status === "confirmed") {
+      return res.status(400).json({ error: "Déjà confirmé" });
+    }
+
+    const campaignId = (entry as any).campaign_id;
+    const campaign = (entry as any).campaign;
+    const establishmentId = campaign?.establishment_id;
+    const bidCents = (entry as any).winning_bid_cents ?? 0;
+
+    // Débiter le wallet
+    if (bidCents > 0 && establishmentId) {
+      const { error: debitError } = await supabase.rpc("debit_ad_wallet", {
+        p_establishment_id: establishmentId,
+        p_amount: bidCents,
+        p_transaction_type: "home_takeover_charge",
+        p_reference_id: campaignId,
+        p_description: `Habillage Homepage - ${date}`,
+      });
+
+      if (debitError) {
+        console.error("[adminAds] Debit wallet error:", debitError);
+        return res.status(400).json({ error: "Échec du débit wallet" });
+      }
+    }
+
+    // Mettre à jour le calendrier
+    await supabase
+      .from("ad_home_takeover_calendar")
+      .update({
+        status: "confirmed",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("date", date);
+
+    // Mettre à jour la campagne
+    await supabase
+      .from("pro_campaigns")
+      .update({
+        status: "active",
+        moderation_status: "approved",
+        spent_cents: bidCents,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", campaignId);
+
+    return res.json({
+      ok: true,
+      message: "Réservation confirmée et facturée",
+      date,
+      amount_cents: bidCents,
+    });
+  } catch (error) {
+    console.error("[adminAds] confirmHomeTakeoverReservation error:", error);
+    return res.status(500).json({ error: "Erreur serveur" });
+  }
+};
+
+/**
+ * POST /api/admin/ads/home-takeover/calendar/:date/reject
+ * Rejeter une réservation home takeover
+ */
+export const rejectHomeTakeoverReservation: RequestHandler = async (req, res) => {
+  const supabase = getAdminSupabase();
+  const date = req.params.date; // YYYY-MM-DD
+  const { reason } = req.body;
+
+  try {
+    // Récupérer la réservation existante
+    const { data: existing, error: selectErr } = await supabase
+      .from("ad_home_takeover_calendar")
+      .select("id,campaign_id,status")
+      .eq("date", date)
+      .maybeSingle();
+
+    if (selectErr) {
+      return res.status(500).json({ error: selectErr.message });
+    }
+
+    if (!existing) {
+      return res.status(404).json({ error: "Réservation non trouvée" });
+    }
+
+    if (existing.status !== "reserved") {
+      return res.status(400).json({ error: "Cette réservation n'est pas en attente de confirmation" });
+    }
+
+    // Mettre à jour le statut
+    const { error: updateErr } = await supabase
+      .from("ad_home_takeover_calendar")
+      .update({
+        status: "available",
+        campaign_id: null,
+        rejection_reason: reason || null,
+      })
+      .eq("id", existing.id);
+
+    if (updateErr) {
+      return res.status(500).json({ error: updateErr.message });
+    }
+
+    // Mettre à jour la campagne si elle existe
+    if (existing.campaign_id) {
+      await supabase
+        .from("pro_campaigns")
+        .update({
+          status: "rejected",
+          rejection_reason: reason || "Réservation home takeover rejetée",
+          reviewed_at: new Date().toISOString(),
+        })
+        .eq("id", existing.campaign_id);
+    }
+
+    return res.json({
+      ok: true,
+      date,
+    });
+  } catch (error) {
+    console.error("[adminAds] rejectHomeTakeoverReservation error:", error);
+    return res.status(500).json({ error: "Erreur serveur" });
+  }
+};
+
+// =============================================================================
 // REGISTER ROUTES
 // =============================================================================
 
@@ -780,4 +1098,10 @@ export function registerAdminAdsRoutes(app: Router) {
   // Dashboard
   app.get("/api/admin/ads/revenue", getRevenueStats);
   app.get("/api/admin/ads/overview", getAdsOverview);
+
+  // Home Takeover Calendar
+  app.get("/api/admin/ads/home-takeover/calendar", getAdminHomeTakeoverCalendar);
+  app.patch("/api/admin/ads/home-takeover/calendar/:date", updateHomeTakeoverDay);
+  app.post("/api/admin/ads/home-takeover/calendar/:date/confirm", confirmHomeTakeoverReservation);
+  app.post("/api/admin/ads/home-takeover/calendar/:date/reject", rejectHomeTakeoverReservation);
 }

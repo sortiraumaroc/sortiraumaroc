@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   Download,
+  Loader2,
   Mail,
   Plus,
   RefreshCw,
@@ -99,6 +100,7 @@ export function AdminEmailsProspectsPage() {
   const [newSecurityPassword, setNewSecurityPassword] = useState("");
   const [confirmSecurityPassword, setConfirmSecurityPassword] = useState("");
 
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -147,6 +149,7 @@ export function AdminEmailsProspectsPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
 
   // Import CSV
   const handleImport = async () => {
@@ -425,7 +428,29 @@ export function AdminEmailsProspectsPage() {
       {
         accessorKey: "source",
         header: "Source",
-        cell: ({ row }) => row.original.source ?? "-",
+        cell: ({ row }) => {
+          const source = row.original.source;
+          if (!source) return "-";
+
+          // Déterminer le style selon la source
+          const sourceStyles: Record<string, { bg: string; text: string; label: string }> = {
+            "newsletter": { bg: "bg-green-100", text: "text-green-700", label: "Abonné" },
+            "abonne": { bg: "bg-green-100", text: "text-green-700", label: "Abonné" },
+            "import": { bg: "bg-blue-100", text: "text-blue-700", label: "Importé" },
+            "csv": { bg: "bg-blue-100", text: "text-blue-700", label: "Importé" },
+            "manual": { bg: "bg-purple-100", text: "text-purple-700", label: "Manuel" },
+            "audience": { bg: "bg-orange-100", text: "text-orange-700", label: "Audience" },
+          };
+
+          const lowerSource = source.toLowerCase();
+          const style = sourceStyles[lowerSource] || { bg: "bg-gray-100", text: "text-gray-700", label: source };
+
+          return (
+            <Badge className={`${style.bg} ${style.text}`}>
+              {style.label}
+            </Badge>
+          );
+        },
       },
       {
         accessorKey: "created_at",
@@ -794,6 +819,7 @@ export function AdminEmailsProspectsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
     </div>
   );
 }

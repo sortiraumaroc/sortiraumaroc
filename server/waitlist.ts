@@ -212,7 +212,7 @@ export async function triggerWaitlistPromotionForSlot(args: {
       await sendTemplateEmail({
         templateKey: "user_waitlist_offer",
         lang: "fr",
-        fromKey: "no-reply",
+        fromKey: "noreply",
         to: [consumerEmail],
         variables: {
           user_name: consumerName,

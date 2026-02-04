@@ -336,6 +336,35 @@ export const submitReport: RequestHandler = async (req, res) => {
 };
 
 // ---------------------------------------------------------------------------
+// Helper: Check if string is valid UUID
+// ---------------------------------------------------------------------------
+
+function isUuid(str: string): boolean {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
+}
+
+// ---------------------------------------------------------------------------
+// Helper: Resolve establishment ID from slug or UUID
+// ---------------------------------------------------------------------------
+
+async function resolveEstablishmentId(ref: string): Promise<string | null> {
+  // If already a UUID, return it
+  if (isUuid(ref)) {
+    return ref;
+  }
+
+  // Try to find by slug
+  const { data } = await adminSupabase
+    .from("establishments")
+    .select("id")
+    .eq("slug", ref)
+    .single();
+
+  return data?.id ?? null;
+}
+
+// ---------------------------------------------------------------------------
 // GET /api/public/establishments/:id/reviews
 // Get published reviews for an establishment (public)
 // ---------------------------------------------------------------------------
@@ -344,6 +373,12 @@ export const listPublicEstablishmentReviews: RequestHandler = async (req, res) =
   try {
     const { id } = req.params;
     const { limit = "20", offset = "0" } = req.query;
+
+    // Resolve slug to UUID if necessary
+    const establishmentId = await resolveEstablishmentId(id);
+    if (!establishmentId) {
+      return res.json({ ok: true, reviews: [], stats: { avg_rating: 0, review_count: 0 } });
+    }
 
     const { data, error } = await consumerSupabase
       .from("reviews")
@@ -358,7 +393,7 @@ export const listPublicEstablishmentReviews: RequestHandler = async (req, res) =
         pro_public_response,
         pro_public_response_at
       `)
-      .eq("establishment_id", id)
+      .eq("establishment_id", establishmentId)
       .in("status", ["approved", "auto_published"])
       .order("published_at", { ascending: false })
       .range(Number(offset), Number(offset) + Number(limit) - 1);
@@ -392,7 +427,7 @@ export const listPublicEstablishmentReviews: RequestHandler = async (req, res) =
     const { data: statsData } = await consumerSupabase
       .from("reviews")
       .select("overall_rating")
-      .eq("establishment_id", id)
+      .eq("establishment_id", establishmentId)
       .in("status", ["approved", "auto_published"]);
 
     let avgRating = 0;

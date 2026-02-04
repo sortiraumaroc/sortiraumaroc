@@ -102,12 +102,36 @@ function fieldLabel(field: string): string {
 function changeStatusBadge(status: string): JSX.Element {
   const s = (status ?? "").toLowerCase();
   const cls =
-    s === "accepted"
+    s === "accepted" || s === "approved"
       ? "bg-emerald-50 text-emerald-700 border-emerald-200"
       : s === "rejected"
         ? "bg-red-50 text-red-700 border-red-200"
-        : "bg-amber-50 text-amber-800 border-amber-200";
-  const label = s === "accepted" ? "accepté" : s === "rejected" ? "refusé" : "pending";
+        : s === "partial"
+          ? "bg-blue-50 text-blue-700 border-blue-200"
+          : "bg-amber-50 text-amber-800 border-amber-200";
+  const label =
+    s === "accepted" || s === "approved" ? "Accepté"
+    : s === "rejected" ? "Refusé"
+    : s === "partial" ? "Partiel"
+    : "En attente";
+  return <Badge className={cls}>{label}</Badge>;
+}
+
+function draftStatusBadge(status: string): JSX.Element {
+  const s = (status ?? "").toLowerCase();
+  const cls =
+    s === "approved"
+      ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+      : s === "rejected"
+        ? "bg-red-100 text-red-800 border-red-300"
+        : s === "partial"
+          ? "bg-blue-100 text-blue-800 border-blue-300"
+          : "bg-amber-100 text-amber-800 border-amber-300";
+  const label =
+    s === "approved" ? "Acceptée"
+    : s === "rejected" ? "Refusée"
+    : s === "partial" ? "Partiellement traitée"
+    : "En attente";
   return <Badge className={cls}>{label}</Badge>;
 }
 
@@ -154,14 +178,34 @@ export function EstablishmentPendingProfileUpdatesPanel(props: {
     void refresh();
   }, [refresh]);
 
-  const pendingDraft = items.length ? items[0] : null;
+  // Get the most recent draft (pending first, then others)
+  const sortedItems = useMemo(() => {
+    if (!items.length) return [];
+    // Sort: pending first, then by date descending
+    return [...items].sort((a, b) => {
+      const aIsPending = a.draft.status?.toLowerCase() === "pending";
+      const bIsPending = b.draft.status?.toLowerCase() === "pending";
+      if (aIsPending && !bIsPending) return -1;
+      if (!aIsPending && bIsPending) return 1;
+      return new Date(b.draft.created_at).getTime() - new Date(a.draft.created_at).getTime();
+    });
+  }, [items]);
+
+  const currentDraft = sortedItems.length ? sortedItems[0] : null;
+  const draftStatus = currentDraft?.draft.status?.toLowerCase() ?? "";
+  const isPending = draftStatus === "pending";
 
   const counts = useMemo(() => {
-    if (!pendingDraft) return { total: 0, pending: 0 };
-    const total = pendingDraft.changes.length;
-    const pending = pendingDraft.changes.filter((c) => String(c.status).toLowerCase() === "pending").length;
-    return { total, pending };
-  }, [pendingDraft]);
+    if (!currentDraft) return { total: 0, pending: 0, accepted: 0, rejected: 0 };
+    const total = currentDraft.changes.length;
+    const pending = currentDraft.changes.filter((c) => String(c.status).toLowerCase() === "pending").length;
+    const accepted = currentDraft.changes.filter((c) => {
+      const s = String(c.status).toLowerCase();
+      return s === "accepted" || s === "approved";
+    }).length;
+    const rejected = currentDraft.changes.filter((c) => String(c.status).toLowerCase() === "rejected").length;
+    return { total, pending, accepted, rejected };
+  }, [currentDraft]);
 
   const doAcceptOne = async (draftId: string, changeId: string) => {
     setError(null);
@@ -220,32 +264,36 @@ export function EstablishmentPendingProfileUpdatesPanel(props: {
     }
   };
 
-  const headerRight = pendingDraft ? (
+  const headerRight = currentDraft ? (
     <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
       <Button variant="outline" className="gap-2" onClick={() => void refresh()} disabled={loading}>
         <RefreshCcw className={loading ? "animate-spin" : ""} />
         Rafraîchir
       </Button>
-      <Button
-        variant="outline"
-        className="gap-2"
-        onClick={() => void doAcceptAll(pendingDraft.draft.id)}
-        disabled={loading || counts.pending === 0}
-      >
-        <CheckCircle2 className="h-4 w-4" />
-        Tout accepter
-      </Button>
-      <Button
-        variant="destructive"
-        className="gap-2"
-        onClick={() =>
-          setReject({ open: true, mode: "all", draftId: pendingDraft.draft.id, reason: "", saving: false })
-        }
-        disabled={loading || counts.pending === 0}
-      >
-        <XCircle className="h-4 w-4" />
-        Tout refuser
-      </Button>
+      {isPending && (
+        <>
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => void doAcceptAll(currentDraft.draft.id)}
+            disabled={loading || counts.pending === 0}
+          >
+            <CheckCircle2 className="h-4 w-4" />
+            Tout accepter
+          </Button>
+          <Button
+            variant="destructive"
+            className="gap-2"
+            onClick={() =>
+              setReject({ open: true, mode: "all", draftId: currentDraft.draft.id, reason: "", saving: false })
+            }
+            disabled={loading || counts.pending === 0}
+          >
+            <XCircle className="h-4 w-4" />
+            Tout refuser
+          </Button>
+        </>
+      )}
     </div>
   ) : (
     <div className="flex items-center gap-2">
@@ -261,12 +309,25 @@ export function EstablishmentPendingProfileUpdatesPanel(props: {
       <CardHeader className="p-4 pb-2">
         <CardTitle className="text-sm font-bold flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="truncate">Modifications en attente</div>
-            {pendingDraft ? (
+            <div className="flex items-center gap-2">
+              <span className="truncate">Modifications du profil</span>
+              {currentDraft && draftStatusBadge(currentDraft.draft.status ?? "pending")}
+            </div>
+            {currentDraft ? (
               <div className="mt-1 text-xs font-normal text-slate-600">
-                Demande du {formatLocal(pendingDraft.draft.created_at)} · Auteur :{" "}
-                <span className="font-semibold">{pendingDraft.author.email ?? pendingDraft.author.user_id}</span>
-                {counts.total ? ` · ${counts.pending}/${counts.total} à décider` : null}
+                Demande du {formatLocal(currentDraft.draft.created_at)} · Auteur :{" "}
+                <span className="font-semibold">{currentDraft.author.email ?? currentDraft.author.user_id}</span>
+                {isPending && counts.total ? ` · ${counts.pending}/${counts.total} à décider` : null}
+                {!isPending && counts.total ? (
+                  <span>
+                    {" "}· {counts.accepted} accepté{counts.accepted > 1 ? "s" : ""}, {counts.rejected} refusé{counts.rejected > 1 ? "s" : ""}
+                  </span>
+                ) : null}
+                {currentDraft.draft.reason && (
+                  <span className="block mt-1 text-red-600">
+                    Motif : {currentDraft.draft.reason}
+                  </span>
+                )}
               </div>
             ) : (
               <div className="mt-1 text-xs font-normal text-slate-600">Aucune modification en attente.</div>
@@ -280,7 +341,7 @@ export function EstablishmentPendingProfileUpdatesPanel(props: {
       <CardContent className="p-4 pt-3">
         {error ? <div className="mb-3 text-sm text-destructive">{error}</div> : null}
 
-        {pendingDraft ? (
+        {currentDraft ? (
           <>
             {/* Desktop table */}
             <div className="hidden md:block">
@@ -292,13 +353,13 @@ export function EstablishmentPendingProfileUpdatesPanel(props: {
                     <TableHead>Nouvelle valeur</TableHead>
                     <TableHead>Demande</TableHead>
                     <TableHead>Statut</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    {isPending && <TableHead className="text-right">Actions</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {pendingDraft.changes.map((c) => {
+                  {currentDraft.changes.map((c) => {
                     const status = String(c.status ?? "").toLowerCase();
-                    const isPending = status === "pending";
+                    const changeIsPending = status === "pending";
                     const before = truncate(valuePreview(c.before), 90);
                     const after = truncate(valuePreview(c.after), 90);
                     return (
@@ -312,32 +373,34 @@ export function EstablishmentPendingProfileUpdatesPanel(props: {
                         </TableCell>
                         <TableCell className="text-xs text-slate-600">{formatLocal(c.created_at)}</TableCell>
                         <TableCell>{changeStatusBadge(status)}</TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex gap-2 justify-end">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="gap-2"
-                              onClick={() => void doAcceptOne(pendingDraft.draft.id, c.id)}
-                              disabled={!isPending || loading}
-                            >
-                              <CheckCircle2 className="h-4 w-4" />
-                              Accepter
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              className="gap-2"
-                              onClick={() =>
-                                setReject({ open: true, mode: "single", draftId: pendingDraft.draft.id, change: c, reason: "", saving: false })
-                              }
-                              disabled={!isPending || loading}
-                            >
-                              <XCircle className="h-4 w-4" />
-                              Refuser
-                            </Button>
-                          </div>
-                        </TableCell>
+                        {isPending && (
+                          <TableCell className="text-right">
+                            <div className="flex gap-2 justify-end">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="gap-2"
+                                onClick={() => void doAcceptOne(currentDraft.draft.id, c.id)}
+                                disabled={!changeIsPending || loading}
+                              >
+                                <CheckCircle2 className="h-4 w-4" />
+                                Accepter
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                className="gap-2"
+                                onClick={() =>
+                                  setReject({ open: true, mode: "single", draftId: currentDraft.draft.id, change: c, reason: "", saving: false })
+                                }
+                                disabled={!changeIsPending || loading}
+                              >
+                                <XCircle className="h-4 w-4" />
+                                Refuser
+                              </Button>
+                            </div>
+                          </TableCell>
+                        )}
                       </TableRow>
                     );
                   })}
@@ -347,9 +410,9 @@ export function EstablishmentPendingProfileUpdatesPanel(props: {
 
             {/* Mobile accordion */}
             <div className="md:hidden space-y-2">
-              {pendingDraft.changes.map((c) => {
+              {currentDraft.changes.map((c) => {
                 const status = String(c.status ?? "").toLowerCase();
-                const isPending = status === "pending";
+                const changeIsPending = status === "pending";
                 return (
                   <Collapsible key={c.id} className="rounded-md border border-slate-200">
                     <CollapsibleTrigger asChild>
@@ -384,28 +447,30 @@ export function EstablishmentPendingProfileUpdatesPanel(props: {
                           </div>
                         </div>
 
-                        <div className="flex flex-col gap-2">
-                          <Button
-                            variant="outline"
-                            className="gap-2"
-                            onClick={() => void doAcceptOne(pendingDraft.draft.id, c.id)}
-                            disabled={!isPending || loading}
-                          >
-                            <CheckCircle2 className="h-4 w-4" />
-                            Accepter
-                          </Button>
-                          <Button
-                            variant="destructive"
-                            className="gap-2"
-                            onClick={() =>
-                              setReject({ open: true, mode: "single", draftId: pendingDraft.draft.id, change: c, reason: "", saving: false })
-                            }
-                            disabled={!isPending || loading}
-                          >
-                            <XCircle className="h-4 w-4" />
-                            Refuser
-                          </Button>
-                        </div>
+                        {isPending && (
+                          <div className="flex flex-col gap-2">
+                            <Button
+                              variant="outline"
+                              className="gap-2"
+                              onClick={() => void doAcceptOne(currentDraft.draft.id, c.id)}
+                              disabled={!changeIsPending || loading}
+                            >
+                              <CheckCircle2 className="h-4 w-4" />
+                              Accepter
+                            </Button>
+                            <Button
+                              variant="destructive"
+                              className="gap-2"
+                              onClick={() =>
+                                setReject({ open: true, mode: "single", draftId: currentDraft.draft.id, change: c, reason: "", saving: false })
+                              }
+                              disabled={!changeIsPending || loading}
+                            >
+                              <XCircle className="h-4 w-4" />
+                              Refuser
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     </CollapsibleContent>
                   </Collapsible>

@@ -4,6 +4,7 @@ import { LogOut, User } from "lucide-react";
 
 import { UserNotificationsBell } from "@/components/UserNotificationsBell";
 import { HeaderSearchBarWithUniverses } from "@/components/HeaderSearchBarWithUniverses";
+import { MobileHeaderSearch } from "@/components/MobileHeaderSearch";
 
 import { Button } from "@/components/ui/button";
 
@@ -223,31 +224,44 @@ export function Header() {
       >
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-between h-16">
-            {/* Logo - changes to megaphone when scrolled */}
-            <Link to={addLocalePrefix("/", locale)} className="flex items-center gap-3 flex-shrink-0">
+            {/* Logo - changes to megaphone + text when scrolled */}
+            <Link to={addLocalePrefix("/", locale)} className="flex items-center gap-2 flex-shrink-0">
               {showScrolledHeader ? (
                 <img
-                  src="/Logo_SAM_Megaphone_Blanc.png"
+                  src="/Logo_SAM_N.png"
                   alt={t("header.logo_alt")}
-                  className="h-10 sm:h-12 w-auto transition-all duration-300"
+                  className="h-16 sm:h-20 w-auto transition-all duration-300"
                 />
               ) : (
                 <img
-                  src="https://cdn.builder.io/api/v1/image/assets%2F9d79e075af8c480ea94841fd41e63e5c%2Ff697c99f96a54350b04338ee20d3a720?format=webp&width=800"
+                  src="/Logo_SAM_Officiel.png"
                   alt={t("header.logo_alt")}
-                  className="h-12 sm:h-14 w-auto transition-all duration-300"
+                  className="h-16 sm:h-20 w-auto transition-all duration-300"
                 />
               )}
             </Link>
 
-            {/* Full search form appears in header when scrolled */}
+            {/* Mobile: Full search bar when scrolled (city + search + button) */}
+            {showScrolledHeader && (
+              <div className="lg:hidden flex-1 ml-3">
+                <MobileHeaderSearch
+                  universe={searchParams.get("universe") || "restaurants"}
+                />
+              </div>
+            )}
+
+            {/* Desktop: Full search form appears in header when scrolled */}
             {showScrolledHeader && (
               <div className="hidden lg:block flex-1 mx-4 overflow-visible">
                 <HeaderSearchBarWithUniverses />
               </div>
             )}
 
-            <div className="flex items-center gap-2 sm:gap-3">
+            {/* Actions - hidden on mobile when scrolled */}
+            <div className={cn(
+              "flex items-center gap-2 sm:gap-3",
+              showScrolledHeader && "hidden lg:flex"
+            )}>
               <Link to={addLocalePrefix("/ajouter-mon-etablissement", locale)} className="inline-flex">
                 <Button
                   className={cn(

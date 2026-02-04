@@ -20,6 +20,12 @@ import {
 import { NotificationEventType } from "../../shared/notifications";
 import { canTransitionReservationStatus, OCCUPYING_RESERVATION_STATUSES } from "../../shared/reservationStates";
 import { triggerWaitlistPromotionForSlot } from "../waitlist";
+import {
+  getSubscriptionWithDetails,
+  isUsernameAccessAllowed,
+  startTrial,
+  cancelSubscription,
+} from "../subscriptions/usernameSubscription";
 
 type ProUser = { id: string; email?: string | null };
 
@@ -106,7 +112,7 @@ function extractReservationLookupFromQrCode(raw: string): { reservationId?: stri
 
   if (looksLikeUuid(code)) return { reservationId: code };
 
-  const prefixed = code.match(/^(SAMBOOKING|SAMPACK):(.+)$/i);
+  const prefixed = code.match(/^(SAM|SAMPACK):(.+)$/i);
   if (prefixed?.[2]) {
     const payload = prefixed[2].trim();
     const parts = payload.split("|").map((p) => p.trim()).filter(Boolean);
@@ -204,6 +210,9 @@ function extractEstablishmentProfileUpdate(data: unknown): Record<string, unknow
 
   const website = asString(data.website);
   if (website !== undefined) out.website = website;
+
+  const email = asString(data.email);
+  if (email !== undefined) out.email = email;
 
   const socialLinks = asJsonObject(data.social_links);
   if (socialLinks !== undefined) out.social_links = socialLinks;
@@ -553,6 +562,12 @@ export const changePassword: RequestHandler = async (req, res) => {
 
     if (updateError) {
       console.error("[changePassword] Update error:", updateError);
+      // Check for weak password error
+      if ((updateError as any).code === "weak_password" || updateError.message?.includes("weak")) {
+        return res.status(400).json({
+          error: "Le mot de passe est trop faible ou trop courant. Choisissez un mot de passe plus complexe (au moins 8 caractères, avec des lettres, chiffres et caractères spéciaux)."
+        });
+      }
       return res.status(500).json({ error: "Impossible de changer le mot de passe" });
     }
 
@@ -774,7 +789,16 @@ export const submitEstablishmentProfileUpdate: RequestHandler = async (req, res)
     };
   });
 
+  console.log("[Pro Profile Update] Creating changeRows:", changeRows.length, "for draft:", draft.id);
+  console.log("[Pro Profile Update] Fields to update:", changeRows.map(r => r.field));
+
   const { error: changeError } = await supabase.from("establishment_profile_draft_changes").insert(changeRows);
+
+  if (changeError) {
+    console.log("[Pro Profile Update] Change insert error:", changeError);
+  } else {
+    console.log("[Pro Profile Update] Changes inserted successfully");
+  }
 
   if (changeError) {
     await supabase.from("moderation_queue").delete().eq("id", moderation.id);
@@ -1919,6 +1943,8 @@ function defaultBookingPolicy(establishmentId: string) {
     require_guarantee_below_score: null as number | null,
     modification_text_fr: "",
     modification_text_en: "",
+    // Deposit per person in MAD. If null or 0, guaranteed booking is disabled.
+    deposit_per_person: null as number | null,
   };
 }
 
@@ -1997,6 +2023,15 @@ export const updateProBookingPolicy: RequestHandler = async (req, res) => {
 
   if (typeof req.body.modification_text_fr === "string") patch.modification_text_fr = req.body.modification_text_fr;
   if (typeof req.body.modification_text_en === "string") patch.modification_text_en = req.body.modification_text_en;
+
+  // Deposit per person handling: null disables guaranteed booking, 0+ enables it
+  const depositRaw = req.body.deposit_per_person;
+  if (depositRaw === null) {
+    patch.deposit_per_person = null;
+  } else {
+    const depositAmount = asNumber(depositRaw);
+    if (depositAmount !== undefined) patch.deposit_per_person = Math.max(0, Math.round(depositAmount));
+  }
 
   if (!Object.keys(patch).length) return res.status(400).json({ error: "No changes provided" });
 
@@ -2836,6 +2871,38 @@ export const markAllProNotificationsRead: RequestHandler = async (req, res) => {
     .or(`establishment_id.is.null,establishment_id.eq.${establishmentId}`);
 
   if (error) return res.status(500).json({ error: error.message });
+
+  res.json({ ok: true });
+};
+
+export const deleteProNotification: RequestHandler = async (req, res) => {
+  const establishmentId = typeof req.params.establishmentId === "string" ? req.params.establishmentId : "";
+  const notificationId = typeof req.params.notificationId === "string" ? req.params.notificationId : "";
+  if (!establishmentId) return res.status(400).json({ error: "establishmentId is required" });
+  if (!notificationId) return res.status(400).json({ error: "notificationId is required" });
+
+  const token = parseBearerToken(req.header("authorization") ?? undefined);
+  if (!token) return res.status(401).json({ error: "Missing bearer token" });
+
+  const userResult = await getUserFromBearerToken(token);
+  if (userResult.ok === false) return res.status(userResult.status).json({ error: userResult.error });
+
+  const roleRes = await ensureRole({ establishmentId, userId: userResult.user.id });
+  if (roleRes.ok === false) return res.status(roleRes.status).json({ error: roleRes.error });
+
+  const supabase = getAdminSupabase();
+
+  const { data, error } = await supabase
+    .from("pro_notifications")
+    .delete()
+    .eq("id", notificationId)
+    .eq("user_id", userResult.user.id)
+    .or(`establishment_id.is.null,establishment_id.eq.${establishmentId}`)
+    .select("id")
+    .maybeSingle();
+
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(404).json({ error: "Not found" });
 
   res.json({ ok: true });
 };
@@ -3713,6 +3780,40 @@ export const seedDemoProInventory: RequestHandler = async (req, res) => {
   return res.json({ ok: true, inserted: stats } as const);
 };
 
+// ============================================================================
+// Pro Inventory Pending Changes (Moderation Queue)
+// ============================================================================
+
+export const listProInventoryPendingChanges: RequestHandler = async (req, res) => {
+  const establishmentId = typeof req.params.establishmentId === "string" ? req.params.establishmentId : "";
+  if (!establishmentId) return res.status(400).json({ error: "establishmentId is required" });
+
+  const token = parseBearerToken(req.header("authorization") ?? undefined);
+  if (!token) return res.status(401).json({ error: "Missing bearer token" });
+
+  const userResult = await getUserFromBearerToken(token);
+  if (userResult.ok === false) return res.status(userResult.status).json({ error: userResult.error });
+
+  const roleRes = await ensureRole({ establishmentId, userId: userResult.user.id });
+  if (roleRes.ok === false) return res.status(roleRes.status).json({ error: roleRes.error });
+
+  const supabase = getAdminSupabase();
+
+  const statusFilter = asString(req.query.status) ?? "pending";
+
+  const { data, error } = await supabase
+    .from("pro_inventory_pending_changes")
+    .select("*")
+    .eq("establishment_id", establishmentId)
+    .eq("status", statusFilter)
+    .order("created_at", { ascending: false })
+    .limit(100);
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  res.json({ ok: true, pendingChanges: data ?? [] });
+};
+
 export const createProInventoryCategory: RequestHandler = async (req, res) => {
   const establishmentId = typeof req.params.establishmentId === "string" ? req.params.establishmentId : "";
   if (!establishmentId) return res.status(400).json({ error: "establishmentId is required" });
@@ -3738,15 +3839,23 @@ export const createProInventoryCategory: RequestHandler = async (req, res) => {
 
   const supabase = getAdminSupabase();
 
-  const { data, error } = await supabase
-    .from("pro_inventory_categories")
-    .insert({ establishment_id: establishmentId, parent_id, title, description, sort_order, is_active })
+  // Pro users: submit to moderation queue
+  const payload = { title, parent_id, description, sort_order, is_active };
+
+  const { data: pendingChange, error: pendingErr } = await supabase
+    .from("pro_inventory_pending_changes")
+    .insert({
+      establishment_id: establishmentId,
+      change_type: "create_category",
+      payload,
+      submitted_by: userResult.user.id,
+    })
     .select("*")
     .single();
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (pendingErr) return res.status(500).json({ error: pendingErr.message });
 
-  res.json({ ok: true, category: data });
+  res.json({ ok: true, pending: true, pendingChange, message: "Votre demande de création de catégorie a été soumise pour modération." });
 };
 
 export const updateProInventoryCategory: RequestHandler = async (req, res) => {
@@ -3784,17 +3893,22 @@ export const updateProInventoryCategory: RequestHandler = async (req, res) => {
 
   const supabase = getAdminSupabase();
 
-  const { data, error } = await supabase
-    .from("pro_inventory_categories")
-    .update(patch)
-    .eq("id", categoryId)
-    .eq("establishment_id", establishmentId)
+  // Pro users: submit to moderation queue
+  const { data: pendingChange, error: pendingErr } = await supabase
+    .from("pro_inventory_pending_changes")
+    .insert({
+      establishment_id: establishmentId,
+      change_type: "update_category",
+      target_id: categoryId,
+      payload: patch,
+      submitted_by: userResult.user.id,
+    })
     .select("*")
     .single();
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (pendingErr) return res.status(500).json({ error: pendingErr.message });
 
-  res.json({ ok: true, category: data });
+  res.json({ ok: true, pending: true, pendingChange, message: "Votre demande de modification de catégorie a été soumise pour modération." });
 };
 
 export const deleteProInventoryCategory: RequestHandler = async (req, res) => {
@@ -3814,15 +3928,22 @@ export const deleteProInventoryCategory: RequestHandler = async (req, res) => {
 
   const supabase = getAdminSupabase();
 
-  const { error } = await supabase
-    .from("pro_inventory_categories")
-    .delete()
-    .eq("id", categoryId)
-    .eq("establishment_id", establishmentId);
+  // Pro users: submit to moderation queue
+  const { data: pendingChange, error: pendingErr } = await supabase
+    .from("pro_inventory_pending_changes")
+    .insert({
+      establishment_id: establishmentId,
+      change_type: "delete_category",
+      target_id: categoryId,
+      payload: {},
+      submitted_by: userResult.user.id,
+    })
+    .select("*")
+    .single();
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (pendingErr) return res.status(500).json({ error: pendingErr.message });
 
-  res.json({ ok: true });
+  res.json({ ok: true, pending: true, pendingChange, message: "Votre demande de suppression de catégorie a été soumise pour modération." });
 };
 
 export const createProInventoryItem: RequestHandler = async (req, res) => {
@@ -3871,43 +3992,36 @@ export const createProInventoryItem: RequestHandler = async (req, res) => {
 
   const supabase = getAdminSupabase();
 
-  const { data: createdItem, error: itemErr } = await supabase
-    .from("pro_inventory_items")
+  // Pro users: submit to moderation queue
+  const payload = {
+    category_id,
+    title,
+    description,
+    labels,
+    base_price,
+    currency,
+    is_active,
+    visible_when_unavailable,
+    scheduled_reactivation_at,
+    photos,
+    meta,
+    variants: variantsRes.variants,
+  };
+
+  const { data: pendingChange, error: pendingErr } = await supabase
+    .from("pro_inventory_pending_changes")
     .insert({
       establishment_id: establishmentId,
-      category_id,
-      title,
-      description,
-      labels,
-      base_price,
-      currency,
-      is_active,
-      visible_when_unavailable,
-      scheduled_reactivation_at,
-      photos,
-      meta,
+      change_type: "create_item",
+      payload,
+      submitted_by: userResult.user.id,
     })
     .select("*")
     .single();
 
-  if (itemErr) return res.status(500).json({ error: itemErr.message });
+  if (pendingErr) return res.status(500).json({ error: pendingErr.message });
 
-  const itemId = (createdItem as { id: string }).id;
-
-  let variants: unknown[] = [];
-  if (variantsRes.variants.length) {
-    const { data: createdVariants, error: vErr } = await supabase
-      .from("pro_inventory_variants")
-      .insert(variantsRes.variants.map((v) => ({ ...v, item_id: itemId })))
-      .select("*")
-      .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: true });
-
-    if (vErr) return res.status(500).json({ error: vErr.message });
-    variants = createdVariants ?? [];
-  }
-
-  res.json({ ok: true, item: { ...(createdItem as Record<string, unknown>), variants } });
+  res.json({ ok: true, pending: true, pendingChange, message: "Votre demande de création d'offre a été soumise pour modération." });
 };
 
 export const updateProInventoryItem: RequestHandler = async (req, res) => {
@@ -3977,46 +4091,27 @@ export const updateProInventoryItem: RequestHandler = async (req, res) => {
 
   const supabase = getAdminSupabase();
 
-  const { data: updatedItem, error: itemErr } = Object.keys(patch).length
-    ? await supabase
-        .from("pro_inventory_items")
-        .update(patch)
-        .eq("id", itemId)
-        .eq("establishment_id", establishmentId)
-        .select("*")
-        .single()
-    : await supabase
-        .from("pro_inventory_items")
-        .select("*")
-        .eq("id", itemId)
-        .eq("establishment_id", establishmentId)
-        .single();
+  // Pro users: submit to moderation queue
+  const payload = {
+    ...patch,
+    ...(variantsProvided ? { variants: variantsParsed.variants } : {}),
+  };
 
-  if (itemErr) return res.status(500).json({ error: itemErr.message });
-
-  if (variantsProvided) {
-    const { error: delErr } = await supabase.from("pro_inventory_variants").delete().eq("item_id", itemId);
-    if (delErr) return res.status(500).json({ error: delErr.message });
-
-    if (variantsParsed.variants.length) {
-      const { error: insErr } = await supabase
-        .from("pro_inventory_variants")
-        .insert(variantsParsed.variants.map((v) => ({ ...v, item_id: itemId })));
-      if (insErr) return res.status(500).json({ error: insErr.message });
-    }
-  }
-
-  const { data: variants, error: vErr } = await supabase
-    .from("pro_inventory_variants")
+  const { data: pendingChange, error: pendingErr } = await supabase
+    .from("pro_inventory_pending_changes")
+    .insert({
+      establishment_id: establishmentId,
+      change_type: "update_item",
+      target_id: itemId,
+      payload,
+      submitted_by: userResult.user.id,
+    })
     .select("*")
-    .eq("item_id", itemId)
-    .order("sort_order", { ascending: true })
-    .order("created_at", { ascending: true })
-    .limit(200);
+    .single();
 
-  if (vErr) return res.status(500).json({ error: vErr.message });
+  if (pendingErr) return res.status(500).json({ error: pendingErr.message });
 
-  res.json({ ok: true, item: { ...(updatedItem as Record<string, unknown>), variants: variants ?? [] } });
+  res.json({ ok: true, pending: true, pendingChange, message: "Votre demande de modification d'offre a été soumise pour modération." });
 };
 
 export const deleteProInventoryItem: RequestHandler = async (req, res) => {
@@ -4036,15 +4131,22 @@ export const deleteProInventoryItem: RequestHandler = async (req, res) => {
 
   const supabase = getAdminSupabase();
 
-  const { error } = await supabase
-    .from("pro_inventory_items")
-    .delete()
-    .eq("id", itemId)
-    .eq("establishment_id", establishmentId);
+  // Pro users: submit to moderation queue
+  const { data: pendingChange, error: pendingErr } = await supabase
+    .from("pro_inventory_pending_changes")
+    .insert({
+      establishment_id: establishmentId,
+      change_type: "delete_item",
+      target_id: itemId,
+      payload: {},
+      submitted_by: userResult.user.id,
+    })
+    .select("*")
+    .single();
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (pendingErr) return res.status(500).json({ error: pendingErr.message });
 
-  res.json({ ok: true });
+  res.json({ ok: true, pending: true, pendingChange, message: "Votre demande de suppression d'offre a été soumise pour modération." });
 };
 
 export const greenThumbProInventoryItem: RequestHandler = async (req, res) => {
@@ -7010,6 +7112,174 @@ export const confirmProVisibilityOrder: RequestHandler = async (req, res) => {
 
   if (updErr) return res.status(500).json({ error: updErr.message });
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Menu Digital Provisioning (if order contains menu_digital items)
+  // ─────────────────────────────────────────────────────────────────────────
+  void (async () => {
+    try {
+      // Fetch order items to check for menu_digital type
+      const { data: orderItems, error: itemsErr } = await supabase
+        .from("visibility_order_items")
+        .select("id, offer_id, title, type, duration_days, unit_price_cents")
+        .eq("order_id", orderId);
+
+      if (itemsErr || !orderItems?.length) return;
+
+      // Find menu_digital items
+      const menuDigitalItems = (orderItems as any[]).filter((item) => item.type === "menu_digital");
+      if (!menuDigitalItems.length) return;
+
+      // Determine plan from item title (SILVER or PREMIUM)
+      const firstItem = menuDigitalItems[0];
+      const itemTitle = String(firstItem.title || "").toUpperCase();
+      const plan = itemTitle.includes("PREMIUM") ? "premium" : "silver";
+      const durationDays = firstItem.duration_days || 365;
+      const pricePaidCents = firstItem.unit_price_cents || 0;
+
+      // Fetch establishment details including current subscription
+      const { data: estRow, error: estErr } = await supabase
+        .from("establishments")
+        .select("id, name, slug, username, city, cover_url, description_short, phone, address, menu_digital_expires_at")
+        .eq("id", establishmentId)
+        .single();
+
+      if (estErr || !estRow) {
+        console.error("[Menu Digital] Failed to fetch establishment:", estErr);
+        return;
+      }
+
+      const est = estRow as {
+        id: string;
+        name: string | null;
+        slug: string | null;
+        username: string | null;
+        city: string | null;
+        cover_url: string | null;
+        description_short: string | null;
+        phone: string | null;
+        address: string | null;
+        menu_digital_expires_at: string | null;
+      };
+
+      // Use username or slug as the menu identifier
+      const menuSlug = est.username || est.slug;
+      if (!menuSlug) {
+        console.error("[Menu Digital] Establishment has no username or slug");
+        return;
+      }
+
+      // Get user email for account creation
+      const userEmail = userResult.user.email?.trim() || "";
+      if (!userEmail) {
+        console.error("[Menu Digital] User has no email");
+        return;
+      }
+
+      // Calculate expiration date
+      // If there's an existing non-expired subscription, extend from that date
+      // Otherwise, start from now
+      let baseDate = new Date();
+      if (est.menu_digital_expires_at) {
+        const currentExpiry = new Date(est.menu_digital_expires_at);
+        if (currentExpiry > baseDate) {
+          // Subscription still active - extend from current expiry
+          baseDate = currentExpiry;
+          console.log("[Menu Digital] Extending existing subscription from", currentExpiry.toISOString());
+        }
+      }
+      const expiresAt = new Date(baseDate);
+      expiresAt.setDate(expiresAt.getDate() + durationDays);
+
+      // Provision account on menu_sam
+      const MENU_SAM_API_URL = process.env.MENU_SAM_API_URL || "http://localhost:8081";
+      const MENU_SAM_SYNC_SECRET = process.env.MENU_SAM_SYNC_SECRET || "";
+
+      const provisionPayload = {
+        samEstablishmentId: est.id,
+        supabaseUserId: userResult.user.id,
+        email: userEmail,
+        plan,
+        slug: menuSlug,
+        establishmentName: est.name || "Sans nom",
+        city: est.city,
+        coverUrl: est.cover_url,
+        description: est.description_short,
+        phone: est.phone,
+        address: est.address,
+        pricePaidCents,
+        durationDays,
+        expiresAt: expiresAt.toISOString(),
+        samOrderId: orderId,
+      };
+
+      const provisionResponse = await fetch(`${MENU_SAM_API_URL}/api/sync/provision`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Sync-Secret": MENU_SAM_SYNC_SECRET,
+        },
+        body: JSON.stringify(provisionPayload),
+      });
+
+      if (!provisionResponse.ok) {
+        const errorText = await provisionResponse.text();
+        console.error("[Menu Digital] Provisioning failed:", errorText);
+        return;
+      }
+
+      const provisionResult = await provisionResponse.json();
+      console.log("[Menu Digital] Account provisioned:", provisionResult);
+
+      // Update establishment to mark menu digital as enabled with plan and expiration
+      await supabase
+        .from("establishments")
+        .update({
+          menu_digital_enabled: true,
+          menu_digital_plan: plan,
+          menu_digital_expires_at: expiresAt.toISOString(),
+          menu_digital_last_sync: paidAtIso,
+        })
+        .eq("id", establishmentId);
+
+      // Send access email to pro user
+      const menuUrl = `${process.env.MENU_DIGITAL_BASE_URL || "https://menu.sam.ma"}/${menuSlug}`;
+      const proAccessUrl = `${process.env.MENU_DIGITAL_BASE_URL || "https://menu.sam.ma"}/pro`;
+
+      try {
+        await sendTemplateEmail({
+          templateKey: "pro_menu_digital_activated",
+          lang: "fr",
+          fromKey: "pro",
+          to: [userEmail],
+          variables: {
+            establishment: est.name || menuSlug,
+            plan: plan === "premium" ? "Premium" : "Silver",
+            menu_url: menuUrl,
+            pro_access_url: proAccessUrl,
+            expires_at: expiresAt.toLocaleDateString("fr-FR", {
+              day: "numeric",
+              month: "long",
+              year: "numeric",
+            }),
+          },
+          ctaUrl: proAccessUrl,
+          meta: {
+            source: "pro.confirmProVisibilityOrder.menuDigital",
+            establishment_id: establishmentId,
+            order_id: orderId,
+            plan,
+          },
+        });
+      } catch (emailErr) {
+        console.error("[Menu Digital] Failed to send activation email:", emailErr);
+      }
+
+    } catch (err) {
+      console.error("[Menu Digital] Provisioning error:", err);
+    }
+  })();
+  // ─────────────────────────────────────────────────────────────────────────
+
   const actor = { userId: userResult.user.id, role: `pro:${permission.role}` };
 
   try {
@@ -7310,6 +7580,62 @@ export const getProVisibilityOrderInvoice: RequestHandler = async (req, res) => 
   } catch (e) {
     console.error("getProVisibilityOrderInvoice failed", e);
     return res.status(500).json({ error: "invoice_error" });
+  }
+};
+
+export const downloadProVisibilityOrderInvoicePdf: RequestHandler = async (req, res) => {
+  const establishmentId = typeof req.params.establishmentId === "string" ? req.params.establishmentId : "";
+  const orderId = typeof req.params.orderId === "string" ? req.params.orderId : "";
+
+  if (!establishmentId) return res.status(400).json({ error: "establishmentId is required" });
+  if (!orderId) return res.status(400).json({ error: "orderId is required" });
+
+  const token = parseBearerToken(req.header("authorization") ?? undefined);
+  if (!token) return res.status(401).json({ error: "Missing bearer token" });
+
+  const userResult = await getUserFromBearerToken(token);
+  if (userResult.ok === false) return res.status(userResult.status).json({ error: userResult.error });
+
+  const permission = await ensureCanViewBilling({ establishmentId, userId: userResult.user.id });
+  if (permission.ok === false) return res.status(permission.status).json({ error: permission.error });
+
+  const supabase = getAdminSupabase();
+
+  const { data: order, error: orderErr } = await supabase
+    .from("visibility_orders")
+    .select("id,payment_status")
+    .eq("id", orderId)
+    .eq("establishment_id", establishmentId)
+    .maybeSingle();
+
+  if (orderErr) return res.status(500).json({ error: orderErr.message });
+  if (!order) return res.status(404).json({ error: "order_not_found" });
+
+  const paymentStatus = typeof (order as any).payment_status === "string"
+    ? ((order as any).payment_status as string).toLowerCase()
+    : "";
+
+  if (paymentStatus !== "paid") {
+    return res.status(400).json({ error: "order_not_paid" });
+  }
+
+  try {
+    // Import dynamically to avoid circular dependencies
+    const { generateVisibilityOrderInvoicePdf } = await import("../subscriptions/usernameInvoicing");
+
+    const result = await generateVisibilityOrderInvoicePdf(orderId);
+
+    if (!result) {
+      return res.status(404).json({ error: "invoice_not_found" });
+    }
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${result.filename}"`);
+    res.setHeader("Content-Length", result.pdf.length);
+    return res.send(result.pdf);
+  } catch (e) {
+    console.error("downloadProVisibilityOrderInvoicePdf failed", e);
+    return res.status(500).json({ error: "pdf_generation_error" });
   }
 };
 
@@ -9020,4 +9346,729 @@ export const listEstablishmentReservationHistory: RequestHandler = async (req, r
   if (error) return res.status(500).json({ error: error.message });
 
   res.json({ history: history ?? [], limit, offset });
+};
+
+// ---------------------------------------------------------------------------
+// Username management (Custom short URLs like @username)
+// ---------------------------------------------------------------------------
+
+const USERNAME_COOLDOWN_DAYS = 180;
+
+function validateUsernameFormat(username: string): { valid: boolean; error?: string } {
+  const normalized = username.toLowerCase().trim();
+
+  if (normalized.length < 3) {
+    return { valid: false, error: "Le nom d'utilisateur doit contenir au moins 3 caractères" };
+  }
+
+  if (normalized.length > 30) {
+    return { valid: false, error: "Le nom d'utilisateur ne peut pas dépasser 30 caractères" };
+  }
+
+  // Must start with a letter
+  if (!/^[a-z]/.test(normalized)) {
+    return { valid: false, error: "Le nom d'utilisateur doit commencer par une lettre" };
+  }
+
+  // Only lowercase letters, numbers, underscores, and dots
+  if (!/^[a-z][a-z0-9._]*$/.test(normalized)) {
+    return { valid: false, error: "Seuls les lettres minuscules, chiffres, points et underscores sont autorisés" };
+  }
+
+  // Cannot end with underscore or dot
+  if (/[._]$/.test(normalized)) {
+    return { valid: false, error: "Le nom d'utilisateur ne peut pas se terminer par un point ou underscore" };
+  }
+
+  // No consecutive dots or underscores
+  if (/\.\./.test(normalized) || /__/.test(normalized) || /\._/.test(normalized) || /_\./.test(normalized)) {
+    return { valid: false, error: "Pas de points ou underscores consécutifs" };
+  }
+
+  // Reserved usernames
+  const reserved = [
+    "admin", "administrator", "support", "help", "contact", "info",
+    "sortiraumaroc", "sam", "booking", "reservations", "pro", "api",
+    "www", "mail", "email", "account", "accounts", "user", "users",
+    "settings", "config", "login", "logout", "signup", "signin",
+    "register", "password", "reset", "dashboard", "profile", "profiles",
+    "establishment", "establishments", "restaurant", "restaurants",
+    "hotel", "hotels", "spa", "spas", "activity", "activities",
+    "event", "events", "test", "demo", "example", "null", "undefined",
+  ];
+
+  if (reserved.includes(normalized)) {
+    return { valid: false, error: "Ce nom d'utilisateur est réservé" };
+  }
+
+  return { valid: true };
+}
+
+export const checkUsernameAvailability: RequestHandler = async (req, res) => {
+  const token = parseBearerToken(req.headers.authorization);
+  if (!token) return res.status(401).json({ error: "Unauthorized" });
+
+  const supabase = getAdminSupabase();
+
+  const { data: sessionData, error: sessionError } = await supabase.auth.getUser(token);
+  if (sessionError || !sessionData?.user?.id) {
+    return res.status(401).json({ error: "Invalid session" });
+  }
+
+  const username = asString(req.query.username);
+  if (!username) {
+    return res.status(400).json({ error: "username is required", available: false });
+  }
+
+  const normalized = username.toLowerCase().trim();
+
+  // Validate format
+  const validation = validateUsernameFormat(normalized);
+  if (!validation.valid) {
+    return res.json({ available: false, error: validation.error });
+  }
+
+  // Check if already taken by an establishment
+  const { data: existingEstablishment } = await supabase
+    .from("establishments")
+    .select("id")
+    .ilike("username", normalized)
+    .maybeSingle();
+
+  if (existingEstablishment) {
+    return res.json({ available: false, error: "Ce nom d'utilisateur est déjà pris" });
+  }
+
+  // Check if pending in moderation queue
+  const { data: pendingRequest } = await supabase
+    .from("establishment_username_requests")
+    .select("id")
+    .ilike("requested_username", normalized)
+    .eq("status", "pending")
+    .maybeSingle();
+
+  if (pendingRequest) {
+    return res.json({ available: false, error: "Ce nom d'utilisateur est en cours de validation" });
+  }
+
+  return res.json({ available: true });
+};
+
+export const getEstablishmentUsername: RequestHandler = async (req, res) => {
+  const token = parseBearerToken(req.headers.authorization);
+  if (!token) return res.status(401).json({ error: "Unauthorized" });
+
+  const supabase = getAdminSupabase();
+
+  const { data: sessionData, error: sessionError } = await supabase.auth.getUser(token);
+  if (sessionError || !sessionData?.user?.id) {
+    return res.status(401).json({ error: "Invalid session" });
+  }
+
+  const userId = sessionData.user.id;
+  const establishmentId = asString(req.params.establishmentId);
+
+  if (!establishmentId) {
+    return res.status(400).json({ error: "establishmentId is required" });
+  }
+
+  // Check membership
+  const { data: membership } = await supabase
+    .from("pro_establishment_memberships")
+    .select("role")
+    .eq("establishment_id", establishmentId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!membership) {
+    return res.status(403).json({ error: "Not a member of this establishment" });
+  }
+
+  // Get establishment username info
+  const { data: establishment } = await supabase
+    .from("establishments")
+    .select("username, username_changed_at")
+    .eq("id", establishmentId)
+    .single();
+
+  if (!establishment) {
+    return res.status(404).json({ error: "Establishment not found" });
+  }
+
+  // Get pending request if any
+  const { data: pendingRequest } = await supabase
+    .from("establishment_username_requests")
+    .select("id, requested_username, status, created_at, rejection_reason")
+    .eq("establishment_id", establishmentId)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false })
+    .maybeSingle();
+
+  // Calculate if can change
+  let canChange = true;
+  let nextChangeDate: string | null = null;
+
+  if (establishment.username_changed_at) {
+    const changedAt = new Date(establishment.username_changed_at);
+    const cooldownEnd = new Date(changedAt.getTime() + USERNAME_COOLDOWN_DAYS * 24 * 60 * 60 * 1000);
+    const now = new Date();
+
+    if (now < cooldownEnd) {
+      canChange = false;
+      nextChangeDate = cooldownEnd.toISOString();
+    }
+  }
+
+  // If there's a pending request, cannot submit another
+  if (pendingRequest) {
+    canChange = false;
+  }
+
+  // Get subscription status (gracefully handle if table doesn't exist)
+  let subscription = null;
+  let canUseUsername = false;
+  try {
+    subscription = await getSubscriptionWithDetails(establishmentId);
+    canUseUsername = subscription?.can_use_username ?? false;
+  } catch (e) {
+    console.warn("[getEstablishmentUsername] Error fetching subscription:", e);
+    // Continue without subscription info
+  }
+
+  // Cannot change username without active subscription
+  if (!canUseUsername) {
+    canChange = false;
+  }
+
+  return res.json({
+    username: establishment.username,
+    usernameChangedAt: establishment.username_changed_at,
+    pendingRequest,
+    canChange,
+    nextChangeDate,
+    cooldownDays: USERNAME_COOLDOWN_DAYS,
+    subscription: subscription
+      ? {
+          id: subscription.id,
+          status: subscription.status,
+          is_trial: subscription.is_trial,
+          trial_ends_at: subscription.trial_ends_at,
+          starts_at: subscription.starts_at,
+          expires_at: subscription.expires_at,
+          grace_period_ends_at: subscription.grace_period_ends_at,
+          cancelled_at: subscription.cancelled_at,
+          days_remaining: subscription.days_remaining,
+          can_use_username: subscription.can_use_username,
+        }
+      : null,
+    canUseUsername,
+  });
+};
+
+export const submitUsernameRequest: RequestHandler = async (req, res) => {
+  const token = parseBearerToken(req.headers.authorization);
+  if (!token) return res.status(401).json({ error: "Unauthorized" });
+
+  const supabase = getAdminSupabase();
+
+  const { data: sessionData, error: sessionError } = await supabase.auth.getUser(token);
+  if (sessionError || !sessionData?.user?.id) {
+    return res.status(401).json({ error: "Invalid session" });
+  }
+
+  const userId = sessionData.user.id;
+  const establishmentId = asString(req.params.establishmentId);
+  const body = req.body as Record<string, unknown>;
+  const requestedUsername = asString(body.username);
+
+  if (!establishmentId) {
+    return res.status(400).json({ error: "establishmentId is required" });
+  }
+
+  if (!requestedUsername) {
+    return res.status(400).json({ error: "username is required" });
+  }
+
+  const normalized = requestedUsername.toLowerCase().trim();
+
+  // Validate format
+  const validation = validateUsernameFormat(normalized);
+  if (!validation.valid) {
+    return res.status(400).json({ error: validation.error });
+  }
+
+  // Check membership with edit rights
+  const { data: membership } = await supabase
+    .from("pro_establishment_memberships")
+    .select("role")
+    .eq("establishment_id", establishmentId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!membership || !["owner", "manager"].includes(membership.role)) {
+    return res.status(403).json({ error: "Only owners and managers can change username" });
+  }
+
+  // Check username subscription is active (gating)
+  const hasActiveSubscription = await isUsernameAccessAllowed(establishmentId);
+  if (!hasActiveSubscription) {
+    return res.status(403).json({
+      error: "Un abonnement actif est requis pour utiliser cette fonctionnalite",
+      code: "SUBSCRIPTION_REQUIRED",
+    });
+  }
+
+  // Check establishment exists and cooldown
+  const { data: establishment } = await supabase
+    .from("establishments")
+    .select("id, name, username, username_changed_at")
+    .eq("id", establishmentId)
+    .single();
+
+  if (!establishment) {
+    return res.status(404).json({ error: "Establishment not found" });
+  }
+
+  // Check cooldown period
+  if (establishment.username_changed_at) {
+    const changedAt = new Date(establishment.username_changed_at);
+    const cooldownEnd = new Date(changedAt.getTime() + USERNAME_COOLDOWN_DAYS * 24 * 60 * 60 * 1000);
+    const now = new Date();
+
+    if (now < cooldownEnd) {
+      const daysRemaining = Math.ceil((cooldownEnd.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
+      return res.status(400).json({
+        error: `Vous devez attendre encore ${daysRemaining} jours avant de pouvoir changer votre nom d'utilisateur`,
+      });
+    }
+  }
+
+  // Check no pending request
+  const { data: existingPending } = await supabase
+    .from("establishment_username_requests")
+    .select("id")
+    .eq("establishment_id", establishmentId)
+    .eq("status", "pending")
+    .maybeSingle();
+
+  if (existingPending) {
+    return res.status(400).json({ error: "Une demande est déjà en cours de validation" });
+  }
+
+  // Check username availability
+  const { data: existingUsername } = await supabase
+    .from("establishments")
+    .select("id")
+    .ilike("username", normalized)
+    .neq("id", establishmentId)
+    .maybeSingle();
+
+  if (existingUsername) {
+    return res.status(400).json({ error: "Ce nom d'utilisateur est déjà pris" });
+  }
+
+  const { data: pendingUsername } = await supabase
+    .from("establishment_username_requests")
+    .select("id")
+    .ilike("requested_username", normalized)
+    .eq("status", "pending")
+    .maybeSingle();
+
+  if (pendingUsername) {
+    return res.status(400).json({ error: "Ce nom d'utilisateur est en cours de validation par un autre établissement" });
+  }
+
+  // Create the request
+  const { data: newRequest, error: insertError } = await supabase
+    .from("establishment_username_requests")
+    .insert({
+      establishment_id: establishmentId,
+      requested_username: normalized,
+      requested_by: userId,
+      status: "pending",
+    })
+    .select()
+    .single();
+
+  if (insertError) {
+    return res.status(500).json({ error: insertError.message });
+  }
+
+  // Notify admins
+  emitAdminNotification({
+    category: "username_request",
+    title: "Nouvelle demande de nom d'utilisateur",
+    body: `${establishment.name || "Un établissement"} demande le nom @${normalized}`,
+    data: {
+      establishmentId,
+      requestId: newRequest.id,
+      requestedUsername: normalized,
+    },
+  });
+
+  return res.json({
+    ok: true,
+    request: newRequest,
+    message: "Votre demande a été envoyée en modération",
+  });
+};
+
+export const cancelUsernameRequest: RequestHandler = async (req, res) => {
+  const token = parseBearerToken(req.headers.authorization);
+  if (!token) return res.status(401).json({ error: "Unauthorized" });
+
+  const supabase = getAdminSupabase();
+
+  const { data: sessionData, error: sessionError } = await supabase.auth.getUser(token);
+  if (sessionError || !sessionData?.user?.id) {
+    return res.status(401).json({ error: "Invalid session" });
+  }
+
+  const userId = sessionData.user.id;
+  const establishmentId = asString(req.params.establishmentId);
+  const requestId = asString(req.params.requestId);
+
+  if (!establishmentId || !requestId) {
+    return res.status(400).json({ error: "establishmentId and requestId are required" });
+  }
+
+  // Check membership
+  const { data: membership } = await supabase
+    .from("pro_establishment_memberships")
+    .select("role")
+    .eq("establishment_id", establishmentId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!membership || !["owner", "manager"].includes(membership.role)) {
+    return res.status(403).json({ error: "Only owners and managers can cancel requests" });
+  }
+
+  // Delete the pending request
+  const { error: deleteError } = await supabase
+    .from("establishment_username_requests")
+    .delete()
+    .eq("id", requestId)
+    .eq("establishment_id", establishmentId)
+    .eq("status", "pending");
+
+  if (deleteError) {
+    return res.status(500).json({ error: deleteError.message });
+  }
+
+  return res.json({ ok: true, message: "Demande annulée" });
+};
+
+// ---------------------------------------------------------------------------
+// Username Subscription Management
+// ---------------------------------------------------------------------------
+
+export const getUsernameSubscription: RequestHandler = async (req, res) => {
+  const token = parseBearerToken(req.headers.authorization);
+  if (!token) return res.status(401).json({ error: "Unauthorized" });
+
+  const supabase = getAdminSupabase();
+
+  const { data: sessionData, error: sessionError } = await supabase.auth.getUser(token);
+  if (sessionError || !sessionData?.user?.id) {
+    return res.status(401).json({ error: "Invalid session" });
+  }
+
+  const userId = sessionData.user.id;
+  const establishmentId = asString(req.params.establishmentId);
+
+  if (!establishmentId) {
+    return res.status(400).json({ error: "establishmentId is required" });
+  }
+
+  // Check membership
+  const { data: membership } = await supabase
+    .from("pro_establishment_memberships")
+    .select("role")
+    .eq("establishment_id", establishmentId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!membership) {
+    return res.status(403).json({ error: "Not a member of this establishment" });
+  }
+
+  const subscription = await getSubscriptionWithDetails(establishmentId);
+
+  // Check if establishment already had a trial
+  const { data: previousTrial } = await supabase
+    .from("username_subscriptions")
+    .select("id")
+    .eq("establishment_id", establishmentId)
+    .eq("is_trial", true)
+    .limit(1)
+    .maybeSingle();
+
+  return res.json({
+    subscription: subscription
+      ? {
+          id: subscription.id,
+          status: subscription.status,
+          is_trial: subscription.is_trial,
+          trial_ends_at: subscription.trial_ends_at,
+          starts_at: subscription.starts_at,
+          expires_at: subscription.expires_at,
+          grace_period_ends_at: subscription.grace_period_ends_at,
+          cancelled_at: subscription.cancelled_at,
+          price_cents: subscription.price_cents,
+          currency: subscription.currency,
+          days_remaining: subscription.days_remaining,
+          can_use_username: subscription.can_use_username,
+        }
+      : null,
+    can_start_trial: !previousTrial && !subscription,
+    has_used_trial: !!previousTrial,
+  });
+};
+
+export const startUsernameTrialHandler: RequestHandler = async (req, res) => {
+  const token = parseBearerToken(req.headers.authorization);
+  if (!token) return res.status(401).json({ error: "Unauthorized" });
+
+  const supabase = getAdminSupabase();
+
+  const { data: sessionData, error: sessionError } = await supabase.auth.getUser(token);
+  if (sessionError || !sessionData?.user?.id) {
+    return res.status(401).json({ error: "Invalid session" });
+  }
+
+  const userId = sessionData.user.id;
+  const establishmentId = asString(req.params.establishmentId);
+
+  if (!establishmentId) {
+    return res.status(400).json({ error: "establishmentId is required" });
+  }
+
+  // Check membership with edit rights
+  const { data: membership } = await supabase
+    .from("pro_establishment_memberships")
+    .select("role")
+    .eq("establishment_id", establishmentId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!membership || !["owner", "manager", "marketing"].includes(membership.role)) {
+    return res.status(403).json({ error: "Only owners, managers and marketing can start a trial" });
+  }
+
+  try {
+    const subscription = await startTrial(establishmentId, userId);
+    return res.json({
+      ok: true,
+      subscription: {
+        id: subscription.id,
+        status: subscription.status,
+        is_trial: subscription.is_trial,
+        trial_ends_at: subscription.trial_ends_at,
+      },
+      message: "Votre essai gratuit de 14 jours est actif !",
+    });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || "Impossible de demarrer l'essai" });
+  }
+};
+
+export const cancelUsernameSubscriptionHandler: RequestHandler = async (req, res) => {
+  const token = parseBearerToken(req.headers.authorization);
+  if (!token) return res.status(401).json({ error: "Unauthorized" });
+
+  const supabase = getAdminSupabase();
+
+  const { data: sessionData, error: sessionError } = await supabase.auth.getUser(token);
+  if (sessionError || !sessionData?.user?.id) {
+    return res.status(401).json({ error: "Invalid session" });
+  }
+
+  const userId = sessionData.user.id;
+  const establishmentId = asString(req.params.establishmentId);
+
+  if (!establishmentId) {
+    return res.status(400).json({ error: "establishmentId is required" });
+  }
+
+  // Check membership with edit rights (owner only for cancel)
+  const { data: membership } = await supabase
+    .from("pro_establishment_memberships")
+    .select("role")
+    .eq("establishment_id", establishmentId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!membership || membership.role !== "owner") {
+    return res.status(403).json({ error: "Only owners can cancel subscriptions" });
+  }
+
+  try {
+    const subscription = await cancelSubscription(establishmentId, userId);
+    return res.json({
+      ok: true,
+      subscription: subscription
+        ? {
+            id: subscription.id,
+            status: subscription.status,
+            cancelled_at: subscription.cancelled_at,
+            expires_at: subscription.expires_at,
+          }
+        : null,
+      message: "L'abonnement reste actif jusqu'a expiration. Vous ne recevrez plus de rappels de renouvellement.",
+    });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || "Impossible d'annuler l'abonnement" });
+  }
+};
+
+// ---------------------------------------------------------------------------
+// BOOKING SOURCE STATS (Direct Link vs Platform)
+// ---------------------------------------------------------------------------
+
+export const getProBookingSourceStats: RequestHandler = async (req, res) => {
+  const token = parseBearerToken(req.headers.authorization);
+  if (!token) return res.status(401).json({ error: "Unauthorized" });
+
+  const supabase = getAdminSupabase();
+
+  const { data: sessionData, error: sessionError } = await supabase.auth.getUser(token);
+  if (sessionError || !sessionData?.user?.id) {
+    return res.status(401).json({ error: "Invalid session" });
+  }
+
+  const userId = sessionData.user.id;
+  const establishmentId = asString(req.params.establishmentId);
+
+  if (!establishmentId) {
+    return res.status(400).json({ error: "establishmentId is required" });
+  }
+
+  // Check membership
+  const { data: membership } = await supabase
+    .from("pro_establishment_memberships")
+    .select("role")
+    .eq("establishment_id", establishmentId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!membership) {
+    return res.status(403).json({ error: "Not a member of this establishment" });
+  }
+
+  // Parse period filter
+  const period = asString(req.query.period) || "month";
+  const now = new Date();
+  let startDate: Date;
+
+  switch (period) {
+    case "day":
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      break;
+    case "week":
+      const dayOfWeek = now.getDay();
+      startDate = new Date(now);
+      startDate.setDate(now.getDate() - dayOfWeek);
+      startDate.setHours(0, 0, 0, 0);
+      break;
+    case "year":
+      startDate = new Date(now.getFullYear(), 0, 1);
+      break;
+    case "month":
+    default:
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      break;
+  }
+
+  const startIso = startDate.toISOString();
+
+  // Get stats by booking source
+  const { data: reservations, error: resError } = await supabase
+    .from("reservations")
+    .select("id, booking_source, amount_total, status, commission_amount")
+    .eq("establishment_id", establishmentId)
+    .gte("created_at", startIso)
+    .in("status", ["confirmed", "pending_pro_validation", "noshow"]);
+
+  if (resError) {
+    return res.status(500).json({ error: resError.message });
+  }
+
+  const rows = (reservations ?? []) as Array<{
+    id: string;
+    booking_source: string | null;
+    amount_total: number | null;
+    status: string;
+    commission_amount: number | null;
+  }>;
+
+  // Calculate stats
+  let platformCount = 0;
+  let platformRevenue = 0;
+  let platformCommissions = 0;
+  let directLinkCount = 0;
+  let directLinkRevenue = 0;
+  let directLinkSavings = 0;
+
+  // Get establishment commission rate for savings calculation
+  const { data: commissionOverride } = await supabase
+    .from("establishment_commission_overrides")
+    .select("commission_percent")
+    .eq("establishment_id", establishmentId)
+    .eq("active", true)
+    .maybeSingle();
+
+  const { data: financeRules } = await supabase
+    .from("finance_rules")
+    .select("standard_commission_percent")
+    .eq("id", 1)
+    .maybeSingle();
+
+  const commissionRate =
+    (commissionOverride as any)?.commission_percent ??
+    (financeRules as any)?.standard_commission_percent ??
+    10;
+
+  for (const r of rows) {
+    const source = r.booking_source || "platform";
+    const amount = typeof r.amount_total === "number" ? r.amount_total : 0;
+    const commission = typeof r.commission_amount === "number" ? r.commission_amount : 0;
+
+    if (source === "direct_link") {
+      directLinkCount++;
+      directLinkRevenue += amount;
+      // Calculate savings (commission that would have been charged)
+      directLinkSavings += Math.round((amount * commissionRate) / 100);
+    } else {
+      platformCount++;
+      platformRevenue += amount;
+      platformCommissions += commission;
+    }
+  }
+
+  const totalCount = platformCount + directLinkCount;
+  const conversionRate = totalCount > 0 ? Math.round((directLinkCount / totalCount) * 100) : 0;
+
+  return res.json({
+    ok: true,
+    period,
+    startDate: startIso,
+    stats: {
+      platform: {
+        count: platformCount,
+        revenue: platformRevenue,
+        commissions: platformCommissions,
+      },
+      directLink: {
+        count: directLinkCount,
+        revenue: directLinkRevenue,
+        savings: directLinkSavings,
+      },
+      total: {
+        count: totalCount,
+        revenue: platformRevenue + directLinkRevenue,
+      },
+      directLinkPercent: conversionRate,
+    },
+  });
 };

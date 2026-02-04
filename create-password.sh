@@ -2,7 +2,7 @@
 # Script pour créer le fichier .htpasswd avec le mot de passe
 
 USERNAME="admin"
-PASSWORD="sambooking2026YES"
+PASSWORD="sam2026YES"
 
 echo "Création du fichier .htpasswd..."
 echo "Username: $USERNAME"

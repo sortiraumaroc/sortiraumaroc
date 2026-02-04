@@ -88,24 +88,24 @@ export function ProKpiCard({
           </div>
         </div>
 
-        <div className="flex min-w-0 flex-1 flex-col justify-center px-4 py-4">
+        <div className="flex min-w-0 flex-1 flex-col justify-center px-3 py-3 sm:px-4 sm:py-4">
           <div className="min-w-0">
-            <div className="flex min-w-0 items-baseline gap-2">
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
               <div
                 className={cn(
-                  "min-w-0 whitespace-nowrap text-[1.4rem] font-extrabold leading-none tracking-tight text-slate-900 tabular-nums sm:text-[1.75rem] md:text-3xl",
+                  "min-w-0 text-xl font-extrabold leading-tight tracking-tight text-slate-900 tabular-nums sm:text-2xl md:text-3xl",
                   valueClassName,
                 )}
               >
                 {value}
               </div>
-              {meta && metaPosition === "inline" ? <div className="shrink-0">{meta}</div> : null}
+              {meta && metaPosition === "inline" ? <div className="shrink-0 max-w-full">{meta}</div> : null}
             </div>
-            <div className="mt-1 truncate text-sm font-semibold text-slate-600">{title}</div>
+            <div className="mt-1 text-xs font-semibold text-slate-600 sm:text-sm">{title}</div>
             {meta && metaPosition === "below" ? <div className="mt-2">{meta}</div> : null}
           </div>
 
-          {footnote ? <div className="mt-2 text-xs text-slate-500">{footnote}</div> : null}
+          {footnote ? <div className="mt-1.5 text-[10px] text-slate-500 sm:mt-2 sm:text-xs">{footnote}</div> : null}
         </div>
       </div>
     </Card>

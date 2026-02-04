@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 
 import { LanguageSwitcher } from "@/components/i18n/LanguageSwitcher";
+import { NewsletterSignup } from "@/components/NewsletterSignup";
 import { useI18n } from "@/lib/i18n";
 import { addLocalePrefix } from "@/lib/i18n/types";
 
@@ -70,6 +71,14 @@ export function Footer() {
               </li>
               <li>
                 <Link
+                  to={href("/videos")}
+                  className="hover:text-primary"
+                >
+                  {t("footer.link.videos")}
+                </Link>
+              </li>
+              <li>
+                <Link
                   to={contentHref("carrieres", "careers")}
                   className="hover:text-primary"
                 >
@@ -91,9 +100,9 @@ export function Footer() {
             </h4>
             <ul className="space-y-2 text-sm text-white">
               <li>
-                <DisabledFooterLink>
-                  {t("footer.link.for_restaurateurs")}
-                </DisabledFooterLink>
+                <Link to={href("/parrainage")} className="hover:text-primary">
+                  {t("footer.link.become_sponsor")}
+                </Link>
               </li>
               <li>
                 <Link to="/partners" className="hover:text-primary">
@@ -222,6 +231,8 @@ export function Footer() {
                 {t("footer.link.google_play")}
               </DisabledFooterLink>
             </div>
+
+            <NewsletterSignup />
           </div>
         </div>
         <div className="bg-black pb-8 pt-16 mt-[19px] text-center text-sm text-white">

@@ -37,20 +37,6 @@ export default {
           warning: "#f59e0b",
           error: "#ef4444",
         },
-        // Alias pour compatibilité (deprecated - utiliser sam.*)
-        sambooking: {
-          primary: "#a3001d",
-          "primary-hover": "#8a0019",
-          "primary-light": "#c9002e",
-          "primary-dark": "#7a0016",
-          secondary: "#1a1a2e",
-          "secondary-light": "#2d2d44",
-          accent: "#f4a261",
-          "accent-hover": "#e8944f",
-          success: "#10b981",
-          warning: "#f59e0b",
-          error: "#ef4444",
-        },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
           foreground: "hsl(var(--secondary-foreground))",

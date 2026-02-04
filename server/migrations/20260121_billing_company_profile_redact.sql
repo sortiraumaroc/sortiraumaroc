@@ -1,12 +1,12 @@
 begin;
 
 -- IMPORTANT: This project should not contain real corporate identifiers.
--- Replace any previously seeded legal entity data with neutral Sam’Booking placeholders.
+-- Replace any previously seeded legal entity data with neutral Sortir Au Maroc placeholders.
 
 update public.billing_company_profile
 set
-  legal_name = 'Sam’Booking',
-  trade_name = 'Sam’Booking',
+  legal_name = 'Sortir Au Maroc',
+  trade_name = 'Sortir Au Maroc',
   legal_form = 'Plateforme (provisoire)',
   ice = 'N/A',
   rc_number = 'N/A',

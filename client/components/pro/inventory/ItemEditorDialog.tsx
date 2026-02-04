@@ -28,9 +28,11 @@ import {
   dietaryById,
   normalizeAllergens,
   normalizeDietary,
+  getMetaConfigForUniverse,
   type SpicyLevel,
+  type UniverseMetaConfig,
 } from "./inventoryAllergens";
-import { INVENTORY_LABELS, labelById, normalizeLabels } from "./inventoryLabels";
+import { getLabelsForUniverse, labelById, normalizeLabels } from "./inventoryLabels";
 import { centsToMoneyInput, parseMoneyInputToCents, toDatetimeLocalValue } from "./inventoryUtils";
 
 type VariantDraft = {
@@ -46,6 +48,7 @@ type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   establishmentId: string;
+  universe: string | null | undefined;
   categories: ProInventoryCategory[];
   item: ProInventoryItem | null;
   canWrite: boolean;
@@ -107,8 +110,12 @@ function buildVariantPayload(d: VariantDraft) {
   };
 }
 
-export function ItemEditorDialog({ open, onOpenChange, establishmentId, categories, item, canWrite, onSaved }: Props) {
+export function ItemEditorDialog({ open, onOpenChange, establishmentId, universe, categories, item, canWrite, onSaved }: Props) {
   const isEdit = !!item?.id;
+
+  // Configuration dynamique selon l'univers
+  const universeLabels = useMemo(() => getLabelsForUniverse(universe), [universe]);
+  const metaConfig = useMemo(() => getMetaConfigForUniverse(universe), [universe]);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -135,6 +142,9 @@ export function ItemEditorDialog({ open, onOpenChange, establishmentId, categori
   const [titleEn, setTitleEn] = useState("");
   const [descriptionEn, setDescriptionEn] = useState("");
   const [showTranslations, setShowTranslations] = useState(false);
+
+  // Métadonnées dynamiques par univers (stockées dans meta avec préfixe "universe_")
+  const [universeMeta, setUniverseMeta] = useState<Record<string, string[]>>({});
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -173,7 +183,22 @@ export function ItemEditorDialog({ open, onOpenChange, establishmentId, categori
     setAllergens(normalizeAllergens(metaAllergens.map(String)));
     setDietary(normalizeDietary(metaDietary.map(String)));
     setSpicyLevel(SPICY_LEVELS.some((s) => s.id === metaSpicy) ? (metaSpicy as SpicyLevel) : "none");
-  }, [open, item]);
+
+    // Charger les métadonnées dynamiques par univers
+    const loadedUniverseMeta: Record<string, string[]> = {};
+    for (const section of metaConfig.sections) {
+      const key = `universe_${section.id}`;
+      const value = meta[key];
+      if (Array.isArray(value)) {
+        loadedUniverseMeta[section.id] = value.map(String);
+      } else if (typeof value === "string") {
+        loadedUniverseMeta[section.id] = [value];
+      } else {
+        loadedUniverseMeta[section.id] = [];
+      }
+    }
+    setUniverseMeta(loadedUniverseMeta);
+  }, [open, item, metaConfig]);
 
   const activeCategoryOptions = useMemo(() => {
     const all = categories.filter((c) => c.is_active);
@@ -249,6 +274,23 @@ export function ItemEditorDialog({ open, onOpenChange, establishmentId, categori
     });
   };
 
+  // Toggle pour les métadonnées dynamiques par univers
+  const toggleUniverseMeta = (sectionId: string, optionId: string, multiple: boolean) => {
+    setUniverseMeta((prev) => {
+      const current = prev[sectionId] ?? [];
+      if (multiple) {
+        // Checkbox: toggle
+        const set = new Set(current);
+        if (set.has(optionId)) set.delete(optionId);
+        else set.add(optionId);
+        return { ...prev, [sectionId]: Array.from(set) };
+      } else {
+        // Radio: remplacer
+        return { ...prev, [sectionId]: [optionId] };
+      }
+    });
+  };
+
   const submit = async () => {
     if (!canSubmit) return;
 
@@ -296,12 +338,19 @@ export function ItemEditorDialog({ open, onOpenChange, establishmentId, categori
 
     // Construire l'objet meta avec les informations alimentaires et traductions
     const meta: Record<string, unknown> = {};
-    if (allergens.length > 0) meta.allergens = allergens;
-    if (dietary.length > 0) meta.dietary = dietary;
-    if (spicyLevel !== "none") meta.spicy_level = spicyLevel;
+    if (metaConfig.showAllergens && allergens.length > 0) meta.allergens = allergens;
+    if (metaConfig.showDietary && dietary.length > 0) meta.dietary = dietary;
+    if (metaConfig.showSpicyLevel && spicyLevel !== "none") meta.spicy_level = spicyLevel;
     // Traductions anglais
     if (titleEn.trim()) meta.title_en = titleEn.trim();
     if (descriptionEn.trim()) meta.description_en = descriptionEn.trim();
+    // Métadonnées dynamiques par univers
+    for (const section of metaConfig.sections) {
+      const values = universeMeta[section.id] ?? [];
+      if (values.length > 0) {
+        meta[`universe_${section.id}`] = values;
+      }
+    }
 
     try {
       if (isEdit && item) {
@@ -436,7 +485,7 @@ export function ItemEditorDialog({ open, onOpenChange, establishmentId, categori
             <div className="space-y-2">
               <Label>Labels</Label>
               <div className="flex flex-wrap gap-2">
-                {INVENTORY_LABELS.map((l) => {
+                {universeLabels.map((l) => {
                   const active = labels.includes(l.id);
                   return (
                     <button
@@ -456,19 +505,6 @@ export function ItemEditorDialog({ open, onOpenChange, establishmentId, categori
                   );
                 })}
               </div>
-              {labels.length ? (
-                <div className="flex flex-wrap gap-2">
-                  {labels.map((id) => {
-                    const l = labelById(id);
-                    if (!l) return null;
-                    return (
-                      <Badge key={id} className={l.badgeClassName}>
-                        {l.emoji} {l.title}
-                      </Badge>
-                    );
-                  })}
-                </div>
-              ) : null}
             </div>
 
             <div className="space-y-2">
@@ -523,101 +559,149 @@ export function ItemEditorDialog({ open, onOpenChange, establishmentId, categori
               ) : null}
             </div>
 
-            {/* Informations alimentaires */}
-            <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-4">
-              <div className="font-bold text-slate-900">Informations alimentaires</div>
+            {/* Informations alimentaires - seulement pour restaurants */}
+            {(metaConfig.showAllergens || metaConfig.showDietary || metaConfig.showSpicyLevel) && (
+              <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-4">
+                <div className="font-bold text-slate-900">Informations alimentaires</div>
 
-              {/* Niveau d'épice */}
-              <div className="space-y-2">
-                <Label className="text-sm">Niveau d'épice</Label>
-                <div className="flex flex-wrap gap-1">
-                  {SPICY_LEVELS.map((level) => (
-                    <button
-                      key={level.id}
-                      type="button"
-                      disabled={!canWrite}
-                      onClick={() => setSpicyLevel(level.id)}
-                      className={`
-                        rounded-md border px-2 py-1 text-xs font-medium transition
-                        ${spicyLevel === level.id
-                          ? "bg-orange-100 text-orange-700 border-orange-300"
-                          : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                        }
-                        ${!canWrite ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}
-                      `}
-                    >
-                      {level.emoji || "○"} {level.title}
-                    </button>
-                  ))}
-                </div>
-              </div>
+                {/* Niveau d'épice */}
+                {metaConfig.showSpicyLevel && (
+                  <div className="space-y-2">
+                    <Label className="text-sm">Niveau d'épice</Label>
+                    <div className="flex flex-wrap gap-1">
+                      {SPICY_LEVELS.map((level) => (
+                        <button
+                          key={level.id}
+                          type="button"
+                          disabled={!canWrite}
+                          onClick={() => setSpicyLevel(level.id)}
+                          className={`
+                            rounded-md border px-2 py-1 text-xs font-medium transition
+                            ${spicyLevel === level.id
+                              ? "bg-orange-100 text-orange-700 border-orange-300"
+                              : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                            }
+                            ${!canWrite ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}
+                          `}
+                        >
+                          {level.emoji || "○"} {level.title}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
-              {/* Régimes alimentaires */}
-              <div className="space-y-2">
-                <Label className="text-sm">Régimes / Certifications</Label>
-                <div className="flex flex-wrap gap-1">
-                  {DIETARY_PREFERENCES.map((pref) => {
-                    const active = dietary.includes(pref.id);
-                    return (
-                      <button
-                        key={pref.id}
-                        type="button"
-                        disabled={!canWrite}
-                        onClick={() => toggleDietary(pref.id)}
-                        title={pref.description}
-                        className={`
-                          rounded-md border px-2 py-1 text-xs font-medium transition
-                          ${active
-                            ? "bg-emerald-100 text-emerald-700 border-emerald-300"
-                            : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                          }
-                          ${!canWrite ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}
-                        `}
-                      >
-                        {pref.emoji} {pref.title}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+                {/* Régimes alimentaires */}
+                {metaConfig.showDietary && (
+                  <div className="space-y-2">
+                    <Label className="text-sm">Régimes / Certifications</Label>
+                    <div className="flex flex-wrap gap-1">
+                      {DIETARY_PREFERENCES.map((pref) => {
+                        const active = dietary.includes(pref.id);
+                        return (
+                          <button
+                            key={pref.id}
+                            type="button"
+                            disabled={!canWrite}
+                            onClick={() => toggleDietary(pref.id)}
+                            title={pref.description}
+                            className={`
+                              rounded-md border px-2 py-1 text-xs font-medium transition
+                              ${active
+                                ? "bg-emerald-100 text-emerald-700 border-emerald-300"
+                                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                              }
+                              ${!canWrite ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}
+                            `}
+                          >
+                            {pref.emoji} {pref.title}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
-              {/* Allergènes */}
-              <div className="space-y-2">
-                <Label className="text-sm">
-                  Allergènes présents
-                  <span className="ml-1 text-xs text-slate-400 font-normal">(14 allergènes majeurs UE)</span>
-                </Label>
-                <div className="flex flex-wrap gap-1">
-                  {ALL_ALLERGENS.map((allergen) => {
-                    const active = allergens.includes(allergen.id);
-                    return (
-                      <button
-                        key={allergen.id}
-                        type="button"
-                        disabled={!canWrite}
-                        onClick={() => toggleAllergen(allergen.id)}
-                        title={allergen.description}
-                        className={`
-                          rounded-md border px-2 py-1 text-xs font-medium transition
-                          ${active
-                            ? "bg-amber-100 text-amber-700 border-amber-300"
-                            : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                          }
-                          ${!canWrite ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}
-                        `}
-                      >
-                        {allergen.emoji} {allergen.title}
-                      </button>
-                    );
-                  })}
-                </div>
-                {allergens.length > 0 && (
-                  <div className="text-xs text-amber-600 mt-1">
-                    ⚠️ {allergens.length} allergène{allergens.length > 1 ? "s" : ""} sélectionné{allergens.length > 1 ? "s" : ""}
+                {/* Allergènes */}
+                {metaConfig.showAllergens && (
+                  <div className="space-y-2">
+                    <Label className="text-sm">
+                      Allergènes présents
+                      <span className="ml-1 text-xs text-slate-400 font-normal">(14 allergènes majeurs UE)</span>
+                    </Label>
+                    <div className="flex flex-wrap gap-1">
+                      {ALL_ALLERGENS.map((allergen) => {
+                        const active = allergens.includes(allergen.id);
+                        return (
+                          <button
+                            key={allergen.id}
+                            type="button"
+                            disabled={!canWrite}
+                            onClick={() => toggleAllergen(allergen.id)}
+                            title={allergen.description}
+                            className={`
+                              rounded-md border px-2 py-1 text-xs font-medium transition
+                              ${active
+                                ? "bg-amber-100 text-amber-700 border-amber-300"
+                                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                              }
+                              ${!canWrite ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}
+                            `}
+                          >
+                            {allergen.emoji} {allergen.title}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {allergens.length > 0 && (
+                      <div className="text-xs text-amber-600 mt-1">
+                        ⚠️ {allergens.length} allergène{allergens.length > 1 ? "s" : ""} sélectionné{allergens.length > 1 ? "s" : ""}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-            </div>
+            )}
+
+            {/* Sections dynamiques par univers */}
+            {metaConfig.sections.length > 0 && (
+              <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-4">
+                <div className="font-bold text-slate-900">Caractéristiques</div>
+
+                {metaConfig.sections.map((section) => {
+                  const selectedValues = universeMeta[section.id] ?? [];
+                  return (
+                    <div key={section.id} className="space-y-2">
+                      <Label className="text-sm">{section.title}</Label>
+                      <div className="flex flex-wrap gap-1">
+                        {section.options.map((option) => {
+                          const active = selectedValues.includes(option.id);
+                          return (
+                            <button
+                              key={option.id}
+                              type="button"
+                              disabled={!canWrite}
+                              onClick={() => toggleUniverseMeta(section.id, option.id, section.multiple)}
+                              title={option.description}
+                              className={`
+                                rounded-md border px-2 py-1 text-xs font-medium transition
+                                ${active
+                                  ? "bg-primary/10 text-primary border-primary/30"
+                                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                                }
+                                ${!canWrite ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}
+                              `}
+                            >
+                              {option.emoji} {option.title}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
               <div className="font-bold text-slate-900">Prix</div>

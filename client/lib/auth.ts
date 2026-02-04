@@ -218,3 +218,101 @@ export async function getConsumerUserId(): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * Get the consumer's email from the current auth session.
+ * Returns null if not authenticated or if using phone auth without email.
+ */
+export async function getConsumerEmail(): Promise<string | null> {
+  try {
+    const { data, error } = await consumerSupabase.auth.getSession();
+    if (error) {
+      if (isStaleConsumerAuthError(error)) await resetConsumerAuth();
+      return null;
+    }
+
+    const email = data.session?.user?.email ?? null;
+    // Filter out synthetic phone emails (e.g., +212xxx@phone.sortiraumaroc.ma)
+    if (email && email.endsWith("@phone.sortiraumaroc.ma")) {
+      return null;
+    }
+    return email;
+  } catch (e) {
+    if (isStaleConsumerAuthError(e)) await resetConsumerAuth();
+    return null;
+  }
+}
+
+/**
+ * Get the consumer's phone from user metadata (if authenticated via phone).
+ * Returns null if not authenticated or if using email auth.
+ */
+export async function getConsumerPhone(): Promise<string | null> {
+  try {
+    const { data, error } = await consumerSupabase.auth.getSession();
+    if (error) {
+      if (isStaleConsumerAuthError(error)) await resetConsumerAuth();
+      return null;
+    }
+
+    const user = data.session?.user;
+    if (!user) return null;
+
+    // Phone can be in user.phone or in user_metadata.phone
+    const phone = user.phone || (user.user_metadata?.phone as string | undefined);
+    return phone ?? null;
+  } catch (e) {
+    if (isStaleConsumerAuthError(e)) await resetConsumerAuth();
+    return null;
+  }
+}
+
+export type ConsumerAuthInfo = {
+  userId: string | null;
+  email: string | null;
+  phone: string | null;
+  authMethod: "email" | "phone" | null;
+};
+
+/**
+ * Get comprehensive auth info for the current consumer.
+ * Useful for determining which auth method was used and which identifier to display.
+ */
+export async function getConsumerAuthInfo(): Promise<ConsumerAuthInfo> {
+  try {
+    const { data, error } = await consumerSupabase.auth.getSession();
+    if (error) {
+      if (isStaleConsumerAuthError(error)) await resetConsumerAuth();
+      return { userId: null, email: null, phone: null, authMethod: null };
+    }
+
+    const user = data.session?.user;
+    if (!user) {
+      return { userId: null, email: null, phone: null, authMethod: null };
+    }
+
+    const rawEmail = user.email ?? null;
+    const isPhoneEmail = rawEmail?.endsWith("@phone.sortiraumaroc.ma") ?? false;
+    const email = rawEmail && !isPhoneEmail ? rawEmail : null;
+
+    const phone = user.phone || (user.user_metadata?.phone as string | undefined) || null;
+
+    // Determine auth method
+    let authMethod: "email" | "phone" | null = null;
+    if (isPhoneEmail || phone) {
+      authMethod = "phone";
+    } else if (email) {
+      authMethod = "email";
+    }
+
+    return {
+      userId: user.id,
+      email,
+      phone,
+      authMethod,
+    };
+  } catch (e) {
+    if (isStaleConsumerAuthError(e)) await resetConsumerAuth();
+    return { userId: null, email: null, phone: null, authMethod: null };
+  }
+}

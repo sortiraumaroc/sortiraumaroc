@@ -214,6 +214,34 @@ export function formatLeJjMmAaAHeure(input: DateInput, args?: { timeZone?: strin
 }
 
 /**
+ * Format long français: "Mardi 4 février 2026 à 10h18"
+ * Idéal pour les emails destinés aux utilisateurs
+ */
+export function formatDateLongFr(input: DateInput, args?: { timeZone?: string }): string {
+  const tz = args?.timeZone ?? "Africa/Casablanca";
+  const d = getDate(input);
+  if (!d || isNaN(d.getTime())) return "";
+
+  const dateStr = d.toLocaleDateString("fr-FR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: tz,
+  });
+
+  const timeStr = d.toLocaleTimeString("fr-FR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: tz,
+  });
+
+  // Capitaliser la première lettre du jour
+  const capitalized = dateStr.charAt(0).toUpperCase() + dateStr.slice(1);
+  return `${capitalized} à ${timeStr.replace(":", "h")}`;
+}
+
+/**
  * Convertit une heure "HH:mm" (valeurs issues des slots) en libellé "HHhMM".
  * (N'affecte pas les valeurs stockées / API, uniquement l'affichage.)
  */

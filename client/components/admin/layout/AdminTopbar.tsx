@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
-import { Bell, LogOut, Menu, User, ChevronDown } from "lucide-react";
+import { LogOut, Menu, User, ChevronDown } from "lucide-react";
 
 import { NotificationBody } from "@/components/NotificationBody";
-import { AdminNotificationsPanel } from "@/components/admin/notifications/AdminNotificationsPanel";
+import { AdminNotificationsSheet } from "@/components/admin/notifications/AdminNotificationsSheet";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import {
@@ -22,7 +23,7 @@ import {
   type AdminNotificationPreferences,
 } from "@/lib/adminNotificationPreferences";
 import { playAdminNotificationSound } from "@/lib/adminNotificationSound";
-import { decodeAdminSessionToken, getAdminMyProfile, getAdminNotificationsUnreadCount, listAdminNotifications, markAllAdminNotificationsRead, type AdminNotification, type AdminMyProfile } from "@/lib/adminApi";
+import { decodeAdminSessionToken, getAdminMyProfile, getAdminNotificationsUnreadCount, listAdminNotifications, type AdminNotification, type AdminMyProfile } from "@/lib/adminApi";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 import { AdminSidebar } from "@/components/admin/layout/AdminSidebar";
@@ -61,6 +62,7 @@ function getRoleLabel(roleId: string | null | undefined): string {
 }
 
 export function AdminTopbar(props: { onSignOut: () => void }) {
+  const navigate = useNavigate();
   const adminKey = undefined;
 
   // Get logged-in collaborator info from session token
@@ -68,7 +70,6 @@ export function AdminTopbar(props: { onSignOut: () => void }) {
   const displayName = sessionPayload?.name || sessionPayload?.sub || "Admin";
   const roleLabel = getRoleLabel(sessionPayload?.role);
 
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [unread, setUnread] = useState(0);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [userProfile, setUserProfile] = useState<AdminMyProfile | null>(null);
@@ -123,8 +124,8 @@ export function AdminTopbar(props: { onSignOut: () => void }) {
   }, [adminKey]);
 
   const openFromToast = useCallback(() => {
-    setNotificationsOpen(true);
-  }, []);
+    navigate("/admin/notifications");
+  }, [navigate]);
 
   const pollNewNotifications = useCallback(async () => {
     await refreshUnread();
@@ -225,11 +226,6 @@ export function AdminTopbar(props: { onSignOut: () => void }) {
     };
   }, [pollNewNotifications, refreshUnread]);
 
-  const notificationsLabel = useMemo(() => {
-    if (!unread) return "Notifications";
-    return `Notifications (${unread} non lues)`;
-  }, [unread]);
-
   return (
     <div className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
       <div className="mx-auto w-full max-w-screen-2xl px-4 py-3">
@@ -256,39 +252,11 @@ export function AdminTopbar(props: { onSignOut: () => void }) {
           <div className="flex items-center gap-2">
             <AdminGlobalSearch />
 
-            <Sheet open={notificationsOpen} onOpenChange={(isOpen) => {
-              setNotificationsOpen(isOpen);
-              if (isOpen && unread > 0) {
-                void markAllAdminNotificationsRead(adminKey).then(() => {
-                  void refreshUnread();
-                });
-              }
-            }}>
-              <SheetTrigger asChild>
-                <Button variant="outline" size="icon" className="relative" aria-label={notificationsLabel} title={notificationsLabel}>
-                  <Bell className="h-4 w-4" />
-                  {unread > 0 ? (
-                    <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[11px] font-extrabold flex items-center justify-center">
-                      {unread > 99 ? "99+" : unread}
-                    </span>
-                  ) : null}
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="right" className="w-full sm:max-w-xl">
-                <SheetHeader className="sr-only">
-                  <SheetTitle>{notificationsLabel}</SheetTitle>
-                </SheetHeader>
-                <div className="h-full flex flex-col">
-                  <div className="pb-3 border-b border-slate-200">
-                    <div className="text-lg font-extrabold text-slate-900">Notifications</div>
-                    <div className="text-sm text-slate-600">Réservations, paiements, modération, finance.</div>
-                  </div>
-                  <div className="flex-1 overflow-auto pt-4">
-                    <AdminNotificationsPanel adminKey={adminKey} onUnreadChange={setUnread} />
-                  </div>
-                </div>
-              </SheetContent>
-            </Sheet>
+            <AdminNotificationsSheet
+              adminKey={adminKey}
+              unreadCount={unread}
+              onUnreadCountChange={setUnread}
+            />
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

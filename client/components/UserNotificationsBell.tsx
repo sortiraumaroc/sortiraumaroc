@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { Bell, Check } from "lucide-react";
+import { Bell, Check, Trash2 } from "lucide-react";
 
 import { NotificationBody } from "@/components/NotificationBody";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import {
   listMyConsumerNotifications,
   markAllMyConsumerNotificationsRead,
   markMyConsumerNotificationRead,
+  deleteMyConsumerNotification,
   type ConsumerNotificationRow,
 } from "@/lib/consumerNotificationsApi";
 import { USER_DATA_CHANGED_EVENT, getPackPurchases, type BookingRecord } from "@/lib/userData";
@@ -135,6 +136,22 @@ export function UserNotificationsBell(props: { enabled: boolean; inverted?: bool
     setTick((v) => v + 1);
   };
 
+  const deleteNotification = (id: string) => {
+    const trimmed = String(id ?? "").trim();
+    if (!trimmed) return;
+
+    if (trimmed.startsWith("event:")) {
+      const eventId = trimmed.slice("event:".length);
+      void deleteMyConsumerNotification(eventId).catch(() => {
+        // Best-effort
+      });
+    }
+
+    // Update local state to remove from list
+    setConsumerEvents((prev) => prev.filter((ev) => `event:${ev.id}` !== trimmed));
+    setTick((v) => v + 1);
+  };
+
   const goToAll = () => {
     setOpen(false);
     navigate("/profile?tab=notifications");
@@ -225,16 +242,29 @@ export function UserNotificationsBell(props: { enabled: boolean; inverted?: bool
                       ) : null}
                     </div>
 
-                    {unread ? (
-                      <Button variant="outline" size="sm" onClick={() => markRead(n.id)}>
-                        Marquer lu
-                      </Button>
-                    ) : (
-                      <div className="text-xs text-slate-500 flex items-center gap-1">
-                        <Check className="h-3.5 w-3.5" />
-                        Lu
-                      </div>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {unread ? (
+                        <Button variant="outline" size="sm" onClick={() => markRead(n.id)}>
+                          Marquer lu
+                        </Button>
+                      ) : (
+                        <div className="text-xs text-slate-500 flex items-center gap-1">
+                          <Check className="h-3.5 w-3.5" />
+                          Lu
+                        </div>
+                      )}
+                      {n.id.startsWith("event:") && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-slate-400 hover:text-red-500"
+                          onClick={() => deleteNotification(n.id)}
+                          title="Supprimer"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
               );

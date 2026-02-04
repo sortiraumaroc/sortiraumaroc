@@ -2,6 +2,7 @@
  * Routes publiques pour le système publicitaire
  *
  * - GET /api/public/ads/sponsored - Résultats sponsorisés pour une recherche
+ * - GET /api/public/ads/featured-pack - Pack Mise en Avant pour la homepage
  * - POST /api/public/ads/impression - Tracker une impression
  * - POST /api/public/ads/click - Tracker un clic
  */
@@ -193,6 +194,161 @@ export const getSponsoredResults: RequestHandler = async (req, res) => {
 };
 
 // =============================================================================
+// GET FEATURED PACK (for homepage sections)
+// =============================================================================
+
+/**
+ * GET /api/public/ads/featured-pack
+ * Récupère un établissement mis en avant pour une section de la homepage
+ * Utilise une sélection aléatoire pondérée par le score d'enchère
+ */
+export const getFeaturedPack: RequestHandler = async (req, res) => {
+  const supabase = getAdminSupabase();
+
+  const section = asString(req.query.section) || "selected_for_you";
+  const universe = asString(req.query.universe);
+  const excludeIds = asString(req.query.exclude)?.split(",").filter(Boolean) || [];
+
+  try {
+    // Récupérer les campagnes actives de type "featured_pack"
+    const { data: campaigns, error } = await supabase
+      .from("pro_campaigns")
+      .select(`
+        id,
+        establishment_id,
+        title,
+        bid_amount_cents,
+        cpm_cents,
+        daily_budget_cents,
+        daily_spent_cents,
+        targeting,
+        quality_score,
+        ctr,
+        establishments!inner(
+          id,
+          name,
+          slug,
+          universe,
+          city,
+          address,
+          cover_url,
+          subcategory,
+          avg_rating,
+          review_count,
+          booking_enabled,
+          lat,
+          lng,
+          status
+        )
+      `)
+      .eq("type", "featured_pack")
+      .eq("status", "active")
+      .eq("moderation_status", "approved");
+
+    if (error) {
+      console.error("[publicAds] Error fetching featured pack campaigns:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+
+    if (!campaigns || campaigns.length === 0) {
+      return res.json({ ok: true, featured: null });
+    }
+
+    // Filtrer les campagnes éligibles
+    const eligibleCampaigns = campaigns.filter((campaign) => {
+      // Vérifier le budget quotidien
+      if (campaign.daily_budget_cents && campaign.daily_spent_cents) {
+        if (campaign.daily_spent_cents >= campaign.daily_budget_cents) {
+          return false;
+        }
+      }
+
+      const establishment = (campaign as any).establishments;
+      if (!establishment || establishment.status !== "active") {
+        return false;
+      }
+
+      // Exclure les IDs déjà affichés
+      if (excludeIds.includes(establishment.id)) {
+        return false;
+      }
+
+      // Filtrer par univers si spécifié
+      if (universe && establishment.universe !== universe) {
+        return false;
+      }
+
+      const targeting = campaign.targeting as any;
+
+      // Filtrer par section si ciblage défini
+      if (targeting?.sections?.length > 0) {
+        if (!targeting.sections.includes(section)) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    if (eligibleCampaigns.length === 0) {
+      return res.json({ ok: true, featured: null });
+    }
+
+    // Calculer les scores pour la sélection pondérée
+    const scoredCampaigns = eligibleCampaigns.map((campaign) => {
+      const bidCents = campaign.cpm_cents ?? campaign.bid_amount_cents ?? 1000;
+      const qualityScore = campaign.quality_score ?? 1.0;
+      const ctr = campaign.ctr ?? 0.01;
+      const ctrFactor = 1 + Math.log10(1 + ctr * 100);
+      const score = bidCents * qualityScore * ctrFactor;
+
+      return { campaign, score };
+    });
+
+    // Sélection aléatoire pondérée
+    const totalScore = scoredCampaigns.reduce((sum, item) => sum + item.score, 0);
+    let random = Math.random() * totalScore;
+    let selectedCampaign = scoredCampaigns[0].campaign;
+
+    for (const item of scoredCampaigns) {
+      random -= item.score;
+      if (random <= 0) {
+        selectedCampaign = item.campaign;
+        break;
+      }
+    }
+
+    const establishment = (selectedCampaign as any).establishments;
+
+    return res.json({
+      ok: true,
+      featured: {
+        campaign_id: selectedCampaign.id,
+        establishment: {
+          id: establishment.id,
+          slug: establishment.slug,
+          name: establishment.name,
+          universe: establishment.universe,
+          city: establishment.city,
+          address: establishment.address,
+          cover_url: establishment.cover_url,
+          subcategory: establishment.subcategory,
+          avg_rating: establishment.avg_rating,
+          review_count: establishment.review_count,
+          booking_enabled: establishment.booking_enabled,
+          lat: establishment.lat,
+          lng: establishment.lng,
+        },
+        cpm_cents: selectedCampaign.cpm_cents ?? selectedCampaign.bid_amount_cents,
+      },
+    });
+  } catch (error) {
+    console.error("[publicAds] getFeaturedPack error:", error);
+    return res.status(500).json({ error: "Erreur serveur" });
+  }
+};
+
+// =============================================================================
 // TRACK IMPRESSION
 // =============================================================================
 
@@ -324,8 +480,87 @@ export const trackClick: RequestHandler = async (req, res) => {
 // REGISTER ROUTES
 // =============================================================================
 
+// =============================================================================
+// GET HOME TAKEOVER (today's homepage takeover)
+// =============================================================================
+
+/**
+ * GET /api/public/ads/home-takeover
+ * Récupère l'habillage homepage du jour (si actif)
+ */
+export const getHomeTakeover: RequestHandler = async (req, res) => {
+  const supabase = getAdminSupabase();
+  const today = new Date().toISOString().split("T")[0];
+
+  try {
+    // Chercher une entrée confirmée pour aujourd'hui
+    const { data: entry } = await supabase
+      .from("ad_home_takeover_calendar")
+      .select(`
+        id,
+        date,
+        campaign_id,
+        campaign:pro_campaigns(
+          id,
+          title,
+          targeting,
+          status,
+          moderation_status,
+          establishment_id,
+          establishment:establishments(
+            id,
+            name,
+            slug,
+            cover_url
+          )
+        )
+      `)
+      .eq("date", today)
+      .eq("status", "confirmed")
+      .maybeSingle();
+
+    if (!entry || !(entry as any).campaign) {
+      return res.json({ ok: true, takeover: null });
+    }
+
+    const campaign = (entry as any).campaign;
+    const establishment = campaign.establishment;
+    const targeting = campaign.targeting ?? {};
+
+    // Vérifier que la campagne est active
+    if (campaign.status !== "active" || campaign.moderation_status !== "approved") {
+      return res.json({ ok: true, takeover: null });
+    }
+
+    return res.json({
+      ok: true,
+      takeover: {
+        campaign_id: campaign.id,
+        title: campaign.title,
+        banner_desktop_url: targeting.banner_desktop_url ?? null,
+        banner_mobile_url: targeting.banner_mobile_url ?? null,
+        cta_text: targeting.cta_text ?? null,
+        cta_url: targeting.cta_url ?? null,
+        establishment: establishment
+          ? {
+              id: establishment.id,
+              name: establishment.name,
+              slug: establishment.slug,
+              cover_url: establishment.cover_url,
+            }
+          : null,
+      },
+    });
+  } catch (error) {
+    console.error("[publicAds] getHomeTakeover error:", error);
+    return res.status(500).json({ error: "Erreur serveur" });
+  }
+};
+
 export function registerPublicAdsRoutes(app: Router) {
   app.get("/api/public/ads/sponsored", getSponsoredResults);
+  app.get("/api/public/ads/featured-pack", getFeaturedPack);
+  app.get("/api/public/ads/home-takeover", getHomeTakeover);
   app.post("/api/public/ads/impression", trackImpression);
   app.post("/api/public/ads/click", trackClick);
 }

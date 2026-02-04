@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState, useEffect } from "react";
-import { Eye, EyeOff, X, Phone, RefreshCw, Loader2, ShieldCheck } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { Eye, EyeOff, X, Phone, RefreshCw, Loader2, ShieldCheck, Gift, CheckCircle2, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -11,6 +12,7 @@ import { useI18n } from "@/lib/i18n";
 import { consumerSupabase } from "@/lib/supabase";
 import { isFirebaseConfigured } from "@/lib/firebase";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { validateReferralCode } from "@/lib/referral/api";
 
 // Simple CAPTCHA generation (addition de deux nombres)
 function generateCaptcha(): { question: string; answer: number } {
@@ -152,6 +154,7 @@ function SocialButton({
 export function AuthModal({ isOpen, onClose, onAuthed, contextTitle, contextSubtitle }: AuthModalProps) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
+  const [searchParams] = useSearchParams();
   const [step, setStep] = useState<AuthStep>("login");
   const [showPhoneAuth, setShowPhoneAuth] = useState(false);
 
@@ -160,6 +163,12 @@ export function AuthModal({ isOpen, onClose, onAuthed, contextTitle, contextSubt
   const [showPassword, setShowPassword] = useState(false);
 
   const [forgotValue, setForgotValue] = useState("");
+
+  // Referral code states
+  const [referralCode, setReferralCode] = useState(() => searchParams.get("ref") || "");
+  const [referralCodeValid, setReferralCodeValid] = useState<boolean | null>(null);
+  const [referralCodeChecking, setReferralCodeChecking] = useState(false);
+  const [referralPartnerName, setReferralPartnerName] = useState<string | null>(null);
 
   // Lightweight anti-spam: honeypot field + basic throttling (client-side).
   // Note: for strong protection, combine with a server-verified CAPTCHA.
@@ -178,6 +187,32 @@ export function AuthModal({ isOpen, onClose, onAuthed, contextTitle, contextSubt
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // Validate referral code when it changes
+  useEffect(() => {
+    const code = referralCode.trim();
+    if (!code || code.length < 3) {
+      setReferralCodeValid(null);
+      setReferralPartnerName(null);
+      return;
+    }
+
+    const timeoutId = setTimeout(async () => {
+      setReferralCodeChecking(true);
+      try {
+        const result = await validateReferralCode(code);
+        setReferralCodeValid(result.valid);
+        setReferralPartnerName(result.partner_name || null);
+      } catch {
+        setReferralCodeValid(false);
+        setReferralPartnerName(null);
+      } finally {
+        setReferralCodeChecking(false);
+      }
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
+  }, [referralCode]);
 
   // Countdown timer for code expiration
   useEffect(() => {
@@ -508,6 +543,24 @@ export function AuthModal({ isOpen, onClose, onAuthed, contextTitle, contextSubt
 
       // Mark email as verified in local profile
       markEmailAsVerified(emailOrPhone.trim().toLowerCase());
+
+      // If there's a valid referral code, create the referral link
+      if (referralCodeValid && referralCode.trim() && data.user) {
+        try {
+          await fetch("/api/public/referral/link", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              referral_code: referralCode.trim(),
+              referree_user_id: data.user.id,
+              source: "registration",
+            }),
+          });
+        } catch (refErr) {
+          // Log but don't block signup if referral link creation fails
+          console.error("[Signup] Error creating referral link:", refErr);
+        }
+      }
 
       // Show success step
       setStep("signup_success");
@@ -843,6 +896,43 @@ export function AuthModal({ isOpen, onClose, onAuthed, contextTitle, contextSubt
                 </div>
               </Field>
 
+              {/* Referral Code Field (optional) */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm font-medium text-foreground" style={{ fontFamily: "Circular Std, sans-serif" }}>
+                  <Gift className="w-4 h-4 text-primary" />
+                  <span>Code de parrainage</span>
+                  <span className="text-slate-400 font-normal">(optionnel)</span>
+                </div>
+                <div className="relative">
+                  <input
+                    value={referralCode}
+                    onChange={(e) => setReferralCode(e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 20))}
+                    placeholder="Ex: SAMIRA123"
+                    className={`${inputBaseClassName} pr-10`}
+                    style={{ fontFamily: "Circular Std, sans-serif" }}
+                  />
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    {referralCodeChecking ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+                    ) : referralCodeValid === true ? (
+                      <CheckCircle2 className="w-4 h-4 text-green-500" />
+                    ) : referralCodeValid === false ? (
+                      <XCircle className="w-4 h-4 text-red-500" />
+                    ) : null}
+                  </div>
+                </div>
+                {referralCodeValid === true && referralPartnerName && (
+                  <p className="text-xs text-green-600">
+                    Parrainé par {referralPartnerName}
+                  </p>
+                )}
+                {referralCodeValid === false && referralCode.length >= 3 && (
+                  <p className="text-xs text-red-600">
+                    Code de parrainage invalide
+                  </p>
+                )}
+              </div>
+
               <Button
                 type="submit"
                 disabled={busy}
@@ -999,6 +1089,7 @@ export function AuthModal({ isOpen, onClose, onAuthed, contextTitle, contextSubt
           finishAuth();
         }}
         onSwitchToEmail={() => setShowPhoneAuth(false)}
+        referralCode={referralCodeValid ? referralCode : undefined}
       />
     </Dialog>
   );

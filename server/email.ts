@@ -4,7 +4,7 @@ import type { Transporter } from "nodemailer";
 import { getBillingCompanyProfile } from "./billing/companyProfile";
 import { getAdminSupabase } from "./supabaseAdmin";
 
-export type SAMSenderKey = "hello" | "support" | "pro" | "finance" | "no-reply";
+export type SAMSenderKey = "hello" | "support" | "pro" | "finance" | "noreply";
 /** @deprecated Use SAMSenderKey instead */
 export type SambookingSenderKey = SAMSenderKey;
 
@@ -36,8 +36,8 @@ type ResolvedSender = {
 };
 
 const DEFAULT_BRAND_COLOR = "#a3001d";
-const DEFAULT_LOGO_URL =
-  "https://cdn.builder.io/api/v1/image/assets%2F9d79e075af8c480ea94841fd41e63e5c%2F04286a394799412ea4b29b3b10648388?format=png&width=256";
+// Logo URL for emails - white logo on red header background
+const DEFAULT_LOGO_URL = "https://sam.ma/logo-white.png";
 
 type EmailBrandingSettings = {
   logo_url: string | null;
@@ -149,14 +149,14 @@ function resolveSender(fromKey: SAMSenderKey): ResolvedSender {
         return `pro@${domain}`;
       case "finance":
         return `finance@${domain}`;
-      case "no-reply":
-        return `no-reply@${domain}`;
+      case "noreply":
+        return `noreply@${domain}`;
       default:
         return `hello@${domain}`;
     }
   })();
 
-  const replyTo = fromKey === "no-reply" ? `support@${domain}` : undefined;
+  const replyTo = fromKey === "noreply" ? `support@${domain}` : undefined;
 
   const smtpUser = asString(process.env[`SMTP_USER_${fromKey.toUpperCase().replace(/-/g, "_")}`]) || asString(process.env.SMTP_USER);
   const smtpPass = asString(process.env[`SMTP_PASS_${fromKey.toUpperCase().replace(/-/g, "_")}`]) || asString(process.env.SMTP_PASS);
@@ -209,7 +209,9 @@ function escapeHtml(text: string): string {
 }
 
 function textToHtml(text: string): string {
-  const safe = escapeHtml(text);
+  // First, convert literal \n sequences to actual newlines
+  const normalized = text.replace(/\\n/g, "\n");
+  const safe = escapeHtml(normalized);
   return safe
     .split(/\r?\n\r?\n/g)
     .map((block) => `<p style=\"margin:0 0 12px 0;\">${block.replace(/\r?\n/g, "<br />")}</p>`)
@@ -249,9 +251,11 @@ export async function renderSAMEmail(
   const privacyUrl = asString(legalLinks.privacy) || "https://sortiraumaroc.ma/politique-de-confidentialite";
 
   const footerLines = [
-    `Sortir Au Maroc (SAM) — marque commerciale de ${profile.legal_name}`,
-    `RC : ${profile.rc_number} (${profile.rc_court})`,
-    `ICE : ${profile.ice}`,
+    `Sortir Au Maroc (SAM)`,
+    // Only show RC if it's not N/A or empty
+    ...(profile.rc_number && profile.rc_number !== "N/A" ? [`RC : ${profile.rc_number} (${profile.rc_court})`] : []),
+    // Only show ICE if it's not N/A or empty
+    ...(profile.ice && profile.ice !== "N/A" ? [`ICE : ${profile.ice}`] : []),
     `Adresse : ${address}`,
     `Email : ${branding.contact_email || "hello@sortiraumaroc.ma"}`,
   ];
@@ -272,11 +276,11 @@ export async function renderSAMEmail(
         <td align=\"center\" style=\"padding:24px 12px;\">
           <table role=\"presentation\" width=\"600\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" style=\"width:100%;max-width:600px;background:${escapeHtml(branding.background_color)};border-radius:16px;overflow:hidden;border:1px solid #e5e7eb;\">
             <tr>
-              <td style=\"padding:18px 20px;border-bottom:1px solid #f1f5f9;\">
-                <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\">
+              <td style=\"padding:0;\">
+                <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" style=\"background:${escapeHtml(branding.primary_color || DEFAULT_BRAND_COLOR)};border-radius:16px 16px 0 0;\">
                   <tr>
-                    <td align=\"left\" style=\"vertical-align:middle;\">
-                      <img src=\"${escapeHtml(branding.logo_url || DEFAULT_LOGO_URL)}\" width=\"140\" alt=\"Sortir Au Maroc\" style=\"display:block;border:0;outline:none;text-decoration:none;max-width:140px;height:auto;\" />
+                    <td align=\"center\" style=\"padding:28px 20px;\">
+                      <img src=\"${escapeHtml(branding.logo_url || DEFAULT_LOGO_URL)}\" width=\"160\" alt=\"Sortir Au Maroc\" style=\"display:block;border:0;outline:none;text-decoration:none;max-width:160px;height:auto;\" />
                     </td>
                   </tr>
                 </table>
@@ -313,7 +317,7 @@ export async function renderSAMEmail(
           </table>
 
           <div style=\"max-width:600px;font-family:Arial,Helvetica,sans-serif;color:#9ca3af;font-size:11px;line-height:1.4;margin-top:10px;\">
-            Cet email est envoyé automatiquement. Merci de ne pas répondre si l’expéditeur est “no-reply”.
+            Cet email est envoyé automatiquement. Merci de ne pas répondre si l'expéditeur est "noreply".
           </div>
         </td>
       </tr>

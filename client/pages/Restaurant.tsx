@@ -31,6 +31,7 @@ import { formatDistanceBetweenCoords } from "@/lib/geo";
 import { getPublicEstablishment, type PublicOfferPack } from "@/lib/publicApi";
 import { isAuthed, openAuthModal } from "@/lib/auth";
 import { isUuid } from "@/lib/pro/visits";
+import { getFavorites, addFavorite, removeFavorite, type FavoriteItem } from "@/lib/userData";
 import { ReservationBanner } from "@/components/booking/ReservationBanner";
 import { OpeningHoursBlock } from "@/components/restaurant/OpeningHoursBlock";
 import { MenuSection } from "@/components/restaurant/MenuSection";
@@ -958,10 +959,28 @@ export default function Restaurant() {
 
   const { t } = useI18n();
   const [bookingOpen, setBookingOpen] = React.useState(false);
+  const [currentImageIndex, setCurrentImageIndex] = React.useState(0);
+  const [isFavorited, setIsFavorited] = React.useState(false);
+  const [showShareMenu, setShowShareMenu] = React.useState(false);
 
+  // Initialize favorite state from localStorage when establishment ID is available
+  React.useEffect(() => {
+    const stored = getFavorites();
+    const estId = publicPayload?.establishment?.id ?? id ?? "1";
+    const isFav = stored.some((f) => f.id === estId);
+    setIsFavorited(isFav);
+  }, [publicPayload?.establishment?.id, id]);
+  const [showReportDialog, setShowReportDialog] = React.useState(false);
+  const [touchStartX, setTouchStartX] = React.useState(0);
+  const [mouseStartX, setMouseStartX] = React.useState(0);
+  const [isDragging, setIsDragging] = React.useState(false);
+
+  const { status: geoStatus, location: userLocation, request: requestUserLocation } = useUserLocation();
 
   const restaurantId = id ?? "1";
   const bookingEstablishmentId = publicPayload?.establishment?.id ?? canonicalEstablishmentId ?? restaurantId;
+  // Booking is only enabled if the establishment has an email address registered
+  const hasEstablishmentEmail = Boolean(publicPayload?.establishment?.email);
   const preset = id ? RESTAURANT_DETAILS[id] : RESTAURANT_DETAILS["1"];
 
   const baseRestaurant =
@@ -994,6 +1013,17 @@ export default function Restaurant() {
     availableSlots: (publicPayload?.offers?.availableSlots as unknown as DateSlots[] | undefined) ?? baseRestaurant.availableSlots,
     packs: packsFromDb.length ? packsFromDb : baseRestaurant.packs,
   };
+
+  const geocode = useGeocodedQuery(`${restaurant.name} ${restaurant.address}`);
+  const distanceText =
+    userLocation && geocode.status === "success"
+      ? formatDistanceBetweenCoords(userLocation, geocode.coords)
+      : null;
+
+  const normalizedAvailableSlots = React.useMemo(
+    () => normalizeRestaurantAvailableSlots(restaurant.availableSlots),
+    [restaurant.availableSlots],
+  );
 
   React.useEffect(() => {
     const name = restaurant?.name?.trim();
@@ -1097,27 +1127,6 @@ export default function Restaurant() {
     );
   }
 
-  const [currentImageIndex, setCurrentImageIndex] = React.useState(0);
-  const [isFavorited, setIsFavorited] = React.useState(false);
-
-  const [showShareMenu, setShowShareMenu] = React.useState(false);
-  const [showReportDialog, setShowReportDialog] = React.useState(false);
-  const [touchStartX, setTouchStartX] = React.useState(0);
-  const [mouseStartX, setMouseStartX] = React.useState(0);
-  const [isDragging, setIsDragging] = React.useState(false);
-
-  const { status: geoStatus, location: userLocation, request: requestUserLocation } = useUserLocation();
-  const geocode = useGeocodedQuery(`${restaurant.name} ${restaurant.address}`);
-  const distanceText =
-    userLocation && geocode.status === "success"
-      ? formatDistanceBetweenCoords(userLocation, geocode.coords)
-      : null;
-
-  const normalizedAvailableSlots = React.useMemo(
-    () => normalizeRestaurantAvailableSlots(restaurant.availableSlots),
-    [restaurant.availableSlots],
-  );
-
   const policies = [
     "Arrivez 10 minutes avant le créneau.",
     "Annulation gratuite jusqu’à 6h avant.",
@@ -1179,42 +1188,22 @@ export default function Restaurant() {
   const restaurantUrl = `${window.location.origin}/restaurant/${restaurantId}`;
   const shareText = `${restaurant.name} - ${restaurant.category} à ${restaurant.neighborhood}`;
 
-  // Check if we're on mobile (touch device or small screen)
-  const isMobileDevice = () => {
-    return (
-      typeof navigator !== "undefined" &&
-      (navigator.maxTouchPoints > 0 || window.matchMedia("(max-width: 768px)").matches)
-    );
-  };
-
-  // Native share for mobile devices
-  const handleNativeShare = async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: restaurant.name,
-          text: shareText,
-          url: restaurantUrl,
-        });
-      } catch (err) {
-        // User cancelled or error - fallback to menu
-        if ((err as Error).name !== "AbortError") {
-          setShowShareMenu(true);
-        }
-      }
-    } else {
-      setShowShareMenu(true);
-    }
-  };
-
-  // Handle share button click - use native share if available, otherwise show menu
+  // Handle share button click - use native share if available (works on both mobile and macOS)
   const handleShareButtonClick = () => {
-    // Always try native share first if available (works on mobile Safari, Chrome, etc.)
-    if (navigator.share) {
-      handleNativeShare();
-    } else {
-      setShowShareMenu(!showShareMenu);
+    // Check if Web Share API is available (mobile browsers + macOS Safari/Chrome)
+    if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+      // Call navigator.share immediately (synchronously) to satisfy iOS Safari's user gesture requirement
+      navigator.share({
+        title: restaurant.name,
+        text: shareText,
+        url: restaurantUrl,
+      }).catch(() => {
+        // User cancelled or error - do nothing, native share handles everything
+      });
+      return; // Always return after attempting native share - never show fallback menu
     }
+    // Fallback for browsers without Web Share API (older desktop browsers)
+    setShowShareMenu(!showShareMenu);
   };
 
   const handleShare = (platform: string) => {
@@ -1307,6 +1296,23 @@ export default function Restaurant() {
                 openAuthModal();
                 return;
               }
+
+              const estId = bookingEstablishmentId;
+              const estName = restaurant.name;
+              // Restaurant page is always kind "restaurant" (Hotel.tsx handles hotels)
+              const kind: FavoriteItem["kind"] = "restaurant";
+
+              if (isFavorited) {
+                removeFavorite({ kind, id: estId });
+              } else {
+                addFavorite({
+                  kind,
+                  id: estId,
+                  title: estName,
+                  createdAtIso: new Date().toISOString(),
+                });
+              }
+
               setIsFavorited(!isFavorited);
             }}
             aria-label={isFavorited ? "Retirer des favoris" : "Ajouter aux favoris"}
@@ -1366,7 +1372,7 @@ export default function Restaurant() {
       <ReportEstablishmentDialog
         open={showReportDialog}
         onOpenChange={setShowReportDialog}
-        establishmentId={establishmentId}
+        establishmentId={bookingEstablishmentId}
         establishmentName={restaurant.name}
       />
 
@@ -1428,6 +1434,7 @@ export default function Restaurant() {
               onOpenChange={setBookingOpen}
               onViewMoreDates={() => setBookingOpen(true)}
               extraBookingQuery={{ title: restaurant.name }}
+              bookingEnabled={hasEstablishmentEmail}
             />
           </div>
         </div>
@@ -1444,7 +1451,7 @@ export default function Restaurant() {
 
         <section id="section-avis" data-tab="avis" className="scroll-mt-28 space-y-6">
           {/* Published reviews from the database */}
-          <EstablishmentReviewsSection establishmentId={establishmentId} />
+          <EstablishmentReviewsSection establishmentId={bookingEstablishmentId} />
         </section>
 
         <section id="section-infos" data-tab="infos" className="scroll-mt-28 space-y-8">
@@ -1610,7 +1617,12 @@ export default function Restaurant() {
             </a>
           </div>
 
-          <RestaurantMap query={`${restaurant.name} ${restaurant.address}`} name={restaurant.name} />
+          <RestaurantMap
+            query={`${restaurant.name} ${restaurant.address}`}
+            name={restaurant.name}
+            lat={publicPayload?.establishment?.lat}
+            lng={publicPayload?.establishment?.lng}
+          />
         </section>
       </main>
 

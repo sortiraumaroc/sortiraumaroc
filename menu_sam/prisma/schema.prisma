@@ -1,0 +1,460 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ============ EXISTING TABLES FROM YOUR DATABASE ============
+
+model Admin {
+  adminId      Int      @id @map("admin_id")
+  username     String
+  email        String
+  password     String
+  token        String   @db.VarChar(500)
+  lastLogin    DateTime? @map("last_login")
+  refreshToken String?  @map("refresh_token") @db.VarChar(500)
+  isActive     Int      @default(1) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("admin")
+}
+
+model Client {
+  clientId       Int     @id @default(autoincrement()) @map("client_id")
+  name           String
+  company        String
+  address        String
+  poste          String  // 'propriétaire','gerant','autre','DG'
+  patente        String
+  tel            String
+  cityId         Int     @map("city_id")
+  email          String
+  password       String
+  dateCreation   DateTime @default(now()) @map("date_creation")
+  status         Int     @default(1)
+  ice            String
+  nom            String
+  prenom         String
+  portable       String
+  dateNaissane   String  @map("date_naissane")
+  validEmail     Int     @default(1) @map("valid_email")
+  codeActivation String  @map("code_activation")
+  abonnement     String  @default("free") // 'free','premium'
+  deviceToken    String  @map("device_token")
+  picture        String  @default("default.png")
+  lastLogin      DateTime? @map("last_login")
+  refreshToken   String?  @map("refresh_token") @db.VarChar(500)
+  establishmentId Int?   @map("establishment_id")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  // SAM Integration - Supabase Auth SSO
+  supabaseUserId    String?  @unique @map("supabase_user_id") @db.VarChar(36)
+  samEstablishmentId String? @map("sam_establishment_id") @db.VarChar(36)
+
+  places Place[]
+  subscriptions MenuDigitalSubscription[]
+
+  @@map("client")
+}
+
+// Menu Digital Subscription - tracks Silver/Premium plans
+model MenuDigitalSubscription {
+  id               Int      @id @default(autoincrement())
+  clientId         Int      @map("client_id")
+  placeId          Int      @map("place_id")
+
+  // Plan details
+  plan             String   @default("silver") // 'silver', 'premium'
+  status           String   @default("active") // 'active', 'expired', 'cancelled'
+
+  // Billing
+  samOrderId       String?  @map("sam_order_id") @db.VarChar(36) // Reference to SAM visibility_orders
+  pricePaidCents   Int      @default(0) @map("price_paid_cents")
+  currency         String   @default("MAD")
+  billingCycle     String   @default("annual") // 'monthly', 'annual'
+
+  // Dates
+  startsAt         DateTime @default(now()) @map("starts_at")
+  expiresAt        DateTime @map("expires_at")
+
+  // Feature flags based on plan
+  canManageMenu    Boolean  @default(true) @map("can_manage_menu")
+  canManageTables  Boolean  @default(true) @map("can_manage_tables")
+  canReceiveCalls  Boolean  @default(true) @map("can_receive_calls")
+  canViewReviews   Boolean  @default(true) @map("can_view_reviews")
+  canManageOrders  Boolean  @default(false) @map("can_manage_orders")  // Premium only
+  canManagePayments Boolean @default(false) @map("can_manage_payments") // Premium only
+  canManagePromos  Boolean  @default(false) @map("can_manage_promos")   // Premium only
+  canAccessAdvanced Boolean @default(false) @map("can_access_advanced") // Premium only
+
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  client           Client   @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  place            Place    @relation(fields: [placeId], references: [placeId], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([placeId])
+  @@index([status, expiresAt])
+  @@map("menu_digital_subscriptions")
+}
+
+model City {
+  cityId    Int     @id @map("city_id") @default(autoincrement())
+  name      String
+  slug      String?
+  img       String?
+  slugEn    String? @map("slug_en")
+
+  @@map("city")
+}
+
+model Place {
+  placeId                  Int      @id @map("place_id") @default(autoincrement())
+  name                     String
+  slogan                   String?
+  slug                     String?
+  logo                     String?
+  img                      String?
+  city                     String?
+  imageDeCouverture        String?  @map("image_de_couverture")
+  description              String?  @db.Text
+  video                    String?
+  clientId                 Int      @map("client_id")
+  cityId                   Int      @map("city_id")
+  // SAM Integration - Link to Sortir Au Maroc establishment
+  samEstablishmentId       String?  @unique @map("sam_establishment_id") @db.VarChar(36)
+  samSyncEnabled           Boolean  @default(false) @map("sam_sync_enabled")
+  samLastSyncAt            DateTime? @map("sam_last_sync_at")
+  price                    String   @default("2") // '1','2','3','4'
+  rating                   Decimal  @default(0) @db.Decimal(11, 1)
+  active                   String   @default("oui") // 'oui','non'
+  address                  String?
+  latitude                 Float?
+  langitude                Float?
+  premium                  Int      @default(0)
+  resa                     Int      @default(0)
+  menuFormatPdf            String?  @map("menu_format_pdf")
+  tripId                   String?  @map("trip_id")
+  scraped                  Int      @default(0)
+  moderated                Int      @default(0)
+  typeBlog                 String   @default("blog") @map("type_blog") // 'facebook','blog'
+  facebookIdOuSlug         String?  @map("facebook_ID_ou_slug")
+  urlCagnotte              String?  @map("url_cagnotte")
+  descriptionJaime         String?  @db.Text @map("description_jaime")
+  typeButtonApp            String?  @map("type_button_app")
+  buttonAppTelLink         String?  @map("button_app_tel_link")
+  labelServices            String   @default("Notre menu") @map("label_services")
+  helpFound                String?  @map("help_found")
+  url360                   String?  @map("url_360")
+  reviewGoogleId           String?  @map("review_google_id")
+  banniereImg              String?  @map("banniere_img")
+  mymenu                   String   @default("non") // 'oui','non'
+  avecCommande             String   @default("non") @map("avec_commande") // 'oui','non'
+  partagerSam              String   @default("non") @map("partager_sam") // 'oui','non'
+  texteBandeau             String?  @map("texte_bandeau")
+  classificationClient     String?  @map("classification_client") // 'Or','Argent','Bronze'
+  showAds                  String   @default("non") @map("show_ads") // 'non','oui'
+  isNew                    String   @default("non") @map("is_new") // 'oui','non'
+  descriptionGoogle        String?  @map("description_google")
+  nomReseauWifi            String?  @map("nom_reseau_wifi")
+  codeWifi                 String?  @map("code_wifi")
+  tripadvisorLink          String?  @map("tripadvisor_link")
+  bookSam                  String   @default("non") @map("book_sam") // 'oui','non'
+  bookInformation          String?  @map("book_information")
+  dtCreation               DateTime @default(now()) @map("dt_creation")
+  pmrAvailable             Int      @default(0) @map("pmr_available")
+  offreSpecialeName        String?  @map("offre_speciale_name")
+  offreSpecialDescription  String?  @db.Text @map("offre_special_description")
+  offreSpecialLink         String?  @map("offre_spercial_link")
+  offreSpecialButtonText   String?  @map("offre_special_button_text")
+  // NEW FIELDS FOR QR-TABLE
+  qrTablesEnabled          String   @default("oui") @map("qr_tables_enabled") // 'oui','non'
+  onlineOrdersEnabled      String   @default("oui") @map("online_orders_enabled") // 'oui','non'
+  maxTables                Int      @default(20) @map("max_tables")
+  timezone                 String   @default("Africa/Casablanca") @map("timezone")
+  kitchenDisplayEnabled    String   @default("oui") @map("kitchen_display_enabled") // 'oui','non'
+  parkingAvailable         Int      @default(0) @map("parking_available")
+  deliveryAvailable        Int      @default(0) @map("delivery_available")
+  phoneOrder               String?  @map("phone_order")
+  emailOrder               String?  @map("email_order")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+  deletedAt                DateTime? @map("deleted_at")
+  geoFenceEnabled         Boolean                       @map("geo_fence_enabled")
+  geoFenceRadiusMeters    Int                           @map("geo_fence_radius_meters")
+
+  client              Client @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  commandes           Commande[]
+  qrTables            QrTable[]
+  place_contacts      place_contact[]
+  notifications       TableNotification[]
+  tableCarts          TableCart[]
+  reviews             QrCodeReview[]
+  subscriptions       MenuDigitalSubscription[]
+
+  @@index([clientId])
+  @@index([cityId])
+  @@map("place")
+}
+
+model MenuCategory {
+  menuCategoryId Int     @id @map("menu_category_id") @default(autoincrement())
+  placeId        Int     @map("place_id")
+  title          String
+  priority       Int     @default(0)
+  disponibleCat  String  @default("oui") @map("disponible_cat") // 'oui','non'
+  showAsButton   String  @default("non") @map("show_as_button") // 'oui','non'
+  parentId       Int?    @map("parent_id")
+  iconScan       String  @default("breakfast") @map("icon_scan") // 'breakfast','drinks','snack'
+  // SAM Integration - Link to pro_inventory_categories
+  samCategoryId  String?  @unique @map("sam_category_id") @db.VarChar(36)
+
+  menuItems MenuItem[]
+
+  @@index([placeId])
+  @@map("menu_category")
+}
+
+model MenuItem {
+  menuItemId          Int     @id @map("menu_item_id") @default(autoincrement())
+  menuCategoryId      Int     @map("menu_category_id")
+  img                 String?
+  title               String
+  note                String?
+  description         String?
+  price               Decimal @db.Decimal(25, 2)
+  priority            Int     @default(0)
+  type                String  @default("image") // 'image','video'
+  disponibleProduct   String  @default("oui") @map("disponible_product") // 'oui','non'
+  votes               Int     @default(0)
+  label               String? // 'specialite','best-seller','coup-de-coeur','suggestion-chef','vegetarien','epice','fruits-mer','healthy','traditionnel','signature','nouveau'
+  // SAM Integration - Link to pro_inventory_items
+  samItemId           String?  @unique @map("sam_item_id") @db.VarChar(36)
+  samVariantId        String?  @map("sam_variant_id") @db.VarChar(36) // If synced from a specific variant
+
+  menuCategory MenuCategory @relation(fields: [menuCategoryId], references: [menuCategoryId], onDelete: Cascade)
+  commandesProducts CommandeProduct[]
+  tableCarts TableCart[]
+
+  @@index([menuCategoryId])
+  @@map("menu_item")
+}
+
+model PromoCode {
+  id               Int     @id @default(autoincrement())
+  placeId          Int     @map("place_id")
+  code             String
+  discountType     String  @map("discount_type")// 'percent','amount'
+  discountValue    Decimal @db.Decimal(10, 2) @map("discount_value")
+  description      String?
+  startsAt         DateTime @map("starts_at")
+  expiresAt        DateTime @map("expires_at")
+  minOrderAmount   Decimal @default(0) @db.Decimal(10, 2) @map("min_order_amount")
+  status           Int     @default(1)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@unique([placeId, code])
+  @@map("promo_codes")
+}
+
+model VoteMenu {
+  id           Int     @id @default(autoincrement())
+  userIp       String  @map("user_ip")
+  idMenu       Int     @map("id_menu")
+  dateCreation Int     @map("date_creation")
+  placeId      Int     @map("place_id")
+  catId        Int     @map("cat_id")
+
+  @@map("vote_menu")
+}
+
+// ============ EXISTING COMMANDES TABLES (RENAMED FROM QR_TABLE_ORDERS) ============
+
+model Commande {
+  id              Int      @id @map("id") @default(autoincrement())
+  userId          Int?     @map("user_id")
+  orderByUser     String?  @map("order_by_user")
+  placeId         Int      @map("place_id")
+  nbrTable        Int      @map("nbr_table")
+  comment         String?  @db.VarChar(400)
+  total           Decimal  @db.Decimal(25, 2)
+  dateCreation    DateTime @default(now()) @map("date_creation")
+  status          String   @default("open") // 'open','locked','sent','cancelled'
+  type            String   @default("scan") // 'normal','scan'
+  duration        String?  @db.VarChar(255)
+  discountAmount  Decimal  @default(0) @db.Decimal(25, 2) @map("discount_amount")
+  promoCode       String?  @map("promo_code")
+  paymentMethod   String?  @map("payment_method")
+  paymentStatus   String?  @map("payment_status")
+  // NEW FIELDS FOR QR-TABLE
+  tableNumber     Int?     @map("table_number")
+  joinCode        String?  @map("join_code")
+  kitchenStatus   String   @default("new") @map("kitchen_status") // 'new','preparing','ready','served','cancelled'
+  serviceType     String   @default("sur_place") @map("service_type") // 'sur_place','livraison','emporter'
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  pourboire       Int      @default(0) @map("pourboire")
+
+  place                 Place @relation(fields: [placeId], references: [placeId], onDelete: Cascade)
+  commandeProducts      CommandeProduct[]
+  participants          Participant[]
+  payments              Payment[]
+  notifications         TableNotification[]
+
+  @@index([placeId])
+  @@index([placeId, dateCreation])
+  @@map("commandes")
+}
+
+model CommandeProduct {
+  id           Int      @id @map("id") @default(autoincrement())
+  commandeId   Int      @map("commande_id")
+
+  // ✅ MUST be nullable if menuItem is optional + SetNull
+  menuId       Int?     @map("menu_id")
+
+  prix         Decimal  @db.Decimal(25, 2)
+  quantite     Int      @map("quantite")
+  ownerId      String?  @map("owner_id")
+  nameUser     String?  @map("name_user")
+  comment      String?  @map("comment")
+  categoryId   String?  @db.VarChar(255) @map("categoryId")
+
+  addedBySessionId String?  @map("added_by_session_id")
+  addedByName      String?  @map("added_by_name")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  commande Commande  @relation(fields: [commandeId], references: [id], onDelete: Cascade)
+
+  // ✅ optional relation + SetNull
+  menuItem MenuItem? @relation(fields: [menuId], references: [menuItemId], onDelete: SetNull)
+
+  @@index([commandeId])
+  @@index([menuId]) // ✅ recommandé
+  @@map("commandes_products")
+}
+
+
+// ============ NEW TABLES ============
+
+model place_contact {
+  place_contact_id Int    @id @default(autoincrement())
+  place_id         Int
+  key              String @db.VarChar(255)
+  value            String @db.VarChar(255)
+
+  place Place @relation(fields: [place_id], references: [placeId], onDelete: Cascade, map: "fk_place_contact_place")
+
+  @@index([place_id], map: "idx_place_contact_place_id")
+}
+
+model QrTable {
+  id          String   @id @db.VarChar(36)
+  placeId     Int      @map("place_id")
+  tableNumber Int      @map("table_number")
+  qrCode      String   @db.Text @map("qr_code") // QR code SVG/data URI
+  isActive    Int      @default(1) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  place Place @relation(fields: [placeId], references: [placeId], onDelete: Cascade)
+
+  @@unique([placeId, tableNumber])
+  @@index([placeId])
+  @@map("qr_tables")
+}
+
+model Participant {
+  id        String   @id @db.VarChar(36)
+  commandeId Int     @map("commande_id")
+  sessionId String   @map("session_id")
+  firstName String?  @map("first_name")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  commande Commande @relation(fields: [commandeId], references: [id], onDelete: Cascade)
+
+  @@index([commandeId])
+  @@map("participants")
+}
+
+model TableCart {
+  id                 Int      @id @map("id") @default(autoincrement())
+  placeId            Int      @map("place_id")
+  tableNumber        Int      @map("table_number")
+  menuItemId         Int      @map("menu_item_id")
+  sessionId          String   @map("session_id")
+  firstName          String?  @map("first_name")
+  quantity           Int      @default(1)
+  price              Decimal  @db.Decimal(25, 2)
+  comment            String?  @db.VarChar(400)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+  categoryId         String   @db.VarChar(255) @map("categoryId")
+
+  place Place @relation(fields: [placeId], references: [placeId], onDelete: Cascade)
+  menuItem MenuItem @relation(fields: [menuItemId], references: [menuItemId], onDelete: Cascade)
+
+  @@index([placeId, tableNumber])
+  @@index([sessionId])
+  @@map("table_carts")
+}
+
+model Payment {
+  id            String   @id @db.VarChar(36)
+  commandeId    Int      @map("commande_id")
+  amount        Decimal  @db.Decimal(25, 2)
+  paymentMethod String?  @map("payment_method")
+  transactionId String?  @map("transaction_id")
+  status        String   @default("pending") @map("status") // 'pending','completed','failed','refunded'
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  commande Commande @relation(fields: [commandeId], references: [id], onDelete: Cascade)
+
+  @@index([commandeId])
+  @@map("payments")
+}
+
+model TableNotification {
+  id           String   @id @db.VarChar(36) @default(uuid())
+  commandeId   Int?     @map("commande_id") // Optional: customer can call serveur/addition without an active order
+  placeId      Int      @map("place_id")
+  tableNumber  Int      @map("table_number")
+  type         String   @map("type") // 'serveur','addition','chef','paiement'
+  message      String?  @db.VarChar(500)
+  status       String   @default("pending") @map("status") // 'pending','acknowledged','completed','cancelled'
+  priority     String   @default("normal") @map("priority") // 'low','normal','high','urgent'
+  createdAt    DateTime @default(now()) @map("created_at")
+  acknowledgedAt DateTime? @map("acknowledged_at")
+  completedAt  DateTime? @map("completed_at")
+
+  commande Commande? @relation(fields: [commandeId], references: [id], onDelete: SetNull)
+  place    Place     @relation(fields: [placeId], references: [placeId], onDelete: Cascade)
+
+  @@index([commandeId])
+  @@index([placeId])
+  @@index([placeId, status])
+  @@index([placeId, type, status])
+  @@map("table_notifications")
+}
+
+model QrCodeReview {
+  id            Int      @id @map("id") @default(autoincrement())
+  placeId       Int      @map("place_id")
+  comment       String   @db.Text
+  note          Int      // Rating from 1-5
+  dateCreation  DateTime @default(now()) @map("date_creation")
+
+  place Place @relation(fields: [placeId], references: [placeId], onDelete: Cascade)
+
+  @@index([placeId])
+  @@index([placeId, dateCreation])
+  @@map("qr_code_reviews")
+}

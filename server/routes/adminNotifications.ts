@@ -163,3 +163,24 @@ export const markAllAdminNotificationsRead: RequestHandler = async (req, res) =>
 
   res.json({ ok: true });
 };
+
+export const deleteAdminNotification: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const id = typeof req.params.id === "string" ? req.params.id : "";
+  if (!id) return res.status(400).json({ error: "id is required" });
+
+  const supabase = getAdminSupabase();
+
+  const { data, error } = await supabase
+    .from("admin_notifications")
+    .delete()
+    .eq("id", id)
+    .select("id")
+    .maybeSingle();
+
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(404).json({ error: "not_found" });
+
+  res.json({ ok: true });
+};

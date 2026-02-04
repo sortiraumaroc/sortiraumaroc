@@ -3,11 +3,16 @@ import { NavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
 const ITEMS: Array<{ label: string; to: string }> = [
+  // Outils
   { label: "Templates", to: "/admin/emails/templates" },
   { label: "Newsletter", to: "/admin/emails/newsletter" },
-  { label: "Campagnes", to: "/admin/emails/campaigns" },
   { label: "Paramètres", to: "/admin/emails/settings" },
+  // Contacts
+  { label: "Abonnés", to: "/admin/emails/newsletter-homepage" },
   { label: "Prospects", to: "/admin/emails/prospects" },
+  { label: "Audiences", to: "/admin/emails/audiences" },
+  // Actions
+  { label: "Campagnes", to: "/admin/emails/campaigns" },
   { label: "Emails envoyés", to: "/admin/emails/sent" },
 ];
 

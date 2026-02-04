@@ -7,7 +7,7 @@ export type ContentHistoryEntry = {
 };
 
 function getKey(kind: ContentHistoryKind, id: string) {
-  return `sam_booking_admin_content_history_${kind}_${id}`;
+  return `sam_admin_content_history_${kind}_${id}`;
 }
 
 export function loadContentHistory(kind: ContentHistoryKind, id: string): ContentHistoryEntry[] {

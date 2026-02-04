@@ -9,6 +9,7 @@
 
 import { getAdminSupabase } from "./supabaseAdmin";
 import { sendTemplateEmail } from "./emailService";
+import { formatDateLongFr } from "../shared/datetime";
 
 const BASE_URL = process.env.VITE_APP_URL || "https://sortiraumaroc.ma";
 
@@ -108,16 +109,22 @@ export async function sendH3ConfirmationEmails(): Promise<{
       const confirmUrl = `${BASE_URL}/booking/confirm/${confirmRequest.token}`;
 
       // Format date/time for email
+      const dateTimeLabel = formatDateLongFr(res.starts_at);
+      // Split for templates that use separate date/time variables
       const startsAt = new Date(res.starts_at);
       const dateStr = startsAt.toLocaleDateString("fr-FR", {
         weekday: "long",
         day: "numeric",
         month: "long",
+        year: "numeric",
+        timeZone: "Africa/Casablanca",
       });
+      const capitalizedDate = dateStr.charAt(0).toUpperCase() + dateStr.slice(1);
       const timeStr = startsAt.toLocaleTimeString("fr-FR", {
         hour: "2-digit",
         minute: "2-digit",
-      });
+        timeZone: "Africa/Casablanca",
+      }).replace(":", "h");
 
       // Send email
       await sendTemplateEmail({
@@ -127,7 +134,7 @@ export async function sendH3ConfirmationEmails(): Promise<{
         variables: {
           user_name: res.user_name,
           establishment: res.establishment_name,
-          date: dateStr,
+          date: capitalizedDate,
           time: timeStr,
           guests: String(res.party_size || 1),
           confirm_booking_url: confirmUrl,
@@ -211,15 +218,19 @@ export async function confirmBookingByToken(token: string): Promise<{
     const establishment = (reservation as any).establishments;
 
     const startsAt = new Date(reservation.starts_at);
-    const dateStr = startsAt.toLocaleDateString("fr-FR", {
+    const dateStr2 = startsAt.toLocaleDateString("fr-FR", {
       weekday: "long",
       day: "numeric",
       month: "long",
+      year: "numeric",
+      timeZone: "Africa/Casablanca",
     });
-    const timeStr = startsAt.toLocaleTimeString("fr-FR", {
+    const capitalizedDate2 = dateStr2.charAt(0).toUpperCase() + dateStr2.slice(1);
+    const timeStr2 = startsAt.toLocaleTimeString("fr-FR", {
       hour: "2-digit",
       minute: "2-digit",
-    });
+      timeZone: "Africa/Casablanca",
+    }).replace(":", "h");
 
     // Send confirmation to user
     if (user?.email) {
@@ -230,8 +241,8 @@ export async function confirmBookingByToken(token: string): Promise<{
         variables: {
           user_name: user.display_name || `${user.first_name} ${user.last_name}`,
           establishment: establishment.name,
-          date: dateStr,
-          time: timeStr,
+          date: capitalizedDate2,
+          time: timeStr2,
           guests: String(reservation.party_size || 1),
           address: "", // Could fetch from establishment
           booking_url: `${BASE_URL}/mes-reservations`,
@@ -256,8 +267,8 @@ export async function confirmBookingByToken(token: string): Promise<{
         locale: "fr",
         variables: {
           user_name: user?.display_name || `${user?.first_name} ${user?.last_name}`,
-          date: dateStr,
-          time: timeStr,
+          date: capitalizedDate2,
+          time: timeStr2,
           guests: String(reservation.party_size || 1),
           phone: user?.phone || "Non renseigné",
           planning_url: `${BASE_URL}/pro/reservations`,
@@ -314,15 +325,19 @@ export async function autoCancelUnconfirmedReservations(): Promise<{
   for (const res of cancelled as AutoCancelledReservation[]) {
     try {
       const startsAt = new Date(res.starts_at);
-      const dateStr = startsAt.toLocaleDateString("fr-FR", {
+      const dateStr3 = startsAt.toLocaleDateString("fr-FR", {
         weekday: "long",
         day: "numeric",
         month: "long",
+        year: "numeric",
+        timeZone: "Africa/Casablanca",
       });
-      const timeStr = startsAt.toLocaleTimeString("fr-FR", {
+      const capitalizedDate3 = dateStr3.charAt(0).toUpperCase() + dateStr3.slice(1);
+      const timeStr3 = startsAt.toLocaleTimeString("fr-FR", {
         hour: "2-digit",
         minute: "2-digit",
-      });
+        timeZone: "Africa/Casablanca",
+      }).replace(":", "h");
 
       // Notify user
       await sendTemplateEmail({
@@ -332,8 +347,8 @@ export async function autoCancelUnconfirmedReservations(): Promise<{
         variables: {
           user_name: res.user_name,
           establishment: res.establishment_name,
-          date: dateStr,
-          time: timeStr,
+          date: capitalizedDate3,
+          time: timeStr3,
           establishment_url: `${BASE_URL}/etablissement/${res.establishment_id}`,
         },
       });
@@ -346,8 +361,8 @@ export async function autoCancelUnconfirmedReservations(): Promise<{
           locale: "fr",
           variables: {
             user_name: res.user_name,
-            date: dateStr,
-            time: timeStr,
+            date: capitalizedDate3,
+            time: timeStr3,
             guests: String(res.party_size || 1),
             planning_url: `${BASE_URL}/pro/reservations`,
           },

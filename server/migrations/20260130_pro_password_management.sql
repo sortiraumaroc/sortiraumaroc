@@ -43,7 +43,7 @@ insert into public.email_templates (
 <p style="text-align: center; margin: 30px 0;">
   <a href="{{login_url}}" style="display: inline-block; padding: 14px 32px; background-color: #A3001D; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold;">Accéder à mon Espace Pro</a>
 </p>
-<p>Si vous n''avez pas demandé cette réinitialisation, contactez-nous immédiatement à <a href="mailto:pro@sambooking.ma">pro@sambooking.ma</a>.</p>',
+<p>Si vous n''avez pas demandé cette réinitialisation, contactez-nous immédiatement à <a href="mailto:pro@sortiraumaroc.ma">pro@sortiraumaroc.ma</a>.</p>',
   '<p>Hello,</p>
 <p>A new password has been generated for your <strong>Sortir Au Maroc Pro Space</strong> ({{establishment_name}}).</p>
 <p>Here are your login credentials:</p>
@@ -55,7 +55,7 @@ insert into public.email_templates (
 <p style="text-align: center; margin: 30px 0;">
   <a href="{{login_url}}" style="display: inline-block; padding: 14px 32px; background-color: #A3001D; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold;">Access my Pro Space</a>
 </p>
-<p>If you did not request this reset, contact us immediately at <a href="mailto:pro@sambooking.ma">pro@sambooking.ma</a>.</p>',
+<p>If you did not request this reset, contact us immediately at <a href="mailto:pro@sortiraumaroc.ma">pro@sortiraumaroc.ma</a>.</p>',
   'Accéder à mon Espace Pro',
   'Access my Pro Space',
   '{{login_url}}',
@@ -104,7 +104,7 @@ insert into public.email_templates (
 <p style="text-align: center; margin: 30px 0;">
   <a href="{{login_url}}" style="display: inline-block; padding: 14px 32px; background-color: #A3001D; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold;">Accéder à mon Espace Pro</a>
 </p>
-<p>Pour toute question, contactez-nous à <a href="mailto:pro@sambooking.ma">pro@sambooking.ma</a>.</p>',
+<p>Pour toute question, contactez-nous à <a href="mailto:pro@sortiraumaroc.ma">pro@sortiraumaroc.ma</a>.</p>',
   '<p>Hello,</p>
 <p>Your <strong>Sortir Au Maroc Pro Space</strong> account for <strong>{{establishment_name}}</strong> has been successfully created!</p>
 <p>Here are your login credentials:</p>
@@ -116,7 +116,7 @@ insert into public.email_templates (
 <p style="text-align: center; margin: 30px 0;">
   <a href="{{login_url}}" style="display: inline-block; padding: 14px 32px; background-color: #A3001D; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold;">Access my Pro Space</a>
 </p>
-<p>For any questions, contact us at <a href="mailto:pro@sambooking.ma">pro@sambooking.ma</a>.</p>',
+<p>For any questions, contact us at <a href="mailto:pro@sortiraumaroc.ma">pro@sortiraumaroc.ma</a>.</p>',
   'Accéder à mon Espace Pro',
   'Access my Pro Space',
   '{{login_url}}',

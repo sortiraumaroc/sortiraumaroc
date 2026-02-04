@@ -43,6 +43,7 @@ import { isAuthed, openAuthModal } from "@/lib/auth";
 import { useScrollContext } from "@/lib/scrollContext";
 import { saveNavigationState, buildNavigationDescription } from "@/lib/navigationState";
 import { useDebounce } from "@/hooks/useDebounce";
+import { getFavorites, addFavorite, removeFavorite, type FavoriteItem } from "@/lib/userData";
 
 const parseSlotLabel = (
   label: string,
@@ -642,6 +643,7 @@ export default function Results() {
   const universe = searchParams.get("universe") || "restaurants";
   const promotionsOnly = searchParams.get("promo") === "1";
   const categoryFilter = searchParams.get("category") || "";
+  const searchQuery = searchParams.get("q") || "";
   const sortMode = searchParams.get("sort") || "";
   const universeKey = universe as ActivityCategory;
 
@@ -679,7 +681,45 @@ export default function Results() {
   const [visibleCount, setVisibleCount] = useState(10);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
-  const [favorites, setFavorites] = useState<Set<string>>(() => new Set());
+  // Initialize favorites from localStorage
+  const [favorites, setFavorites] = useState<Set<string>>(() => {
+    const stored = getFavorites();
+    return new Set(stored.map((f) => f.id));
+  });
+
+  // Helper to determine favorite kind from universe
+  const getKindFromUniverse = (u: string): FavoriteItem["kind"] => {
+    return u === "hebergement" ? "hotel" : "restaurant";
+  };
+
+  // Toggle favorite with localStorage persistence
+  const handleToggleFavorite = useCallback((id: string, name: string, universeVal: string) => {
+    if (!isAuthed()) {
+      openAuthModal();
+      return;
+    }
+
+    const kind = getKindFromUniverse(universeVal);
+    const isFav = favorites.has(id);
+
+    if (isFav) {
+      removeFavorite({ kind, id });
+    } else {
+      addFavorite({
+        kind,
+        id,
+        title: name,
+        createdAtIso: new Date().toISOString(),
+      });
+    }
+
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, [favorites]);
 
   const listStartRef = useRef<HTMLDivElement | null>(null);
   const cardRefs = useRef(new Map<string, HTMLDivElement | null>());
@@ -907,6 +947,7 @@ export default function Results() {
   // when user is rapidly changing filters
   const debouncedCity = useDebounce(selectedCity, 300);
   const debouncedCategory = useDebounce(categoryFilter, 200);
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
 
   useEffect(() => {
     let cancelled = false;
@@ -917,6 +958,7 @@ export default function Results() {
     listPublicEstablishments({
       universe,
       city: debouncedCity,
+      q: debouncedSearchQuery || null,
       category: debouncedCategory || null,
       sort: sortMode === "best" ? "best" : null,
       promoOnly: promotionsOnly,
@@ -939,7 +981,7 @@ export default function Results() {
     return () => {
       cancelled = true;
     };
-  }, [debouncedCategory, promotionsOnly, debouncedCity, sortMode, universe]);
+  }, [debouncedCategory, debouncedSearchQuery, promotionsOnly, debouncedCity, sortMode, universe]);
 
   // Fetch sponsored results
   useEffect(() => {
@@ -2130,14 +2172,7 @@ export default function Results() {
                             isVerified={restaurant.isVerified}
                             isPremium={restaurant.isPremium}
                             isCurated={restaurant.isCurated}
-                            onFavoriteToggle={() => {
-                              setFavorites((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(restaurant.id)) next.delete(restaurant.id);
-                                else next.add(restaurant.id);
-                                return next;
-                              });
-                            }}
+                            onFavoriteToggle={() => handleToggleFavorite(restaurant.id, restaurant.name, universe)}
                             onSelect={() => {
                               setSelectedRestaurant(restaurant.id);
                               setHighlightedRestaurant(restaurant.id);

@@ -69,6 +69,42 @@ export async function requireProAccessToken(): Promise<string> {
   return token;
 }
 
+/**
+ * Generic fetch wrapper for Pro API calls.
+ * Handles authentication, error handling, and JSON parsing.
+ */
+export async function proApiFetch(
+  path: string,
+  options: RequestInit = {}
+): Promise<any> {
+  const token = await requireProAccessToken();
+
+  const res = await fetch(apiUrl(path), {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      authorization: `Bearer ${token}`,
+      ...options.headers,
+    },
+  });
+
+  const payload = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    const msg =
+      isRecord(payload) && typeof payload.error === "string"
+        ? payload.error
+        : `HTTP ${res.status}`;
+    if (res.status === 401 && isStaleProAuthError(msg)) {
+      await resetProAuth();
+      throw new Error("Session Pro expirée. Veuillez vous reconnecter.");
+    }
+    throw new Error(msg);
+  }
+
+  return payload;
+}
+
 // Synchronous token getter for partner pages that need immediate access
 // Returns the cached token from localStorage (set by Supabase auth)
 export function getPartnerToken(): string | null {
@@ -1745,6 +1781,38 @@ export async function markAllProNotificationsRead(args: {
   return payload as { ok: true };
 }
 
+export async function deleteProNotification(args: {
+  establishmentId: string;
+  notificationId: string;
+}): Promise<{ ok: true }> {
+  const token = await requireProAccessToken();
+
+  const res = await fetch(
+    `/api/pro/establishments/${encodeURIComponent(args.establishmentId)}/notifications/${encodeURIComponent(args.notificationId)}`,
+    {
+      method: "DELETE",
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    },
+  );
+
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg =
+      isRecord(payload) && typeof payload.error === "string"
+        ? payload.error
+        : `HTTP ${res.status}`;
+    if (res.status === 401 && isStaleProAuthError(msg)) {
+      await resetProAuth();
+      throw new Error("Session Pro expirée. Veuillez vous reconnecter.");
+    }
+    throw new Error(msg);
+  }
+
+  return payload as { ok: true };
+}
+
 export async function listProInvoices(args: {
   establishmentId: string;
   status?: string;
@@ -1903,6 +1971,13 @@ export async function seedDemoProInventory(
     | { ok: true; skipped: true; reason: string };
 }
 
+export type ProInventoryPendingResponse = {
+  ok: true;
+  pending: true;
+  message: string;
+  pendingChange?: unknown;
+};
+
 export async function createProInventoryCategory(args: {
   establishmentId: string;
   data: {
@@ -1912,7 +1987,7 @@ export async function createProInventoryCategory(args: {
     sort_order?: number;
     is_active?: boolean;
   };
-}): Promise<{ ok: true; category: ProInventoryCategory }> {
+}): Promise<{ ok: true; category: ProInventoryCategory } | ProInventoryPendingResponse> {
   const token = await requireProAccessToken();
 
   const res = await fetch(
@@ -1940,7 +2015,7 @@ export async function createProInventoryCategory(args: {
     throw new Error(msg);
   }
 
-  return payload as { ok: true; category: ProInventoryCategory };
+  return payload as { ok: true; category: ProInventoryCategory } | ProInventoryPendingResponse;
 }
 
 export async function updateProInventoryCategory(args: {
@@ -1952,7 +2027,7 @@ export async function updateProInventoryCategory(args: {
       "title" | "description" | "sort_order" | "is_active"
     >
   >;
-}): Promise<{ ok: true; category: ProInventoryCategory }> {
+}): Promise<{ ok: true; category: ProInventoryCategory } | ProInventoryPendingResponse> {
   const token = await requireProAccessToken();
 
   const res = await fetch(
@@ -1980,13 +2055,13 @@ export async function updateProInventoryCategory(args: {
     throw new Error(msg);
   }
 
-  return payload as { ok: true; category: ProInventoryCategory };
+  return payload as { ok: true; category: ProInventoryCategory } | ProInventoryPendingResponse;
 }
 
 export async function deleteProInventoryCategory(args: {
   establishmentId: string;
   categoryId: string;
-}): Promise<{ ok: true }> {
+}): Promise<{ ok: true } | ProInventoryPendingResponse> {
   const token = await requireProAccessToken();
 
   const res = await fetch(
@@ -2010,7 +2085,7 @@ export async function deleteProInventoryCategory(args: {
     throw new Error(msg);
   }
 
-  return payload as { ok: true };
+  return payload as { ok: true } | ProInventoryPendingResponse;
 }
 
 type ProInventoryVariantUpsert = {
@@ -2041,7 +2116,7 @@ type ProInventoryItemUpsertInput = {
 export async function createProInventoryItem(args: {
   establishmentId: string;
   data: ProInventoryItemUpsertInput;
-}): Promise<{ ok: true; item: ProInventoryItem }> {
+}): Promise<{ ok: true; item: ProInventoryItem } | ProInventoryPendingResponse> {
   const token = await requireProAccessToken();
 
   const res = await fetch(
@@ -2069,14 +2144,14 @@ export async function createProInventoryItem(args: {
     throw new Error(msg);
   }
 
-  return payload as { ok: true; item: ProInventoryItem };
+  return payload as { ok: true; item: ProInventoryItem } | ProInventoryPendingResponse;
 }
 
 export async function updateProInventoryItem(args: {
   establishmentId: string;
   itemId: string;
   patch: Partial<ProInventoryItemUpsertInput>;
-}): Promise<{ ok: true; item: ProInventoryItem }> {
+}): Promise<{ ok: true; item: ProInventoryItem } | ProInventoryPendingResponse> {
   const token = await requireProAccessToken();
 
   const res = await fetch(
@@ -2104,13 +2179,13 @@ export async function updateProInventoryItem(args: {
     throw new Error(msg);
   }
 
-  return payload as { ok: true; item: ProInventoryItem };
+  return payload as { ok: true; item: ProInventoryItem } | ProInventoryPendingResponse;
 }
 
 export async function deleteProInventoryItem(args: {
   establishmentId: string;
   itemId: string;
-}): Promise<{ ok: true }> {
+}): Promise<{ ok: true } | ProInventoryPendingResponse> {
   const token = await requireProAccessToken();
 
   const res = await fetch(
@@ -2134,7 +2209,7 @@ export async function deleteProInventoryItem(args: {
     throw new Error(msg);
   }
 
-  return payload as { ok: true };
+  return payload as { ok: true } | ProInventoryPendingResponse;
 }
 
 export async function greenThumbProInventoryItem(args: {
@@ -3456,6 +3531,8 @@ export type VisibilityOffer = {
   currency: string;
   allow_quantity: boolean;
   is_active: boolean;
+  tax_rate_bps?: number | null;
+  tax_label?: string | null;
 };
 
 export type VisibilityCartItem = {
@@ -3483,17 +3560,24 @@ export type VisibilityOrder = {
   id: string;
   establishment_id: string;
   status: string;
+  payment_status: string;
   total_cents: number;
+  subtotal_cents: number;
+  tax_cents: number;
   currency: string;
   items: Array<{
     offer_id: string;
     title: string | null;
+    description: string | null;
+    type: string;
     quantity: number;
     unit_price_cents: number;
+    total_price_cents: number;
   }>;
   created_at: string;
-  payment_status: string;
   paid_at: string | null;
+  invoice_number: string | null;
+  invoice_issued_at: string | null;
 };
 
 export type VisibilityOrderInvoice = {
@@ -3692,6 +3776,57 @@ export async function getProVisibilityOrderInvoice(
   }
 
   return payload as VisibilityOrderInvoice;
+}
+
+/**
+ * Download the invoice PDF for a visibility order.
+ * Opens a new tab/triggers download with the PDF.
+ */
+export async function downloadProVisibilityOrderInvoicePdf(
+  establishmentId: string,
+  orderId: string,
+): Promise<void> {
+  const token = await requireProAccessToken();
+
+  const res = await fetch(
+    `/api/pro/establishments/${encodeURIComponent(establishmentId)}/visibility/orders/${encodeURIComponent(orderId)}/invoice/pdf`,
+    {
+      method: "GET",
+      headers: { authorization: `Bearer ${token}` },
+    },
+  );
+
+  if (!res.ok) {
+    const payload = await res.json().catch(() => null);
+    const msg =
+      isRecord(payload) && typeof payload.error === "string"
+        ? payload.error
+        : `HTTP ${res.status}`;
+    if (res.status === 401 && isStaleProAuthError(msg)) {
+      await resetProAuth();
+      throw new Error("Session Pro expirée. Veuillez vous reconnecter.");
+    }
+    throw new Error(msg);
+  }
+
+  // Get the filename from Content-Disposition header if available
+  const contentDisposition = res.headers.get("Content-Disposition");
+  let filename = `facture-${orderId}.pdf`;
+  if (contentDisposition) {
+    const match = contentDisposition.match(/filename="?([^";\n]+)"?/);
+    if (match) filename = match[1];
+  }
+
+  // Create blob and trigger download
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 export async function confirmProVisibilityOrder(
@@ -5401,5 +5536,336 @@ export async function listEstablishmentReservationHistory(args: {
     history: payload.history ?? [],
     limit: payload.limit ?? 50,
     offset: payload.offset ?? 0,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Username management (Custom short URLs like @username)
+// ---------------------------------------------------------------------------
+
+export type UsernameRequest = {
+  id: string;
+  requested_username: string;
+  status: "pending" | "approved" | "rejected";
+  created_at: string;
+  rejection_reason?: string | null;
+};
+
+export type UsernameSubscriptionStatus =
+  | "trial"
+  | "pending"
+  | "active"
+  | "grace_period"
+  | "expired"
+  | "cancelled";
+
+export type UsernameSubscription = {
+  id: string;
+  status: UsernameSubscriptionStatus;
+  is_trial: boolean;
+  trial_ends_at: string | null;
+  starts_at: string | null;
+  expires_at: string | null;
+  grace_period_ends_at: string | null;
+  cancelled_at: string | null;
+  price_cents?: number;
+  currency?: string;
+  days_remaining?: number;
+  can_use_username: boolean;
+};
+
+export type UsernameInfo = {
+  username: string | null;
+  usernameChangedAt: string | null;
+  pendingRequest: UsernameRequest | null;
+  canChange: boolean;
+  nextChangeDate: string | null;
+  cooldownDays: number;
+  subscription: UsernameSubscription | null;
+  canUseUsername: boolean;
+};
+
+export type UsernameSubscriptionInfo = {
+  subscription: UsernameSubscription | null;
+  can_start_trial: boolean;
+  has_used_trial: boolean;
+};
+
+export async function checkUsernameAvailability(
+  username: string
+): Promise<{ available: boolean; error?: string }> {
+  const token = await requireProAccessToken();
+
+  const url = new URL(apiUrl("/api/pro/username/check"));
+  url.searchParams.set("username", username);
+
+  const res = await fetch(url.toString(), {
+    method: "GET",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  const payload = await res.json().catch(() => ({}));
+
+  if (!res.ok && res.status === 401) {
+    const msg = isRecord(payload) && typeof payload.error === "string"
+      ? payload.error
+      : `HTTP ${res.status}`;
+    if (isStaleProAuthError(msg)) {
+      await resetProAuth();
+      throw new Error("Session Pro expirée. Veuillez vous reconnecter.");
+    }
+    throw new Error(msg);
+  }
+
+  return {
+    available: payload.available === true,
+    error: typeof payload.error === "string" ? payload.error : undefined,
+  };
+}
+
+export async function getEstablishmentUsername(
+  establishmentId: string
+): Promise<UsernameInfo> {
+  const token = await requireProAccessToken();
+
+  const res = await fetch(
+    apiUrl(`/api/pro/establishments/${establishmentId}/username`),
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+
+  const payload = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const msg =
+      isRecord(payload) && typeof payload.error === "string"
+        ? payload.error
+        : `HTTP ${res.status}`;
+    if (res.status === 401 && isStaleProAuthError(msg)) {
+      await resetProAuth();
+      throw new Error("Session Pro expirée. Veuillez vous reconnecter.");
+    }
+    throw new Error(msg);
+  }
+
+  return {
+    username: payload.username ?? null,
+    usernameChangedAt: payload.usernameChangedAt ?? null,
+    pendingRequest: payload.pendingRequest ?? null,
+    canChange: payload.canChange === true,
+    nextChangeDate: payload.nextChangeDate ?? null,
+    cooldownDays: payload.cooldownDays ?? 180,
+    subscription: payload.subscription ?? null,
+    canUseUsername: payload.canUseUsername === true,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Menu Digital Status
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type MenuDigitalStatus = {
+  enabled: boolean;
+  plan: "silver" | "premium" | null;
+  expiresAt: string | null;
+  isExpired: boolean;
+  lastSync: string | null;
+  slug: string | null;
+  username: string | null;
+  menuUrl: string | null;
+  stats: {
+    categories: number;
+    items: number;
+  };
+};
+
+export async function getMenuDigitalStatus(
+  establishmentId: string
+): Promise<MenuDigitalStatus> {
+  const res = await proApiFetch(
+    `/api/pro/establishments/${establishmentId}/menu-digital/status`
+  );
+  if (!res || !res.ok) throw new Error("Impossible de charger le statut");
+  return res.status;
+}
+
+export async function submitUsernameRequest(args: {
+  establishmentId: string;
+  username: string;
+}): Promise<{ ok: boolean; message: string; request?: UsernameRequest }> {
+  const token = await requireProAccessToken();
+
+  const res = await fetch(
+    apiUrl(`/api/pro/establishments/${args.establishmentId}/username`),
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ username: args.username }),
+    }
+  );
+
+  const payload = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const msg =
+      isRecord(payload) && typeof payload.error === "string"
+        ? payload.error
+        : `HTTP ${res.status}`;
+    if (res.status === 401 && isStaleProAuthError(msg)) {
+      await resetProAuth();
+      throw new Error("Session Pro expirée. Veuillez vous reconnecter.");
+    }
+    throw new Error(msg);
+  }
+
+  return {
+    ok: payload.ok === true,
+    message: payload.message ?? "Demande envoyée",
+    request: payload.request,
+  };
+}
+
+export async function cancelUsernameRequest(args: {
+  establishmentId: string;
+  requestId: string;
+}): Promise<{ ok: boolean; message: string }> {
+  const token = await requireProAccessToken();
+
+  const res = await fetch(
+    apiUrl(`/api/pro/establishments/${args.establishmentId}/username/request/${args.requestId}`),
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+
+  const payload = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const msg =
+      isRecord(payload) && typeof payload.error === "string"
+        ? payload.error
+        : `HTTP ${res.status}`;
+    if (res.status === 401 && isStaleProAuthError(msg)) {
+      await resetProAuth();
+      throw new Error("Session Pro expirée. Veuillez vous reconnecter.");
+    }
+    throw new Error(msg);
+  }
+
+  return {
+    ok: payload.ok === true,
+    message: payload.message ?? "Demande annulée",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Username Subscription Management
+// ---------------------------------------------------------------------------
+
+export async function getUsernameSubscription(
+  establishmentId: string
+): Promise<UsernameSubscriptionInfo> {
+  const token = await requireProAccessToken();
+
+  const res = await fetch(
+    apiUrl(`/api/pro/establishments/${establishmentId}/username-subscription`),
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+
+  const payload = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const msg =
+      isRecord(payload) && typeof payload.error === "string"
+        ? payload.error
+        : `HTTP ${res.status}`;
+    if (res.status === 401 && isStaleProAuthError(msg)) {
+      await resetProAuth();
+      throw new Error("Session Pro expirée. Veuillez vous reconnecter.");
+    }
+    throw new Error(msg);
+  }
+
+  return {
+    subscription: payload.subscription ?? null,
+    can_start_trial: payload.can_start_trial === true,
+    has_used_trial: payload.has_used_trial === true,
+  };
+}
+
+export async function startUsernameTrial(
+  establishmentId: string
+): Promise<{ ok: boolean; message: string; subscription?: UsernameSubscription }> {
+  const token = await requireProAccessToken();
+
+  const res = await fetch(
+    apiUrl(`/api/pro/establishments/${establishmentId}/username-subscription/start-trial`),
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+
+  const payload = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const msg =
+      isRecord(payload) && typeof payload.error === "string"
+        ? payload.error
+        : `HTTP ${res.status}`;
+    if (res.status === 401 && isStaleProAuthError(msg)) {
+      await resetProAuth();
+      throw new Error("Session Pro expirée. Veuillez vous reconnecter.");
+    }
+    throw new Error(msg);
+  }
+
+  return {
+    ok: payload.ok === true,
+    message: payload.message ?? "Essai gratuit active",
+    subscription: payload.subscription,
+  };
+}
+
+export async function cancelUsernameSubscription(
+  establishmentId: string
+): Promise<{ ok: boolean; message: string; subscription?: UsernameSubscription }> {
+  const token = await requireProAccessToken();
+
+  const res = await fetch(
+    apiUrl(`/api/pro/establishments/${establishmentId}/username-subscription/cancel`),
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+
+  const payload = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const msg =
+      isRecord(payload) && typeof payload.error === "string"
+        ? payload.error
+        : `HTTP ${res.status}`;
+    if (res.status === 401 && isStaleProAuthError(msg)) {
+      await resetProAuth();
+      throw new Error("Session Pro expirée. Veuillez vous reconnecter.");
+    }
+    throw new Error(msg);
+  }
+
+  return {
+    ok: payload.ok === true,
+    message: payload.message ?? "Abonnement annule",
+    subscription: payload.subscription,
   };
 }

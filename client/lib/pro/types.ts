@@ -5,6 +5,7 @@ export type EstablishmentEditStatus = "none" | "pending_modification" | string;
 
 export type Establishment = {
   id: string;
+  slug: string | null;
   created_by: string | null;
   name: string | null;
   universe: string | null;
@@ -22,6 +23,7 @@ export type Establishment = {
   phone: string | null;
   whatsapp: string | null;
   website: string | null;
+  email: string | null;
   social_links: Record<string, unknown> | null;
   hours: Record<string, unknown> | null;
   amenities: string[] | null;
@@ -63,6 +65,11 @@ export type ReservationStatus =
   | string;
 export type ReservationPaymentStatus = "pending" | "paid" | "refunded" | string;
 
+// Booking source for commission tracking
+// platform = reservation via sam.ma (commissioned)
+// direct_link = reservation via book.sam.ma/:username (NOT commissioned)
+export type BookingSource = "platform" | "direct_link";
+
 export type Reservation = {
   id: string;
   booking_reference: string | null;
@@ -85,6 +92,10 @@ export type Reservation = {
   refusal_reason_code?: string | null;
   refusal_reason_custom?: string | null;
   is_from_waitlist?: boolean;
+  // Booking source tracking
+  booking_source?: BookingSource;
+  referral_slug?: string | null;
+  source_url?: string | null;
   meta: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
@@ -262,4 +273,54 @@ export type EstablishmentProfileDraft = {
   reason: string | null;
   created_at: string;
   decided_at: string | null;
+};
+
+// ---------------------------------------------------------------------------
+// Username Subscription Types
+// ---------------------------------------------------------------------------
+
+export type UsernameSubscriptionStatus =
+  | "trial"
+  | "pending"
+  | "active"
+  | "grace_period"
+  | "expired"
+  | "cancelled";
+
+export type UsernameSubscription = {
+  id: string;
+  status: UsernameSubscriptionStatus;
+  is_trial: boolean;
+  trial_ends_at: string | null;
+  starts_at: string | null;
+  expires_at: string | null;
+  grace_period_ends_at: string | null;
+  cancelled_at: string | null;
+  price_cents: number;
+  currency: string;
+  days_remaining?: number;
+  can_use_username: boolean;
+};
+
+export type UsernameInfo = {
+  username: string | null;
+  usernameChangedAt: string | null;
+  pendingRequest: {
+    id: string;
+    requested_username: string;
+    status: string;
+    created_at: string;
+    rejection_reason: string | null;
+  } | null;
+  canChange: boolean;
+  nextChangeDate: string | null;
+  cooldownDays: number;
+  subscription: UsernameSubscription | null;
+  canUseUsername: boolean;
+};
+
+export type UsernameSubscriptionInfo = {
+  subscription: UsernameSubscription | null;
+  can_start_trial: boolean;
+  has_used_trial: boolean;
 };

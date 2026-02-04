@@ -4,7 +4,6 @@ import { Link } from "react-router-dom";
 import { ArrowRight, BookOpen, Calendar, LayoutGrid, List, Loader2, User } from "lucide-react";
 
 import { Header } from "@/components/Header";
-import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
@@ -453,8 +452,6 @@ export default function Blog() {
           </div>
         )}
       </main>
-
-      <Footer />
     </div>
   );
 }

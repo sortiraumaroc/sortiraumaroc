@@ -25,6 +25,7 @@ interface PhoneAuthModalProps {
   onClose: () => void;
   onAuthed?: () => void;
   onSwitchToEmail?: () => void;
+  referralCode?: string; // Code de parrainage optionnel
 }
 
 type AuthStep = "phone" | "code" | "success";
@@ -49,6 +50,7 @@ export function PhoneAuthModal({
   onClose,
   onAuthed,
   onSwitchToEmail,
+  referralCode,
 }: PhoneAuthModalProps) {
   const { t } = useI18n();
   const [step, setStep] = useState<AuthStep>("phone");
@@ -148,6 +150,7 @@ export function PhoneAuthModal({
         body: JSON.stringify({
           idToken,
           phoneNumber: formatPhoneNumber(phoneNumber),
+          referral_code: referralCode || undefined, // Code de parrainage
         }),
       });
 

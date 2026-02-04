@@ -12,6 +12,7 @@ export class PublicApiError extends Error {
 
 export type PublicEstablishment = {
   id: string;
+  slug: string | null;
   name: string | null;
   universe: string | null;
   subcategory: string | null;
@@ -30,6 +31,7 @@ export type PublicEstablishment = {
   phone: string | null;
   whatsapp: string | null;
   website: string | null;
+  email: string | null;
   social_links: unknown;
 
   cover_url: string | null;
@@ -41,6 +43,10 @@ export type PublicEstablishment = {
 
   booking_enabled: boolean | null;
   status: string | null;
+
+  // Menu Digital (QR Code)
+  menu_digital_enabled: boolean | null;
+  menu_digital_url: string | null;
 };
 
 export type PublicOfferSlot = {
@@ -91,6 +97,9 @@ export type PublicBookingPolicy = {
   require_guarantee_below_score: number | null;
   modification_text_fr: string;
   modification_text_en: string;
+
+  /** Deposit amount per person in MAD. If null or 0, guaranteed booking is disabled. */
+  deposit_per_person: number | null;
 };
 
 export type PublicEstablishmentResponse = {
@@ -225,6 +234,7 @@ export async function getBillingCompanyProfile(): Promise<BillingCompanyProfile>
 
 export type PublicEstablishmentListItem = {
   id: string;
+  slug?: string | null;
   name: string | null;
   universe: string | null;
   subcategory: string | null;
@@ -370,6 +380,69 @@ export async function getPublicHomeFeed(args?: {
 }
 
 // ============================================
+// SEARCH AUTOCOMPLETE
+// ============================================
+export type AutocompleteSuggestion = {
+  id: string;
+  term: string;
+  category: "establishment" | "cuisine" | "dish" | "tag" | "city" | "activity" | "accommodation" | "hashtag";
+  displayLabel: string;
+  iconName: string | null;
+  universe: string | null;
+  extra?: {
+    establishmentId?: string;
+    coverUrl?: string;
+    city?: string;
+    usageCount?: number;
+  };
+};
+
+export type AutocompleteResponse = {
+  ok: true;
+  suggestions: AutocompleteSuggestion[];
+  query: string;
+};
+
+export type PopularSearchesResponse = {
+  ok: true;
+  searches: Array<{
+    term: string;
+    category: string;
+    displayLabel: string;
+    iconName: string | null;
+  }>;
+};
+
+export async function searchAutocomplete(args: {
+  q: string;
+  universe?: string | null;
+  limit?: number;
+}): Promise<AutocompleteResponse> {
+  const qs = new URLSearchParams();
+  qs.set("q", args.q);
+  if (args.universe) qs.set("universe", args.universe);
+  if (args.limit) qs.set("limit", String(args.limit));
+
+  return requestJson<AutocompleteResponse>(`/api/public/search/autocomplete?${qs.toString()}`);
+}
+
+export async function getPopularSearches(args?: {
+  universe?: string | null;
+  city?: string | null;
+  limit?: number;
+}): Promise<PopularSearchesResponse> {
+  const qs = new URLSearchParams();
+  if (args?.universe) qs.set("universe", args.universe);
+  if (args?.city) qs.set("city", args.city);
+  if (args?.limit) qs.set("limit", String(args.limit));
+
+  const path = qs.toString()
+    ? `/api/public/search/popular?${qs.toString()}`
+    : "/api/public/search/popular";
+  return requestJson<PopularSearchesResponse>(path);
+}
+
+// ============================================
 // PUBLIC CATEGORIES (Level 2)
 // ============================================
 export type PublicCategoryItem = {
@@ -503,14 +576,79 @@ export type PublicHomeCity = {
   name: string;
   slug: string;
   image_url: string | null;
+  country_code?: string;
 };
 
-export async function getPublicHomeCities(): Promise<{
+export async function getPublicHomeCities(options?: {
+  country?: string;
+}): Promise<{
   ok: true;
   cities: PublicHomeCity[];
 }> {
+  const params = new URLSearchParams();
+  if (options?.country) params.set("country", options.country);
+  const qs = params.toString();
   return requestJson<{ ok: true; cities: PublicHomeCity[] }>(
-    "/api/public/home-cities",
+    `/api/public/home-cities${qs ? `?${qs}` : ""}`,
+  );
+}
+
+// ============================================
+// PUBLIC HOME VIDEOS
+// ============================================
+
+export type PublicHomeVideo = {
+  id: string;
+  youtube_url: string;
+  title: string;
+  description: string | null;
+  thumbnail_url: string | null;
+  establishment_id: string | null;
+  establishment_name: string | null;
+  establishment_universe: string | null;
+  establishment_slug: string | null;
+};
+
+export async function getPublicHomeVideos(): Promise<{
+  ok: true;
+  videos: PublicHomeVideo[];
+}> {
+  return requestJson<{ ok: true; videos: PublicHomeVideo[] }>(
+    "/api/public/home-videos",
+  );
+}
+
+// ============================================
+// PUBLIC COUNTRIES
+// ============================================
+
+export type PublicCountry = {
+  id: string;
+  name: string;
+  name_en: string | null;
+  code: string;
+  flag_emoji: string | null;
+  currency_code: string | null;
+  is_default: boolean;
+};
+
+export async function getPublicCountries(): Promise<{
+  ok: true;
+  countries: PublicCountry[];
+}> {
+  return requestJson<{ ok: true; countries: PublicCountry[] }>(
+    "/api/public/countries",
+  );
+}
+
+export async function detectUserCountry(): Promise<{
+  ok: true;
+  country_code: string;
+  detected: boolean;
+  reason?: string;
+}> {
+  return requestJson<{ ok: true; country_code: string; detected: boolean; reason?: string }>(
+    "/api/public/detect-country",
   );
 }
 
@@ -600,4 +738,82 @@ export async function trackAdClick(args: {
       body: JSON.stringify(args),
     },
   );
+}
+
+// =============================================================================
+// FEATURED PACK (Pack Mise en Avant) - Homepage sections
+// =============================================================================
+
+export type FeaturedPackItem = {
+  campaign_id: string;
+  establishment: {
+    id: string;
+    slug: string | null;
+    name: string;
+    universe: string | null;
+    city: string | null;
+    address: string | null;
+    cover_url: string | null;
+    subcategory: string | null;
+    avg_rating: number | null;
+    review_count: number | null;
+    booking_enabled: boolean;
+    lat: number | null;
+    lng: number | null;
+  };
+  cpm_cents: number | null;
+};
+
+export type FeaturedPackResponse = {
+  ok: true;
+  featured: FeaturedPackItem | null;
+};
+
+export async function getFeaturedPack(args?: {
+  section?: string;
+  universe?: string | null;
+  exclude?: string[];
+}): Promise<FeaturedPackResponse> {
+  const qs = new URLSearchParams();
+
+  const section = String(args?.section ?? "selected_for_you").trim();
+  if (section) qs.set("section", section);
+
+  const universe = String(args?.universe ?? "").trim();
+  if (universe) qs.set("universe", universe);
+
+  if (args?.exclude?.length) {
+    qs.set("exclude", args.exclude.join(","));
+  }
+
+  const path = `/api/public/ads/featured-pack?${qs.toString()}`;
+  return requestJson<FeaturedPackResponse>(path);
+}
+
+// =============================================================================
+// HOME TAKEOVER (Habillage Homepage)
+// =============================================================================
+
+export type HomeTakeoverItem = {
+  campaign_id: string;
+  title: string;
+  banner_desktop_url: string | null;
+  banner_mobile_url: string | null;
+  cta_text: string | null;
+  cta_url: string | null;
+  establishment: {
+    id: string;
+    name: string;
+    slug: string | null;
+    cover_url: string | null;
+  } | null;
+};
+
+export type HomeTakeoverResponse = {
+  ok: true;
+  takeover: HomeTakeoverItem | null;
+};
+
+export async function getHomeTakeover(): Promise<HomeTakeoverResponse> {
+  return requestJson<HomeTakeoverResponse>("/api/public/ads/home-takeover");
 }

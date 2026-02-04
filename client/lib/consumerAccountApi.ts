@@ -93,3 +93,81 @@ export async function requestMyConsumerDataExport(args: { format: "json" | "csv"
     body: JSON.stringify({ format: args.format }),
   });
 }
+
+/**
+ * Request a password reset email (regenerate password).
+ * A new temporary password will be sent to the user's email.
+ */
+export async function requestPasswordReset(): Promise<{ ok: true }> {
+  return requestAuthedJson<{ ok: true }>("/api/consumer/account/password/reset", {
+    method: "POST",
+  });
+}
+
+/**
+ * Change the user's password.
+ * Requires the current password and the new password.
+ */
+export async function changePassword(args: {
+  current_password: string;
+  new_password: string;
+}): Promise<{ ok: true }> {
+  return requestAuthedJson<{ ok: true }>("/api/consumer/account/password/change", {
+    method: "POST",
+    body: JSON.stringify({
+      current_password: args.current_password,
+      new_password: args.new_password,
+    }),
+  });
+}
+
+/**
+ * Request a password reset link (sent via email).
+ * Better UX than temporary password - user creates their own new password.
+ */
+export async function requestPasswordResetLink(): Promise<{ ok: true }> {
+  return requestAuthedJson<{ ok: true }>("/api/consumer/account/password/reset-link", {
+    method: "POST",
+  });
+}
+
+/**
+ * Validate a password reset token (public endpoint, no auth required).
+ */
+export async function validatePasswordResetToken(token: string): Promise<{ ok: true; email: string }> {
+  const res = await fetch(`/api/consumer/account/password/validate-token?token=${encodeURIComponent(token)}`);
+  const payload = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    const errorMsg = payload?.error || `HTTP ${res.status}`;
+    throw new ConsumerAccountApiError(errorMsg, res.status, payload);
+  }
+
+  return payload;
+}
+
+/**
+ * Complete password reset - set new password using the reset token.
+ */
+export async function completePasswordReset(args: {
+  token: string;
+  new_password: string;
+}): Promise<{ ok: true }> {
+  const res = await fetch("/api/consumer/account/password/complete-reset", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      token: args.token,
+      new_password: args.new_password,
+    }),
+  });
+
+  const payload = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    const errorMsg = payload?.error || `HTTP ${res.status}`;
+    throw new ConsumerAccountApiError(errorMsg, res.status, payload);
+  }
+
+  return payload;
+}

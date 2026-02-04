@@ -1,7 +1,7 @@
 -- ============================================================================
 -- Migration: Ajout des Foreign Keys manquantes
 -- Date: 2026-01-27
--- Auteur: Sam'Booking Team
+-- Auteur: SAM Team
 -- Description: Corrige les contraintes de clés étrangères manquantes
 -- ============================================================================
 

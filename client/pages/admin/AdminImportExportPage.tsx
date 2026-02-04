@@ -54,6 +54,14 @@ type ImportPreviewItem = {
   };
   valid: boolean;
   error?: string;
+  isNew: boolean;
+  existingMatch?: {
+    id: string;
+    name: string;
+    city: string;
+    status: string;
+    phone: string | null;
+  };
 };
 
 type ImportResult = {
@@ -92,6 +100,8 @@ export function AdminImportExportPage() {
     total: number;
     valid: number;
     invalid: number;
+    newCount: number;
+    existingCount: number;
     preview: ImportPreviewItem[];
   } | null>(null);
   const [importResults, setImportResults] = useState<{
@@ -247,6 +257,16 @@ export function AdminImportExportPage() {
     window.location.href = "/api/admin/import-export/template";
   }, []);
 
+  // Download Excel template with dropdowns
+  const handleDownloadExcel = useCallback(() => {
+    window.location.href = "/api/admin/import-export/excel-template";
+  }, []);
+
+  // Download taxonomy reference (CSV)
+  const handleDownloadTaxonomy = useCallback(() => {
+    window.location.href = "/api/admin/import-export/taxonomy";
+  }, []);
+
   // Export establishments
   const handleExport = useCallback(async () => {
     setExporting(true);
@@ -359,19 +379,64 @@ export function AdminImportExportPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Template download */}
-              <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="font-medium">Télécharger le modèle</h4>
-                    <p className="text-sm text-slate-500">
-                      Utilisez ce fichier CSV comme base pour remplir vos données
-                    </p>
+              {/* Template downloads */}
+              <div className="space-y-4">
+                {/* Main Excel template - recommended */}
+                <div className="rounded-lg border-2 border-green-400 bg-green-50 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-semibold text-green-800">📊 Fichier Excel avec listes déroulantes</h4>
+                        <Badge className="bg-green-600">Recommandé</Badge>
+                      </div>
+                      <p className="text-sm text-green-700 mt-1">
+                        Template complet avec menus déroulants pour l'univers, la ville, la région et l'ambiance.
+                        Inclut un guide de taxonomie et la liste des sous-catégories.
+                      </p>
+                      <ul className="text-xs text-green-600 mt-2 space-y-1">
+                        <li>✓ Sélection univers, ville, région via liste déroulante</li>
+                        <li>✓ Guide des sous-catégories par univers</li>
+                        <li>✓ Liste des équipements par type d'établissement</li>
+                        <li>✓ Validation automatique des champs obligatoires</li>
+                      </ul>
+                    </div>
+                    <Button onClick={handleDownloadExcel} className="gap-2 bg-green-600 hover:bg-green-700 shrink-0">
+                      <FileSpreadsheet className="h-4 w-4" />
+                      Télécharger Excel
+                    </Button>
                   </div>
-                  <Button variant="outline" onClick={handleDownloadTemplate} className="gap-2">
-                    <FileSpreadsheet className="h-4 w-4" />
-                    Télécharger le template
-                  </Button>
+                </div>
+
+                {/* Alternative CSV templates */}
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4">
+                    <div className="flex flex-col gap-3">
+                      <div>
+                        <h4 className="font-medium text-slate-700">Template CSV simple</h4>
+                        <p className="text-xs text-slate-500">
+                          Fichier CSV basique avec exemples
+                        </p>
+                      </div>
+                      <Button variant="outline" onClick={handleDownloadTemplate} className="gap-2 w-full" size="sm">
+                        <FileText className="h-4 w-4" />
+                        CSV Template
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4">
+                    <div className="flex flex-col gap-3">
+                      <div>
+                        <h4 className="font-medium text-slate-700">Taxonomie CSV</h4>
+                        <p className="text-xs text-slate-500">
+                          Liste de tous les termes autorisés
+                        </p>
+                      </div>
+                      <Button variant="outline" onClick={handleDownloadTaxonomy} className="gap-2 w-full" size="sm">
+                        <Download className="h-4 w-4" />
+                        CSV Taxonomie
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -477,40 +542,80 @@ export function AdminImportExportPage() {
                   </ul>
                 </div>
                 <div>
-                  <h4 className="font-medium text-slate-900">Colonnes optionnelles</h4>
+                  <h4 className="font-medium text-slate-900">Informations de base</h4>
                   <ul className="mt-1 list-inside list-disc text-slate-600">
                     <li>
-                      <code className="rounded bg-slate-100 px-1">pro_email</code> - Email du
-                      propriétaire PRO (peut être renseigné plus tard)
+                      <code className="rounded bg-slate-100 px-1">universe</code> - Catégorie
+                      (restaurants, sport, loisirs, hebergement...)
                     </li>
                     <li>
-                      <code className="rounded bg-slate-100 px-1">universe</code> - Catégorie
-                      (restaurants, sport, loisirs...)
+                      <code className="rounded bg-slate-100 px-1">subcategory</code> - Sous-catégorie
+                      (gastronomique, spa, riad...)
                     </li>
                     <li>
                       <code className="rounded bg-slate-100 px-1">adresse</code>,{" "}
                       <code className="rounded bg-slate-100 px-1">code_postal</code>,{" "}
-                      <code className="rounded bg-slate-100 px-1">region</code>
+                      <code className="rounded bg-slate-100 px-1">region</code>,{" "}
+                      <code className="rounded bg-slate-100 px-1">pays</code>
                     </li>
+                  </ul>
+                </div>
+                <div>
+                  <h4 className="font-medium text-slate-900">Contact & Réseaux sociaux</h4>
+                  <ul className="mt-1 list-inside list-disc text-slate-600">
                     <li>
                       <code className="rounded bg-slate-100 px-1">telephone</code>,{" "}
                       <code className="rounded bg-slate-100 px-1">whatsapp</code>,{" "}
-                      <code className="rounded bg-slate-100 px-1">site_web</code>
+                      <code className="rounded bg-slate-100 px-1">email_etablissement</code>
                     </li>
+                    <li>
+                      <code className="rounded bg-slate-100 px-1">site_web</code>,{" "}
+                      <code className="rounded bg-slate-100 px-1">instagram</code>,{" "}
+                      <code className="rounded bg-slate-100 px-1">facebook</code>
+                    </li>
+                  </ul>
+                </div>
+                <div>
+                  <h4 className="font-medium text-slate-900">Descriptions & Infos pratiques</h4>
+                  <ul className="mt-1 list-inside list-disc text-slate-600">
                     <li>
                       <code className="rounded bg-slate-100 px-1">description_courte</code>,{" "}
                       <code className="rounded bg-slate-100 px-1">description_longue</code>
                     </li>
                     <li>
+                      <code className="rounded bg-slate-100 px-1">horaires</code>,{" "}
+                      <code className="rounded bg-slate-100 px-1">prix_min</code>,{" "}
+                      <code className="rounded bg-slate-100 px-1">prix_max</code>,{" "}
+                      <code className="rounded bg-slate-100 px-1">devise</code>
+                    </li>
+                    <li>
+                      <code className="rounded bg-slate-100 px-1">tags</code> (séparés par virgules),{" "}
+                      <code className="rounded bg-slate-100 px-1">amenities</code> (séparés par virgules)
+                    </li>
+                    <li>
+                      <code className="rounded bg-slate-100 px-1">latitude</code>,{" "}
+                      <code className="rounded bg-slate-100 px-1">longitude</code> - Coordonnées GPS
+                    </li>
+                  </ul>
+                </div>
+                <div>
+                  <h4 className="font-medium text-slate-900">Propriétaire PRO (optionnel)</h4>
+                  <ul className="mt-1 list-inside list-disc text-slate-600">
+                    <li>
+                      <code className="rounded bg-slate-100 px-1">pro_email</code> - Email du
+                      propriétaire (un compte sera créé automatiquement)
+                    </li>
+                    <li>
                       <code className="rounded bg-slate-100 px-1">pro_nom</code>,{" "}
                       <code className="rounded bg-slate-100 px-1">pro_prenom</code>,{" "}
-                      <code className="rounded bg-slate-100 px-1">pro_telephone</code>
+                      <code className="rounded bg-slate-100 px-1">pro_telephone</code>,{" "}
+                      <code className="rounded bg-slate-100 px-1">pro_entreprise</code>
                     </li>
                   </ul>
                 </div>
                 <div className="rounded-lg bg-amber-50 p-3 text-amber-800">
                   <strong>Note :</strong> Les établissements importés ont le statut "En attente" et
-                  doivent être validés manuellement.
+                  doivent être validés manuellement. Le template inclut 3 exemples à supprimer avant import.
                 </div>
               </div>
             </CardContent>
@@ -557,18 +662,33 @@ export function AdminImportExportPage() {
 
       {/* Preview Dialog */}
       <Dialog open={previewDialogOpen} onOpenChange={setPreviewDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-5xl max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>Prévisualisation de l'import</DialogTitle>
-            <DialogDescription>
-              {previewData && (
-                <span>
-                  {previewData.total} ligne(s) • {previewData.valid} valide(s) •{" "}
-                  <span className={previewData.invalid > 0 ? "text-red-600" : ""}>
-                    {previewData.invalid} erreur(s)
-                  </span>
-                </span>
-              )}
+            <DialogDescription asChild>
+              <div className="space-y-2">
+                {previewData && (
+                  <>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      <Badge variant="outline">{previewData.total} ligne(s)</Badge>
+                      <Badge variant="default" className="bg-green-500">
+                        {previewData.newCount} nouveau(x)
+                      </Badge>
+                      <Badge variant="secondary" className="bg-amber-100 text-amber-800">
+                        {previewData.existingCount} déjà existant(s)
+                      </Badge>
+                      {previewData.invalid > 0 && (
+                        <Badge variant="destructive">{previewData.invalid} erreur(s)</Badge>
+                      )}
+                    </div>
+                    {previewData.existingCount > 0 && (
+                      <p className="text-amber-600 text-xs">
+                        ⚠️ Les établissements marqués "Existe déjà" ne seront pas importés pour éviter les doublons.
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
             </DialogDescription>
           </DialogHeader>
 
@@ -577,30 +697,56 @@ export function AdminImportExportPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-12">#</TableHead>
-                  <TableHead>Statut</TableHead>
+                  <TableHead className="w-28">Statut</TableHead>
                   <TableHead>Nom</TableHead>
                   <TableHead>Ville</TableHead>
+                  <TableHead>Univers</TableHead>
                   <TableHead>Email PRO</TableHead>
-                  <TableHead>Erreur</TableHead>
+                  <TableHead>Note</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {previewData?.preview.map((item) => (
-                  <TableRow key={item.row}>
+                  <TableRow
+                    key={item.row}
+                    className={cn(
+                      !item.valid && "bg-red-50",
+                      item.valid && !item.isNew && "bg-amber-50"
+                    )}
+                  >
                     <TableCell className="font-mono text-xs">{item.row}</TableCell>
                     <TableCell>
-                      {item.valid ? (
-                        <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      {!item.valid ? (
+                        <Badge variant="destructive" className="text-xs">
+                          <XCircle className="h-3 w-3 mr-1" />
+                          Erreur
+                        </Badge>
+                      ) : item.isNew ? (
+                        <Badge variant="default" className="bg-green-500 text-xs">
+                          <CheckCircle2 className="h-3 w-3 mr-1" />
+                          Nouveau
+                        </Badge>
                       ) : (
-                        <XCircle className="h-4 w-4 text-red-500" />
+                        <Badge variant="secondary" className="bg-amber-100 text-amber-800 text-xs">
+                          <AlertCircle className="h-3 w-3 mr-1" />
+                          Existe déjà
+                        </Badge>
                       )}
                     </TableCell>
                     <TableCell className="font-medium">{item.data.nom}</TableCell>
                     <TableCell>{item.data.ville}</TableCell>
-                    <TableCell className="text-sm">{item.data.pro_email}</TableCell>
-                    <TableCell>
-                      {item.error && (
-                        <span className="text-sm text-red-600">{item.error}</span>
+                    <TableCell className="text-sm text-slate-500">{item.data.universe || "-"}</TableCell>
+                    <TableCell className="text-sm">{item.data.pro_email || "-"}</TableCell>
+                    <TableCell className="text-xs max-w-[200px]">
+                      {item.error ? (
+                        <span className="text-red-600">{item.error}</span>
+                      ) : item.existingMatch ? (
+                        <span className="text-amber-600">
+                          Correspond à: {item.existingMatch.name} ({item.existingMatch.city})
+                          {item.existingMatch.status && ` - ${item.existingMatch.status}`}
+                        </span>
+                      ) : (
+                        <span className="text-green-600">Prêt à importer</span>
                       )}
                     </TableCell>
                   </TableRow>
@@ -609,17 +755,24 @@ export function AdminImportExportPage() {
             </Table>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="gap-2 flex-wrap">
+            <div className="flex-1 text-sm text-slate-500">
+              {previewData && previewData.newCount > 0 && (
+                <span>
+                  Seuls les <strong>{previewData.newCount}</strong> nouveaux établissements seront importés.
+                </span>
+              )}
+            </div>
             <Button variant="outline" onClick={() => setPreviewDialogOpen(false)}>
               Annuler
             </Button>
             <Button
               onClick={handleImport}
-              disabled={importing || (previewData?.valid ?? 0) === 0}
+              disabled={importing || (previewData?.newCount ?? 0) === 0}
               className="gap-2"
             >
               {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Importer {previewData?.valid ?? 0} établissement(s)
+              Importer {previewData?.newCount ?? 0} établissement(s)
             </Button>
           </DialogFooter>
         </DialogContent>

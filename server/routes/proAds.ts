@@ -300,7 +300,7 @@ export const initiateWalletRecharge: RequestHandler = async (req, res) => {
     const sessionPayload = {
       orderId,
       externalReference,
-      amount: amountMad,
+      amountMad,
       customerEmail: proUser.email || "noemail@sortiraumaroc.com",
       customerPhone: "+212600000000", // TODO: Récupérer depuis le profil PRO
       customerFirstName: establishment.name,
@@ -1070,6 +1070,340 @@ export const getAdsStats: RequestHandler = async (req, res) => {
 };
 
 // =============================================================================
+// HOME TAKEOVER CALENDAR
+// =============================================================================
+
+/**
+ * GET /api/pro/establishments/:id/ads/home-takeover/calendar
+ * Récupère le calendrier des jours disponibles pour l'habillage home
+ */
+export const getHomeTakeoverCalendar: RequestHandler = async (req, res) => {
+  const token = parseBearerToken(req.header("authorization") ?? undefined);
+  if (!token) return res.status(401).json({ error: "Missing bearer token" });
+
+  const userResult = await getUserFromBearerToken(token);
+  if (userResult.ok === false) return res.status(userResult.status).json({ error: userResult.error });
+
+  const supabase = getAdminSupabase();
+  const establishmentId = req.params.id;
+
+  // Date range: from today to 90 days in the future
+  const startDate = asString(req.query.start_date) || new Date().toISOString().split("T")[0];
+  const endDate =
+    asString(req.query.end_date) ||
+    new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+
+  try {
+    // Vérifier l'accès
+    const { data: membership } = await supabase
+      .from("pro_establishment_memberships")
+      .select("role")
+      .eq("establishment_id", establishmentId)
+      .eq("user_id", userResult.user.id)
+      .maybeSingle();
+
+    if (!membership || !["owner", "marketing"].includes(membership.role)) {
+      return res.status(403).json({ error: "Accès refusé" });
+    }
+
+    // Récupérer le calendrier
+    const { data: calendar, error } = await supabase
+      .from("ad_home_takeover_calendar")
+      .select(`
+        id,
+        date,
+        price_cents,
+        status,
+        winning_bid_cents,
+        campaign_id,
+        notes
+      `)
+      .gte("date", startDate)
+      .lte("date", endDate)
+      .order("date", { ascending: true });
+
+    if (error) {
+      console.error("[proAds] Error fetching calendar:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+
+    // Récupérer la config de l'enchère pour home_takeover
+    const { data: config } = await supabase
+      .from("ad_auction_config")
+      .select("*")
+      .eq("campaign_type", "home_takeover")
+      .maybeSingle();
+
+    // Générer les jours manquants avec prix par défaut
+    const basePrice = (config as any)?.min_bid_cents ?? 50000; // 500 MAD minimum
+    const existingDates = new Set((calendar ?? []).map((c: any) => c.date));
+    const allDates: any[] = [...(calendar ?? [])];
+
+    // Générer les dates manquantes
+    let currentDate = new Date(startDate);
+    const end = new Date(endDate);
+    while (currentDate <= end) {
+      const dateStr = currentDate.toISOString().split("T")[0];
+      if (!existingDates.has(dateStr)) {
+        // Calculer le prix basé sur le jour de la semaine
+        const dayOfWeek = currentDate.getDay();
+        const isWeekend = dayOfWeek === 0 || dayOfWeek === 5 || dayOfWeek === 6;
+        const dayPrice = isWeekend ? Math.round(basePrice * 1.5) : basePrice;
+
+        allDates.push({
+          id: null,
+          date: dateStr,
+          price_cents: dayPrice,
+          status: "available",
+          winning_bid_cents: null,
+          campaign_id: null,
+          notes: null,
+        });
+      }
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    // Trier par date
+    allDates.sort((a, b) => a.date.localeCompare(b.date));
+
+    return res.json({
+      ok: true,
+      calendar: allDates,
+      config: {
+        min_bid_cents: (config as any)?.min_bid_cents ?? 50000,
+        suggested_bid_cents: (config as any)?.suggested_bid_cents ?? 100000,
+        min_budget_cents: (config as any)?.min_budget_cents ?? 500000,
+      },
+    });
+  } catch (error) {
+    console.error("[proAds] getHomeTakeoverCalendar error:", error);
+    return res.status(500).json({ error: "Erreur serveur" });
+  }
+};
+
+/**
+ * POST /api/pro/establishments/:id/ads/home-takeover/reserve
+ * Réserver un jour pour l'habillage home
+ */
+export const reserveHomeTakeoverDay: RequestHandler = async (req, res) => {
+  const token = parseBearerToken(req.header("authorization") ?? undefined);
+  if (!token) return res.status(401).json({ error: "Missing bearer token" });
+
+  const userResult = await getUserFromBearerToken(token);
+  if (userResult.ok === false) return res.status(userResult.status).json({ error: userResult.error });
+
+  const supabase = getAdminSupabase();
+  const establishmentId = req.params.id;
+  const proUser = userResult.user;
+
+  if (!isRecord(req.body)) {
+    return res.status(400).json({ error: "Corps de requête invalide" });
+  }
+
+  const date = asString(req.body.date);
+  const bidCents = asNumber(req.body.bid_cents);
+  const title = asString(req.body.title) || "Habillage Homepage";
+  const bannerDesktopUrl = asString(req.body.banner_desktop_url);
+  const bannerMobileUrl = asString(req.body.banner_mobile_url);
+  const ctaText = asString(req.body.cta_text);
+  const ctaUrl = asString(req.body.cta_url);
+
+  if (!date || !bidCents) {
+    return res.status(400).json({ error: "Date et enchère requises" });
+  }
+
+  // Vérifier que la date est dans le futur
+  const targetDate = new Date(date);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (targetDate <= today) {
+    return res.status(400).json({ error: "La date doit être dans le futur" });
+  }
+
+  try {
+    // Vérifier l'accès
+    const { data: membership } = await supabase
+      .from("pro_establishment_memberships")
+      .select("role")
+      .eq("establishment_id", establishmentId)
+      .eq("user_id", proUser.id)
+      .maybeSingle();
+
+    if (!membership || !["owner", "marketing"].includes(membership.role)) {
+      return res.status(403).json({ error: "Accès refusé" });
+    }
+
+    // Vérifier la config minimale
+    const { data: config } = await supabase
+      .from("ad_auction_config")
+      .select("min_bid_cents")
+      .eq("campaign_type", "home_takeover")
+      .maybeSingle();
+
+    const minBid = (config as any)?.min_bid_cents ?? 50000;
+    if (bidCents < minBid) {
+      return res.status(400).json({
+        error: `L'enchère minimum est de ${(minBid / 100).toFixed(2)} MAD`,
+      });
+    }
+
+    // Vérifier le solde du wallet
+    const { data: wallet } = await supabase
+      .from("ad_wallets")
+      .select("id, balance_cents")
+      .eq("establishment_id", establishmentId)
+      .maybeSingle();
+
+    const walletBalance = (wallet as any)?.balance_cents ?? 0;
+    if (walletBalance < bidCents) {
+      return res.status(400).json({
+        error: `Solde insuffisant. Vous avez ${(walletBalance / 100).toFixed(2)} MAD`,
+      });
+    }
+
+    // Vérifier si le jour est disponible
+    const { data: existingEntry } = await supabase
+      .from("ad_home_takeover_calendar")
+      .select("id, status, winning_bid_cents, campaign_id")
+      .eq("date", date)
+      .maybeSingle();
+
+    if (existingEntry) {
+      const status = (existingEntry as any).status;
+      if (status === "confirmed" || status === "blocked") {
+        return res.status(400).json({ error: "Ce jour n'est plus disponible" });
+      }
+
+      // Si déjà réservé, vérifier si notre enchère est supérieure
+      if (status === "reserved") {
+        const currentBid = (existingEntry as any).winning_bid_cents ?? 0;
+        if (bidCents <= currentBid) {
+          return res.status(400).json({
+            error: `Une enchère de ${(currentBid / 100).toFixed(2)} MAD existe déjà. Votre enchère doit être supérieure.`,
+          });
+        }
+        // TODO: Notifier l'ancien enchérisseur qu'il a été surenchéri
+      }
+    }
+
+    // Créer la campagne home_takeover
+    const campaignId = randomUUID();
+    const { error: campaignError } = await supabase.from("pro_campaigns").insert({
+      id: campaignId,
+      establishment_id: establishmentId,
+      title,
+      type: "home_takeover",
+      status: "draft",
+      moderation_status: "pending_review",
+      billing_model: "cpd", // Cost per day
+      bid_amount_cents: bidCents,
+      budget_cents: bidCents,
+      starts_at: `${date}T00:00:00.000Z`,
+      ends_at: `${date}T23:59:59.999Z`,
+      targeting: {
+        banner_desktop_url: bannerDesktopUrl,
+        banner_mobile_url: bannerMobileUrl,
+        cta_text: ctaText,
+        cta_url: ctaUrl,
+      },
+      created_by: proUser.id,
+    });
+
+    if (campaignError) {
+      console.error("[proAds] Error creating campaign:", campaignError);
+      return res.status(500).json({ error: "Erreur création campagne" });
+    }
+
+    // Mettre à jour ou créer l'entrée calendrier
+    const calendarData = {
+      date,
+      campaign_id: campaignId,
+      price_cents: bidCents,
+      status: "reserved",
+      winning_bid_cents: bidCents,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (existingEntry) {
+      await supabase
+        .from("ad_home_takeover_calendar")
+        .update(calendarData)
+        .eq("id", (existingEntry as any).id);
+    } else {
+      await supabase.from("ad_home_takeover_calendar").insert({
+        ...calendarData,
+        created_at: new Date().toISOString(),
+      });
+    }
+
+    return res.json({
+      ok: true,
+      campaign_id: campaignId,
+      date,
+      bid_cents: bidCents,
+      status: "reserved",
+      message: "Réservation en attente de validation admin",
+    });
+  } catch (error) {
+    console.error("[proAds] reserveHomeTakeoverDay error:", error);
+    return res.status(500).json({ error: "Erreur serveur" });
+  }
+};
+
+// =============================================================================
+// INVOICES
+// =============================================================================
+
+/**
+ * GET /api/pro/establishments/:id/ads/invoices
+ * Récupère les factures publicitaires d'un établissement
+ */
+export const getAdInvoices: RequestHandler = async (req, res) => {
+  const token = parseBearerToken(req.header("authorization") ?? undefined);
+  if (!token) return res.status(401).json({ error: "Missing bearer token" });
+
+  const userResult = await getUserFromBearerToken(token);
+  if (userResult.ok === false) return res.status(userResult.status).json({ error: userResult.error });
+
+  const supabase = getAdminSupabase();
+  const establishmentId = req.params.id;
+
+  try {
+    // Vérifier l'accès
+    const { data: membership } = await supabase
+      .from("pro_establishment_memberships")
+      .select("role")
+      .eq("establishment_id", establishmentId)
+      .eq("user_id", userResult.user.id)
+      .maybeSingle();
+
+    if (!membership) {
+      return res.status(403).json({ error: "Accès refusé" });
+    }
+
+    // Récupérer les factures
+    const { data: invoices, error } = await supabase
+      .from("ad_invoices")
+      .select("*")
+      .eq("establishment_id", establishmentId)
+      .order("issued_at", { ascending: false });
+
+    if (error) {
+      console.error("[proAds] Error fetching invoices:", error);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+
+    return res.json({
+      ok: true,
+      invoices: invoices ?? [],
+    });
+  } catch (error) {
+    console.error("[proAds] getAdInvoices error:", error);
+    return res.status(500).json({ error: "Erreur serveur" });
+  }
+};
+
+// =============================================================================
 // REGISTER ROUTES
 // =============================================================================
 
@@ -1090,4 +1424,11 @@ export function registerProAdsRoutes(app: Router) {
   // Config & Stats
   app.get("/api/pro/establishments/:id/ads/auction-config", getAuctionConfig);
   app.get("/api/pro/establishments/:id/ads/stats", getAdsStats);
+
+  // Home Takeover Calendar
+  app.get("/api/pro/establishments/:id/ads/home-takeover/calendar", getHomeTakeoverCalendar);
+  app.post("/api/pro/establishments/:id/ads/home-takeover/reserve", reserveHomeTakeoverDay);
+
+  // Invoices
+  app.get("/api/pro/establishments/:id/ads/invoices", getAdInvoices);
 }

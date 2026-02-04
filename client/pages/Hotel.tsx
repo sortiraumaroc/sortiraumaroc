@@ -28,6 +28,8 @@ import { HotelGallery } from "@/components/hotel/HotelGallery";
 import { EstablishmentTabs } from "@/components/establishment/EstablishmentTabs";
 import { AmenitiesGrid, RatingStars, RoomsList, hotelAmenityPresets } from "@/components/hotel/HotelSections";
 import { getHotelById, type HotelData } from "@/lib/hotels";
+import { getPublicEstablishment, type PublicEstablishment } from "@/lib/publicApi";
+import { buildEstablishmentUrl } from "@/lib/establishmentUrl";
 import { GOOGLE_MAPS_LOGO_URL, WAZE_LOGO_URL } from "@/lib/mapAppLogos";
 import { applySeo, clearJsonLd, setJsonLd, generateLocalBusinessSchema } from "@/lib/seo";
 import { useGeocodedQuery } from "@/hooks/useGeocodedQuery";
@@ -38,6 +40,7 @@ import { createRng, makeImageSet, makePhoneMa, makeWebsiteUrl, nextDaysYmd, pick
 import { useI18n } from "@/lib/i18n";
 import { ReportEstablishmentDialog } from "@/components/ReportEstablishmentDialog";
 import { EstablishmentReviewsSection } from "@/components/EstablishmentReviewsSection";
+import { isUuid } from "@/lib/pro/visits";
 
 type HotelReview = {
   id: string;
@@ -235,22 +238,179 @@ function buildFallbackHotel(args: { id: string; name?: string; city?: string; ne
   };
 }
 
+/**
+ * Convert a PublicEstablishment from the API into a HotelData object
+ */
+function buildHotelFromApi(establishment: PublicEstablishment): HotelData {
+  const rng = createRng(`hotel-api-${establishment.id}`);
+
+  const name = establishment.name ?? `Hôtel ${establishment.id}`;
+  const city = establishment.city ?? "";
+  const neighborhood = establishment.address ?? "";
+
+  // Extract stars from amenities or extra data
+  const extra = establishment.extra as Record<string, unknown> | null;
+  const stars = (typeof extra?.stars === "number" ? extra.stars : 4) as 3 | 4 | 5;
+
+  // Rating from extra or fallback
+  const ratingValue = typeof extra?.rating === "number" ? extra.rating : Math.round((3.7 + rng() * 1.2) * 10) / 10;
+  const ratingSource = (typeof extra?.ratingSource === "string" ? extra.ratingSource : "Google") as HotelData["rating"]["source"];
+  const reviewCount = typeof extra?.reviewCount === "number" ? extra.reviewCount : Math.floor(120 + rng() * 1600);
+
+  // Parse amenities
+  const amenitiesArr = Array.isArray(establishment.amenities) ? establishment.amenities : [];
+  const amenities = amenitiesArr.map((a) => {
+    if (typeof a === "string") {
+      const preset = hotelAmenityPresets[a as keyof typeof hotelAmenityPresets];
+      return preset ?? { label: a, icon: null };
+    }
+    return a as { label: string; icon: unknown };
+  });
+
+  // Images (using snake_case from API)
+  const images: string[] = [];
+  if (establishment.cover_url) images.push(establishment.cover_url);
+  if (Array.isArray(establishment.gallery_urls)) {
+    images.push(...establishment.gallery_urls.filter((u): u is string => typeof u === "string"));
+  }
+  if (images.length === 0) {
+    images.push(...makeImageSet(rng, "hotel"));
+  }
+
+  // Rooms from extra or fallback
+  const roomsFromExtra = Array.isArray(extra?.rooms) ? extra.rooms : null;
+  const rooms: HotelData["rooms"] = roomsFromExtra
+    ? (roomsFromExtra as HotelData["rooms"])
+    : [
+        {
+          name: "Chambre Standard",
+          occupancy: "Jusqu'à 2 personnes",
+          highlights: ["Wi‑Fi", "Climatisation", "Salle de bain privée"],
+          priceFromMad: Math.floor(450 + rng() * 2200),
+        },
+        {
+          name: "Chambre Supérieure",
+          occupancy: "Jusqu'à 3 personnes",
+          highlights: ["Vue (selon disponibilité)", "Wi‑Fi", "Climatisation"],
+          priceFromMad: Math.floor(650 + rng() * 2600),
+        },
+        {
+          name: "Suite",
+          occupancy: "Jusqu'à 4 personnes",
+          highlights: ["Espace salon", "Vue (selon disponibilité)", "Wi‑Fi"],
+          priceFromMad: Math.floor(950 + rng() * 4200),
+        },
+      ];
+
+  // Social media (using snake_case from API)
+  const socialLinks = establishment.social_links as Record<string, string> | null;
+  const socialMedia: HotelData["socialMedia"] = [];
+  if (socialLinks) {
+    for (const [platform, url] of Object.entries(socialLinks)) {
+      if (url) socialMedia.push({ platform, url });
+    }
+  }
+  if (establishment.website) {
+    socialMedia.push({ platform: "website", url: establishment.website });
+  }
+
+  return {
+    id: establishment.id,
+    name,
+    city,
+    neighborhood,
+    stars,
+    rating: { value: ratingValue, source: ratingSource, reviewCount },
+    address: establishment.address ?? "",
+    phone: establishment.phone ?? "",
+    email: `contact@${name.toLowerCase().replace(/\s+/g, "-")}.ma`,
+    website: establishment.website ?? "",
+    checkIn: typeof extra?.checkIn === "string" ? extra.checkIn : "À partir de 14:00",
+    checkOut: typeof extra?.checkOut === "string" ? extra.checkOut : "Jusqu'à 12:00",
+    description: establishment.description_long ?? establishment.description_short ?? "",
+    highlights: Array.isArray(establishment.tags) ? establishment.tags.slice(0, 6) : [],
+    images,
+    amenities: amenities.length > 0 ? amenities : pickMany(rng, Object.values(hotelAmenityPresets), 11),
+    rooms,
+    mapQuery: `${name} ${city}`,
+    reviewUrl: `https://www.google.com/search?q=${encodeURIComponent(name + " avis")}`,
+    reviewSummary: {
+      pros: pickMany(rng, ["Emplacement apprécié", "Personnel accueillant", "Bon confort des chambres", "Petit-déjeuner correct"] as const, 3),
+      cons: pickMany(rng, ["Expérience variable selon la saison", "Disponibilités limitées en période de pointe"] as const, 2),
+    },
+    socialMedia: socialMedia.length > 0 ? socialMedia : [{ platform: "website", url: establishment.website ?? "" }],
+  };
+}
+
 export default function Hotel() {
   const { t } = useI18n();
   const { id } = useParams();
-  useTrackEstablishmentVisit(id);
-
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  const hotelId = id ?? "304";
-  const hotel =
-    getHotelById(hotelId) ??
-    buildFallbackHotel({
+  // State for API-fetched data
+  const [canonicalEstablishmentId, setCanonicalEstablishmentId] = useState<string | null>(null);
+  const [publicEstablishment, setPublicEstablishment] = useState<PublicEstablishment | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Track visits with the resolved canonical ID
+  useTrackEstablishmentVisit(canonicalEstablishmentId ?? undefined);
+
+  // Fetch establishment from API
+  useEffect(() => {
+    let active = true;
+    const ref = String(id ?? "304").trim();
+    const title = searchParams.get("title") ?? undefined;
+
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const payload = await getPublicEstablishment({ ref, title });
+        if (!active) return;
+        setPublicEstablishment(payload.establishment);
+        setCanonicalEstablishmentId(payload.establishment.id);
+
+        // Redirect to slug URL if we have a slug and the current URL uses the ID
+        if (payload.establishment.slug && isUuid(ref)) {
+          const newUrl = buildEstablishmentUrl({
+            id: payload.establishment.id,
+            slug: payload.establishment.slug,
+            universe: payload.establishment.universe ?? "hotel",
+          });
+          navigate(newUrl, { replace: true });
+        }
+      } catch {
+        if (!active) return;
+        setPublicEstablishment(null);
+        setCanonicalEstablishmentId(isUuid(ref) ? ref : null);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    fetchData();
+    return () => {
+      active = false;
+    };
+  }, [id, searchParams, navigate]);
+
+  // Build hotel data: from API first, then static fallback, then generated
+  const hotelId = canonicalEstablishmentId ?? id ?? "304";
+  // Booking is only enabled if the establishment has an email address registered
+  const hasEstablishmentEmail = Boolean(publicEstablishment?.email);
+  const hotel = useMemo(() => {
+    if (publicEstablishment) {
+      return buildHotelFromApi(publicEstablishment);
+    }
+    const staticHotel = getHotelById(hotelId);
+    if (staticHotel) return staticHotel;
+    return buildFallbackHotel({
       id: hotelId,
       name: searchParams.get("title") ?? undefined,
       city: searchParams.get("city") ?? undefined,
       neighborhood: searchParams.get("neighborhood") ?? searchParams.get("location") ?? undefined,
     });
+  }, [publicEstablishment, hotelId, searchParams]);
 
   useEffect(() => {
     const name = (hotel?.name ?? "").trim();
@@ -319,8 +479,6 @@ export default function Hotel() {
 
     return () => clearJsonLd("hotel");
   }, [hotelId, hotel.name]);
-
-  const navigate = useNavigate();
 
   const [authOpen, setAuthOpen] = useState(false);
   const [pendingBookingHotelId, setPendingBookingHotelId] = useState<string | null>(null);
@@ -511,6 +669,7 @@ export default function Hotel() {
               avgPriceLabel={startingPrice != null ? `${new Intl.NumberFormat("fr-MA").format(startingPrice)} MAD` : undefined}
               reserveHref={`/hotel-booking/${encodeURIComponent(hotelId)}`}
               onReserveNow={() => startBooking(hotelId)}
+              bookingEnabled={hasEstablishmentEmail}
             />
           </div>
         </div>

@@ -31,6 +31,13 @@ import {
   type BillingCompanyProfile,
 } from "../billing/companyProfile";
 import {
+  listSubscriptions,
+  extendSubscription,
+  adminCancelSubscription,
+  getSubscriptionStats,
+  type SubscriptionListFilters,
+} from "../subscriptions/usernameSubscription";
+import {
   generateMediaInvoicePdfBuffer,
   generateMediaQuotePdfBuffer,
 } from "../billing/mediaPdf";
@@ -68,6 +75,7 @@ type EstablishmentRow = {
   phone: string | null;
   whatsapp: string | null;
   website: string | null;
+  email: string | null;
   social_links: unknown;
   hours: unknown;
   tags: string[] | null;
@@ -307,6 +315,9 @@ function extractEstablishmentProfileUpdate(
 
   const website = asString(data.website);
   if (website !== undefined) update.website = website;
+
+  const email = asString(data.email);
+  if (email !== undefined) update.email = email;
 
   const socialLinks = asJsonObject(data.social_links);
   if (socialLinks !== undefined) update.social_links = socialLinks;
@@ -785,27 +796,30 @@ async function getPendingProfileUpdateForEstablishment(args: {
 > {
   const { supabase, establishmentId } = args;
 
+  // Get all recent drafts (pending, approved, rejected, partial)
+  // We show pending ones first, then recently decided ones
   const { data: drafts, error: draftsError } = await supabase
     .from("establishment_profile_drafts")
     .select(
       "id, establishment_id, created_by, created_at, moderation_id, status, decided_at, reason",
     )
     .eq("establishment_id", establishmentId)
-    .eq("status", "pending")
     .order("created_at", { ascending: false })
     .limit(10);
 
   if (draftsError) return { ok: false, error: draftsError.message };
 
   const list = (drafts ?? []) as any[];
+  console.log("[Admin Profile Updates] Drafts found:", list.length, "for establishment:", establishmentId);
   if (!list.length) return { ok: true, items: [] };
 
   const draftIds = list.map((d) => String(d.id)).filter(Boolean);
+  console.log("[Admin Profile Updates] Draft IDs:", draftIds);
   const authorIds = Array.from(
     new Set(list.map((d) => String(d.created_by)).filter(Boolean)),
   );
 
-  const [changesRes, authorsRes] = await Promise.all([
+  const [changesRes, authorsProRes, authorsAuthRes] = await Promise.all([
     supabase
       .from("establishment_profile_draft_changes")
       .select("*")
@@ -817,10 +831,19 @@ async function getPendingProfileUpdateForEstablishment(args: {
           .select("user_id,email")
           .in("user_id", authorIds)
       : Promise.resolve({ data: [], error: null } as any),
+    // Also fetch from auth.users as fallback
+    authorIds.length
+      ? supabase.auth.admin.listUsers()
+      : Promise.resolve({ data: { users: [] }, error: null } as any),
   ]);
 
-  if (changesRes.error) return { ok: false, error: changesRes.error.message };
-  if (authorsRes.error) return { ok: false, error: authorsRes.error.message };
+  if (changesRes.error) {
+    console.log("[Admin Profile Updates] Changes fetch error:", changesRes.error);
+    return { ok: false, error: changesRes.error.message };
+  }
+  if (authorsProRes.error) return { ok: false, error: authorsProRes.error.message };
+
+  console.log("[Admin Profile Updates] Changes found:", changesRes.data?.length ?? 0, "for draft IDs:", draftIds);
 
   const byDraft: Record<string, DraftChangeRow[]> = {};
   for (const c of (changesRes.data ?? []) as any[]) {
@@ -831,10 +854,23 @@ async function getPendingProfileUpdateForEstablishment(args: {
   }
 
   const authorEmailById = new Map<string, string | null>();
-  for (const a of (authorsRes.data ?? []) as any[]) {
+
+  // First, populate from users_pro
+  for (const a of (authorsProRes.data ?? []) as any[]) {
     const id = String(a.user_id ?? "");
     if (!id) continue;
     authorEmailById.set(id, typeof a.email === "string" ? a.email : null);
+  }
+
+  // Then, fill missing emails from auth.users
+  const authUsers = authorsAuthRes?.data?.users ?? [];
+  for (const uid of authorIds) {
+    if (!authorEmailById.has(uid) || !authorEmailById.get(uid)) {
+      const authUser = authUsers.find((u: any) => u.id === uid);
+      if (authUser?.email) {
+        authorEmailById.set(uid, authUser.email);
+      }
+    }
   }
 
   const items: PendingProfileUpdateAdmin[] = list.map((d) => {
@@ -2518,13 +2554,14 @@ export const regenerateProUserPassword: RequestHandler = async (req, res) => {
     metadata: { email },
   });
 
-  // In development, also return the password for testing purposes
-  const isDev = process.env.NODE_ENV !== "production";
-
+  // Always return the credentials so admin can show them in a popup
   res.json({
     ok: true,
     message: "Nouveau mot de passe généré et envoyé par email",
-    ...(isDev && { password: newPassword, email }),
+    credentials: {
+      email,
+      password: newPassword,
+    },
   });
 };
 
@@ -3373,7 +3410,7 @@ function asEmailSenderKey(v: unknown): SambookingSenderKey | null {
     s === "support" ||
     s === "pro" ||
     s === "finance" ||
-    s === "no-reply"
+    s === "noreply"
   )
     return s;
   return null;
@@ -5627,13 +5664,46 @@ export const updateAdminVisibilityOrderStatus: RequestHandler = async (
   // If admin marks refunded, keep payment_status consistent.
   if (nextStatus === "refunded") patch.payment_status = "refunded";
 
-  const { data, error } = await supabase
+  const { error: updateError } = await supabase
     .from("visibility_orders")
     .update(patch)
+    .eq("id", orderId);
+  if (updateError) return res.status(500).json({ error: updateError.message });
+
+  // Fetch the updated order with establishment
+  const { data: updatedOrder, error: fetchError } = await supabase
+    .from("visibility_orders")
+    .select("*,establishments(id,name,city)")
     .eq("id", orderId)
-    .select("*")
     .single();
-  if (error) return res.status(500).json({ error: error.message });
+  if (fetchError) return res.status(500).json({ error: fetchError.message });
+
+  // Fetch items separately
+  const { data: items } = await supabase
+    .from("visibility_order_items")
+    .select("*")
+    .eq("order_id", orderId)
+    .order("created_at", { ascending: true });
+
+  // Fetch finance invoice separately
+  let financeInvoice = null;
+  try {
+    const { data: fin } = await supabase
+      .from("finance_invoices")
+      .select("id,invoice_number,issued_at")
+      .eq("reference_type", "visibility_order")
+      .eq("reference_id", orderId)
+      .maybeSingle();
+    if (fin) financeInvoice = fin;
+  } catch {
+    // ignore
+  }
+
+  const fullOrder = {
+    ...updatedOrder,
+    items: items ?? [],
+    finance_invoice: financeInvoice,
+  };
 
   await supabase.from("admin_audit_log").insert({
     action: "visibility.order.update_status",
@@ -5641,12 +5711,12 @@ export const updateAdminVisibilityOrderStatus: RequestHandler = async (
     entity_id: orderId,
     metadata: {
       before: beforeRow,
-      after: data,
+      after: fullOrder,
       actor: getAdminSessionSubAny(req),
     },
   });
 
-  res.json({ ok: true, order: data });
+  res.json({ ok: true, order: fullOrder });
 };
 
 export const updateAdminVisibilityOrderItemMeta: RequestHandler = async (
@@ -13597,7 +13667,7 @@ export const listAdminHomeCities: RequestHandler = async (req, res) => {
 
   let q = supabase
     .from("home_cities")
-    .select("id,name,slug,image_url,sort_order,is_active,created_at,updated_at")
+    .select("id,name,slug,image_url,sort_order,is_active,country_code,created_at,updated_at")
     .order("sort_order", { ascending: true });
 
   if (!includeInactive) {
@@ -13627,6 +13697,7 @@ export const createAdminHomeCity: RequestHandler = async (req, res) => {
   const sortOrder =
     typeof req.body.sort_order === "number" ? req.body.sort_order : 0;
   const isActive = req.body.is_active !== false;
+  const countryCode = asString(req.body.country_code)?.toUpperCase() || "MA";
 
   if (!name) return res.status(400).json({ error: "Nom requis" });
   if (!slug || !/^[a-z0-9-]+$/.test(slug))
@@ -13644,6 +13715,7 @@ export const createAdminHomeCity: RequestHandler = async (req, res) => {
       image_url: imageUrl,
       sort_order: sortOrder,
       is_active: isActive,
+      country_code: countryCode,
     })
     .select("id")
     .single();
@@ -13683,6 +13755,8 @@ export const updateAdminHomeCity: RequestHandler = async (req, res) => {
     patch.sort_order = Number(req.body.sort_order) || 0;
   if (req.body.is_active !== undefined)
     patch.is_active = Boolean(req.body.is_active);
+  if (req.body.country_code !== undefined)
+    patch.country_code = asString(req.body.country_code)?.toUpperCase() || "MA";
 
   if (Object.keys(patch).length === 0)
     return res.status(400).json({ error: "Aucune modification fournie" });
@@ -13853,6 +13927,278 @@ export const uploadAdminHomeCityImage: RequestHandler = async (req, res) => {
   res.json({ ok: true, url: publicUrl });
 };
 
+// ---------------------------------------------------------------------------
+// HOME VIDEOS MANAGEMENT
+// ---------------------------------------------------------------------------
+
+export const listAdminHomeVideos: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const includeInactive = req.query.include_inactive === "true";
+
+  const supabase = getAdminSupabase();
+
+  let q = supabase
+    .from("home_videos")
+    .select("id,youtube_url,title,description,thumbnail_url,establishment_id,sort_order,is_active,created_at,updated_at")
+    .order("sort_order", { ascending: true });
+
+  if (!includeInactive) {
+    q = q.eq("is_active", true);
+  }
+
+  const { data, error } = await q;
+  if (error) {
+    // Table might not exist yet
+    if (error.code === "42P01") {
+      return res.json({ ok: true, items: [] });
+    }
+    return res.status(500).json({ error: error.message });
+  }
+
+  // Fetch establishment names for videos that have establishment_id
+  const items = data ?? [];
+  const establishmentIds = items
+    .filter((v: any) => v.establishment_id)
+    .map((v: any) => v.establishment_id);
+
+  let establishmentMap: Record<string, { name: string; universe: string }> = {};
+  if (establishmentIds.length > 0) {
+    const { data: establishments } = await supabase
+      .from("establishments")
+      .select("id,name,universe")
+      .in("id", establishmentIds);
+
+    if (establishments) {
+      for (const e of establishments) {
+        establishmentMap[e.id] = { name: e.name, universe: e.universe };
+      }
+    }
+  }
+
+  const enrichedItems = items.map((v: any) => ({
+    ...v,
+    establishment_name: v.establishment_id ? establishmentMap[v.establishment_id]?.name ?? null : null,
+    establishment_universe: v.establishment_id ? establishmentMap[v.establishment_id]?.universe ?? null : null,
+  }));
+
+  res.json({ ok: true, items: enrichedItems });
+};
+
+export const createAdminHomeVideo: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+  if (!isRecord(req.body))
+    return res.status(400).json({ error: "Corps de requête invalide" });
+
+  const youtubeUrl = asString(req.body.youtube_url)?.trim();
+  const title = asString(req.body.title)?.trim();
+  const description = asString(req.body.description)?.trim() || null;
+  const thumbnailUrl = asString(req.body.thumbnail_url)?.trim() || null;
+  const establishmentId = asString(req.body.establishment_id)?.trim() || null;
+  const sortOrder =
+    typeof req.body.sort_order === "number" ? req.body.sort_order : 0;
+  const isActive = req.body.is_active !== false;
+
+  if (!youtubeUrl) return res.status(400).json({ error: "URL YouTube requise" });
+  if (!title) return res.status(400).json({ error: "Titre requis" });
+
+  // Validate YouTube URL format
+  const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|embed\/|shorts\/)|youtu\.be\/)[\w-]+/;
+  if (!youtubeRegex.test(youtubeUrl))
+    return res.status(400).json({ error: "URL YouTube invalide" });
+
+  const supabase = getAdminSupabase();
+
+  const { data, error } = await supabase
+    .from("home_videos")
+    .insert({
+      youtube_url: youtubeUrl,
+      title,
+      description,
+      thumbnail_url: thumbnailUrl,
+      establishment_id: establishmentId,
+      sort_order: sortOrder,
+      is_active: isActive,
+    })
+    .select("id")
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  await supabase.from("admin_audit_log").insert({
+    action: "home_videos.create",
+    entity_type: "home_videos",
+    entity_id: (data as any)?.id ?? null,
+    metadata: { youtube_url: youtubeUrl, title, thumbnail_url: thumbnailUrl, establishment_id: establishmentId },
+  });
+
+  res.json({ ok: true, id: (data as any)?.id ?? null });
+};
+
+export const updateAdminHomeVideo: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const id = typeof req.params.id === "string" ? req.params.id.trim() : "";
+  if (!id) return res.status(400).json({ error: "Identifiant requis" });
+  if (!isRecord(req.body))
+    return res.status(400).json({ error: "Corps de requête invalide" });
+
+  const patch: Record<string, unknown> = {};
+
+  if (req.body.youtube_url !== undefined) {
+    const youtubeUrl = asString(req.body.youtube_url)?.trim();
+    if (!youtubeUrl) return res.status(400).json({ error: "URL YouTube requise" });
+    const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|embed\/|shorts\/)|youtu\.be\/)[\w-]+/;
+    if (!youtubeRegex.test(youtubeUrl))
+      return res.status(400).json({ error: "URL YouTube invalide" });
+    patch.youtube_url = youtubeUrl;
+  }
+  if (req.body.title !== undefined) patch.title = asString(req.body.title)?.trim();
+  if (req.body.description !== undefined)
+    patch.description = asString(req.body.description)?.trim() || null;
+  if (req.body.thumbnail_url !== undefined)
+    patch.thumbnail_url = asString(req.body.thumbnail_url)?.trim() || null;
+  if (req.body.establishment_id !== undefined)
+    patch.establishment_id = asString(req.body.establishment_id)?.trim() || null;
+  if (req.body.sort_order !== undefined)
+    patch.sort_order = Number(req.body.sort_order) || 0;
+  if (req.body.is_active !== undefined)
+    patch.is_active = Boolean(req.body.is_active);
+
+  if (Object.keys(patch).length === 0)
+    return res.status(400).json({ error: "Aucune modification fournie" });
+
+  const supabase = getAdminSupabase();
+  const { error } = await supabase.from("home_videos").update(patch).eq("id", id);
+  if (error) return res.status(500).json({ error: error.message });
+
+  await supabase.from("admin_audit_log").insert({
+    action: "home_videos.update",
+    entity_type: "home_videos",
+    entity_id: id,
+    metadata: { patch },
+  });
+
+  res.json({ ok: true });
+};
+
+export const reorderAdminHomeVideos: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+  if (!isRecord(req.body))
+    return res.status(400).json({ error: "Corps de requête invalide" });
+
+  const order = req.body.order;
+  if (!Array.isArray(order) || order.length === 0)
+    return res.status(400).json({ error: "Liste d'ordre requise" });
+
+  const supabase = getAdminSupabase();
+
+  const updates = order.map((id: string, index: number) =>
+    supabase
+      .from("home_videos")
+      .update({ sort_order: index + 1 })
+      .eq("id", id),
+  );
+
+  const results = await Promise.all(updates);
+  const hasError = results.some((r) => r.error);
+  if (hasError)
+    return res.status(500).json({ error: "Erreur lors de la réorganisation" });
+
+  await supabase.from("admin_audit_log").insert({
+    action: "home_videos.reorder",
+    entity_type: "home_videos",
+    entity_id: null,
+    metadata: { order },
+  });
+
+  res.json({ ok: true });
+};
+
+export const deleteAdminHomeVideo: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const id = typeof req.params.id === "string" ? req.params.id.trim() : "";
+  if (!id) return res.status(400).json({ error: "Identifiant requis" });
+
+  const supabase = getAdminSupabase();
+
+  const { error } = await supabase.from("home_videos").delete().eq("id", id);
+  if (error) return res.status(500).json({ error: error.message });
+
+  await supabase.from("admin_audit_log").insert({
+    action: "home_videos.delete",
+    entity_type: "home_videos",
+    entity_id: id,
+    metadata: {},
+  });
+
+  res.json({ ok: true });
+};
+
+export const uploadAdminVideoThumbnail: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const fileName = req.headers["x-file-name"];
+  if (typeof fileName !== "string" || !fileName.trim()) {
+    return res.status(400).json({ error: "Nom de fichier requis" });
+  }
+
+  const contentType = req.headers["content-type"] || "application/octet-stream";
+  if (!contentType.startsWith("image/")) {
+    return res.status(400).json({ error: "Le fichier doit être une image" });
+  }
+
+  // Max 500KB
+  const maxSize = 512000;
+  const contentLength = parseInt(req.headers["content-length"] || "0", 10);
+  if (contentLength > maxSize) {
+    return res.status(400).json({ error: "L'image ne doit pas dépasser 500KB" });
+  }
+
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) {
+    chunks.push(chunk as Buffer);
+  }
+  const fileBuffer = Buffer.concat(chunks);
+
+  if (fileBuffer.length > maxSize) {
+    return res.status(400).json({ error: "L'image ne doit pas dépasser 500KB" });
+  }
+
+  const ext = fileName.split(".").pop()?.toLowerCase() || "jpg";
+  const uniqueName = `video-thumb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+
+  const supabase = getAdminSupabase();
+
+  const { data, error } = await supabase.storage
+    .from("video-thumbnails")
+    .upload(uniqueName, fileBuffer, {
+      contentType,
+      cacheControl: "3600",
+      upsert: false,
+    });
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  const { data: publicUrlData } = supabase.storage
+    .from("video-thumbnails")
+    .getPublicUrl(data.path);
+
+  res.json({
+    ok: true,
+    item: {
+      bucket: "video-thumbnails",
+      path: data.path,
+      public_url: publicUrlData.publicUrl,
+      mime_type: contentType,
+      size_bytes: fileBuffer.length,
+    },
+  });
+};
+
 // ============================================================================
 // PLATFORM SETTINGS (Superadmin only)
 // ============================================================================
@@ -14016,4 +14362,548 @@ export const invalidatePlatformSettingsCacheHandler: RequestHandler = async (req
 
   invalidateSettingsCache();
   res.json({ ok: true, message: "Cache invalidé" });
+};
+
+// ---------------------------------------------------------------------------
+// Username moderation endpoints
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/admin/username-requests
+ * List pending username requests for moderation
+ */
+export const listUsernameRequests: RequestHandler = async (req, res) => {
+  if (!requireAuth(req, res)) return;
+
+  const supabase = getAdminSupabase();
+
+  const status = typeof req.query.status === "string" ? req.query.status : "pending";
+  const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10) || 50));
+  const offset = Math.max(0, parseInt(String(req.query.offset ?? "0"), 10) || 0);
+
+  const { data: requests, error, count } = await supabase
+    .from("establishment_username_requests")
+    .select(`
+      *,
+      establishments:establishment_id (
+        id,
+        name,
+        city,
+        username
+      )
+    `, { count: "exact" })
+    .eq("status", status)
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  res.json({
+    requests: requests ?? [],
+    total: count ?? 0,
+    limit,
+    offset,
+  });
+};
+
+/**
+ * POST /api/admin/username-requests/:requestId/approve
+ * Approve a username request
+ */
+export const approveUsernameRequest: RequestHandler = async (req, res) => {
+  if (!requireAuth(req, res)) return;
+
+  const supabase = getAdminSupabase();
+  const requestId = req.params.requestId;
+  const adminUserId = res.locals.adminUserId;
+
+  if (!requestId) {
+    return res.status(400).json({ error: "requestId is required" });
+  }
+
+  // Get the request
+  const { data: request, error: fetchError } = await supabase
+    .from("establishment_username_requests")
+    .select("*, establishments:establishment_id (id, name)")
+    .eq("id", requestId)
+    .eq("status", "pending")
+    .single();
+
+  if (fetchError || !request) {
+    return res.status(404).json({ error: "Demande non trouvée ou déjà traitée" });
+  }
+
+  // Check username still available (race condition protection)
+  const { data: existingUsername } = await supabase
+    .from("establishments")
+    .select("id")
+    .ilike("username", request.requested_username)
+    .neq("id", request.establishment_id)
+    .maybeSingle();
+
+  if (existingUsername) {
+    // Username was taken in the meantime, reject
+    await supabase
+      .from("establishment_username_requests")
+      .update({
+        status: "rejected",
+        reviewed_by: adminUserId,
+        reviewed_at: new Date().toISOString(),
+        rejection_reason: "Ce nom d'utilisateur a été pris entre temps",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", requestId);
+
+    return res.status(400).json({ error: "Ce nom d'utilisateur n'est plus disponible" });
+  }
+
+  // Update the establishment with the new username
+  const { error: updateError } = await supabase
+    .from("establishments")
+    .update({
+      username: request.requested_username,
+      username_changed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", request.establishment_id);
+
+  if (updateError) {
+    return res.status(500).json({ error: updateError.message });
+  }
+
+  // Mark request as approved
+  await supabase
+    .from("establishment_username_requests")
+    .update({
+      status: "approved",
+      reviewed_by: adminUserId,
+      reviewed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", requestId);
+
+  // TODO: Send notification to pro user
+
+  res.json({
+    ok: true,
+    message: `Nom d'utilisateur @${request.requested_username} approuvé`,
+  });
+};
+
+/**
+ * POST /api/admin/username-requests/:requestId/reject
+ * Reject a username request
+ */
+export const rejectUsernameRequest: RequestHandler = async (req, res) => {
+  if (!requireAuth(req, res)) return;
+
+  const supabase = getAdminSupabase();
+  const requestId = req.params.requestId;
+  const adminUserId = res.locals.adminUserId;
+  const reason = typeof req.body?.reason === "string" ? req.body.reason : null;
+
+  if (!requestId) {
+    return res.status(400).json({ error: "requestId is required" });
+  }
+
+  // Get the request
+  const { data: request, error: fetchError } = await supabase
+    .from("establishment_username_requests")
+    .select("*")
+    .eq("id", requestId)
+    .eq("status", "pending")
+    .single();
+
+  if (fetchError || !request) {
+    return res.status(404).json({ error: "Demande non trouvée ou déjà traitée" });
+  }
+
+  // Mark request as rejected
+  const { error: updateError } = await supabase
+    .from("establishment_username_requests")
+    .update({
+      status: "rejected",
+      reviewed_by: adminUserId,
+      reviewed_at: new Date().toISOString(),
+      rejection_reason: reason || "Demande refusée par l'administrateur",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", requestId);
+
+  if (updateError) {
+    return res.status(500).json({ error: updateError.message });
+  }
+
+  // TODO: Send notification to pro user
+
+  res.json({
+    ok: true,
+    message: `Demande de @${request.requested_username} refusée`,
+  });
+};
+
+// ============================================
+// COUNTRIES MANAGEMENT
+// ============================================
+
+export type CountryAdmin = {
+  id: string;
+  name: string;
+  name_en: string | null;
+  code: string;
+  flag_emoji: string | null;
+  currency_code: string | null;
+  phone_prefix: string | null;
+  default_locale: string | null;
+  timezone: string | null;
+  is_active: boolean;
+  is_default: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export const listAdminCountries: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const includeInactive = req.query.include_inactive === "true";
+  const supabase = getAdminSupabase();
+
+  let query = supabase
+    .from("countries")
+    .select("*")
+    .order("sort_order", { ascending: true });
+
+  if (!includeInactive) {
+    query = query.eq("is_active", true);
+  }
+
+  const { data, error } = await query;
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  res.json({ items: (data ?? []) as CountryAdmin[] });
+};
+
+export const createAdminCountry: RequestHandler = async (req, res) => {
+  if (!requireSuperadmin(req, res)) return;
+  if (!isRecord(req.body))
+    return res.status(400).json({ error: "Corps de requête invalide" });
+
+  const name = asString(req.body.name);
+  const code = asString(req.body.code)?.toUpperCase();
+
+  if (!name || !code)
+    return res.status(400).json({ error: "Nom et code pays requis" });
+
+  const supabase = getAdminSupabase();
+
+  // Get max sort_order
+  const { data: maxRow } = await supabase
+    .from("countries")
+    .select("sort_order")
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .single();
+
+  const sortOrder =
+    typeof req.body.sort_order === "number"
+      ? req.body.sort_order
+      : (maxRow?.sort_order ?? -1) + 1;
+
+  const { data, error } = await supabase
+    .from("countries")
+    .insert({
+      name,
+      name_en: asString(req.body.name_en) || null,
+      code,
+      flag_emoji: asString(req.body.flag_emoji) || null,
+      currency_code: asString(req.body.currency_code) || "MAD",
+      phone_prefix: asString(req.body.phone_prefix) || null,
+      default_locale: asString(req.body.default_locale) || "fr",
+      timezone: asString(req.body.timezone) || "Africa/Casablanca",
+      is_active: req.body.is_active !== false,
+      is_default: req.body.is_default === true,
+      sort_order: sortOrder,
+    })
+    .select("id")
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  await supabase.from("admin_audit_log").insert({
+    action: "countries.create",
+    entity_type: "countries",
+    entity_id: data.id,
+    metadata: { name, code, actor: getAdminSessionSubAny(req) },
+  });
+
+  res.json({ id: data.id });
+};
+
+export const updateAdminCountry: RequestHandler = async (req, res) => {
+  if (!requireSuperadmin(req, res)) return;
+  if (!isRecord(req.body))
+    return res.status(400).json({ error: "Corps de requête invalide" });
+
+  const id = typeof req.params.id === "string" ? req.params.id : "";
+  if (!id) return res.status(400).json({ error: "Identifiant requis" });
+
+  const supabase = getAdminSupabase();
+
+  const patch: Record<string, unknown> = {};
+
+  const name = asString(req.body.name);
+  if (name !== undefined) patch.name = name;
+
+  const nameEn = asString(req.body.name_en);
+  if (nameEn !== undefined) patch.name_en = nameEn || null;
+
+  const code = asString(req.body.code);
+  if (code !== undefined) patch.code = code.toUpperCase();
+
+  const flagEmoji = asString(req.body.flag_emoji);
+  if (flagEmoji !== undefined) patch.flag_emoji = flagEmoji || null;
+
+  const currencyCode = asString(req.body.currency_code);
+  if (currencyCode !== undefined) patch.currency_code = currencyCode || null;
+
+  const phonePrefix = asString(req.body.phone_prefix);
+  if (phonePrefix !== undefined) patch.phone_prefix = phonePrefix || null;
+
+  const defaultLocale = asString(req.body.default_locale);
+  if (defaultLocale !== undefined) patch.default_locale = defaultLocale || "fr";
+
+  const timezone = asString(req.body.timezone);
+  if (timezone !== undefined) patch.timezone = timezone || null;
+
+  if (typeof req.body.is_active === "boolean") patch.is_active = req.body.is_active;
+  if (typeof req.body.is_default === "boolean") patch.is_default = req.body.is_default;
+  if (typeof req.body.sort_order === "number") patch.sort_order = Math.floor(req.body.sort_order);
+
+  if (!Object.keys(patch).length)
+    return res.status(400).json({ error: "Aucune modification fournie" });
+
+  const { data: beforeRow } = await supabase
+    .from("countries")
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  const { data, error } = await supabase
+    .from("countries")
+    .update(patch)
+    .eq("id", id)
+    .select("*")
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  await supabase.from("admin_audit_log").insert({
+    action: "countries.update",
+    entity_type: "countries",
+    entity_id: id,
+    metadata: { before: beforeRow, after: data, actor: getAdminSessionSubAny(req) },
+  });
+
+  res.json({ ok: true });
+};
+
+export const deleteAdminCountry: RequestHandler = async (req, res) => {
+  if (!requireSuperadmin(req, res)) return;
+
+  const id = typeof req.params.id === "string" ? req.params.id : "";
+  if (!id) return res.status(400).json({ error: "Identifiant requis" });
+
+  const supabase = getAdminSupabase();
+
+  // Check if country is default - cannot delete default
+  const { data: country } = await supabase
+    .from("countries")
+    .select("is_default, code, name")
+    .eq("id", id)
+    .single();
+
+  if (country?.is_default) {
+    return res.status(400).json({ error: "Impossible de supprimer le pays par défaut" });
+  }
+
+  // Check if there are cities associated with this country
+  const { count } = await supabase
+    .from("home_cities")
+    .select("id", { count: "exact", head: true })
+    .eq("country_code", country?.code);
+
+  if (count && count > 0) {
+    return res.status(400).json({
+      error: `Ce pays contient ${count} ville(s). Veuillez les supprimer ou les réassigner d'abord.`
+    });
+  }
+
+  const { error } = await supabase.from("countries").delete().eq("id", id);
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  await supabase.from("admin_audit_log").insert({
+    action: "countries.delete",
+    entity_type: "countries",
+    entity_id: id,
+    metadata: { name: country?.name, code: country?.code, actor: getAdminSessionSubAny(req) },
+  });
+
+  res.json({ ok: true });
+};
+
+export const reorderAdminCountries: RequestHandler = async (req, res) => {
+  if (!requireSuperadmin(req, res)) return;
+  if (!isRecord(req.body))
+    return res.status(400).json({ error: "Corps de requête invalide" });
+
+  const order = req.body.order;
+  if (!Array.isArray(order) || !order.every((id) => typeof id === "string"))
+    return res.status(400).json({ error: "Ordre invalide" });
+
+  const supabase = getAdminSupabase();
+
+  for (let i = 0; i < order.length; i++) {
+    await supabase.from("countries").update({ sort_order: i }).eq("id", order[i]);
+  }
+
+  await supabase.from("admin_audit_log").insert({
+    action: "countries.reorder",
+    entity_type: "countries",
+    entity_id: null,
+    metadata: { order, actor: getAdminSessionSubAny(req) },
+  });
+
+  res.json({ ok: true });
+};
+
+// Update home city to include country_code
+export const updateAdminHomeCityCountry: RequestHandler = async (req, res) => {
+  if (!requireSuperadmin(req, res)) return;
+  if (!isRecord(req.body))
+    return res.status(400).json({ error: "Corps de requête invalide" });
+
+  const id = typeof req.params.id === "string" ? req.params.id : "";
+  if (!id) return res.status(400).json({ error: "Identifiant requis" });
+
+  const countryCode = asString(req.body.country_code);
+  if (!countryCode) return res.status(400).json({ error: "Code pays requis" });
+
+  const supabase = getAdminSupabase();
+
+  const { error } = await supabase
+    .from("home_cities")
+    .update({ country_code: countryCode.toUpperCase() })
+    .eq("id", id);
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  res.json({ ok: true });
+};
+
+// ---------------------------------------------------------------------------
+// Username Subscriptions Admin Endpoints
+// ---------------------------------------------------------------------------
+
+export const listAdminUsernameSubscriptions: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const status = typeof req.query.status === "string" ? req.query.status : undefined;
+  const establishmentId = typeof req.query.establishmentId === "string" ? req.query.establishmentId : undefined;
+  const search = typeof req.query.search === "string" ? req.query.search : undefined;
+  const limit = typeof req.query.limit === "string" ? parseInt(req.query.limit) || 50 : 50;
+  const offset = typeof req.query.offset === "string" ? parseInt(req.query.offset) || 0 : 0;
+
+  const filters: SubscriptionListFilters = {
+    status: status as any,
+    establishmentId,
+    search,
+    limit,
+    offset,
+  };
+
+  try {
+    const result = await listSubscriptions(filters);
+    res.json({
+      subscriptions: result.subscriptions,
+      total: result.total,
+      limit,
+      offset,
+    });
+  } catch (e) {
+    console.error("[Admin] listSubscriptions error:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : "Erreur" });
+  }
+};
+
+export const getAdminUsernameSubscriptionStats: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  try {
+    const stats = await getSubscriptionStats();
+    res.json(stats);
+  } catch (e) {
+    console.error("[Admin] getSubscriptionStats error:", e);
+    res.status(500).json({ error: e instanceof Error ? e.message : "Erreur" });
+  }
+};
+
+export const extendAdminUsernameSubscription: RequestHandler = async (req, res) => {
+  if (!requireSuperadmin(req, res)) return;
+  if (!isRecord(req.body)) return res.status(400).json({ error: "Corps de requete invalide" });
+
+  const subscriptionId = typeof req.params.id === "string" ? req.params.id : "";
+  if (!subscriptionId) return res.status(400).json({ error: "Identifiant requis" });
+
+  const additionalDays = typeof req.body.days === "number" ? req.body.days : parseInt(String(req.body.days)) || 0;
+  if (additionalDays <= 0) return res.status(400).json({ error: "Nombre de jours requis" });
+
+  const adminSession = getAdminSessionSubAny(req);
+  const adminUserId = adminSession?.id ?? "admin";
+
+  try {
+    const subscription = await extendSubscription(subscriptionId, additionalDays, adminUserId);
+
+    const supabase = getAdminSupabase();
+    await supabase.from("admin_audit_log").insert({
+      action: "username_subscription.extend",
+      entity_type: "username_subscription",
+      entity_id: subscriptionId,
+      metadata: { additionalDays, actor: adminSession },
+    });
+
+    res.json({ ok: true, subscription });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : "Erreur" });
+  }
+};
+
+export const cancelAdminUsernameSubscription: RequestHandler = async (req, res) => {
+  if (!requireSuperadmin(req, res)) return;
+
+  const subscriptionId = typeof req.params.id === "string" ? req.params.id : "";
+  if (!subscriptionId) return res.status(400).json({ error: "Identifiant requis" });
+
+  const adminSession = getAdminSessionSubAny(req);
+  const adminUserId = adminSession?.id ?? "admin";
+
+  try {
+    const subscription = await adminCancelSubscription(subscriptionId, adminUserId);
+
+    const supabase = getAdminSupabase();
+    await supabase.from("admin_audit_log").insert({
+      action: "username_subscription.cancel",
+      entity_type: "username_subscription",
+      entity_id: subscriptionId,
+      metadata: { actor: adminSession },
+    });
+
+    res.json({ ok: true, subscription });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : "Erreur" });
+  }
 };

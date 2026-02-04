@@ -21,6 +21,11 @@ import {
   deleteConsumerAccount,
   requestConsumerDataExport,
   downloadConsumerDataExport,
+  requestConsumerPasswordReset,
+  requestConsumerPasswordResetLink,
+  validatePasswordResetToken,
+  completePasswordReset,
+  changeConsumerPassword,
   getConsumerReservation,
   getConsumerReservationInvoice,
   getConsumerPackPurchaseInvoice,
@@ -30,11 +35,14 @@ import {
   getPublicHomeFeed,
   getPublicCategoryImages,
   getPublicCategories,
+  searchAutocomplete,
+  getPopularSearches,
   hideConsumerPackPurchase,
   listConsumerNotifications,
   getConsumerNotificationsUnreadCount,
   markConsumerNotificationRead,
   markAllConsumerNotificationsRead,
+  deleteConsumerNotification,
   listConsumerPackPurchases,
   listConsumerReservationMessages,
   listConsumerReservations,
@@ -52,6 +60,11 @@ import {
   getPublicUniverses,
   getPublicHomeSettings,
   getPublicHomeCities,
+  getPublicHomeVideos,
+  getPublicHomeTakeover,
+  getPublicCountries,
+  detectUserCountry,
+  getPublicEstablishmentByUsername,
 } from "./routes/public";
 import {
   trackEmailClick,
@@ -78,6 +91,9 @@ import {
   sendAdminEmailCampaignNow,
   updateAdminEmailBranding,
   upsertAdminEmailTemplate,
+  uploadEmailBrandingLogo,
+  deleteEmailBrandingLogo,
+  bulkReplaceInEmailTemplates,
 } from "./routes/adminEmails";
 import {
   listNewsletterTemplates,
@@ -89,7 +105,20 @@ import {
   listNewsletterCampaigns,
   createNewsletterCampaign,
   sendNewsletterCampaign,
+  listNewsletterSubscribers,
+  getNewsletterSubscribersStats,
+  updateNewsletterSubscriber,
+  deleteNewsletterSubscriber,
+  exportNewsletterSubscribers,
+  listAudiences,
+  createAudience,
+  updateAudience,
+  deleteAudience,
+  getAudienceMembers,
+  loadAudienceToProspects,
+  previewFilters,
 } from "./routes/adminNewsletter";
+import newsletterRoutes from "./routes/newsletter";
 import {
   acceptAdminEstablishmentProfileChange,
   acceptAllAdminEstablishmentProfileUpdates,
@@ -188,6 +217,9 @@ import {
   updatePlatformSettingHandler,
   setPlatformModeHandler,
   invalidatePlatformSettingsCacheHandler,
+  listUsernameRequests,
+  approveUsernameRequest,
+  rejectUsernameRequest,
   listAdminHomeCurationItems,
   createAdminHomeCurationItem,
   updateAdminHomeCurationItem,
@@ -208,6 +240,18 @@ import {
   reorderAdminHomeCities,
   deleteAdminHomeCity,
   uploadAdminHomeCityImage,
+  updateAdminHomeCityCountry,
+  listAdminHomeVideos,
+  createAdminHomeVideo,
+  updateAdminHomeVideo,
+  reorderAdminHomeVideos,
+  deleteAdminHomeVideo,
+  uploadAdminVideoThumbnail,
+  listAdminCountries,
+  createAdminCountry,
+  updateAdminCountry,
+  deleteAdminCountry,
+  reorderAdminCountries,
   listAdminCategoryImages,
   createAdminCategoryImage,
   updateAdminCategoryImage,
@@ -276,6 +320,10 @@ import {
   getAdminEstablishmentBookingPolicy,
   updateAdminEstablishmentBookingPolicy,
   resetAdminEstablishmentBookingPolicy,
+  listAdminUsernameSubscriptions,
+  getAdminUsernameSubscriptionStats,
+  extendAdminUsernameSubscription,
+  cancelAdminUsernameSubscription,
 } from "./routes/admin";
 
 import {
@@ -297,6 +345,7 @@ import {
 } from "./routes/mysqlContent";
 import { adminLogin, adminLogout } from "./routes/adminAuth";
 import { registerAdminAIRoutes } from "./routes/adminAI";
+import { registerAdminInventoryRoutes } from "./routes/adminInventory";
 import { registerAdminImportExportRoutes } from "./routes/adminImportExport";
 import { registerAdminDashboardRoutes } from "./routes/adminDashboard";
 import { registerAdminUserManagementRoutes } from "./routes/adminUserManagement";
@@ -304,6 +353,7 @@ import { registerAdminAmazonSESRoutes } from "./routes/adminAmazonSES";
 import { registerProAdsRoutes } from "./routes/proAds";
 import { registerAdminAdsRoutes } from "./routes/adminAds";
 import { registerPublicAdsRoutes } from "./routes/publicAds";
+import { registerSponsoredNotificationRoutes } from "./routes/sponsoredNotifications";
 import {
   listSupportTickets,
   createSupportTicket,
@@ -399,6 +449,7 @@ import {
   listAdminNotifications,
   markAdminNotificationRead,
   markAllAdminNotificationsRead,
+  deleteAdminNotification,
 } from "./routes/adminNotifications";
 import {
   listAdminReviews,
@@ -426,6 +477,19 @@ import {
   cronSendReviewInvitations,
   cronAutoPublishReviews,
 } from "./routes/reviewCron";
+import { cronWaitlistExpireAndPromote } from "./routes/waitlistCron";
+import { cronAdsDailyReset, cronAdsCheckBudgets, cronAdsBillImpressions } from "./routes/adsCron";
+import {
+  cronSubscriptionsExpire,
+  cronSubscriptionsReminders,
+  cronSubscriptionsReleaseUsernames,
+  cronSubscriptionsTrialReminders,
+} from "./routes/subscriptionsCron";
+import {
+  registerConsumerPushToken,
+  unregisterConsumerPushToken,
+  updateConsumerPushPreferences,
+} from "./routes/pushTokens";
 import { submitEstablishmentLead, submitProDemoRequest, leadsRateLimiter } from "./routes/leads";
 import {
   listCollaborators,
@@ -494,6 +558,7 @@ import {
   createProOnboardingRequest,
   createProInventoryCategory,
   createProInventoryItem,
+  listProInventoryPendingChanges,
   createProTeamUser,
   listProTeamMembers,
   updateProTeamMemberRole,
@@ -529,6 +594,7 @@ import {
   listProNotifications,
   markProNotificationRead,
   markAllProNotificationsRead,
+  deleteProNotification,
   upsertProSlots,
   deleteProSlot,
   createProPack,
@@ -567,6 +633,7 @@ import {
   checkoutProVisibilityCart,
   listProVisibilityOrders,
   getProVisibilityOrderInvoice,
+  downloadProVisibilityOrderInvoicePdf,
   confirmProVisibilityOrder,
   getProFinanceDashboard,
   acceptProTerms,
@@ -591,7 +658,42 @@ import {
   getReservationHistory,
   logReservationAction,
   listEstablishmentReservationHistory,
+  checkUsernameAvailability,
+  getEstablishmentUsername,
+  submitUsernameRequest,
+  cancelUsernameRequest,
+  getUsernameSubscription,
+  startUsernameTrialHandler,
+  cancelUsernameSubscriptionHandler,
+  getProBookingSourceStats,
 } from "./routes/pro";
+
+import {
+  getMenuDigitalStatus,
+  enableMenuDigital,
+  syncMenuDigital,
+  disableMenuDigital,
+} from "./routes/menuDigitalSync";
+
+import {
+  validateReferralCode,
+  createReferralLink,
+  applyAsReferralPartner,
+  getReferralPartnerMe,
+  updateReferralPartnerMe,
+  listMyReferrees,
+  listMyCommissions,
+  listMyPayouts,
+  listReferralPartners,
+  updateReferralPartnerStatus,
+  getReferralConfig,
+  updateReferralConfig,
+  upsertReferralConfigUniverse,
+  listAllCommissions,
+  createReferralPayout,
+  updateReferralPayout,
+  getReferralStats,
+} from "./routes/referral";
 
 export function createServer() {
   const app = express();
@@ -733,11 +835,15 @@ export function createServer() {
   // Public consumer API (read-only establishment data + booking creation)
   registerPublicAdsRoutes(app);
   app.get("/api/public/establishments", listPublicEstablishments);
+  // Direct booking by username (book.sam.ma/:username) - sets attribution cookie
+  app.get("/api/public/establishments/by-username/:username", getPublicEstablishmentByUsername);
   app.get("/api/public/establishments/:ref", getPublicEstablishment);
   app.get("/api/public/establishments/:id/reviews", listPublicEstablishmentReviews);
   app.get("/api/public/home", getPublicHomeFeed);
   app.get("/api/public/categories", getPublicCategories);
   app.get("/api/public/category-images", getPublicCategoryImages);
+  app.get("/api/public/search/autocomplete", searchAutocomplete);
+  app.get("/api/public/search/popular", getPopularSearches);
   app.get("/api/public/content/pages/:slug", getPublicContentPage);
   app.get("/api/public/faq", listPublicFaqArticles);
   app.get("/api/public/blog", listPublicBlogArticles);
@@ -811,6 +917,10 @@ export function createServer() {
   app.get("/api/public/email/open", trackEmailOpen);
   app.get("/api/public/email/click", trackEmailClick);
   app.get("/api/public/email/unsubscribe", trackEmailUnsubscribe);
+
+  // Newsletter public routes
+  app.use("/api/newsletter", newsletterRoutes);
+
   // Routes publiques avec rate limiting
   app.post("/api/leads/establishment", leadsRateLimiter, submitEstablishmentLead);
   app.post("/api/leads/pro-demo", leadsRateLimiter, submitProDemoRequest);
@@ -899,6 +1009,27 @@ export function createServer() {
   // Called every 5 minutes
   app.post("/api/admin/cron/review-auto-publish", cronAutoPublishReviews);
 
+  // Admin/Cron: Expire waitlist offers and auto-promote next in queue
+  // Called every 5 minutes
+  app.post("/api/admin/cron/waitlist-expire-promote", cronWaitlistExpireAndPromote);
+
+  // Admin/Cron: Reset daily ad budgets at midnight (Africa/Casablanca)
+  app.post("/api/admin/cron/ads-daily-reset", cronAdsDailyReset);
+  // Admin/Cron: Check and pause campaigns with exhausted budgets (every 15 min)
+  app.post("/api/admin/cron/ads-check-budgets", cronAdsCheckBudgets);
+  // Admin/Cron: Bill CPM campaigns for impressions (every hour)
+  app.post("/api/admin/cron/ads-bill-impressions", cronAdsBillImpressions);
+
+  // Username Subscription Cron Jobs
+  // Expire trials and subscriptions past their end date (hourly)
+  app.post("/api/internal/cron/subscriptions/expire", cronSubscriptionsExpire);
+  // Send renewal reminders J-30, J-7 (daily)
+  app.post("/api/internal/cron/subscriptions/reminders", cronSubscriptionsReminders);
+  // Release usernames after 90-day grace period (daily)
+  app.post("/api/internal/cron/subscriptions/release-usernames", cronSubscriptionsReleaseUsernames);
+  // Send trial expiration reminders J-3 (daily)
+  app.post("/api/internal/cron/subscriptions/trial-reminders", cronSubscriptionsTrialReminders);
+
   if (allowDemoRoutes) {
     app.post("/api/consumer/demo/ensure", ensureConsumerDemoAccount);
   }
@@ -919,6 +1050,16 @@ export function createServer() {
   app.post("/api/consumer/account/delete", deleteConsumerAccount);
   app.post("/api/consumer/account/export/request", requestConsumerDataExport);
   app.get("/api/consumer/account/export/download", downloadConsumerDataExport);
+  app.post("/api/consumer/account/password/reset", requestConsumerPasswordReset);
+  app.post("/api/consumer/account/password/reset-link", requestConsumerPasswordResetLink);
+  app.get("/api/consumer/account/password/validate-token", validatePasswordResetToken);
+  app.post("/api/consumer/account/password/complete-reset", completePasswordReset);
+  app.post("/api/consumer/account/password/change", changeConsumerPassword);
+
+  // Push notifications (FCM tokens)
+  app.post("/api/consumer/push/register", registerConsumerPushToken);
+  app.post("/api/consumer/push/unregister", unregisterConsumerPushToken);
+  app.post("/api/consumer/push/preferences", updateConsumerPushPreferences);
 
   app.post("/api/consumer/reservations", createConsumerReservation);
   app.get("/api/consumer/reservations", listConsumerReservations);
@@ -935,6 +1076,10 @@ export function createServer() {
   app.post(
     "/api/consumer/notifications/:id/read",
     markConsumerNotificationRead,
+  );
+  app.delete(
+    "/api/consumer/notifications/:id",
+    deleteConsumerNotification,
   );
 
   // Consumer waitlist
@@ -1004,6 +1149,9 @@ export function createServer() {
   // AI Assistant routes
   registerAdminAIRoutes(app);
 
+  // Admin Inventory routes
+  registerAdminInventoryRoutes(app);
+
   // Import/Export routes
   registerAdminImportExportRoutes(app);
 
@@ -1017,6 +1165,7 @@ export function createServer() {
   // Ads system routes
   registerProAdsRoutes(app);
   registerAdminAdsRoutes(app);
+  registerSponsoredNotificationRoutes(app);
 
   app.get("/api/admin/health", adminHealth);
   app.get("/api/admin/production-check", adminProductionCheck);
@@ -1031,6 +1180,9 @@ export function createServer() {
   );
   app.get("/api/admin/emails/branding", getAdminEmailBranding);
   app.post("/api/admin/emails/branding/update", updateAdminEmailBranding);
+  app.post("/api/admin/emails/branding/logo/upload", express.raw({ type: "image/*", limit: "2mb" }), uploadEmailBrandingLogo);
+  app.delete("/api/admin/emails/branding/logo", deleteEmailBrandingLogo);
+  app.post("/api/admin/emails/templates/bulk-replace", bulkReplaceInEmailTemplates);
   app.post("/api/admin/emails/preview", previewAdminEmail);
   app.get("/api/admin/emails/sends", listAdminEmailSends);
   app.get("/api/admin/emails/campaigns", listAdminEmailCampaigns);
@@ -1052,6 +1204,22 @@ export function createServer() {
   app.post("/api/admin/newsletter/campaigns", createNewsletterCampaign);
   app.post("/api/admin/newsletter/campaigns/:id/send", sendNewsletterCampaign);
 
+  // Newsletter subscribers
+  app.get("/api/admin/newsletter/subscribers", listNewsletterSubscribers);
+  app.get("/api/admin/newsletter/subscribers/stats", getNewsletterSubscribersStats);
+  app.put("/api/admin/newsletter/subscribers/:id", updateNewsletterSubscriber);
+  app.delete("/api/admin/newsletter/subscribers/:id", deleteNewsletterSubscriber);
+  app.post("/api/admin/newsletter/subscribers/export", exportNewsletterSubscribers);
+
+  // Audiences
+  app.get("/api/admin/newsletter/audiences", listAudiences);
+  app.post("/api/admin/newsletter/audiences", createAudience);
+  app.put("/api/admin/newsletter/audiences/:id", updateAudience);
+  app.delete("/api/admin/newsletter/audiences/:id", deleteAudience);
+  app.get("/api/admin/newsletter/audiences/:id/members", getAudienceMembers);
+  app.post("/api/admin/newsletter/audiences/:id/load-to-prospects", loadAudienceToProspects);
+  app.post("/api/admin/newsletter/preview-filters", previewFilters);
+
   app.get("/api/admin/waitlist", listAdminWaitlist);
 
   app.get("/api/admin/notifications", listAdminNotifications);
@@ -1060,6 +1228,7 @@ export function createServer() {
     getAdminNotificationsUnreadCount,
   );
   app.post("/api/admin/notifications/:id/read", markAdminNotificationRead);
+  app.delete("/api/admin/notifications/:id", deleteAdminNotification);
   app.post(
     "/api/admin/notifications/mark-all-read",
     markAllAdminNotificationsRead,
@@ -1070,6 +1239,7 @@ export function createServer() {
   app.get("/api/admin/alerts", listAdminNotifications);
   app.get("/api/admin/alerts/unread-count", getAdminNotificationsUnreadCount);
   app.post("/api/admin/alerts/:id/read", markAdminNotificationRead);
+  app.delete("/api/admin/alerts/:id", deleteAdminNotification);
   app.post("/api/admin/alerts/mark-all-read", markAllAdminNotificationsRead);
 
   // PARTNERS (Media Factory)
@@ -1171,6 +1341,17 @@ export function createServer() {
   app.post("/api/admin/settings/platform/set-mode", setPlatformModeHandler);
   app.post("/api/admin/settings/platform/invalidate-cache", invalidatePlatformSettingsCacheHandler);
 
+  // Username moderation
+  app.get("/api/admin/username-requests", listUsernameRequests);
+  app.post("/api/admin/username-requests/:requestId/approve", approveUsernameRequest);
+  app.post("/api/admin/username-requests/:requestId/reject", rejectUsernameRequest);
+
+  // Username subscriptions
+  app.get("/api/admin/username-subscriptions", listAdminUsernameSubscriptions);
+  app.get("/api/admin/username-subscriptions/stats", getAdminUsernameSubscriptionStats);
+  app.post("/api/admin/username-subscriptions/:id/extend", extendAdminUsernameSubscription);
+  app.post("/api/admin/username-subscriptions/:id/cancel", cancelAdminUsernameSubscription);
+
   // Homepage curation
   app.get("/api/admin/home-curation", listAdminHomeCurationItems);
   app.post("/api/admin/home-curation", createAdminHomeCurationItem);
@@ -1198,11 +1379,31 @@ export function createServer() {
   app.post("/api/admin/home-cities/reorder", reorderAdminHomeCities);
   app.post("/api/admin/home-cities/:id/delete", deleteAdminHomeCity);
   app.post("/api/admin/home-cities/:id/image", uploadAdminHomeCityImage);
+  app.post("/api/admin/home-cities/:id/country", updateAdminHomeCityCountry);
+
+  // Countries management
+  app.get("/api/admin/countries", listAdminCountries);
+  app.post("/api/admin/countries", createAdminCountry);
+  app.post("/api/admin/countries/:id/update", updateAdminCountry);
+  app.post("/api/admin/countries/:id/delete", deleteAdminCountry);
+  app.post("/api/admin/countries/reorder", reorderAdminCountries);
+
+  // Home videos management
+  app.get("/api/admin/home-videos", listAdminHomeVideos);
+  app.post("/api/admin/home-videos", createAdminHomeVideo);
+  app.post("/api/admin/home-videos/:id/update", updateAdminHomeVideo);
+  app.post("/api/admin/home-videos/reorder", reorderAdminHomeVideos);
+  app.post("/api/admin/home-videos/:id/delete", deleteAdminHomeVideo);
+  app.post("/api/admin/home-videos/upload-thumbnail", uploadAdminVideoThumbnail);
 
   // Public universes & home settings
   app.get("/api/public/universes", getPublicUniverses);
   app.get("/api/public/home-settings", getPublicHomeSettings);
   app.get("/api/public/home-cities", getPublicHomeCities);
+  app.get("/api/public/home-videos", getPublicHomeVideos);
+  app.get("/api/public/home-takeover", getPublicHomeTakeover);
+  app.get("/api/public/countries", getPublicCountries);
+  app.get("/api/public/detect-country", detectUserCountry);
 
   // Category images management (subcategories - level 3)
   // NOTE: Upload route is registered earlier (before express.json middleware) to receive raw binary data
@@ -1698,6 +1899,35 @@ export function createServer() {
   // Collaborator login (separate from main admin login)
   app.post("/api/admin/collaborators/login", collaboratorLogin);
 
+  // ==========================================================================
+  // REFERRAL SYSTEM (Parrainage)
+  // ==========================================================================
+
+  // Public endpoints - validation de code
+  app.get("/api/public/referral/validate/:code", validateReferralCode);
+  app.post("/api/public/referral/link", createReferralLink);
+
+  // Referral Partner endpoints (espace parrain)
+  app.post("/api/referral/apply", applyAsReferralPartner);
+  app.get("/api/referral/me", getReferralPartnerMe);
+  app.patch("/api/referral/me", updateReferralPartnerMe);
+  app.get("/api/referral/me/referrees", listMyReferrees);
+  app.get("/api/referral/me/commissions", listMyCommissions);
+  app.get("/api/referral/me/payouts", listMyPayouts);
+
+  // Admin referral endpoints
+  app.get("/api/admin/referral/partners", listReferralPartners);
+  app.patch("/api/admin/referral/partners/:id", updateReferralPartnerStatus);
+  app.get("/api/admin/referral/config", getReferralConfig);
+  app.patch("/api/admin/referral/config", updateReferralConfig);
+  app.put("/api/admin/referral/config/universes/:universe", upsertReferralConfigUniverse);
+  app.get("/api/admin/referral/commissions", listAllCommissions);
+  app.post("/api/admin/referral/payouts", createReferralPayout);
+  app.patch("/api/admin/referral/payouts/:id", updateReferralPayout);
+  app.get("/api/admin/referral/stats", getReferralStats);
+
+  // ==========================================================================
+
   app.get("/api/pro/my/establishments", listMyEstablishments);
   app.get("/api/pro/my/memberships", listMyMemberships);
 
@@ -1814,6 +2044,10 @@ export function createServer() {
   app.get(
     "/api/pro/establishments/:establishmentId/visibility/orders/:orderId/invoice",
     getProVisibilityOrderInvoice,
+  );
+  app.get(
+    "/api/pro/establishments/:establishmentId/visibility/orders/:orderId/invoice/pdf",
+    downloadProVisibilityOrderInvoicePdf,
   );
   if (allowDemoRoutes) {
     app.post(
@@ -1973,6 +2207,44 @@ export function createServer() {
     listEstablishmentReservationHistory,
   );
 
+  // Username management (custom short URLs like @username)
+  app.get(
+    "/api/pro/username/check",
+    checkUsernameAvailability,
+  );
+  app.get(
+    "/api/pro/establishments/:establishmentId/username",
+    getEstablishmentUsername,
+  );
+  app.post(
+    "/api/pro/establishments/:establishmentId/username",
+    submitUsernameRequest,
+  );
+  app.delete(
+    "/api/pro/establishments/:establishmentId/username/request/:requestId",
+    cancelUsernameRequest,
+  );
+
+  // Username subscription management
+  app.get(
+    "/api/pro/establishments/:establishmentId/username-subscription",
+    getUsernameSubscription,
+  );
+  app.post(
+    "/api/pro/establishments/:establishmentId/username-subscription/start-trial",
+    startUsernameTrialHandler,
+  );
+  app.post(
+    "/api/pro/establishments/:establishmentId/username-subscription/cancel",
+    cancelUsernameSubscriptionHandler,
+  );
+
+  // Booking source stats (direct link vs platform)
+  app.get(
+    "/api/pro/establishments/:establishmentId/stats/booking-sources",
+    getProBookingSourceStats,
+  );
+
   app.get(
     "/api/pro/establishments/:establishmentId/dashboard/metrics",
     getProDashboardMetrics,
@@ -1995,6 +2267,10 @@ export function createServer() {
     "/api/pro/establishments/:establishmentId/notifications/:notificationId/read",
     markProNotificationRead,
   );
+  app.delete(
+    "/api/pro/establishments/:establishmentId/notifications/:notificationId",
+    deleteProNotification,
+  );
   app.post(
     "/api/pro/establishments/:establishmentId/notifications/mark-all-read",
     markAllProNotificationsRead,
@@ -2008,6 +2284,10 @@ export function createServer() {
   app.get(
     "/api/pro/establishments/:establishmentId/inventory",
     listProInventory,
+  );
+  app.get(
+    "/api/pro/establishments/:establishmentId/inventory/pending-changes",
+    listProInventoryPendingChanges,
   );
   app.post(
     "/api/pro/establishments/:establishmentId/inventory/categories",
@@ -2083,6 +2363,24 @@ export function createServer() {
       seedDemoProInventory,
     );
   }
+
+  // Menu Digital (QR Code) Integration
+  app.get(
+    "/api/pro/establishments/:establishmentId/menu-digital/status",
+    getMenuDigitalStatus,
+  );
+  app.post(
+    "/api/pro/establishments/:establishmentId/menu-digital/enable",
+    enableMenuDigital,
+  );
+  app.post(
+    "/api/pro/establishments/:establishmentId/menu-digital/sync",
+    syncMenuDigital,
+  );
+  app.post(
+    "/api/pro/establishments/:establishmentId/menu-digital/disable",
+    disableMenuDigital,
+  );
 
   app.get(
     "/api/pro/establishments/:establishmentId/billing/packs",

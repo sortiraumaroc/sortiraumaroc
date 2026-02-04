@@ -1,10 +1,11 @@
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useI18n } from "@/lib/i18n";
 import { MapPin, Utensils, Dumbbell, Gamepad2, Tag, TrendingUp, Building2, Zap } from "lucide-react";
 import { SuggestionItem, SuggestionGroup } from "@/components/SearchSuggestionsDropdown";
+import { getPublicHomeCities } from "@/lib/publicApi";
 
-// Placeholder data - will be replaced with backend API calls in Phase 3
-const MOROCCAN_CITIES = [
+// Fallback data - used when API is unavailable
+const FALLBACK_MOROCCAN_CITIES = [
   { id: "casablanca", name: "Casablanca" },
   { id: "marrakech", name: "Marrakech" },
   { id: "rabat", name: "Rabat" },
@@ -13,6 +14,23 @@ const MOROCCAN_CITIES = [
   { id: "agadir", name: "Agadir" },
   { id: "meknes", name: "Meknès" },
 ];
+
+// Dynamic cities - will be loaded from API
+let MOROCCAN_CITIES = [...FALLBACK_MOROCCAN_CITIES];
+
+// Load cities from API on module load
+getPublicHomeCities()
+  .then((res) => {
+    if (res.ok && res.cities.length > 0) {
+      MOROCCAN_CITIES = res.cities.map((c) => ({
+        id: c.slug || c.id,
+        name: c.name,
+      }));
+    }
+  })
+  .catch(() => {
+    // Keep fallback cities
+  });
 
 const NEIGHBORHOODS_BY_CITY: Record<string, Array<{ id: string; name: string }>> = {
   casablanca: [

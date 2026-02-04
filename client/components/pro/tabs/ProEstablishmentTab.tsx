@@ -56,6 +56,7 @@ import {
   type PublicCategoryItem,
   type PublicCategoryImageItem,
 } from "@/lib/publicApi";
+import { UsernameSection } from "@/components/pro/UsernameSection";
 
 type Props = {
   establishment: Establishment;
@@ -1099,6 +1100,7 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
       whatsappCountry: wa.country,
       whatsappNational: wa.national,
       website: establishment.website ?? "",
+      email: establishment.email ?? "",
       tagsCsv: joinLines(establishment.tags),
       amenitiesCsv: joinLines(establishment.amenities),
       coverUrl: establishment.cover_url ?? "",
@@ -1266,6 +1268,7 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
       whatsappCountry: wa.country,
       whatsappNational: wa.national,
       website: establishment.website ?? "",
+      email: establishment.email ?? "",
       tagsCsv: joinLines(establishment.tags),
       amenitiesCsv: joinLines(establishment.amenities),
       coverUrl: establishment.cover_url ?? "",
@@ -1707,6 +1710,7 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
         phone,
         whatsapp,
         website: form.website.trim() || null,
+        email: form.email.trim() || null,
         tags: splitListInput(form.tagsCsv),
         amenities: splitListInput(form.amenitiesCsv),
         cover_url: form.coverUrl.trim() || null,
@@ -1850,38 +1854,25 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
                   </CardHeader>
                   <CollapsibleContent>
                     <CardContent className="space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {/* Info: ces champs sont gérés par l'admin */}
+                      <p className="text-sm text-slate-500 italic">
+                        Ces informations sont gérées par l'équipe Sortir Au Maroc. Contactez-nous pour toute modification.
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         <div className="space-y-2">
-                          <div className="flex items-center gap-2 min-h-5">
-                            <Label>Nom</Label>
-                            <span aria-hidden="true" className="w-4 h-4 shrink-0" />
-                          </div>
-                          <Input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} disabled={!canEdit} />
+                          <Label className="text-slate-400">Nom</Label>
+                          <Input
+                            value={form.name}
+                            disabled
+                            className="bg-slate-50 text-slate-500 cursor-not-allowed"
+                          />
                         </div>
 
                         <div className="space-y-2">
-                          <div className="flex items-center gap-2 min-h-5">
-                            <Label>Univers</Label>
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button type="button" className="text-slate-500 hover:text-slate-900">
-                                    <HelpCircle className="w-4 h-4" />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  {establishment.verified ? "Verrouillé après validation" : "Une fois validé, l'univers ne pourra plus être changé"}
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          </div>
-                          <Select
-                            value={form.universe}
-                            onValueChange={(val) => setForm((p) => ({ ...p, universe: val, category: "", subcategory: "" }))}
-                            disabled={!canEdit || establishment.verified || universesLoading}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={universesLoading ? "Chargement..." : "Sélectionner un univers"} />
+                          <Label className="text-slate-400">Univers</Label>
+                          <Select value={form.universe} disabled>
+                            <SelectTrigger className="bg-slate-50 text-slate-500 cursor-not-allowed">
+                              <SelectValue placeholder="—" />
                             </SelectTrigger>
                             <SelectContent>
                               {universesList.map((u) => (
@@ -1894,36 +1885,10 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
                         </div>
 
                         <div className="space-y-2">
-                          <div className="flex items-center gap-2 min-h-5">
-                            <Label>Catégorie</Label>
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button type="button" className="text-slate-500 hover:text-slate-900">
-                                    <HelpCircle className="w-4 h-4" />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  {establishment.verified
-                                    ? "Verrouillé après validation"
-                                    : "Une fois validée, la catégorie ne pourra plus être changée"}
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          </div>
-                          <Select
-                            value={form.category}
-                            onValueChange={(val) => setForm((p) => ({ ...p, category: val, subcategory: "" }))}
-                            disabled={!canEdit || establishment.verified || !form.universe || categoriesLevel2Loading}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={
-                                !form.universe
-                                  ? "Sélectionnez d'abord un univers"
-                                  : categoriesLevel2Loading
-                                    ? "Chargement..."
-                                    : "Sélectionner une catégorie"
-                              } />
+                          <Label className="text-slate-400">Catégorie</Label>
+                          <Select value={form.category} disabled>
+                            <SelectTrigger className="bg-slate-50 text-slate-500 cursor-not-allowed">
+                              <SelectValue placeholder="—" />
                             </SelectTrigger>
                             <SelectContent>
                               {categoriesLevel2List.map((c) => (
@@ -1936,30 +1901,10 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
                         </div>
 
                         <div className="space-y-2">
-                          <div className="flex items-center gap-2 min-h-5">
-                            <Label>Sous-catégorie</Label>
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button type="button" className="text-slate-500 hover:text-slate-900">
-                                    <HelpCircle className="w-4 h-4" />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  {establishment.verified
-                                    ? "Verrouillé après validation"
-                                    : "Une fois validée, la sous-catégorie ne pourra plus être changée"}
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          </div>
-                          <Select
-                            value={form.subcategory}
-                            onValueChange={(val) => setForm((p) => ({ ...p, subcategory: val }))}
-                            disabled={!canEdit || establishment.verified || !form.category}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={!form.category ? "Sélectionnez d'abord une catégorie" : "Sélectionner une sous-catégorie"} />
+                          <Label className="text-slate-400">Sous-catégorie</Label>
+                          <Select value={form.subcategory} disabled>
+                            <SelectTrigger className="bg-slate-50 text-slate-500 cursor-not-allowed">
+                              <SelectValue placeholder="—" />
                             </SelectTrigger>
                             <SelectContent>
                               {categoriesList.map((c) => (
@@ -1970,7 +1915,9 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
                             </SelectContent>
                           </Select>
                         </div>
+                      </div>
 
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div className="space-y-2 md:col-span-3">
                           <Label>Spécialités</Label>
                           <Input
@@ -2148,7 +2095,7 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
                   <CardHeader className="pb-3">
                     <SectionHeader
                       title="Coordonnées"
-                      description="Téléphone et WhatsApp."
+                      description="Téléphone, WhatsApp et Email de réservation."
                       titleClassName="text-sm"
                       actions={
                         <CollapsibleTrigger asChild>
@@ -2210,6 +2157,28 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
                             inputMode="numeric"
                           />
                         </div>
+                      </div>
+
+                      {/* Email de réservation - IMPORTANT pour activer le bouton Réserver */}
+                      <div className={`space-y-2 p-3 rounded-lg border-2 ${form.email ? "border-emerald-500 bg-emerald-50" : "border-red-500 bg-red-50"}`}>
+                        <Label className="flex items-center gap-2 font-semibold">
+                          Email de réservation
+                          {!form.email && <span className="text-red-600 text-xs font-normal">(Requis pour activer les réservations)</span>}
+                          {form.email && <span className="text-emerald-600 text-xs font-normal">(Réservations activées)</span>}
+                        </Label>
+                        <Input
+                          type="email"
+                          value={form.email}
+                          onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
+                          disabled={!canEdit}
+                          placeholder="reservations@votre-etablissement.ma"
+                          className={`${form.email ? "border-emerald-300" : "border-red-300"}`}
+                        />
+                        <p className="text-xs text-slate-600">
+                          {form.email
+                            ? "Les clients pourront réserver directement sur votre fiche établissement."
+                            : "Sans email, le bouton « Réserver » ne sera pas affiché sur votre fiche."}
+                        </p>
                       </div>
                     </CardContent>
                   </CollapsibleContent>
@@ -2755,6 +2724,12 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
             </div>
 
             <div className="space-y-6 lg:sticky lg:top-6 h-fit">
+              {/* Username Section */}
+              <UsernameSection
+                establishmentId={establishment.id}
+                canEdit={canEdit}
+              />
+
               <Card className="border-slate-200">
                 <CardHeader className="pb-3">
                   <SectionHeader
@@ -2775,7 +2750,7 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
 
                   {moderationLocked ? (
                     <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 space-y-2">
-                      <Badge className="bg-amber-100 text-amber-800 border-amber-200">En cours de validation par Sortir Au Maroc</Badge>
+                      <Badge className="bg-amber-100 text-amber-800 border-amber-200">En cours de validation par SAM</Badge>
                       <div>Une modification est déjà en cours de modération. Vous pourrez soumettre à nouveau après validation.</div>
                     </div>
                   ) : null}
@@ -2878,7 +2853,7 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
           {pendingDraft ? (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge className="bg-amber-100 text-amber-800 border-amber-200">En cours de validation par Sortir Au Maroc</Badge>
+                <Badge className="bg-amber-100 text-amber-800 border-amber-200">En cours de validation par SAM</Badge>
                 <div className="text-xs text-slate-600">Demandé le {new Date(pendingDraft.created_at).toLocaleString("fr-FR")}</div>
               </div>
 

@@ -17,7 +17,7 @@ const SENDER_OPTIONS: Array<{ key: AdminTestEmailSenderKey; label: string; note:
   { key: "support", label: "support@sortiraumaroc.ma", note: "Assistance" },
   { key: "pro", label: "pro@sortiraumaroc.ma", note: "Relation Pro" },
   { key: "finance", label: "finance@sortiraumaroc.ma", note: "Paiements" },
-  { key: "no-reply", label: "no-reply@sortiraumaroc.ma", note: "Notifications auto" },
+  { key: "noreply", label: "noreply@sortiraumaroc.ma", note: "Notifications auto" },
 ];
 
 export function EmailSettingsCard(props: {

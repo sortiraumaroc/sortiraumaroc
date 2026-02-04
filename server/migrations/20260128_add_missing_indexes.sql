@@ -1,7 +1,7 @@
 -- ============================================================================
 -- Migration: Ajout des index manquants
 -- Date: 2026-01-28
--- Auteur: Sam'Booking Team
+-- Auteur: SAM Team
 -- Description: Améliore les performances des requêtes fréquentes
 -- ============================================================================
 

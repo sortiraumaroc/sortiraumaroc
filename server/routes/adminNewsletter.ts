@@ -820,3 +820,475 @@ function escapeHtml(text: string): string {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
+
+// ============================================================================
+// NEWSLETTER SUBSCRIBERS
+// ============================================================================
+
+/**
+ * GET /api/admin/newsletter/subscribers
+ * List all newsletter subscribers with filtering
+ */
+export const listNewsletterSubscribers: RequestHandler = async (req, res) => {
+  const ok = await requireSuperadmin(req, res);
+  if (!ok) return;
+
+  const supabase = getAdminSupabase();
+  const page = parseInt(asString(req.query.page)) || 1;
+  const limit = parseInt(asString(req.query.limit)) || 50;
+  const search = asNullableString(req.query.search);
+  const status = asNullableString(req.query.status);
+  const city = asNullableString(req.query.city);
+  const country = asNullableString(req.query.country);
+
+  let query = supabase
+    .from("newsletter_subscribers")
+    .select("*", { count: "exact" });
+
+  if (search) {
+    query = query.or(`email.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%`);
+  }
+
+  if (status && status !== "all") {
+    query = query.eq("status", status);
+  }
+
+  if (city) {
+    query = query.eq("city", city);
+  }
+
+  if (country) {
+    query = query.eq("country", country);
+  }
+
+  const { data, error, count } = await query
+    .order("created_at", { ascending: false })
+    .range((page - 1) * limit, page * limit - 1);
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  return res.json({
+    ok: true,
+    items: data ?? [],
+    total: count ?? 0,
+    page,
+    limit,
+    totalPages: Math.ceil((count ?? 0) / limit),
+  });
+};
+
+/**
+ * GET /api/admin/newsletter/subscribers/stats
+ * Get subscriber statistics
+ */
+export const getNewsletterSubscribersStats: RequestHandler = async (req, res) => {
+  const ok = await requireSuperadmin(req, res);
+  if (!ok) return;
+
+  const supabase = getAdminSupabase();
+
+  const { count: total } = await supabase
+    .from("newsletter_subscribers")
+    .select("*", { count: "exact", head: true });
+
+  const { count: active } = await supabase
+    .from("newsletter_subscribers")
+    .select("*", { count: "exact", head: true })
+    .eq("status", "active");
+
+  const { data: citiesData } = await supabase
+    .from("newsletter_subscribers")
+    .select("city")
+    .not("city", "is", null);
+
+  const { data: countriesData } = await supabase
+    .from("newsletter_subscribers")
+    .select("country")
+    .not("country", "is", null);
+
+  const cities = [...new Set((citiesData ?? []).map((c: any) => c.city).filter(Boolean))];
+  const countries = [...new Set((countriesData ?? []).map((c: any) => c.country).filter(Boolean))];
+
+  return res.json({
+    ok: true,
+    total: total ?? 0,
+    active: active ?? 0,
+    cities,
+    countries,
+  });
+};
+
+/**
+ * PUT /api/admin/newsletter/subscribers/:id
+ * Update a subscriber
+ */
+export const updateNewsletterSubscriber: RequestHandler = async (req, res) => {
+  const ok = await requireSuperadmin(req, res);
+  if (!ok) return;
+
+  const supabase = getAdminSupabase();
+  const id = asString(req.params.id);
+  const body = isRecord(req.body) ? req.body : {};
+
+  if (!id) {
+    return res.status(400).json({ error: "ID requis" });
+  }
+
+  const allowedFields = [
+    "first_name", "last_name", "phone", "city", "country",
+    "age", "gender", "profession", "csp", "interests", "status"
+  ];
+
+  const updates: Record<string, any> = { updated_at: new Date().toISOString() };
+  for (const key of allowedFields) {
+    if (body[key] !== undefined) {
+      updates[key] = body[key];
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("newsletter_subscribers")
+    .update(updates)
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  return res.json({ ok: true, item: data });
+};
+
+/**
+ * DELETE /api/admin/newsletter/subscribers/:id
+ * Delete a subscriber
+ */
+export const deleteNewsletterSubscriber: RequestHandler = async (req, res) => {
+  const ok = await requireSuperadmin(req, res);
+  if (!ok) return;
+
+  const supabase = getAdminSupabase();
+  const id = asString(req.params.id);
+
+  if (!id) {
+    return res.status(400).json({ error: "ID requis" });
+  }
+
+  const { error } = await supabase
+    .from("newsletter_subscribers")
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  return res.json({ ok: true });
+};
+
+/**
+ * POST /api/admin/newsletter/subscribers/export
+ * Export subscribers as CSV
+ */
+export const exportNewsletterSubscribers: RequestHandler = async (req, res) => {
+  const ok = await requireSuperadmin(req, res);
+  if (!ok) return;
+
+  const supabase = getAdminSupabase();
+  const body = isRecord(req.body) ? req.body : {};
+
+  let query = supabase.from("newsletter_subscribers").select("*");
+
+  if (body.status && body.status !== "all") {
+    query = query.eq("status", body.status);
+  }
+  if (body.city) {
+    query = query.eq("city", body.city);
+  }
+  if (body.country) {
+    query = query.eq("country", body.country);
+  }
+
+  const { data, error } = await query.order("created_at", { ascending: false });
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  const headers = ["email", "first_name", "last_name", "phone", "city", "country", "age", "gender", "csp", "interests", "status", "created_at"];
+  const csvRows = [headers.join(",")];
+
+  for (const row of data ?? []) {
+    const values = headers.map(h => {
+      const val = (row as Record<string, any>)[h];
+      if (val === null || val === undefined) return "";
+      if (Array.isArray(val)) return `"${val.join(";")}"`;
+      if (typeof val === "string" && (val.includes(",") || val.includes('"'))) {
+        return `"${val.replace(/"/g, '""')}"`;
+      }
+      return val;
+    });
+    csvRows.push(values.join(","));
+  }
+
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", "attachment; filename=newsletter_subscribers.csv");
+  return res.send(csvRows.join("\n"));
+};
+
+// ============================================================================
+// AUDIENCES
+// ============================================================================
+
+/**
+ * GET /api/admin/newsletter/audiences
+ * List all audiences
+ */
+export const listAudiences: RequestHandler = async (req, res) => {
+  const ok = await requireSuperadmin(req, res);
+  if (!ok) return;
+
+  const supabase = getAdminSupabase();
+
+  const { data, error } = await supabase
+    .from("audiences")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  return res.json({ ok: true, items: data ?? [] });
+};
+
+/**
+ * POST /api/admin/newsletter/audiences
+ * Create a new audience
+ */
+export const createAudience: RequestHandler = async (req, res) => {
+  const ok = await requireSuperadmin(req, res);
+  if (!ok) return;
+
+  const supabase = getAdminSupabase();
+  const body = isRecord(req.body) ? req.body : {};
+
+  const name = asString(body.name);
+  const description = asNullableString(body.description);
+  const filters = isRecord(body.filters) ? body.filters : {};
+  const is_dynamic = body.is_dynamic !== false;
+
+  if (!name) {
+    return res.status(400).json({ error: "Le nom est requis" });
+  }
+
+  const { data, error } = await supabase
+    .from("audiences")
+    .insert({
+      name,
+      description,
+      filters,
+      is_dynamic,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  // Update member count
+  if (data) {
+    await supabase.rpc("update_audience_member_count", { p_audience_id: data.id });
+    const { data: updated } = await supabase
+      .from("audiences")
+      .select("*")
+      .eq("id", data.id)
+      .single();
+    return res.json({ ok: true, item: updated ?? data });
+  }
+
+  return res.json({ ok: true, item: data });
+};
+
+/**
+ * PUT /api/admin/newsletter/audiences/:id
+ * Update an audience
+ */
+export const updateAudience: RequestHandler = async (req, res) => {
+  const ok = await requireSuperadmin(req, res);
+  if (!ok) return;
+
+  const supabase = getAdminSupabase();
+  const id = asString(req.params.id);
+  const body = isRecord(req.body) ? req.body : {};
+
+  if (!id) {
+    return res.status(400).json({ error: "ID requis" });
+  }
+
+  const updates: Record<string, any> = { updated_at: new Date().toISOString() };
+  if (body.name !== undefined) updates.name = body.name;
+  if (body.description !== undefined) updates.description = body.description;
+  if (body.filters !== undefined) updates.filters = body.filters;
+  if (body.is_dynamic !== undefined) updates.is_dynamic = body.is_dynamic;
+
+  const { data, error } = await supabase
+    .from("audiences")
+    .update(updates)
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  // Update member count
+  await supabase.rpc("update_audience_member_count", { p_audience_id: id });
+  const { data: updated } = await supabase
+    .from("audiences")
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  return res.json({ ok: true, item: updated ?? data });
+};
+
+/**
+ * DELETE /api/admin/newsletter/audiences/:id
+ * Delete an audience
+ */
+export const deleteAudience: RequestHandler = async (req, res) => {
+  const ok = await requireSuperadmin(req, res);
+  if (!ok) return;
+
+  const supabase = getAdminSupabase();
+  const id = asString(req.params.id);
+
+  if (!id) {
+    return res.status(400).json({ error: "ID requis" });
+  }
+
+  const { error } = await supabase
+    .from("audiences")
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  return res.json({ ok: true });
+};
+
+/**
+ * GET /api/admin/newsletter/audiences/:id/members
+ * Get audience members
+ */
+export const getAudienceMembers: RequestHandler = async (req, res) => {
+  const ok = await requireSuperadmin(req, res);
+  if (!ok) return;
+
+  const supabase = getAdminSupabase();
+  const id = asString(req.params.id);
+  const page = parseInt(asString(req.query.page)) || 1;
+  const limit = parseInt(asString(req.query.limit)) || 50;
+
+  if (!id) {
+    return res.status(400).json({ error: "ID requis" });
+  }
+
+  const { data, error } = await supabase.rpc("get_audience_members", { p_audience_id: id });
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  const total = data?.length ?? 0;
+  const paginatedData = (data ?? []).slice((page - 1) * limit, page * limit);
+
+  return res.json({
+    ok: true,
+    items: paginatedData,
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+  });
+};
+
+/**
+ * POST /api/admin/newsletter/audiences/:id/load-to-prospects
+ * Load audience members to prospects
+ */
+export const loadAudienceToProspects: RequestHandler = async (req, res) => {
+  const ok = await requireSuperadmin(req, res);
+  if (!ok) return;
+
+  const supabase = getAdminSupabase();
+  const id = asString(req.params.id);
+
+  if (!id) {
+    return res.status(400).json({ error: "ID requis" });
+  }
+
+  const { data, error } = await supabase.rpc("load_audience_to_prospects", { p_audience_id: id });
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  return res.json({ ok: true, count: data });
+};
+
+/**
+ * POST /api/admin/newsletter/preview-filters
+ * Preview filter results without saving
+ */
+export const previewFilters: RequestHandler = async (req, res) => {
+  const ok = await requireSuperadmin(req, res);
+  if (!ok) return;
+
+  const supabase = getAdminSupabase();
+  const body = isRecord(req.body) ? req.body : {};
+  const filters = isRecord(body.filters) ? body.filters : {};
+
+  let query = supabase
+    .from("newsletter_subscribers")
+    .select("*", { count: "exact", head: true })
+    .eq("status", "active");
+
+  if (Array.isArray(filters.cities) && filters.cities.length) {
+    query = query.in("city", filters.cities);
+  }
+  if (Array.isArray(filters.countries) && filters.countries.length) {
+    query = query.in("country", filters.countries);
+  }
+  if (Array.isArray(filters.genders) && filters.genders.length) {
+    query = query.in("gender", filters.genders);
+  }
+  if (Array.isArray(filters.csp_list) && filters.csp_list.length) {
+    query = query.in("csp", filters.csp_list);
+  }
+  if (filters.age_min) {
+    query = query.gte("age", filters.age_min);
+  }
+  if (filters.age_max) {
+    query = query.lte("age", filters.age_max);
+  }
+  if (Array.isArray(filters.interests) && filters.interests.length) {
+    query = query.overlaps("interests", filters.interests);
+  }
+
+  const { count, error } = await query;
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  return res.json({ ok: true, count: count ?? 0 });
+};

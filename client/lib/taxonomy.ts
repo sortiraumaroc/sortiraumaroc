@@ -551,7 +551,7 @@ export const CATEGORY_CONFIGS: Record<ActivityCategory, CategoryConfig> = {
   },
   rentacar: {
     category: "rentacar",
-    label: "Louer un véhicule",
+    label: "Se déplacer",
     icon: "Car",
     fields: {
       city: true,
@@ -1175,7 +1175,7 @@ export const SHOPPING_SERVICES = [
 export type ShoppingService = typeof SHOPPING_SERVICES[number];
 
 // ============================================
-// RENTACAR (LOUER UN VÉHICULE) FILTER OPTIONS
+// RENTACAR (SE DÉPLACER) FILTER OPTIONS
 // ============================================
 
 /**

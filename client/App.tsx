@@ -30,6 +30,7 @@ const ContentPage = lazy(() => import("./pages/ContentPage"));
 const Blog = lazy(() => import("./pages/Blog"));
 const BlogArticle = lazy(() => import("./pages/BlogArticle"));
 const BlogAuthor = lazy(() => import("./pages/BlogAuthor"));
+const Videos = lazy(() => import("./pages/Videos"));
 const Pro = lazy(() => import("./pages/Pro"));
 const Shopping = lazy(() => import("./pages/Shopping"));
 const Loisir = lazy(() => import("./pages/Loisir"));
@@ -38,6 +39,7 @@ const Culture = lazy(() => import("./pages/Culture"));
 const Admin = lazy(() => import("./pages/Admin"));
 const AddEstablishment = lazy(() => import("./pages/AddEstablishment"));
 const NotFound = lazy(() => import("./pages/NotFound"));
+const Parrainage = lazy(() => import("./pages/Parrainage"));
 
 const PublicMediaQuote = lazy(() => import("./pages/PublicMediaQuote"));
 const PublicMediaInvoice = lazy(() => import("./pages/PublicMediaInvoice"));
@@ -45,9 +47,19 @@ const PublicMediaCheckin = lazy(() => import("./pages/PublicMediaCheckin"));
 const BookingConfirm = lazy(() => import("./pages/BookingConfirm"));
 const ReviewSubmission = lazy(() => import("./pages/ReviewSubmission"));
 const MyQRCodePage = lazy(() => import("./pages/MyQRCodePage"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 
 const Cities = lazy(() => import("./pages/Cities"));
 const CityDetail = lazy(() => import("./pages/CityDetail"));
+
+const UsernameRedirect = lazy(() =>
+  import("./pages/UsernameRedirect").then((m) => ({
+    default: m.UsernameRedirect,
+  })),
+);
+
+// Direct booking page (book.sam.ma/:username)
+const DirectBooking = lazy(() => import("./pages/DirectBooking"));
 
 const Partner = lazy(() => import("./pages/Partner"));
 const Partners = lazy(() => import("./pages/Partners"));
@@ -230,6 +242,11 @@ const AdminVisibilityPage = lazy(() =>
     default: m.AdminVisibilityPage,
   })),
 );
+const AdminUsernameSubscriptionsPage = lazy(() =>
+  import("./pages/admin/AdminUsernameSubscriptionsPage").then((m) => ({
+    default: m.AdminUsernameSubscriptionsPage,
+  })),
+);
 const AdminMediaFactoryJobsPage = lazy(() =>
   import("./pages/admin/AdminMediaFactoryJobsPage").then((m) => ({
     default: m.AdminMediaFactoryJobsPage,
@@ -280,6 +297,11 @@ const AdminAdsPage = lazy(() =>
     default: m.AdminAdsPage,
   })),
 );
+const AdminReferralPage = lazy(() =>
+  import("./pages/admin/AdminReferralPage").then((m) => ({
+    default: m.AdminReferralPage,
+  })),
+);
 
 const AdminEmailsTemplatesPage = lazy(() =>
   import("./pages/admin/emails/AdminEmailsTemplatesPage").then((m) => ({
@@ -309,6 +331,16 @@ const AdminEmailsProspectsPage = lazy(() =>
 const AdminNewsletterPage = lazy(() =>
   import("./pages/admin/emails/AdminNewsletterPage").then((m) => ({
     default: m.AdminNewsletterPage,
+  })),
+);
+const AdminEmailsNewsletterHomepagePage = lazy(() =>
+  import("./pages/admin/emails/AdminEmailsNewsletterHomepagePage").then((m) => ({
+    default: m.AdminEmailsNewsletterHomepagePage,
+  })),
+);
+const AdminEmailsAudiencesPage = lazy(() =>
+  import("./pages/admin/emails/AdminEmailsAudiencesPage").then((m) => ({
+    default: m.AdminEmailsAudiencesPage,
   })),
 );
 
@@ -348,12 +380,15 @@ function LocaleLayout({ locale }: { locale: AppLocale }) {
         />
         <Route path="faq" element={<Faq />} />
         <Route path="aide" element={<Help />} />
+        <Route path="reset-password" element={<ResetPassword />} />
         <Route path="content/:slug" element={<ContentPage />} />
         <Route path="blog" element={<Blog />} />
         <Route path="blog/auteur/:slug" element={<BlogAuthor />} />
         <Route path="blog/:slug" element={<BlogArticle />} />
+        <Route path="videos" element={<Videos />} />
         <Route path="pro" element={<Pro />} />
         <Route path="partner" element={<Partner />} />
+        <Route path="parrainage" element={<Parrainage />} />
         <Route
           path="pro/notifications"
           element={<Navigate to={`${prefix}/pro?tab=notifications`} replace />}
@@ -370,6 +405,12 @@ function LocaleLayout({ locale }: { locale: AppLocale }) {
         {/* Cities pages */}
         <Route path="villes" element={<Cities />} />
         <Route path="villes/:slug" element={<CityDetail />} />
+
+        {/* Username short URLs (e.g., sortiraumaroc.ma/@monrestaurant) */}
+        <Route path="@:username" element={<UsernameRedirect />} />
+
+        {/* Direct booking page (book.sam.ma/:username or sam.ma/book/:username) */}
+        <Route path="book/:username" element={<DirectBooking />} />
 
         <Route path="quotes/:token" element={<PublicMediaQuote />} />
         <Route path="invoices/:token" element={<PublicMediaInvoice />} />
@@ -484,7 +525,9 @@ function AppContent() {
                 element={<AdminPayoutRequestsPage />}
               />
               <Route path="visibility" element={<AdminVisibilityPage />} />
+              <Route path="username-subscriptions" element={<AdminUsernameSubscriptionsPage />} />
               <Route path="ads" element={<AdminAdsPage />} />
+              <Route path="referral" element={<AdminReferralPage />} />
               <Route path="import-export" element={<AdminImportExportPage />} />
               <Route path="marketing/prospects" element={<AdminMarketingProspectsPage />} />
               <Route path="users/cleanup" element={<AdminUserCleanupPage />} />
@@ -518,6 +561,14 @@ function AppContent() {
               <Route
                 path="emails/prospects"
                 element={<AdminEmailsProspectsPage />}
+              />
+              <Route
+                path="emails/newsletter-homepage"
+                element={<AdminEmailsNewsletterHomepagePage />}
+              />
+              <Route
+                path="emails/audiences"
+                element={<AdminEmailsAudiencesPage />}
               />
               <Route path="logs" element={<AdminLogsPage />} />
             </Route>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import {
   AlertCircle,
@@ -2739,8 +2740,23 @@ function InvoiceDialog({
 
 export function AdminVisibilityPage() {
   const { toast } = useToast();
+  const [searchParams] = useSearchParams();
 
-  const [tab, setTab] = useState("offers");
+  // Read tab from URL params - reacts to URL changes
+  const urlTab = searchParams.get("tab");
+  const [tab, setTab] = useState(() => {
+    if (urlTab && ["offers", "orders", "quotes", "invoices"].includes(urlTab)) {
+      return urlTab;
+    }
+    return "offers";
+  });
+
+  // Sync tab with URL when URL changes (e.g., navigation from notifications)
+  useEffect(() => {
+    if (urlTab && ["offers", "orders", "quotes", "invoices"].includes(urlTab)) {
+      setTab(urlTab);
+    }
+  }, [urlTab]);
 
   // Offers
   const [offers, setOffers] = useState<AdminVisibilityOffer[]>([]);

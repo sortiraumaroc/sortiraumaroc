@@ -735,7 +735,11 @@ export function ProgressiveBookingModule(props: {
             <div className="flex items-center justify-between px-4 py-4 border-b border-slate-100">
               <button
                 type="button"
-                onClick={() => props.onOpenChange(false)}
+                onClick={() => {
+                  if (step === "people") setStep("time");
+                  else if (step === "time") setStep("date");
+                  else props.onOpenChange(false);
+                }}
                 className="h-10 w-10 rounded-full hover:bg-slate-100 flex items-center justify-center"
                 aria-label={t("common.back")}
               >

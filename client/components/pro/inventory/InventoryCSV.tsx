@@ -205,8 +205,13 @@ async function importCSVRow(
           establishmentId,
           data: { title: categoryName },
         });
-        categoryId = result.category.id;
-        categoryMap.set(categoryName.toLowerCase(), categoryId);
+        // Handle moderation response
+        if ("pending" in result && result.pending) {
+          // Category creation is pending moderation, skip assigning it
+        } else if ("category" in result) {
+          categoryId = result.category.id;
+          categoryMap.set(categoryName.toLowerCase(), categoryId);
+        }
       } catch {
         // Ignore category creation error, continue without category
       }

@@ -95,3 +95,9 @@ export async function markAllMyConsumerNotificationsRead(ids?: string[]): Promis
   const n = (res as any)?.updated;
   return typeof n === "number" && Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0;
 }
+
+export async function deleteMyConsumerNotification(id: string): Promise<void> {
+  const trimmed = String(id ?? "").trim();
+  if (!trimmed) return;
+  await requestAuthedJson<{ ok: true }>(`/api/consumer/notifications/${encodeURIComponent(trimmed)}`, { method: "DELETE" });
+}

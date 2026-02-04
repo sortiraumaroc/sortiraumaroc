@@ -206,9 +206,10 @@ export const messages: Record<AppLocale, MessagesDict> = {
     "footer.link.about": "À propos",
     "footer.link.contact": "Contact",
     "footer.link.blog": "Blog",
+    "footer.link.videos": "Vidéos",
     "footer.link.careers": "Carrières",
 
-    "footer.link.for_restaurateurs": "Pour les restaurateurs",
+    "footer.link.become_sponsor": "Devenir parrain",
     "footer.link.for_providers": "Pour les prestataires",
     "footer.link.partner_space": "Espace Prestataires",
 
@@ -229,9 +230,24 @@ export const messages: Record<AppLocale, MessagesDict> = {
 
     "footer.link.apple_store": "Apple Store",
     "footer.link.google_play": "Google Play",
-    "footer.link.admin_aria": "Accéder à l’interface Admin",
+    "footer.link.admin_aria": "Accéder à l'interface Admin",
 
     "footer.copyright_suffix": ". Tous droits réservés.",
+
+    // Newsletter
+    "newsletter.title": "Newsletter",
+    "newsletter.subtitle": "Recevez nos bons plans et nouveautés",
+    "newsletter.placeholder": "Votre email",
+    "newsletter.button": "OK",
+    "newsletter.success": "Merci ! Vous êtes inscrit.",
+    "newsletter.error.generic": "Une erreur est survenue. Réessayez.",
+    "newsletter.error.invalid_email": "Adresse email invalide",
+
+    // Videos page
+    "videos.page.title": "Vidéos",
+    "videos.page.subtitle": "Découvrez les meilleurs établissements du Maroc à travers nos vidéos exclusives.",
+    "videos.page.empty_title": "Aucune vidéo disponible",
+    "videos.page.empty_description": "Revenez bientôt pour découvrir nos nouvelles vidéos.",
 
     // Support pages
     "help.title": "Aide & Support",
@@ -300,7 +316,7 @@ export const messages: Record<AppLocale, MessagesDict> = {
     "home.universe.accommodation": "Hébergement",
     "home.universe.culture": "Culture",
     "home.universe.shopping": "Shopping",
-    "home.universe.rentacar": "Louer un véhicule",
+    "home.universe.rentacar": "Se déplacer",
 
     "home.sections.best_offers.title": "Nos meilleures offres",
     "home.sections.selected_for_you.title":
@@ -426,6 +442,7 @@ export const messages: Record<AppLocale, MessagesDict> = {
     "search.field.activity.placeholder": "Activité ou établissement",
     "search.validation.minimum_people": "Minimum : {count} personnes",
 
+    "search.placeholder.unified": "Cuisine, nom de lieu, plat...",
     "search.placeholder.restaurant_type": "Type de lieu",
     "search.title.choose_restaurant_type": "Choisir un type de lieu",
     "search.placeholder.accommodation_type": "Type d'hébergement",
@@ -629,9 +646,12 @@ export const messages: Record<AppLocale, MessagesDict> = {
       "Sélectionnez d’abord une heure pour choisir le nombre de personnes.",
 
     "booking.step1.more_choices": "Plus de choix",
-    "booking.step1.more_dates": "Voir plus de dates",
+    "booking.step1.more_dates": "+ de dates",
 
-    "booking.waitlist": "Liste d’attente",
+    "booking.choose_slot": "Choisissez un créneau",
+    "booking.reservations_today": "Déjà {count} réservations pour aujourd'hui",
+
+    "booking.waitlist": "Liste d'attente",
     "booking.slot.full": "Complet",
     "booking.slot.full_aria": "Créneau {time} complet",
 
@@ -711,6 +731,8 @@ export const messages: Record<AppLocale, MessagesDict> = {
     "booking.mode.guaranteed.line2": "Annulation gratuite jusqu’à 24h",
     "booking.mode.non_guaranteed.line":
       "Sans paiement initial, le restaurant peut prioriser les places garanties.",
+    "booking.mode.non_guaranteed.line_simple":
+      "Votre réservation sera confirmée par le restaurant.",
     "booking.mode.non_guaranteed.more":
       "Sans prépaiement, votre réservation dépend de la disponibilité et de la priorité du restaurant. Vous recevrez une confirmation rapidement.",
 
@@ -1110,6 +1132,34 @@ export const messages: Record<AppLocale, MessagesDict> = {
     "profile.privacy.export.toast.description":
       "Si un email est associé à votre compte, vous recevrez un lien de téléchargement.",
 
+    // Password management
+    "profile.password.title": "Mot de passe",
+    "profile.password.description": "Gérez la sécurité de votre compte.",
+    "profile.password.reset.title": "Régénérer mon mot de passe",
+    "profile.password.reset.description": "Un lien de réinitialisation vous sera envoyé par email.",
+    "profile.password.reset.button": "Envoyer par email",
+    "profile.password.reset.button.loading": "Envoi…",
+    "profile.password.reset.toast.title": "Email envoyé",
+    "profile.password.reset.toast.description": "Vérifiez votre boîte de réception pour le lien de réinitialisation.",
+    "profile.password.reset.error.phone_only.title": "Réinitialisation non disponible",
+    "profile.password.reset.error.phone_only.description": "Vous vous êtes inscrit avec votre téléphone. Veuillez utiliser l'option \"Changer mon mot de passe\" à la place.",
+    "profile.password.change.title": "Changer mon mot de passe",
+    "profile.password.change.description": "Modifiez votre mot de passe actuel.",
+    "profile.password.change.button": "Modifier",
+    "profile.password.change.button.loading": "Modification…",
+    "profile.password.change.button.confirm": "Confirmer",
+    "profile.password.change.dialog.title": "Changer le mot de passe",
+    "profile.password.change.dialog.description": "Entrez votre mot de passe actuel puis choisissez un nouveau mot de passe.",
+    "profile.password.change.current": "Mot de passe actuel",
+    "profile.password.change.new": "Nouveau mot de passe",
+    "profile.password.change.confirm": "Confirmer le nouveau mot de passe",
+    "profile.password.change.hint": "Minimum 8 caractères",
+    "profile.password.change.toast.title": "Mot de passe modifié",
+    "profile.password.change.toast.description": "Votre mot de passe a été mis à jour avec succès.",
+    "profile.password.change.error.too_short": "Le mot de passe doit contenir au moins 8 caractères.",
+    "profile.password.change.error.mismatch": "Les mots de passe ne correspondent pas.",
+    "profile.password.change.error.invalid_current": "Le mot de passe actuel est incorrect.",
+
     "profile.privacy.deactivate.title": "Désactiver temporairement mon compte",
     "profile.privacy.deactivate.description":
       "Votre compte sera mis en pause. Vous pourrez le réactiver en vous reconnectant.",
@@ -1260,6 +1310,9 @@ export const messages: Record<AppLocale, MessagesDict> = {
     "profile.info.email.verified_help": "Cette adresse a été vérifiée.",
     "profile.info.email.verify": "Vérifier",
     "profile.info.email.verify_description": "Un code à 8 chiffres sera envoyé à votre adresse.",
+    "profile.info.email.label": "Email",
+    "profile.info.login_credentials": "Identifiants de connexion",
+    "profile.info.phone.login_label": "Téléphone de connexion",
 
     // Phone verification modal
     "profile.phone_verification.title": "Vérifier mon numéro",
@@ -1312,6 +1365,28 @@ export const messages: Record<AppLocale, MessagesDict> = {
     "profile.info.csp.retired": "Retraité",
     "profile.info.csp.stay_at_home": "Au foyer",
     "profile.info.csp.other": "Autre",
+
+    // Reset password page
+    "reset_password.title": "Nouveau mot de passe",
+    "reset_password.for_account": "Pour le compte {email}",
+    "reset_password.validating": "Vérification du lien...",
+    "reset_password.new_password": "Nouveau mot de passe",
+    "reset_password.confirm_password": "Confirmer le mot de passe",
+    "reset_password.password_hint": "Minimum 8 caractères",
+    "reset_password.submit": "Définir le mot de passe",
+    "reset_password.submitting": "Enregistrement...",
+    "reset_password.back_home": "Retour à l'accueil",
+    "reset_password.error.title": "Lien invalide",
+    "reset_password.error.missing_token": "Le lien est incomplet. Veuillez utiliser le lien complet reçu par email.",
+    "reset_password.error.invalid_token": "Ce lien de réinitialisation n'est pas valide.",
+    "reset_password.error.token_expired": "Ce lien a expiré. Demandez un nouveau lien de réinitialisation.",
+    "reset_password.error.token_used": "Ce lien a déjà été utilisé. Demandez un nouveau lien si nécessaire.",
+    "reset_password.error.too_short": "Le mot de passe doit contenir au moins 8 caractères.",
+    "reset_password.error.mismatch": "Les mots de passe ne correspondent pas.",
+    "reset_password.error.generic": "Une erreur est survenue. Veuillez réessayer.",
+    "reset_password.success.title": "Mot de passe modifié",
+    "reset_password.success.description": "Votre mot de passe a été modifié avec succès. Vous pouvez maintenant vous connecter.",
+    "reset_password.success.login": "Se connecter",
 
     "profile.bookings.loading": "Chargement des réservations…",
     "profile.bookings.empty.title": "Aucune réservation",
@@ -1791,9 +1866,10 @@ export const messages: Record<AppLocale, MessagesDict> = {
     "footer.link.about": "About",
     "footer.link.contact": "Contact",
     "footer.link.blog": "Blog",
+    "footer.link.videos": "Videos",
     "footer.link.careers": "Careers",
 
-    "footer.link.for_restaurateurs": "For restaurants",
+    "footer.link.become_sponsor": "Become a sponsor",
     "footer.link.for_providers": "For providers",
     "footer.link.partner_space": "Partner Space",
 
@@ -1817,6 +1893,21 @@ export const messages: Record<AppLocale, MessagesDict> = {
     "footer.link.admin_aria": "Open Admin dashboard",
 
     "footer.copyright_suffix": ". All rights reserved.",
+
+    // Newsletter
+    "newsletter.title": "Newsletter",
+    "newsletter.subtitle": "Get our best deals and updates",
+    "newsletter.placeholder": "Your email",
+    "newsletter.button": "OK",
+    "newsletter.success": "Thanks! You're subscribed.",
+    "newsletter.error.generic": "An error occurred. Please try again.",
+    "newsletter.error.invalid_email": "Invalid email address",
+
+    // Videos page
+    "videos.page.title": "Videos",
+    "videos.page.subtitle": "Discover the best establishments in Morocco through our exclusive videos.",
+    "videos.page.empty_title": "No videos available",
+    "videos.page.empty_description": "Come back soon to discover our new videos.",
 
     // Support pages
     "help.title": "Help & Support",
@@ -2005,6 +2096,7 @@ export const messages: Record<AppLocale, MessagesDict> = {
     "search.field.activity.placeholder": "Activity or place",
     "search.validation.minimum_people": "Minimum: {count} people",
 
+    "search.placeholder.unified": "Cuisine, place name, dish...",
     "search.placeholder.restaurant_type": "Type of place",
     "search.title.choose_restaurant_type": "Choose a type of place",
     "search.placeholder.accommodation_type": "Accommodation type",
@@ -2288,8 +2380,10 @@ export const messages: Record<AppLocale, MessagesDict> = {
     "booking.mode.guaranteed.line2": "Free cancellation up to 24h",
     "booking.mode.non_guaranteed.line":
       "Without upfront payment, the venue may prioritize guaranteed bookings.",
+    "booking.mode.non_guaranteed.line_simple":
+      "Your booking will be confirmed by the venue.",
     "booking.mode.non_guaranteed.more":
-      "Without prepayment, your booking depends on availability and priority. You’ll receive confirmation quickly.",
+      "Without prepayment, your booking depends on availability and priority. You'll receive confirmation quickly.",
 
     "booking.payment.banner.title":
       "Secure payment — cancellation under conditions",
@@ -2685,6 +2779,34 @@ export const messages: Record<AppLocale, MessagesDict> = {
     "profile.privacy.export.toast.description":
       "If an email is associated with your account, you will receive a download link.",
 
+    // Password management
+    "profile.password.title": "Password",
+    "profile.password.description": "Manage your account security.",
+    "profile.password.reset.title": "Reset my password",
+    "profile.password.reset.description": "A reset link will be sent to your email.",
+    "profile.password.reset.button": "Send by email",
+    "profile.password.reset.button.loading": "Sending…",
+    "profile.password.reset.toast.title": "Email sent",
+    "profile.password.reset.toast.description": "Check your inbox for the reset link.",
+    "profile.password.reset.error.phone_only.title": "Reset not available",
+    "profile.password.reset.error.phone_only.description": "You signed up with your phone. Please use the \"Change my password\" option instead.",
+    "profile.password.change.title": "Change my password",
+    "profile.password.change.description": "Update your current password.",
+    "profile.password.change.button": "Change",
+    "profile.password.change.button.loading": "Updating…",
+    "profile.password.change.button.confirm": "Confirm",
+    "profile.password.change.dialog.title": "Change password",
+    "profile.password.change.dialog.description": "Enter your current password and choose a new one.",
+    "profile.password.change.current": "Current password",
+    "profile.password.change.new": "New password",
+    "profile.password.change.confirm": "Confirm new password",
+    "profile.password.change.hint": "Minimum 8 characters",
+    "profile.password.change.toast.title": "Password changed",
+    "profile.password.change.toast.description": "Your password has been updated successfully.",
+    "profile.password.change.error.too_short": "Password must be at least 8 characters.",
+    "profile.password.change.error.mismatch": "Passwords do not match.",
+    "profile.password.change.error.invalid_current": "Current password is incorrect.",
+
     "profile.privacy.deactivate.title": "Temporarily deactivate my account",
     "profile.privacy.deactivate.description":
       "Your account will be paused. You can reactivate it by signing in again.",
@@ -2828,6 +2950,9 @@ export const messages: Record<AppLocale, MessagesDict> = {
     "profile.info.email.verified_help": "This email has been verified.",
     "profile.info.email.verify": "Verify",
     "profile.info.email.verify_description": "An 8-digit code will be sent to your email.",
+    "profile.info.email.label": "Email",
+    "profile.info.login_credentials": "Login credentials",
+    "profile.info.phone.login_label": "Login phone number",
 
     // Phone verification modal
     "profile.phone_verification.title": "Verify my number",
@@ -2880,6 +3005,28 @@ export const messages: Record<AppLocale, MessagesDict> = {
     "profile.info.csp.retired": "Retired",
     "profile.info.csp.stay_at_home": "Stay-at-home",
     "profile.info.csp.other": "Other",
+
+    // Reset password page
+    "reset_password.title": "New password",
+    "reset_password.for_account": "For account {email}",
+    "reset_password.validating": "Validating link...",
+    "reset_password.new_password": "New password",
+    "reset_password.confirm_password": "Confirm password",
+    "reset_password.password_hint": "Minimum 8 characters",
+    "reset_password.submit": "Set password",
+    "reset_password.submitting": "Saving...",
+    "reset_password.back_home": "Back to home",
+    "reset_password.error.title": "Invalid link",
+    "reset_password.error.missing_token": "The link is incomplete. Please use the full link received by email.",
+    "reset_password.error.invalid_token": "This reset link is not valid.",
+    "reset_password.error.token_expired": "This link has expired. Please request a new reset link.",
+    "reset_password.error.token_used": "This link has already been used. Request a new one if needed.",
+    "reset_password.error.too_short": "Password must be at least 8 characters.",
+    "reset_password.error.mismatch": "Passwords do not match.",
+    "reset_password.error.generic": "An error occurred. Please try again.",
+    "reset_password.success.title": "Password changed",
+    "reset_password.success.description": "Your password has been changed successfully. You can now log in.",
+    "reset_password.success.login": "Log in",
 
     "profile.bookings.loading": "Loading bookings…",
     "profile.bookings.empty.title": "No bookings",

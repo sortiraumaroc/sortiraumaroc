@@ -1,6 +1,10 @@
+import { Check, UtensilsCrossed, Crown } from "lucide-react";
+
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Separator } from "@/components/ui/separator";
 import { formatMoney } from "@/lib/money";
 import type { VisibilityOffer } from "@/lib/pro/api";
 
@@ -14,33 +18,52 @@ type Props = {
   onAddToCart: (offerId: string) => void;
 };
 
-const DEFAULT_FEATURES: Record<MenuTier, string[]> = {
-  silver: [
-    "Menu digital consultatif (sans commande)",
-    "QR Code par table",
-    "Bouton « Appel serveur »",
-    "Bouton « Demande d’addition »",
-    "Avis express clients",
-    "Gestion des avis depuis l’Espace Pro",
-    "Accès à l’Espace Pro",
-    "Mise en place rapide",
-    "Codes promo & remises",
-    "Support standard",
-  ],
-  premium: [
-    "Tout ce qui est inclus dans l’offre SILVER",
-    "Menu digital interactif",
-    "Commande à table",
-    "Suivi des commandes en temps réel",
-    "Gestion avancée des tables et QR codes",
-    "Paiements & suivi des encaissements",
-    "Reporting et statistiques (ventes, périodes, performances)",
-    "Historique des commandes",
-    "Paramétrage avancé de l’établissement",
-    "Accès prioritaire aux nouvelles fonctionnalités",
-    "Chat avec SAM (assistant intelligent côté client)",
-    "Support prioritaire",
-  ],
+const TIER_CONFIG: Record<MenuTier, {
+  icon: typeof UtensilsCrossed;
+  title: string;
+  description: string;
+  badgeText: string;
+  badgeClass: string;
+  cardClass: string;
+  features: string[];
+}> = {
+  silver: {
+    icon: UtensilsCrossed,
+    title: "Menu Digital Silver",
+    description: "Menu consultatif pour digitaliser votre carte",
+    badgeText: "Consultatif",
+    badgeClass: "bg-slate-100 text-slate-700 border-slate-200",
+    cardClass: "border-slate-200 bg-gradient-to-br from-white to-slate-50",
+    features: [
+      "Menu digital consultatif (sans commande)",
+      "QR Code par table",
+      "Bouton « Appel serveur »",
+      "Bouton « Demande d'addition »",
+      "Avis express clients",
+      "Gestion des avis depuis l'Espace Pro",
+      "Codes promo & remises",
+      "Support standard",
+    ],
+  },
+  premium: {
+    icon: Crown,
+    title: "Menu Digital Premium",
+    description: "Menu interactif avec commande et pilotage complet",
+    badgeText: "Interactif",
+    badgeClass: "bg-amber-100 text-amber-700 border-amber-200",
+    cardClass: "border-amber-200 bg-gradient-to-br from-white to-amber-50/50",
+    features: [
+      "Tout ce qui est inclus dans l'offre Silver",
+      "Menu digital interactif avec commande",
+      "Suivi des commandes en temps réel",
+      "Gestion avancée des tables et QR codes",
+      "Paiements & suivi des encaissements",
+      "Reporting et statistiques détaillées",
+      "Historique des commandes",
+      "Chat avec SAM (assistant intelligent)",
+      "Support prioritaire",
+    ],
+  },
 };
 
 function normalize(str: string | null | undefined) {
@@ -85,48 +108,95 @@ function getDisplayPriceCents(offer: VisibilityOffer | null, tier: MenuTier, cyc
   return offer.price_cents;
 }
 
-function PlanCard({ tier, offer, billingCycle, onAddToCart }: { tier: MenuTier; offer: VisibilityOffer | null; billingCycle: BillingCycle; onAddToCart: (offerId: string) => void }) {
-  const isSilver = tier === "silver";
-  const title = isSilver ? "OFFRE SILVER — Menu digital consultatif" : "OFFRE PREMIUM — Menu digital interactif & pilotage";
-
-  const features = DEFAULT_FEATURES[tier] ?? [];
-  const durationLabel = billingCycle === "annual" ? "1 an" : "1 mois";
-  const labelBilling = billingCycle === "annual" ? "Paiement annuel (-17%)" : "Paiement mensuel";
+function PlanCard({
+  tier,
+  offer,
+  billingCycle,
+  onAddToCart,
+}: {
+  tier: MenuTier;
+  offer: VisibilityOffer | null;
+  billingCycle: BillingCycle;
+  onAddToCart: (offerId: string) => void;
+}) {
+  const config = TIER_CONFIG[tier];
+  const Icon = config.icon;
   const displayPriceCents = getDisplayPriceCents(offer, tier, billingCycle);
-
   const isActive = Boolean(offer?.is_active);
 
-  return (
-    <Card className="border-slate-200 flex flex-col h-full">
-      <CardHeader className="pb-3 space-y-2">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <div className="font-semibold text-sm leading-5">{title}</div>
-            <div className="text-xs text-slate-600">Abonnement Menu Digital · {labelBilling}</div>
-          </div>
-        </div>
-        <div className="text-xs text-slate-600">Durée : {durationLabel}</div>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3 flex-1">
-        <ul className="text-xs text-slate-700 list-disc pl-4 space-y-1 flex-1">
-          {features.map((d) => (
-            <li key={d}>{d}</li>
-          ))}
-        </ul>
+  // Calculate TTC (with 20% VAT)
+  const taxRateBps = offer?.tax_rate_bps ?? 2000;
+  const taxAmount = displayPriceCents ? Math.round((displayPriceCents * taxRateBps) / 10000) : 0;
+  const priceTTC = displayPriceCents ? displayPriceCents + taxAmount : null;
 
-        <div className="pt-1">
-          {displayPriceCents != null ? (
-            <div className="text-lg font-extrabold tabular-nums">
-              {formatMoney(displayPriceCents, offer?.currency ?? "MAD")} <span className="text-xs font-semibold text-slate-600">HT</span>
+  // Monthly equivalent for annual
+  const monthlyEquivalent = displayPriceCents && billingCycle === "annual"
+    ? Math.round(displayPriceCents / 12)
+    : null;
+
+  return (
+    <Card className={`flex flex-col h-full ${config.cardClass}`}>
+      <CardHeader className="pb-4">
+        <div className="flex items-start justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Icon className={`w-5 h-5 ${tier === "premium" ? "text-amber-600" : "text-slate-600"}`} />
+              <CardTitle className="text-lg">{config.title}</CardTitle>
             </div>
-          ) : (
-            <div className="text-sm text-slate-500">Non disponible</div>
+            <CardDescription>{config.description}</CardDescription>
+          </div>
+          <Badge className={config.badgeClass}>
+            {config.badgeText}
+          </Badge>
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-4 flex-1 flex flex-col">
+        {/* Features list */}
+        <div className="space-y-2 flex-1">
+          <div className="text-sm font-medium text-slate-700">Inclus :</div>
+          <ul className="space-y-1.5">
+            {config.features.map((feature, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm text-slate-600">
+                <Check className={`w-4 h-4 flex-shrink-0 mt-0.5 ${tier === "premium" ? "text-amber-600" : "text-green-600"}`} />
+                {feature}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <Separator />
+
+        {/* Pricing */}
+        <div className="flex items-end justify-between">
+          <div>
+            {displayPriceCents != null ? (
+              <>
+                <div className="text-2xl font-bold text-slate-900">
+                  {formatMoney(displayPriceCents, offer?.currency ?? "MAD")}
+                  <span className="text-sm font-normal text-slate-500"> HT/{billingCycle === "annual" ? "an" : "mois"}</span>
+                </div>
+                {priceTTC && (
+                  <div className="text-sm text-slate-500">
+                    {formatMoney(priceTTC, offer?.currency ?? "MAD")} TTC (TVA 20%)
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-sm text-slate-500">Non disponible</div>
+            )}
+          </div>
+          {monthlyEquivalent && (
+            <div className="text-sm text-slate-500">
+              soit {formatMoney(monthlyEquivalent, offer?.currency ?? "MAD")}/mois
+            </div>
           )}
         </div>
 
+        {/* Action button */}
         <Button
-          size="sm"
-          className="w-full bg-primary text-white hover:bg-primary/90 mt-auto"
+          size="lg"
+          className={`w-full ${tier === "premium" ? "bg-amber-600 hover:bg-amber-700" : ""}`}
           disabled={!offer || !isActive}
           onClick={() => offer && onAddToCart(offer.id)}
         >
@@ -142,48 +212,47 @@ export function MenuDigitalPlans({ offers, billingCycle, onBillingCycleChange, o
   const premium = getMenuDigitalOffer(offers, "premium", billingCycle);
 
   return (
-    <div className="space-y-3">
-      <div className="-mx-6 px-6 py-3 rounded-md bg-rose-50 border border-rose-100 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div className="space-y-4">
+      {/* Header with billing toggle */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="font-semibold">Menu Digital (abonnements)</div>
-          <div className="text-xs text-slate-600">Consultatif (Silver) vs Interactif (Premium) · Prix HT</div>
+          <h3 className="text-lg font-semibold text-slate-900">Menu Digital</h3>
+          <p className="text-sm text-slate-600">Digitalisez votre carte et améliorez l'expérience client</p>
         </div>
 
-        <div className="flex items-center justify-start md:justify-end">
-          <ToggleGroup
-            type="single"
-            value={billingCycle}
-            onValueChange={(v) => {
-              if (v === "monthly" || v === "annual") onBillingCycleChange(v);
-            }}
-            className="rounded-full border border-slate-200 bg-slate-50 p-1 gap-1"
+        <ToggleGroup
+          type="single"
+          value={billingCycle}
+          onValueChange={(v) => {
+            if (v === "monthly" || v === "annual") onBillingCycleChange(v);
+          }}
+          className="rounded-full border border-slate-200 bg-slate-50 p-1 gap-1"
+        >
+          <ToggleGroupItem
+            value="annual"
+            className="rounded-full px-3 sm:px-4 whitespace-nowrap data-[state=on]:bg-white data-[state=on]:shadow-sm data-[state=on]:text-slate-900"
           >
-            <ToggleGroupItem
-              value="annual"
-              className="rounded-full px-3 sm:px-4 whitespace-nowrap data-[state=on]:bg-white data-[state=on]:shadow-sm data-[state=on]:text-slate-900"
-            >
-              <span className="mr-2">Annuel</span>
-              <span className="text-emerald-700 hidden sm:inline">Économisez 17 %</span>
-              <span className="text-emerald-700 sm:hidden">-17%</span>
-            </ToggleGroupItem>
-            <ToggleGroupItem
-              value="monthly"
-              className="rounded-full px-3 sm:px-4 whitespace-nowrap data-[state=on]:bg-white data-[state=on]:shadow-sm data-[state=on]:text-slate-900"
-            >
-              Mensuel
-            </ToggleGroupItem>
-          </ToggleGroup>
-        </div>
+            <span className="mr-2">Annuel</span>
+            <span className="text-emerald-700 text-xs">-17%</span>
+          </ToggleGroupItem>
+          <ToggleGroupItem
+            value="monthly"
+            className="rounded-full px-3 sm:px-4 whitespace-nowrap data-[state=on]:bg-white data-[state=on]:shadow-sm data-[state=on]:text-slate-900"
+          >
+            Mensuel
+          </ToggleGroupItem>
+        </ToggleGroup>
       </div>
 
+      {/* Plan cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <PlanCard tier="silver" offer={silver} billingCycle={billingCycle} onAddToCart={onAddToCart} />
         <PlanCard tier="premium" offer={premium} billingCycle={billingCycle} onAddToCart={onAddToCart} />
       </div>
 
-      <div className="text-xs text-slate-500">
-        Les prix affichés sont HT. Pour l’annuel, les montants sont arrondis à 2 000 MAD (Silver) et 5 000 MAD (Premium).
-      </div>
+      <p className="text-xs text-slate-500">
+        Les prix affichés sont HT. Pour l'abonnement annuel, économisez 17% par rapport au mensuel.
+      </p>
     </div>
   );
 }

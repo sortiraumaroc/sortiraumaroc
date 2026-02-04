@@ -30,6 +30,9 @@ type BookingUniverse =
 export type DateSlots = {
   date: string; // YYYY-MM-DD
   services: Array<{ service: string; times: string[] }>;
+  promos?: Record<string, number | null>;
+  slotIds?: Record<string, string>;
+  remaining?: Record<string, number | null>;
 };
 
 function getUniverseBookingLabelKey(universe?: BookingUniverse): string {
@@ -272,6 +275,7 @@ type QuickSlot = {
   date: string;
   time: string;
   label: string;
+  promo?: number | null;
 };
 
 function computeQuickSlots(
@@ -318,7 +322,10 @@ function computeQuickSlots(
     });
     if (!bestTime) continue;
 
-    quick.push({ date: s.date, time: bestTime, label: options.formatLabel(s.date) });
+    // Get promo for this time slot
+    const promo = s.promos?.[bestTime] ?? null;
+
+    quick.push({ date: s.date, time: bestTime, label: options.formatLabel(s.date), promo });
   }
 
   return quick;
@@ -341,6 +348,8 @@ export function StickyBottomBookingActionBar(props: {
   show?: boolean;
   /** Optional override for the displayed reserve CTA label (used by ReservationBanner). */
   reserveLabelOverride?: string;
+  /** Number of reservations made today (shown in the footer) */
+  reservationsToday?: number;
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const { t, intlLocale } = useI18n();
@@ -426,7 +435,51 @@ export function StickyBottomBookingActionBar(props: {
   };
 
   const visible = props.show ?? true;
+  const hasSlots = quickSlots.length > 0;
 
+  // If no slots available, show only the reserve button
+  if (!hasSlots) {
+    return (
+      <StickyBottomBar
+        show
+        className={cn(
+          "transition-all duration-300 ease-out",
+          visible ? "opacity-100" : "opacity-0 translate-y-4 pointer-events-none",
+          props.className,
+        )}
+        containerClassName="px-3 sm:px-4"
+      >
+        <div className="mx-auto max-w-3xl">
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-lg px-4 py-3">
+            {props.onReserveNow ? (
+              <Button
+                type="button"
+                onClick={props.onReserveNow}
+                className={cn(
+                  "h-12 md:h-14 rounded-xl w-full",
+                  "bg-[#a3001d] hover:bg-[#a3001d]/90 text-white text-base font-bold shadow-sm active:scale-[0.99]",
+                )}
+              >
+                {actionLabel}
+              </Button>
+            ) : (
+              <Button
+                asChild
+                className={cn(
+                  "h-12 md:h-14 rounded-xl w-full",
+                  "bg-[#a3001d] hover:bg-[#a3001d]/90 text-white text-base font-bold shadow-sm active:scale-[0.99]",
+                )}
+              >
+                <Link to={bookingHref}>{actionLabel}</Link>
+              </Button>
+            )}
+          </div>
+        </div>
+      </StickyBottomBar>
+    );
+  }
+
+  // With slots: show TheFork-style slot picker
   return (
     <StickyBottomBar
       show
@@ -439,115 +492,61 @@ export function StickyBottomBookingActionBar(props: {
       containerClassName="px-3 sm:px-4"
     >
       <div className="mx-auto max-w-3xl">
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-lg px-4 py-3">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <p className="text-sm font-semibold text-slate-900 leading-tight truncate">{actionLabel}</p>
-                    <HelpHint message={t("booking.step1.subtitle")} ariaLabel={t("common.help")} />
-                  </div>
-                  {hasSelectedSlot ? (
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-semibold text-slate-900">
-                      <span className="inline-flex items-center gap-1 min-w-0">
-                        <Calendar className="w-4 h-4 text-slate-500" />
-                        <span className="truncate">{formatSelectedDateLabel(selectedDateYmd)}</span>
-                      </span>
-                      <span className="inline-flex items-center gap-1">
-                        <Clock className="w-4 h-4 text-slate-500" />
-                        <span className="tabular-nums">{formatTimeHmLabel(selectedTimeHm)}</span>
-                      </span>
-                      {selectedPeople ? (
-                        <span className="inline-flex items-center gap-1">
-                          <Users className="w-4 h-4 text-slate-500" />
-                          <span className="tabular-nums">{selectedPeople}</span>
-                        </span>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-lg px-4 py-4">
+          {/* Header with title and collapse arrow */}
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-base font-bold text-slate-900">
+              {t("booking.choose_slot")}
+            </h3>
+          </div>
 
-                {props.avgPriceLabel ? (
-                  <div className="shrink-0 text-right">
-                    <div className="text-[11px] text-slate-500">{t("booking.price.from")}</div>
-                    <div className="mt-1 text-sm md:text-base font-bold text-[#a3001d] tabular-nums whitespace-nowrap">
-                      {props.avgPriceLabel}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-
-              {expanded && quickSlots.length ? (
-                <div className="mt-3 flex items-center gap-2 overflow-x-auto pb-1">
-                  {quickSlots.map((slot) => {
-                    const active = slot.date === selectedDateYmd && slot.time === selectedTimeHm;
-                    return (
-                      <button
-                        key={`${slot.date}-${slot.time}`}
-                        type="button"
-                        onClick={() => applyQuickSlot(slot)}
-                        className={cn(
-                          "shrink-0 rounded-xl border px-3 py-2 text-sm font-semibold transition",
-                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a3001d]/30 focus-visible:ring-offset-2",
-                          active
-                            ? "bg-[#a3001d] text-white border-[#a3001d]"
-                            : "bg-white text-slate-900 border-slate-200 hover:bg-slate-50",
-                        )}
-                        aria-pressed={active}
-                      >
-                        <div className="leading-tight">{slot.label}</div>
-                        <div
-                          className={cn(
-                            "text-[11px] leading-tight tabular-nums",
-                            active ? "text-white/90" : "text-slate-500",
-                          )}
-                        >
-                          {formatTimeHmLabel(slot.time)}
-                        </div>
-                      </button>
-                    );
-                  })}
-
+          {/* Slot buttons - TheFork style */}
+          <div className="flex items-start gap-3 overflow-x-auto pb-2">
+            {quickSlots.map((slot) => {
+              const active = slot.date === selectedDateYmd && slot.time === selectedTimeHm;
+              const hasPromo = typeof slot.promo === "number" && slot.promo > 0;
+              return (
+                <div key={`${slot.date}-${slot.time}`} className="shrink-0 flex flex-col items-center">
                   <button
                     type="button"
-                    onClick={scrollToMoreDates}
+                    onClick={() => applyQuickSlot(slot)}
                     className={cn(
-                      "shrink-0 rounded-xl px-3 py-2 text-sm font-semibold",
-                      "text-[#a3001d] hover:bg-[#a3001d]/5",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a3001d]/30 focus-visible:ring-offset-2",
+                      "rounded-xl px-5 py-3 text-sm font-bold transition min-w-[100px]",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/50 focus-visible:ring-offset-2",
+                      active
+                        ? "bg-teal-600 text-white"
+                        : "bg-teal-600 text-white hover:bg-teal-700",
                     )}
+                    aria-pressed={active}
                   >
-                    {t("booking.step1.more_dates")}
+                    {slot.label}
                   </button>
+                  {/* Promo badge below the button */}
+                  {hasPromo ? (
+                    <span className="mt-2 inline-flex items-center justify-center px-2.5 py-1 rounded-full bg-slate-100 text-xs font-bold text-slate-700">
+                      -{slot.promo} %
+                    </span>
+                  ) : null}
                 </div>
-              ) : null}
-            </div>
+              );
+            })}
+          </div>
 
-            <div className="md:shrink-0">
-              {props.onReserveNow ? (
-                <Button
-                  type="button"
-                  onClick={props.onReserveNow}
-                  className={cn(
-                    "h-12 md:h-11 rounded-xl w-full md:w-[260px]",
-                    "bg-[#a3001d] hover:bg-[#a3001d]/90 text-white text-base md:text-sm font-semibold shadow-sm active:scale-[0.99]",
-                  )}
-                >
-                  {actionLabel}
-                </Button>
-              ) : (
-                <Button
-                  asChild
-                  className={cn(
-                    "h-12 md:h-11 rounded-xl w-full md:w-[260px]",
-                    "bg-[#a3001d] hover:bg-[#a3001d]/90 text-white text-base md:text-sm font-semibold shadow-sm active:scale-[0.99]",
-                  )}
-                >
-                  <Link to={bookingHref}>{actionLabel}</Link>
-                </Button>
-              )}
+          {/* Footer: reservations count + more dates link */}
+          <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100">
+            <div className="flex items-center gap-2 text-sm text-slate-700">
+              <span className="text-lg">🔥</span>
+              <span>
+                {t("booking.reservations_today", { count: props.reservationsToday ?? 0 })}
+              </span>
             </div>
+            <button
+              type="button"
+              onClick={scrollToMoreDates}
+              className="text-sm font-semibold text-[#a3001d] hover:underline"
+            >
+              {t("booking.step1.more_dates")}
+            </button>
           </div>
         </div>
       </div>

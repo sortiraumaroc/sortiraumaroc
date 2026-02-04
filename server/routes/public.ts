@@ -4,6 +4,11 @@ import { createHash, randomBytes } from "crypto";
 
 import { getAdminSupabase } from "../supabaseAdmin";
 import {
+  setBookingAttributionCookie,
+  determineBookingSource,
+  type BookingSource,
+} from "../lib/bookingAttribution";
+import {
   ensureEscrowHoldForReservation,
   settleEscrowForReservation,
   ensureEscrowHoldForPackPurchase,
@@ -14,7 +19,7 @@ import { emitAdminNotification } from "../adminNotifications";
 import { notifyProMembers } from "../proNotifications";
 import { emitConsumerUserEvent } from "../consumerNotifications";
 import { triggerWaitlistPromotionForSlot } from "../waitlist";
-import { formatLeJjMmAaAHeure } from "../../shared/datetime";
+import { formatLeJjMmAaAHeure, formatDateLongFr } from "../../shared/datetime";
 import { NotificationEventType } from "../../shared/notifications";
 import {
   ACTIVE_WAITLIST_ENTRY_STATUS_SET,
@@ -36,6 +41,48 @@ function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     value,
   );
+}
+
+/**
+ * Generate a URL-friendly slug from name and city
+ * Matches the SQL function generate_establishment_slug for consistency
+ */
+function generateEstablishmentSlug(name: string | null, city: string | null): string | null {
+  const namePart = (name ?? "").trim();
+  const cityPart = (city ?? "").trim();
+
+  if (!namePart) return null;
+
+  let slug = cityPart ? `${namePart}-${cityPart}` : namePart;
+
+  // Convert to lowercase
+  slug = slug.toLowerCase();
+
+  // Remove accents (transliterate common French/Arabic accents)
+  const accentMap: Record<string, string> = {
+    'à': 'a', 'â': 'a', 'ä': 'a', 'á': 'a', 'ã': 'a', 'å': 'a', 'æ': 'ae',
+    'ç': 'c', 'è': 'e', 'é': 'e', 'ê': 'e', 'ë': 'e', 'ì': 'i', 'í': 'i',
+    'î': 'i', 'ï': 'i', 'ñ': 'n', 'ò': 'o', 'ó': 'o', 'ô': 'o', 'õ': 'o',
+    'ö': 'o', 'ø': 'o', 'ù': 'u', 'ú': 'u', 'û': 'u', 'ü': 'u', 'ý': 'y',
+    'ÿ': 'y', 'œ': 'oe', 'ß': 'ss',
+  };
+  slug = slug.replace(/[àâäáãåæçèéêëìíîïñòóôõöøùúûüýÿœß]/g, (char) => accentMap[char] || char);
+
+  // Replace spaces and special characters with hyphens
+  slug = slug.replace(/[^a-z0-9]+/g, '-');
+
+  // Remove leading/trailing hyphens
+  slug = slug.replace(/^-+|-+$/g, '');
+
+  // Remove multiple consecutive hyphens
+  slug = slug.replace(/-+/g, '-');
+
+  // Ensure minimum length
+  if (slug.length < 3) {
+    slug = slug ? `${slug}-etablissement` : null;
+  }
+
+  return slug || null;
 }
 
 function asString(value: unknown): string | null {
@@ -152,7 +199,47 @@ async function resolveEstablishmentId(args: {
   // 1) UUID already
   if (isUuid(ref)) return ref;
 
-  // 2) numeric legacy: map to demo_index (stored in `extra.demo_index`)
+  // 2) Try to find by slug (new friendly URLs like "atlas-lodge-agadir")
+  {
+    const { data: slugMatch } = await supabase
+      .from("establishments")
+      .select("id")
+      .eq("slug", ref)
+      .eq("status", "active")
+      .limit(1);
+
+    const slugId = (slugMatch as Array<{ id: string }> | null)?.[0]?.id;
+    if (slugId) return slugId;
+  }
+
+  // 2a) Try to find by slug prefix (for fallback slugs generated from name only)
+  // This handles cases where client generates "riad-atlas" but DB has "riad-atlas-marrakech"
+  {
+    const { data: slugPrefixMatch } = await supabase
+      .from("establishments")
+      .select("id,slug")
+      .like("slug", `${ref}-%`)
+      .eq("status", "active")
+      .limit(1);
+
+    const slugPrefixId = (slugPrefixMatch as Array<{ id: string; slug: string }> | null)?.[0]?.id;
+    if (slugPrefixId) return slugPrefixId;
+  }
+
+  // 2b) Try to find by username (custom short URLs like @monrestaurant)
+  {
+    const { data: usernameMatch } = await supabase
+      .from("establishments")
+      .select("id")
+      .ilike("username", ref)
+      .eq("status", "active")
+      .limit(1);
+
+    const usernameId = (usernameMatch as Array<{ id: string }> | null)?.[0]?.id;
+    if (usernameId) return usernameId;
+  }
+
+  // 3) numeric legacy: map to demo_index (stored in `extra.demo_index`)
   if (/^\d+$/.test(ref)) {
     const n = Number(ref);
 
@@ -184,7 +271,7 @@ async function resolveEstablishmentId(args: {
     if (match?.id) return match.id;
   }
 
-  // 3) by title param (exact / ilike)
+  // 4) by title param (exact / ilike)
   const title = asString(args.title);
   if (title) {
     const { data } = await supabase
@@ -198,7 +285,7 @@ async function resolveEstablishmentId(args: {
     if (best?.id) return best.id;
   }
 
-  // 4) last resort: any active establishment whose name contains the ref
+  // 5) last resort: any active establishment whose name contains the ref
   const { data } = await supabase
     .from("establishments")
     .select("id,name,status")
@@ -624,7 +711,7 @@ export async function deactivateConsumerAccount(req: Request, res: Response) {
     void sendTemplateEmail({
       templateKey: "user_account_deactivated",
       lang: getRequestLang(req),
-      fromKey: "no-reply",
+      fromKey: "noreply",
       to: [userResult.email],
       variables: { user_name: userName },
       meta: {
@@ -649,10 +736,21 @@ export async function reactivateConsumerAccount(req: Request, res: Response) {
   if (userResult.ok === false)
     return res.status(userResult.status).json({ error: userResult.error });
 
+  const supabase = getAdminSupabase();
+
+  // Check if account is already active - skip if so to avoid duplicate notifications
+  const { data: currentUser } = await supabase
+    .from("consumer_users")
+    .select("account_status")
+    .eq("id", userResult.userId)
+    .single();
+
+  if (currentUser?.account_status === "active") {
+    return res.status(200).json({ ok: true, already_active: true });
+  }
+
   const ip = getRequestIp(req);
   const userAgent = String(req.get("user-agent") ?? "").trim() || null;
-
-  const supabase = getAdminSupabase();
 
   const { error: updateErr } = await supabase
     .from("consumer_users")
@@ -763,7 +861,7 @@ export async function deleteConsumerAccount(req: Request, res: Response) {
     void sendTemplateEmail({
       templateKey: "user_account_deleted",
       lang: getRequestLang(req),
-      fromKey: "no-reply",
+      fromKey: "noreply",
       to: [userResult.email],
       variables: { user_name: userName },
       meta: {
@@ -842,7 +940,7 @@ export async function requestConsumerDataExport(req: Request, res: Response) {
     void sendTemplateEmail({
       templateKey: "user_data_export_ready",
       lang: getRequestLang(req),
-      fromKey: "no-reply",
+      fromKey: "noreply",
       to: [userResult.email],
       variables: { user_name: userName, cta_url: downloadUrl },
       ctaUrl: downloadUrl,
@@ -855,6 +953,399 @@ export async function requestConsumerDataExport(req: Request, res: Response) {
   }
 
   return res.status(200).json({ ok: true });
+}
+
+/**
+ * Request a password reset - sends a new temporary password to the user's email.
+ */
+export async function requestConsumerPasswordReset(req: Request, res: Response) {
+  const auth = String(req.headers.authorization ?? "");
+  const token = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7) : "";
+  if (!token) return res.status(401).json({ error: "missing_token" });
+
+  const userResult = await getUserFromBearerToken(token, {
+    allowDeactivated: false,
+  });
+  if (userResult.ok === false)
+    return res.status(userResult.status).json({ error: userResult.error });
+
+  if (!userResult.email) {
+    return res.status(400).json({ error: "no_email" });
+  }
+
+  const ip = getRequestIp(req);
+  const userAgent = String(req.get("user-agent") ?? "").trim() || null;
+
+  // Generate a secure temporary password
+  const tempPassword = randomBytes(12).toString("base64url").slice(0, 12);
+
+  const supabase = getAdminSupabase();
+
+  // Update user's password
+  const { error: updateErr } = await supabase.auth.admin.updateUserById(
+    userResult.userId,
+    { password: tempPassword },
+  );
+
+  if (updateErr) {
+    console.error("requestConsumerPasswordReset updateUserById failed", updateErr);
+    return res.status(500).json({ error: "password_update_failed" });
+  }
+
+  await insertConsumerAccountEvent({
+    userId: userResult.userId,
+    eventType: "password.reset_requested",
+    metadata: { ip, user_agent: userAgent },
+  });
+
+  const userName = (() => {
+    const meta = asRecord(userResult.user?.user_metadata) ?? {};
+    const first =
+      typeof meta.first_name === "string" ? meta.first_name.trim() : "";
+    const last =
+      typeof meta.last_name === "string" ? meta.last_name.trim() : "";
+    const full = `${first} ${last}`.trim();
+    return full || "Utilisateur";
+  })();
+
+  // Send email with temporary password
+  void sendTemplateEmail({
+    templateKey: "user_password_reset",
+    lang: getRequestLang(req),
+    fromKey: "noreply",
+    to: [userResult.email],
+    variables: {
+      user_name: userName,
+      temp_password: tempPassword,
+    },
+    meta: {
+      user_id: userResult.userId,
+      action: "password.reset_requested",
+    },
+  });
+
+  return res.status(200).json({ ok: true });
+}
+
+/**
+ * Change the user's password. Requires current password for verification.
+ */
+export async function changeConsumerPassword(req: Request, res: Response) {
+  const auth = String(req.headers.authorization ?? "");
+  const token = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7) : "";
+  if (!token) return res.status(401).json({ error: "missing_token" });
+
+  const userResult = await getUserFromBearerToken(token, {
+    allowDeactivated: false,
+  });
+  if (userResult.ok === false)
+    return res.status(userResult.status).json({ error: userResult.error });
+
+  if (!userResult.email) {
+    return res.status(400).json({ error: "no_email" });
+  }
+
+  const body = asRecord(req.body) ?? {};
+  const currentPassword = asString(body.current_password) ?? "";
+  const newPassword = asString(body.new_password) ?? "";
+
+  if (!currentPassword.trim()) {
+    return res.status(400).json({ error: "current_password_required" });
+  }
+  if (!newPassword.trim()) {
+    return res.status(400).json({ error: "new_password_required" });
+  }
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: "password_too_short" });
+  }
+
+  const ip = getRequestIp(req);
+  const userAgent = String(req.get("user-agent") ?? "").trim() || null;
+
+  const supabase = getAdminSupabase();
+
+  // Verify current password by attempting to sign in
+  const { error: signInErr } = await supabase.auth.signInWithPassword({
+    email: userResult.email,
+    password: currentPassword,
+  });
+
+  if (signInErr) {
+    await insertConsumerAccountEvent({
+      userId: userResult.userId,
+      eventType: "password.change_failed",
+      metadata: { ip, user_agent: userAgent, reason: "invalid_current_password" },
+    });
+    return res.status(400).json({ error: "invalid_current_password" });
+  }
+
+  // Update to new password
+  const { error: updateErr } = await supabase.auth.admin.updateUserById(
+    userResult.userId,
+    { password: newPassword },
+  );
+
+  if (updateErr) {
+    console.error("changeConsumerPassword updateUserById failed", updateErr);
+    return res.status(500).json({ error: "password_update_failed" });
+  }
+
+  await insertConsumerAccountEvent({
+    userId: userResult.userId,
+    eventType: "password.changed",
+    metadata: { ip, user_agent: userAgent },
+  });
+
+  const userName = (() => {
+    const meta = asRecord(userResult.user?.user_metadata) ?? {};
+    const first =
+      typeof meta.first_name === "string" ? meta.first_name.trim() : "";
+    const last =
+      typeof meta.last_name === "string" ? meta.last_name.trim() : "";
+    const full = `${first} ${last}`.trim();
+    return full || "Utilisateur";
+  })();
+
+  // Send confirmation email
+  void sendTemplateEmail({
+    templateKey: "user_password_changed",
+    lang: getRequestLang(req),
+    fromKey: "noreply",
+    to: [userResult.email],
+    variables: { user_name: userName },
+    meta: {
+      user_id: userResult.userId,
+      action: "password.changed",
+    },
+  });
+
+  return res.status(200).json({ ok: true });
+}
+
+/**
+ * Request a password reset link - sends an email with a secure link to reset password.
+ * Improvement over the temp password method - user creates their own new password.
+ */
+export async function requestConsumerPasswordResetLink(req: Request, res: Response) {
+  const auth = String(req.headers.authorization ?? "");
+  const token = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7) : "";
+  if (!token) return res.status(401).json({ error: "missing_token" });
+
+  const userResult = await getUserFromBearerToken(token, {
+    allowDeactivated: false,
+  });
+  if (userResult.ok === false)
+    return res.status(userResult.status).json({ error: userResult.error });
+
+  // Check if user has email - phone-only users cannot use this flow
+  const email = userResult.email;
+  const isPhoneOnlyUser = email?.endsWith("@phone.sortiraumaroc.ma") ?? false;
+
+  if (!email || isPhoneOnlyUser) {
+    return res.status(400).json({ error: "no_email", phone_only: isPhoneOnlyUser });
+  }
+
+  const ip = getRequestIp(req);
+  const userAgent = String(req.get("user-agent") ?? "").trim() || null;
+  const supabase = getAdminSupabase();
+
+  // Generate secure token
+  const resetToken = randomBytes(32).toString("base64url");
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+  // Store token in database
+  const { error: insertErr } = await supabase
+    .from("consumer_password_reset_tokens")
+    .insert({
+      user_id: userResult.userId,
+      token: resetToken,
+      expires_at: expiresAt.toISOString(),
+      ip_address: ip,
+      user_agent: userAgent,
+    });
+
+  if (insertErr) {
+    console.error("requestConsumerPasswordResetLink insert failed", insertErr);
+    return res.status(500).json({ error: "token_creation_failed" });
+  }
+
+  await insertConsumerAccountEvent({
+    userId: userResult.userId,
+    eventType: "password.reset_link_requested",
+    metadata: { ip, user_agent: userAgent },
+  });
+
+  const userName = (() => {
+    const meta = asRecord(userResult.user?.user_metadata) ?? {};
+    const first =
+      typeof meta.first_name === "string" ? meta.first_name.trim() : "";
+    const last =
+      typeof meta.last_name === "string" ? meta.last_name.trim() : "";
+    const full = `${first} ${last}`.trim();
+    return full || "Utilisateur";
+  })();
+
+  // Build reset URL
+  const baseUrl = process.env.FRONTEND_URL || "https://sortiraumaroc.ma";
+  const resetUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(resetToken)}`;
+
+  // Send email with reset link
+  void sendTemplateEmail({
+    templateKey: "user_password_reset_link",
+    lang: getRequestLang(req),
+    fromKey: "noreply",
+    to: [email],
+    variables: {
+      user_name: userName,
+      reset_url: resetUrl,
+    },
+    meta: {
+      user_id: userResult.userId,
+      action: "password.reset_link_requested",
+    },
+  });
+
+  return res.status(200).json({ ok: true });
+}
+
+/**
+ * Validate a password reset token - check if it's valid and not expired.
+ * Returns user info (masked email) if valid.
+ */
+export async function validatePasswordResetToken(req: Request, res: Response) {
+  const tokenRaw = typeof req.query.token === "string" ? req.query.token.trim() : "";
+  if (!tokenRaw) return res.status(400).json({ error: "missing_token" });
+
+  const supabase = getAdminSupabase();
+
+  const { data: tokenRow, error: tokenErr } = await supabase
+    .from("consumer_password_reset_tokens")
+    .select("id, user_id, expires_at, used_at")
+    .eq("token", tokenRaw)
+    .maybeSingle();
+
+  if (tokenErr || !tokenRow) {
+    return res.status(404).json({ error: "invalid_token" });
+  }
+
+  // Check if already used
+  if (tokenRow.used_at) {
+    return res.status(410).json({ error: "token_already_used" });
+  }
+
+  // Check if expired
+  const expiresAt = new Date(tokenRow.expires_at);
+  if (expiresAt <= new Date()) {
+    return res.status(410).json({ error: "token_expired" });
+  }
+
+  // Get user email (masked)
+  const { data: user } = await supabase.auth.admin.getUserById(tokenRow.user_id);
+  const email = user?.user?.email ?? "";
+  const maskedEmail = email ? maskEmail(email) : "";
+
+  return res.status(200).json({
+    ok: true,
+    email: maskedEmail,
+  });
+}
+
+/**
+ * Complete password reset - set a new password using the reset token.
+ */
+export async function completePasswordReset(req: Request, res: Response) {
+  const body = asRecord(req.body) ?? {};
+  const tokenRaw = asString(body.token) ?? "";
+  const newPassword = asString(body.new_password) ?? "";
+
+  if (!tokenRaw) return res.status(400).json({ error: "missing_token" });
+  if (!newPassword.trim()) return res.status(400).json({ error: "new_password_required" });
+  if (newPassword.length < 8) return res.status(400).json({ error: "password_too_short" });
+
+  const ip = getRequestIp(req);
+  const userAgent = String(req.get("user-agent") ?? "").trim() || null;
+  const supabase = getAdminSupabase();
+
+  // Verify token
+  const { data: tokenRow, error: tokenErr } = await supabase
+    .from("consumer_password_reset_tokens")
+    .select("id, user_id, expires_at, used_at")
+    .eq("token", tokenRaw)
+    .maybeSingle();
+
+  if (tokenErr || !tokenRow) {
+    return res.status(404).json({ error: "invalid_token" });
+  }
+
+  if (tokenRow.used_at) {
+    return res.status(410).json({ error: "token_already_used" });
+  }
+
+  const expiresAt = new Date(tokenRow.expires_at);
+  if (expiresAt <= new Date()) {
+    return res.status(410).json({ error: "token_expired" });
+  }
+
+  // Update password
+  const { error: updateErr } = await supabase.auth.admin.updateUserById(
+    tokenRow.user_id,
+    { password: newPassword },
+  );
+
+  if (updateErr) {
+    console.error("completePasswordReset updateUserById failed", updateErr);
+    return res.status(500).json({ error: "password_update_failed" });
+  }
+
+  // Mark token as used
+  await supabase
+    .from("consumer_password_reset_tokens")
+    .update({ used_at: new Date().toISOString() })
+    .eq("id", tokenRow.id);
+
+  await insertConsumerAccountEvent({
+    userId: tokenRow.user_id,
+    eventType: "password.reset_completed",
+    metadata: { ip, user_agent: userAgent },
+  });
+
+  // Get user info for confirmation email
+  const { data: user } = await supabase.auth.admin.getUserById(tokenRow.user_id);
+  const email = user?.user?.email ?? "";
+  const isPhoneEmail = email.endsWith("@phone.sortiraumaroc.ma");
+
+  if (email && !isPhoneEmail) {
+    const meta = asRecord(user?.user?.user_metadata) ?? {};
+    const first = typeof meta.first_name === "string" ? meta.first_name.trim() : "";
+    const last = typeof meta.last_name === "string" ? meta.last_name.trim() : "";
+    const userName = `${first} ${last}`.trim() || "Utilisateur";
+
+    void sendTemplateEmail({
+      templateKey: "user_password_changed",
+      lang: getRequestLang(req),
+      fromKey: "noreply",
+      to: [email],
+      variables: { user_name: userName },
+      meta: {
+        user_id: tokenRow.user_id,
+        action: "password.reset_completed",
+      },
+    });
+  }
+
+  return res.status(200).json({ ok: true });
+}
+
+/**
+ * Helper to mask email for display (e.g., s***@gmail.com)
+ */
+function maskEmail(email: string): string {
+  const atIdx = email.indexOf("@");
+  if (atIdx <= 1) return email;
+  const local = email.slice(0, atIdx);
+  const domain = email.slice(atIdx);
+  const masked = local[0] + "***" + (local.length > 1 ? local[local.length - 1] : "");
+  return masked + domain;
 }
 
 function csvEscapeCell(v: unknown): string {
@@ -1004,7 +1495,7 @@ export async function downloadConsumerDataExport(req: Request, res: Response) {
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="sambooking-data-export-${userId}.csv"`,
+      `attachment; filename="sam-data-export-${userId}.csv"`,
     );
     return res.status(200).send([header, body].join("\n"));
   }
@@ -1012,7 +1503,7 @@ export async function downloadConsumerDataExport(req: Request, res: Response) {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader(
     "Content-Disposition",
-    `attachment; filename="sambooking-data-export-${userId}.json"`,
+    `attachment; filename="sam-data-export-${userId}.json"`,
   );
   return res.status(200).json({
     generated_at: nowIso,
@@ -1240,7 +1731,7 @@ export async function getPublicEstablishment(req: Request, res: Response) {
   const { data: establishment, error: estError } = await supabase
     .from("establishments")
     .select(
-      "id,name,universe,subcategory,city,address,postal_code,region,country,lat,lng,description_short,description_long,phone,whatsapp,website,social_links,cover_url,gallery_urls,hours,tags,amenities,extra,booking_enabled,status",
+      "id,slug,name,universe,subcategory,city,address,postal_code,region,country,lat,lng,description_short,description_long,phone,whatsapp,website,social_links,cover_url,gallery_urls,hours,tags,amenities,extra,booking_enabled,status,menu_digital_enabled,email",
     )
     .eq("id", establishmentId)
     .maybeSingle();
@@ -1445,8 +1936,28 @@ export async function getPublicEstablishment(req: Request, res: Response) {
     },
   );
 
+  // Generate slug on-the-fly if not present in database
+  const estSlug = establishment.slug ?? generateEstablishmentSlug(
+    establishment.name as string | null,
+    establishment.city as string | null
+  );
+
+  // Generate menu digital URL if enabled
+  const menuDigitalBaseUrl = process.env.MENU_DIGITAL_BASE_URL || "https://menu.sam.ma";
+  const menuDigitalEnabled = Boolean((establishment as any).menu_digital_enabled);
+  const menuDigitalUrl = menuDigitalEnabled && estSlug
+    ? `${menuDigitalBaseUrl}/${estSlug}`
+    : null;
+
+  const establishmentWithSlug = {
+    ...establishment,
+    slug: estSlug,
+    menu_digital_enabled: menuDigitalEnabled,
+    menu_digital_url: menuDigitalUrl,
+  };
+
   return res.json({
-    establishment,
+    establishment: establishmentWithSlug,
     booking_policy: bookingPolicy ?? null,
     offers: {
       slots: slotsArr,
@@ -1479,6 +1990,9 @@ type PublicEstablishmentListItem = {
   verified: boolean;
   premium: boolean;
   curated: boolean;
+  slug?: string | null;
+  relevance_score?: number;
+  total_score?: number;
 };
 
 type PublicEstablishmentsListResponse = {
@@ -1594,10 +2108,12 @@ export async function listPublicEstablishments(req: Request, res: Response) {
 
   const supabase = getAdminSupabase();
 
+  // Note: verified, premium, curated columns may not exist yet - handle gracefully
+  // These will be added by migration 20260201_search_engine_enhancement.sql
   let estQuery = supabase
     .from("establishments")
     .select(
-      "id,name,universe,subcategory,city,address,region,country,lat,lng,cover_url,booking_enabled,updated_at,verified,premium,curated",
+      "id,slug,name,universe,subcategory,city,address,region,country,lat,lng,cover_url,booking_enabled,updated_at,tags,amenities",
     )
     .eq("status", "active");
 
@@ -1612,8 +2128,118 @@ export async function listPublicEstablishments(req: Request, res: Response) {
     estQuery = estQuery.ilike("city", city);
   }
 
-  if (q) {
-    estQuery = estQuery.ilike("name", `%${q}%`);
+  // If there's a search query, use the scored search function for better results
+  if (q && q.length >= 2) {
+    // Use the PostgreSQL search function with scoring
+    const universeFilter = universeAliases.length === 1 ? universeAliases[0] : null;
+
+    const { data: scoredResults, error: searchErr } = await supabase.rpc(
+      'search_establishments_scored',
+      {
+        search_query: q,
+        filter_universe: universeFilter,
+        filter_city: city || null,
+        result_limit: limit,
+        result_offset: offset,
+      }
+    );
+
+    if (!searchErr && scoredResults && scoredResults.length > 0) {
+      // Return scored results directly
+      const ids = scoredResults.map((r: any) => r.id);
+      const nowIso = new Date().toISOString();
+      const thirtyDaysAgo = new Date(Date.now() - 1000 * 60 * 60 * 24 * 30).toISOString();
+
+      const [{ data: slots }, { data: reservations }] = await Promise.all([
+        ids.length
+          ? supabase
+              .from("pro_slots")
+              .select("establishment_id,starts_at,promo_type,promo_value,active")
+              .in("establishment_id", ids)
+              .eq("active", true)
+              .gte("starts_at", nowIso)
+              .order("starts_at", { ascending: true })
+              .limit(5000)
+          : Promise.resolve({ data: [] as unknown[] }),
+        ids.length
+          ? supabase
+              .from("reservations")
+              .select("establishment_id,created_at,status")
+              .in("establishment_id", ids)
+              .gte("created_at", thirtyDaysAgo)
+              .in("status", ["confirmed", "pending_pro_validation", "requested"])
+              .limit(5000)
+          : Promise.resolve({ data: [] as unknown[] }),
+      ]);
+
+      const nextSlotByEst = new Map<string, string>();
+      const promoByEst = new Map<string, number>();
+      for (const s of (slots ?? []) as Array<Record<string, unknown>>) {
+        const estId = typeof s.establishment_id === "string" ? s.establishment_id : "";
+        const startsAt = typeof s.starts_at === "string" ? s.starts_at : "";
+        if (!estId || !startsAt) continue;
+        if (!nextSlotByEst.has(estId)) nextSlotByEst.set(estId, startsAt);
+        const promo = maxPromoPercent(s.promo_type, s.promo_value);
+        if (promo != null) promoByEst.set(estId, Math.max(promoByEst.get(estId) ?? 0, promo));
+      }
+
+      const reservationCountByEst = new Map<string, number>();
+      for (const r of (reservations ?? []) as Array<Record<string, unknown>>) {
+        const estId = typeof r.establishment_id === "string" ? r.establishment_id : "";
+        if (estId) reservationCountByEst.set(estId, (reservationCountByEst.get(estId) ?? 0) + 1);
+      }
+
+      const items: PublicEstablishmentListItem[] = scoredResults.map((e: any) => {
+        const promo = promoByEst.get(e.id) ?? null;
+        if (promoOnly && (!promo || promo <= 0)) return null;
+
+        return {
+          id: e.id,
+          name: e.name,
+          universe: e.universe,
+          subcategory: e.subcategory,
+          city: e.city,
+          address: null,
+          region: null,
+          country: null,
+          lat: null,
+          lng: null,
+          cover_url: e.cover_url,
+          booking_enabled: null,
+          promo_percent: promo ?? e.promo_percent ?? null,
+          next_slot_at: nextSlotByEst.get(e.id) ?? null,
+          reservations_30d: reservationCountByEst.get(e.id) ?? e.reservations_30d ?? 0,
+          avg_rating: e.rating_avg ?? null,
+          review_count: 0,
+          reviews_last_30d: 0,
+          verified: false,
+          premium: false,
+          curated: false,
+          slug: generateEstablishmentSlug(e.name, e.city),
+          relevance_score: e.relevance_score,
+          total_score: e.total_score,
+        };
+      }).filter(Boolean);
+
+      return res.json({
+        items,
+        count: items.length,
+        universe: universeMeta,
+        search_mode: 'scored',
+      });
+    }
+
+    // Fallback to basic search if scored search fails or returns no results
+    const searchTerm = `%${q}%`;
+    estQuery = estQuery.or(
+      `name.ilike.${searchTerm},subcategory.ilike.${searchTerm},tags.cs.{${q}}`
+    );
+  } else if (q) {
+    // Short query (< 2 chars): use basic ilike search
+    const searchTerm = `%${q}%`;
+    estQuery = estQuery.or(
+      `name.ilike.${searchTerm},subcategory.ilike.${searchTerm},tags.cs.{${q}}`
+    );
   }
 
   // Filter by category/subcategory (activity type)
@@ -1754,9 +2380,10 @@ export async function listPublicEstablishments(req: Request, res: Response) {
         avg_rating: avgRating,
         review_count: reviewCount,
         reviews_last_30d: reviewsLast30d,
-        verified: e.verified === true,
-        premium: e.premium === true,
-        curated: e.curated === true,
+        // These columns may not exist yet - default to false until migration is run
+        verified: typeof e.verified === "boolean" ? e.verified : false,
+        premium: typeof e.premium === "boolean" ? e.premium : false,
+        curated: typeof e.curated === "boolean" ? e.curated : false,
       };
 
       // Compute best score if sorting by best
@@ -1792,6 +2419,455 @@ export async function listPublicEstablishments(req: Request, res: Response) {
   };
 
   return res.json(payload);
+}
+
+// ============================================
+// SEARCH AUTOCOMPLETE API
+// ============================================
+
+type AutocompleteSuggestion = {
+  id: string;
+  term: string;
+  category: "establishment" | "cuisine" | "dish" | "tag" | "city" | "activity" | "accommodation" | "hashtag";
+  displayLabel: string;
+  iconName: string | null;
+  universe: string | null;
+  extra?: {
+    establishmentId?: string;
+    coverUrl?: string;
+    city?: string;
+    usageCount?: number;
+  };
+};
+
+type AutocompleteResponse = {
+  ok: true;
+  suggestions: AutocompleteSuggestion[];
+  query: string;
+};
+
+export async function searchAutocomplete(req: Request, res: Response) {
+  const q = asString(req.query.q);
+  const rawUniverse = asString(req.query.universe);
+  const limitParam = asInt(req.query.limit);
+  const limit = Math.min(Math.max(limitParam ?? 10, 1), 20);
+
+  // Normalize universe: "restaurants" -> "restaurant", etc.
+  const universeMap: Record<string, string> = {
+    restaurants: "restaurant",
+    sport: "wellness",
+    sport_bien_etre: "wellness",
+    hebergement: "hebergement",
+    loisirs: "loisir",
+    culture: "culture",
+  };
+  const universe = rawUniverse ? (universeMap[rawUniverse] ?? rawUniverse) : null;
+
+  if (!q || q.length < 2) {
+    return res.json({ ok: true, suggestions: [], query: q ?? "" });
+  }
+
+  const supabase = getAdminSupabase();
+  const suggestions: AutocompleteSuggestion[] = [];
+  const searchTerm = q.toLowerCase().trim();
+
+  // 1. Search establishments by name (highest priority)
+  const { data: establishments } = await supabase
+    .from("establishments")
+    .select("id,name,universe,city,cover_url")
+    .eq("status", "active")
+    .ilike("name", `%${searchTerm}%`)
+    .limit(5);
+
+  if (establishments) {
+    for (const est of establishments as Array<Record<string, unknown>>) {
+      if (!universe || est.universe === universe) {
+        suggestions.push({
+          id: `est-${est.id}`,
+          term: String(est.name ?? ""),
+          category: "establishment",
+          displayLabel: String(est.name ?? ""),
+          iconName: "building",
+          universe: typeof est.universe === "string" ? est.universe : null,
+          extra: {
+            establishmentId: String(est.id),
+            coverUrl: typeof est.cover_url === "string" ? est.cover_url : undefined,
+            city: typeof est.city === "string" ? est.city : undefined,
+          },
+        });
+      }
+    }
+  }
+
+  // 2. Search in search_suggestions table (if it exists)
+  try {
+    let suggQuery = supabase
+      .from("search_suggestions")
+      .select("id,term,category,display_label,icon_name,universe")
+      .eq("is_active", true)
+      .ilike("term", `%${searchTerm}%`)
+      .limit(10);
+
+    if (universe) {
+      // Filter by universe or null (applies to all)
+      suggQuery = suggQuery.or(`universe.eq.${universe},universe.is.null`);
+    }
+
+    const { data: searchSuggestions } = await suggQuery;
+
+    if (searchSuggestions) {
+      for (const sugg of searchSuggestions as Array<Record<string, unknown>>) {
+        const cat = String(sugg.category ?? "tag");
+        suggestions.push({
+          id: String(sugg.id),
+          term: String(sugg.term ?? ""),
+          category: cat as AutocompleteSuggestion["category"],
+          displayLabel: String(sugg.display_label ?? sugg.term ?? ""),
+          iconName: typeof sugg.icon_name === "string" ? sugg.icon_name : null,
+          universe: typeof sugg.universe === "string" ? sugg.universe : null,
+        });
+      }
+    }
+  } catch {
+    // search_suggestions table may not exist yet - continue without it
+  }
+
+  // 3. Search cities (from establishments or home_cities)
+  if (suggestions.filter((s) => s.category === "city").length === 0) {
+    const { data: cities } = await supabase
+      .from("home_cities")
+      .select("id,name,slug")
+      .eq("is_active", true)
+      .ilike("name", `%${searchTerm}%`)
+      .limit(5);
+
+    if (cities) {
+      for (const city of cities as Array<Record<string, unknown>>) {
+        suggestions.push({
+          id: `city-${city.id}`,
+          term: String(city.name ?? ""),
+          category: "city",
+          displayLabel: String(city.name ?? ""),
+          iconName: "map-pin",
+          universe: null,
+        });
+      }
+    }
+  }
+
+  // 4. Fallback: search distinct tags from establishments
+  if (suggestions.length < limit) {
+    try {
+      const { data: tagResults } = await supabase
+        .rpc("search_establishment_tags", { search_term: searchTerm })
+        .limit(5);
+
+      if (tagResults) {
+        for (const tag of tagResults as Array<{ tag: string }>) {
+          if (!suggestions.some((s) => s.term.toLowerCase() === tag.tag.toLowerCase())) {
+            suggestions.push({
+              id: `tag-${tag.tag}`,
+              term: tag.tag,
+              category: "tag",
+              displayLabel: tag.tag,
+              iconName: "tag",
+              universe: null,
+            });
+          }
+        }
+      }
+    } catch {
+      // RPC may not exist - continue
+    }
+  }
+
+  // 5. Search hashtags from video descriptions (with usage count)
+  // Only search if query starts with # or looks like a hashtag term
+  const isHashtagSearch = searchTerm.startsWith("#") || searchTerm.startsWith("%23");
+  const hashtagSearchTerm = searchTerm.replace(/^#/, "").replace(/^%23/, "");
+
+  if (hashtagSearchTerm.length >= 1) {
+    try {
+      const { data: hashtagResults } = await supabase
+        .rpc("search_hashtags", { search_term: hashtagSearchTerm })
+        .limit(5);
+
+      if (hashtagResults) {
+        for (const ht of hashtagResults as Array<{ hashtag: string; usage_count: number }>) {
+          const hashtagTerm = `#${ht.hashtag}`;
+          if (!suggestions.some((s) => s.term.toLowerCase() === hashtagTerm.toLowerCase())) {
+            suggestions.push({
+              id: `hashtag-${ht.hashtag}`,
+              term: hashtagTerm,
+              category: "hashtag",
+              displayLabel: `${hashtagTerm} (${ht.usage_count})`,
+              iconName: "hash",
+              universe: null,
+              extra: {
+                usageCount: ht.usage_count,
+              },
+            });
+          }
+        }
+      }
+    } catch {
+      // RPC may not exist - continue without hashtag search
+    }
+  }
+
+  // Remove duplicates and limit results
+  const seen = new Set<string>();
+  const uniqueSuggestions = suggestions.filter((s) => {
+    const key = `${s.category}-${s.term.toLowerCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  // Sort: establishments first, then by category
+  // Hashtags are sorted by usage count (higher = more relevant)
+  const categoryOrder: Record<string, number> = {
+    establishment: 0,
+    cuisine: 1,
+    dish: 2,
+    activity: 3,
+    hashtag: 4,
+    tag: 5,
+    city: 6,
+    accommodation: 7,
+  };
+
+  uniqueSuggestions.sort((a, b) => {
+    const orderA = categoryOrder[a.category] ?? 99;
+    const orderB = categoryOrder[b.category] ?? 99;
+    return orderA - orderB;
+  });
+
+  return res.json({
+    ok: true,
+    suggestions: uniqueSuggestions.slice(0, limit),
+    query: q,
+  } as AutocompleteResponse);
+}
+
+// ============================================
+// POPULAR SEARCHES API (for empty state)
+// ============================================
+export async function getPopularSearches(req: Request, res: Response) {
+  const rawUniverse = asString(req.query.universe);
+  const city = asString(req.query.city);
+  const limit = Math.min(Math.max(asInt(req.query.limit) ?? 10, 1), 20);
+
+  // Normalize universe: "restaurants" -> "restaurant", etc.
+  const universeMap: Record<string, string> = {
+    restaurants: "restaurant",
+    sport: "wellness",
+    sport_bien_etre: "wellness",
+    hebergement: "hebergement",
+    loisirs: "loisir",
+    culture: "culture",
+    shopping: "shopping",
+    rentacar: "rentacar",
+  };
+  const universe = rawUniverse ? (universeMap[rawUniverse] ?? rawUniverse) : null;
+
+  const supabase = getAdminSupabase();
+
+  // Try to get from search_suggestions - prioritize universe-specific suggestions
+  try {
+    if (universe) {
+      // First, get suggestions specific to this universe
+      const { data: universeSpecific } = await supabase
+        .from("search_suggestions")
+        .select("term,category,display_label,icon_name,universe,search_count")
+        .eq("is_active", true)
+        .eq("universe", universe)
+        .order("search_count", { ascending: false })
+        .limit(limit);
+
+      // If we have enough universe-specific suggestions, return them
+      if (universeSpecific && universeSpecific.length >= limit) {
+        return res.json({
+          ok: true,
+          searches: (universeSpecific as Array<Record<string, unknown>>).map((s) => ({
+            term: String(s.term ?? ""),
+            category: String(s.category ?? "tag"),
+            displayLabel: String(s.display_label ?? s.term ?? ""),
+            iconName: typeof s.icon_name === "string" ? s.icon_name : null,
+          })),
+        });
+      }
+
+      // If we have some universe-specific suggestions but not enough, complement with generic ones
+      if (universeSpecific && universeSpecific.length > 0) {
+        const remaining = limit - universeSpecific.length;
+        const existingTerms = universeSpecific.map((s) => String(s.term));
+
+        const { data: genericSuggestions } = await supabase
+          .from("search_suggestions")
+          .select("term,category,display_label,icon_name,universe,search_count")
+          .eq("is_active", true)
+          .is("universe", null)
+          .not("term", "in", `(${existingTerms.map(t => `"${t}"`).join(",")})`)
+          .order("search_count", { ascending: false })
+          .limit(remaining);
+
+        const combined = [...universeSpecific, ...(genericSuggestions || [])];
+        return res.json({
+          ok: true,
+          searches: (combined as Array<Record<string, unknown>>).map((s) => ({
+            term: String(s.term ?? ""),
+            category: String(s.category ?? "tag"),
+            displayLabel: String(s.display_label ?? s.term ?? ""),
+            iconName: typeof s.icon_name === "string" ? s.icon_name : null,
+          })),
+        });
+      }
+
+      // If universe is specified but no universe-specific suggestions found, skip DB and use hardcoded fallbacks
+      // This ensures each universe gets relevant suggestions
+    }
+
+    // Only use generic DB suggestions when NO universe is specified
+    if (!universe) {
+      const { data } = await supabase
+        .from("search_suggestions")
+        .select("term,category,display_label,icon_name,universe,search_count")
+        .eq("is_active", true)
+        .order("search_count", { ascending: false })
+        .limit(limit);
+
+      if (data && data.length > 0) {
+        return res.json({
+          ok: true,
+          searches: (data as Array<Record<string, unknown>>).map((s) => ({
+            term: String(s.term ?? ""),
+            category: String(s.category ?? "tag"),
+            displayLabel: String(s.display_label ?? s.term ?? ""),
+            iconName: typeof s.icon_name === "string" ? s.icon_name : null,
+          })),
+        });
+      }
+    }
+  } catch {
+    // Table may not exist
+  }
+
+  // Fallback: return hardcoded popular searches per universe
+  const fallbackSearches = universe === "restaurant"
+    ? [
+        // Cuisines
+        { term: "marocain", category: "cuisine", displayLabel: "Cuisine Marocaine", iconName: "utensils" },
+        { term: "japonais", category: "cuisine", displayLabel: "Japonais", iconName: "utensils" },
+        { term: "italien", category: "cuisine", displayLabel: "Italien", iconName: "utensils" },
+        { term: "libanais", category: "cuisine", displayLabel: "Libanais", iconName: "utensils" },
+        // Plats
+        { term: "sushi", category: "dish", displayLabel: "Sushi", iconName: "utensils" },
+        { term: "tajine", category: "dish", displayLabel: "Tajine", iconName: "utensils" },
+        { term: "brunch", category: "dish", displayLabel: "Brunch", iconName: "coffee" },
+        { term: "pizza", category: "dish", displayLabel: "Pizza", iconName: "utensils" },
+        // Tags/ambiances
+        { term: "terrasse", category: "tag", displayLabel: "Terrasse", iconName: "sun" },
+        { term: "romantique", category: "tag", displayLabel: "Romantique", iconName: "heart" },
+        { term: "rooftop", category: "tag", displayLabel: "Rooftop", iconName: "building" },
+        { term: "vue mer", category: "tag", displayLabel: "Vue Mer", iconName: "waves" },
+      ]
+    : universe === "hebergement"
+    ? [
+        // Types d'hébergement
+        { term: "riad", category: "accommodation", displayLabel: "Riad", iconName: "home" },
+        { term: "hotel", category: "accommodation", displayLabel: "Hôtel", iconName: "building" },
+        { term: "villa", category: "accommodation", displayLabel: "Villa", iconName: "home" },
+        { term: "appartement", category: "accommodation", displayLabel: "Appartement", iconName: "building" },
+        // Équipements/Tags
+        { term: "piscine", category: "tag", displayLabel: "Piscine", iconName: "waves" },
+        { term: "spa", category: "tag", displayLabel: "Spa", iconName: "sparkles" },
+        { term: "vue mer", category: "tag", displayLabel: "Vue Mer", iconName: "waves" },
+        { term: "luxe", category: "tag", displayLabel: "Luxe", iconName: "star" },
+        { term: "jacuzzi", category: "tag", displayLabel: "Jacuzzi", iconName: "waves" },
+        { term: "petit dejeuner", category: "tag", displayLabel: "Petit-déjeuner inclus", iconName: "coffee" },
+      ]
+    : universe === "wellness"
+    ? [
+        // Types de soins
+        { term: "spa", category: "activity", displayLabel: "Spa", iconName: "sparkles" },
+        { term: "hammam", category: "activity", displayLabel: "Hammam", iconName: "droplet" },
+        { term: "massage", category: "activity", displayLabel: "Massage", iconName: "hand" },
+        { term: "coiffeur", category: "activity", displayLabel: "Coiffeur", iconName: "scissors" },
+        { term: "esthetique", category: "activity", displayLabel: "Esthétique", iconName: "sparkles" },
+        // Tags
+        { term: "detente", category: "tag", displayLabel: "Détente", iconName: "heart" },
+        { term: "soins visage", category: "tag", displayLabel: "Soins Visage", iconName: "sparkles" },
+        { term: "manucure", category: "tag", displayLabel: "Manucure", iconName: "hand" },
+      ]
+    : universe === "loisir"
+    ? [
+        // Types d'activités
+        { term: "escape game", category: "activity", displayLabel: "Escape Game", iconName: "puzzle" },
+        { term: "karting", category: "activity", displayLabel: "Karting", iconName: "car" },
+        { term: "bowling", category: "activity", displayLabel: "Bowling", iconName: "target" },
+        { term: "paintball", category: "activity", displayLabel: "Paintball", iconName: "target" },
+        { term: "quad", category: "activity", displayLabel: "Quad", iconName: "car" },
+        { term: "jet ski", category: "activity", displayLabel: "Jet Ski", iconName: "waves" },
+        // Tags
+        { term: "famille", category: "tag", displayLabel: "En Famille", iconName: "users" },
+        { term: "entre amis", category: "tag", displayLabel: "Entre Amis", iconName: "users" },
+        { term: "enfants", category: "tag", displayLabel: "Pour Enfants", iconName: "baby" },
+        { term: "plein air", category: "tag", displayLabel: "Plein Air", iconName: "sun" },
+      ]
+    : universe === "culture"
+    ? [
+        // Types de lieux/activités
+        { term: "musee", category: "activity", displayLabel: "Musée", iconName: "building" },
+        { term: "cinema", category: "activity", displayLabel: "Cinéma", iconName: "film" },
+        { term: "theatre", category: "activity", displayLabel: "Théâtre", iconName: "drama" },
+        { term: "galerie", category: "activity", displayLabel: "Galerie d'Art", iconName: "image" },
+        { term: "concert", category: "activity", displayLabel: "Concert", iconName: "music" },
+        // Tags
+        { term: "exposition", category: "tag", displayLabel: "Exposition", iconName: "image" },
+        { term: "histoire", category: "tag", displayLabel: "Histoire", iconName: "book" },
+        { term: "art contemporain", category: "tag", displayLabel: "Art Contemporain", iconName: "palette" },
+      ]
+    : universe === "shopping"
+    ? [
+        // Types de commerces
+        { term: "centre commercial", category: "activity", displayLabel: "Centre Commercial", iconName: "shopping-bag" },
+        { term: "souk", category: "activity", displayLabel: "Souk", iconName: "store" },
+        { term: "boutique", category: "activity", displayLabel: "Boutique", iconName: "shirt" },
+        { term: "artisanat", category: "activity", displayLabel: "Artisanat", iconName: "hand" },
+        { term: "bijouterie", category: "activity", displayLabel: "Bijouterie", iconName: "gem" },
+        // Tags
+        { term: "mode", category: "tag", displayLabel: "Mode", iconName: "shirt" },
+        { term: "decoration", category: "tag", displayLabel: "Décoration", iconName: "home" },
+        { term: "luxe", category: "tag", displayLabel: "Luxe", iconName: "star" },
+      ]
+    : universe === "rentacar"
+    ? [
+        // Types de véhicules
+        { term: "voiture", category: "activity", displayLabel: "Voiture", iconName: "car" },
+        { term: "4x4", category: "activity", displayLabel: "4x4 / SUV", iconName: "car" },
+        { term: "moto", category: "activity", displayLabel: "Moto / Scooter", iconName: "bike" },
+        { term: "minibus", category: "activity", displayLabel: "Minibus", iconName: "bus" },
+        { term: "luxe", category: "activity", displayLabel: "Véhicule de Luxe", iconName: "car" },
+        // Tags
+        { term: "avec chauffeur", category: "tag", displayLabel: "Avec Chauffeur", iconName: "user" },
+        { term: "aeroport", category: "tag", displayLabel: "Aéroport", iconName: "plane" },
+        { term: "longue duree", category: "tag", displayLabel: "Longue Durée", iconName: "calendar" },
+      ]
+    : [
+        // Default fallback (tous univers)
+        { term: "spa", category: "activity", displayLabel: "Spa", iconName: "sparkles" },
+        { term: "restaurant", category: "cuisine", displayLabel: "Restaurant", iconName: "utensils" },
+        { term: "escape game", category: "activity", displayLabel: "Escape Game", iconName: "puzzle" },
+        { term: "famille", category: "tag", displayLabel: "En Famille", iconName: "users" },
+        { term: "terrasse", category: "tag", displayLabel: "Terrasse", iconName: "sun" },
+        { term: "romantique", category: "tag", displayLabel: "Romantique", iconName: "heart" },
+      ];
+
+  return res.json({
+    ok: true,
+    searches: fallbackSearches.slice(0, limit),
+  });
 }
 
 type PublicHomeFeedItem = PublicEstablishmentListItem & {
@@ -1985,7 +3061,7 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
   let estQuery = supabase
     .from("establishments")
     .select(
-      "id,name,universe,subcategory,city,address,region,country,lat,lng,cover_url,booking_enabled,updated_at",
+      "id,slug,name,universe,subcategory,city,address,region,country,lat,lng,cover_url,booking_enabled,updated_at",
     )
     .eq("status", "active");
 
@@ -3073,6 +4149,13 @@ export async function createConsumerReservation(req: Request, res: Response) {
     amount_calculated_server_side: amountTotal !== null,
   };
 
+  // ---------------------------------------------------------------------------
+  // BOOKING SOURCE TRACKING (Direct Link vs Platform)
+  // ---------------------------------------------------------------------------
+  // Determine if this reservation comes from a direct link (book.sam.ma/:username)
+  // or from the platform (sam.ma). Direct link reservations are NOT commissioned.
+  const bookingSourceInfo = determineBookingSource(req, establishmentId);
+
   const payload: Record<string, unknown> = {
     kind,
     establishment_id: establishmentId,
@@ -3086,6 +4169,10 @@ export async function createConsumerReservation(req: Request, res: Response) {
     amount_deposit: amountDeposit,
     currency: "MAD",
     meta: payloadMeta,
+    // Booking source tracking (direct_link = no commission, platform = commission)
+    booking_source: bookingSourceInfo.bookingSource,
+    referral_slug: bookingSourceInfo.referralSlug,
+    source_url: bookingSourceInfo.sourceUrl,
   };
 
   if (slotId && isUuid(slotId)) payload.slot_id = slotId;
@@ -3312,7 +4399,7 @@ export async function createConsumerReservation(req: Request, res: Response) {
         await sendTemplateEmail({
           templateKey: "user_booking_confirmed",
           lang: "fr",
-          fromKey: "no-reply",
+          fromKey: "noreply",
           to: [consumerEmail],
           variables: {
             user_name: consumerName || "",
@@ -4291,6 +5378,48 @@ export async function markAllConsumerNotificationsRead(
     return res.json({ ok: true, updated: updatedCount });
   } catch (e) {
     console.error("public.markAllConsumerNotificationsRead failed", e);
+    return res
+      .status(isTimeoutError(e) ? 504 : 503)
+      .json({ error: isTimeoutError(e) ? "timeout" : "service_unavailable" });
+  }
+}
+
+export async function deleteConsumerNotification(req: Request, res: Response) {
+  const auth = String(req.headers.authorization ?? "");
+  const token = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7) : "";
+  if (!token) return res.status(401).json({ error: "missing_token" });
+
+  const notificationId = typeof req.params.id === "string" ? req.params.id : "";
+  if (!notificationId) return res.status(400).json({ error: "id is required" });
+
+  const userResult = await getUserFromBearerToken(token);
+  if (userResult.ok === false)
+    return res.status(userResult.status).json({ error: userResult.error });
+
+  const supabase = getAdminSupabase();
+
+  try {
+    const { data, error } = await withTimeout(
+      supabase
+        .from("consumer_user_events")
+        .delete()
+        .eq("id", notificationId)
+        .eq("user_id", userResult.userId)
+        .select("id")
+        .maybeSingle(),
+      8000,
+    );
+
+    if (error) {
+      console.error("public.deleteConsumerNotification supabase error", error);
+      return res.status(500).json({ error: "db_error" });
+    }
+
+    if (!data) return res.status(404).json({ error: "not_found" });
+
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error("public.deleteConsumerNotification failed", e);
     return res
       .status(isTimeoutError(e) ? 504 : 503)
       .json({ error: isTimeoutError(e) ? "timeout" : "service_unavailable" });
@@ -6470,9 +7599,9 @@ export const updateConsumerReservation: (
               : "";
 
           const requestedDateLabel = requestedStartsAt
-            ? formatLeJjMmAaAHeure(requestedStartsAt)
+            ? formatDateLongFr(requestedStartsAt)
             : startsAtIso
-              ? formatLeJjMmAaAHeure(startsAtIso)
+              ? formatDateLongFr(startsAtIso)
               : "";
 
           const proEmails = await listProEmails();
@@ -6507,7 +7636,7 @@ export const updateConsumerReservation: (
           action === "waitlist_refuse_offer"
         ) {
           const dateLabel = startsAtIso
-            ? formatLeJjMmAaAHeure(startsAtIso)
+            ? formatDateLongFr(startsAtIso)
             : "";
 
           if (consumerEmail) {
@@ -6516,7 +7645,7 @@ export const updateConsumerReservation: (
             await sendTemplateEmail({
               templateKey: "user_booking_cancelled",
               lang: "fr",
-              fromKey: "no-reply",
+              fromKey: "noreply",
               to: [consumerEmail],
               variables: {
                 user_name: consumerName,
@@ -6568,7 +7697,7 @@ export const updateConsumerReservation: (
               ? String((updated as any).starts_at)
               : "";
           const dateLabel = nextStartsAt
-            ? formatLeJjMmAaAHeure(nextStartsAt)
+            ? formatDateLongFr(nextStartsAt)
             : "";
 
           if (consumerEmail) {
@@ -6577,7 +7706,7 @@ export const updateConsumerReservation: (
             await sendTemplateEmail({
               templateKey: "user_booking_updated",
               lang: "fr",
-              fromKey: "no-reply",
+              fromKey: "noreply",
               to: [consumerEmail],
               variables: {
                 user_name: consumerName,
@@ -7259,12 +8388,20 @@ export async function getPublicHomeSettings(req: Request, res: Response) {
 
 export async function getPublicHomeCities(req: Request, res: Response) {
   const supabase = getAdminSupabase();
+  const countryCode = typeof req.query.country === "string" ? req.query.country.toUpperCase() : null;
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("home_cities")
-    .select("id,name,slug,image_url")
+    .select("id,name,slug,image_url,country_code")
     .eq("is_active", true)
     .order("sort_order", { ascending: true });
+
+  // Filter by country if specified
+  if (countryCode) {
+    query = query.eq("country_code", countryCode);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     // Table might not exist yet, return empty array
@@ -7275,4 +8412,309 @@ export async function getPublicHomeCities(req: Request, res: Response) {
   }
 
   res.json({ ok: true, cities: data ?? [] });
+}
+
+// ---------------------------------------------------------------------------
+// PUBLIC COUNTRIES
+// ---------------------------------------------------------------------------
+
+export async function getPublicCountries(req: Request, res: Response) {
+  const supabase = getAdminSupabase();
+
+  const { data, error } = await supabase
+    .from("countries")
+    .select("id,name,name_en,code,flag_emoji,currency_code,is_default")
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true });
+
+  if (error) {
+    // Table might not exist yet, return default Morocco
+    if (error.code === "42P01") {
+      return res.json({
+        ok: true,
+        countries: [
+          { id: "default", name: "Maroc", name_en: "Morocco", code: "MA", flag_emoji: "🇲🇦", currency_code: "MAD", is_default: true }
+        ]
+      });
+    }
+    return res.status(500).json({ error: error.message });
+  }
+
+  // If no countries configured, return Morocco as default
+  if (!data || data.length === 0) {
+    return res.json({
+      ok: true,
+      countries: [
+        { id: "default", name: "Maroc", name_en: "Morocco", code: "MA", flag_emoji: "🇲🇦", currency_code: "MAD", is_default: true }
+      ]
+    });
+  }
+
+  res.json({ ok: true, countries: data });
+}
+
+// ---------------------------------------------------------------------------
+// DETECT USER COUNTRY (via IP geolocation)
+// ---------------------------------------------------------------------------
+
+export async function detectUserCountry(req: Request, res: Response) {
+  // Get IP from various headers (for proxies/load balancers)
+  const ip =
+    req.headers["x-forwarded-for"]?.toString().split(",")[0].trim() ||
+    req.headers["x-real-ip"]?.toString() ||
+    req.socket.remoteAddress ||
+    "127.0.0.1";
+
+  // For local development, return Morocco
+  if (ip === "127.0.0.1" || ip === "::1" || ip.startsWith("192.168.") || ip.startsWith("10.")) {
+    return res.json({ ok: true, country_code: "MA", detected: false, reason: "local" });
+  }
+
+  try {
+    // Use free IP geolocation API (ip-api.com - free for non-commercial use)
+    // For production, consider using a paid service like MaxMind, IPinfo, etc.
+    const response = await fetch(`http://ip-api.com/json/${ip}?fields=countryCode`);
+    if (response.ok) {
+      const data = await response.json() as { countryCode?: string };
+      if (data.countryCode) {
+        return res.json({ ok: true, country_code: data.countryCode, detected: true });
+      }
+    }
+  } catch {
+    // Silently fail and return default
+  }
+
+  // Default to Morocco if detection fails
+  res.json({ ok: true, country_code: "MA", detected: false, reason: "fallback" });
+}
+
+// ---------------------------------------------------------------------------
+// PUBLIC HOME VIDEOS
+// ---------------------------------------------------------------------------
+
+export async function getPublicHomeVideos(req: Request, res: Response) {
+  const supabase = getAdminSupabase();
+
+  const { data, error } = await supabase
+    .from("home_videos")
+    .select("id,youtube_url,title,description,thumbnail_url,establishment_id")
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true });
+
+  if (error) {
+    // Table might not exist yet, return empty array
+    if (error.code === "42P01") {
+      return res.json({ ok: true, videos: [] });
+    }
+    return res.status(500).json({ error: error.message });
+  }
+
+  // Fetch establishment names for videos that have establishment_id
+  const videos = data ?? [];
+  const establishmentIds = videos
+    .filter((v: any) => v.establishment_id)
+    .map((v: any) => v.establishment_id);
+
+  let establishmentMap: Record<string, { name: string; universe: string; slug: string | null }> = {};
+  if (establishmentIds.length > 0) {
+    const { data: establishments } = await supabase
+      .from("establishments")
+      .select("id,name,universe,slug")
+      .in("id", establishmentIds);
+
+    if (establishments) {
+      for (const e of establishments as Array<{ id: string; name: string; universe: string; slug: string | null }>) {
+        establishmentMap[e.id] = { name: e.name, universe: e.universe, slug: e.slug };
+      }
+    }
+  }
+
+  const enrichedVideos = videos.map((v: any) => ({
+    id: v.id,
+    youtube_url: v.youtube_url,
+    title: v.title,
+    description: v.description,
+    thumbnail_url: v.thumbnail_url,
+    establishment_id: v.establishment_id,
+    establishment_name: v.establishment_id ? establishmentMap[v.establishment_id]?.name ?? null : null,
+    establishment_universe: v.establishment_id ? establishmentMap[v.establishment_id]?.universe ?? null : null,
+    establishment_slug: v.establishment_id ? establishmentMap[v.establishment_id]?.slug ?? null : null,
+  }));
+
+  res.json({ ok: true, videos: enrichedVideos });
+}
+
+// ---------------------------------------------------------------------------
+// PUBLIC HOME TAKEOVER
+// ---------------------------------------------------------------------------
+
+export async function getPublicHomeTakeover(req: Request, res: Response) {
+  const supabase = getAdminSupabase();
+
+  // Call the database function to get today's confirmed home takeover
+  const { data, error } = await supabase.rpc("get_today_home_takeover");
+
+  if (error) {
+    // Table or function might not exist yet
+    if (error.code === "42P01" || error.code === "42883") {
+      return res.json({ ok: true, takeover: null });
+    }
+    return res.status(500).json({ error: error.message });
+  }
+
+  // The function returns a table, so data is an array
+  const takeover = Array.isArray(data) && data.length > 0 ? data[0] : null;
+
+  // If no takeover today or no visual assets configured, return null
+  if (!takeover) {
+    return res.json({ ok: true, takeover: null });
+  }
+
+  // Only return takeover if it has at least a headline or a banner
+  const hasContent =
+    takeover.headline ||
+    takeover.banner_desktop_url ||
+    takeover.banner_mobile_url;
+
+  if (!hasContent) {
+    return res.json({ ok: true, takeover: null });
+  }
+
+  res.json({ ok: true, takeover });
+}
+
+// ---------------------------------------------------------------------------
+// PUBLIC ESTABLISHMENT BY USERNAME (for book.sam.ma/:username)
+// ---------------------------------------------------------------------------
+
+/**
+ * Get establishment by username and set booking attribution cookie.
+ * This endpoint is used by the direct booking page (book.sam.ma/:username).
+ *
+ * The cookie is HTTPOnly to prevent client-side manipulation (anti-cheat).
+ * It contains the establishment ID and username, valid for 48 hours.
+ *
+ * Reservations made within 48h of visiting via this endpoint will be
+ * attributed as "direct_link" and will NOT incur commission.
+ */
+export async function getPublicEstablishmentByUsername(
+  req: Request,
+  res: Response
+) {
+  const username = String(req.params.username ?? "").trim().toLowerCase();
+
+  if (!username || username.length < 3) {
+    return res.status(400).json({ error: "invalid_username" });
+  }
+
+  const supabase = getAdminSupabase();
+
+  // Find establishment by username (case-insensitive)
+  const { data: establishment, error: estError } = await supabase
+    .from("establishments")
+    .select(
+      "id,slug,username,name,universe,subcategory,city,address,postal_code,region,country,lat,lng,description_short,description_long,phone,whatsapp,website,social_links,cover_url,gallery_urls,hours,tags,amenities,extra,booking_enabled,status,email"
+    )
+    .ilike("username", username)
+    .eq("status", "active")
+    .maybeSingle();
+
+  if (estError) {
+    return res.status(500).json({ error: estError.message });
+  }
+
+  if (!establishment) {
+    return res.status(404).json({ error: "establishment_not_found" });
+  }
+
+  const establishmentId = String((establishment as any).id ?? "");
+  const establishmentUsername = String((establishment as any).username ?? "");
+
+  // Set the booking attribution cookie (HTTPOnly, 48h expiration)
+  // This cookie will be read when creating a reservation to determine
+  // if it's a "direct_link" (no commission) or "platform" (commission) booking.
+  setBookingAttributionCookie(res, {
+    slug: establishmentUsername,
+    establishmentId: establishmentId,
+  });
+
+  // Fetch additional data (slots, packs, booking policy) like getPublicEstablishment
+  const nowIso = new Date().toISOString();
+
+  const [
+    { data: slots, error: slotsError },
+    { data: packs, error: packsError },
+    { data: bookingPolicy, error: bookingPolicyError },
+  ] = await Promise.all([
+    supabase
+      .from("pro_slots")
+      .select(
+        "id,starts_at,ends_at,capacity,base_price,promo_type,promo_value,promo_label,service_label"
+      )
+      .eq("establishment_id", establishmentId)
+      .eq("active", true)
+      .gte("starts_at", nowIso)
+      .order("starts_at", { ascending: true })
+      .limit(500),
+    supabase
+      .from("pro_packs")
+      .select(
+        "id,title,description,label,items,price,original_price,is_limited,stock,availability,valid_from,valid_to,conditions,max_reservations"
+      )
+      .eq("establishment_id", establishmentId)
+      .eq("active", true)
+      .order("created_at", { ascending: false })
+      .limit(50),
+    supabase
+      .from("pro_booking_policies")
+      .select("*")
+      .eq("establishment_id", establishmentId)
+      .maybeSingle(),
+  ]);
+
+  // Compute average rating
+  let avgRating: number | null = null;
+  let reviewCount = 0;
+  try {
+    const { data: reviews } = await supabase
+      .from("reviews")
+      .select("rating")
+      .eq("establishment_id", establishmentId)
+      .eq("status", "approved")
+      .limit(1000);
+
+    if (reviews && reviews.length > 0) {
+      reviewCount = reviews.length;
+      const sum = reviews.reduce(
+        (acc: number, r: any) => acc + (Number(r.rating) || 0),
+        0
+      );
+      avgRating = Math.round((sum / reviewCount) * 10) / 10;
+    }
+  } catch {
+    // Ignore errors
+  }
+
+  // Group slots by date (simplified for direct booking)
+  const slotsByDate: Record<string, any[]> = {};
+  for (const slot of (slots ?? []) as any[]) {
+    const date = String(slot.starts_at ?? "").split("T")[0];
+    if (!date) continue;
+    if (!slotsByDate[date]) slotsByDate[date] = [];
+    slotsByDate[date].push(slot);
+  }
+
+  res.json({
+    ok: true,
+    establishment: {
+      ...establishment,
+      avg_rating: avgRating,
+      review_count: reviewCount,
+    },
+    slots: slots ?? [],
+    slotsByDate,
+    packs: packs ?? [],
+    bookingPolicy: bookingPolicy ?? null,
+    attributionSet: true, // Indicates the attribution cookie was set
+  });
 }

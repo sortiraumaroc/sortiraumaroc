@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { Check } from "lucide-react";
+import { Check, Trash2 } from "lucide-react";
 
 import {
   listMyConsumerNotifications,
   markAllMyConsumerNotificationsRead,
   markMyConsumerNotificationRead,
+  deleteMyConsumerNotification,
   type ConsumerNotificationRow,
 } from "@/lib/consumerNotificationsApi";
 import type { BookingRecord, PackPurchase } from "@/lib/userData";
@@ -108,6 +109,22 @@ export function ProfileNotifications(props: { bookings: BookingRecord[]; packPur
     setTick((v) => v + 1);
   };
 
+  const deleteNotification = (id: string) => {
+    const trimmed = String(id ?? "").trim();
+    if (!trimmed) return;
+
+    if (trimmed.startsWith("event:")) {
+      const eventId = trimmed.slice("event:".length);
+      void deleteMyConsumerNotification(eventId).catch(() => {
+        // Best-effort
+      });
+    }
+
+    // Update local state to remove from list
+    setConsumerEvents((prev) => prev.filter((ev) => `event:${ev.id}` !== trimmed));
+    setTick((v) => v + 1);
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2">
@@ -162,6 +179,17 @@ export function ProfileNotifications(props: { bookings: BookingRecord[]; packPur
                         <Check className="h-3.5 w-3.5" />
                         Lu
                       </div>
+                    )}
+                    {n.id.startsWith("event:") && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-slate-400 hover:text-red-500"
+                        onClick={() => deleteNotification(n.id)}
+                        title="Supprimer"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     )}
                   </div>
                 </div>

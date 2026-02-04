@@ -79,7 +79,7 @@ export function buildUserNotifications(args: {
         : `/profile/bookings/${encodeURIComponent(reservationId)}`
       : undefined;
 
-    const { title, body } = (() => {
+    const formatted = (() => {
       if (ev.event_type === "message_received") {
         const subject = typeof meta.subject === "string" ? meta.subject : "Message";
         const snippet = typeof meta.snippet === "string" ? meta.snippet : "";
@@ -107,33 +107,21 @@ export function buildUserNotifications(args: {
         };
       }
 
-      // Account lifecycle events
-      if (ev.event_type === "account.reactivated") {
-        return {
-          title: "Compte réactivé",
-          body: "Votre compte a été réactivé avec succès.",
-        };
-      }
-
-      if (ev.event_type === "account.deactivated") {
-        return {
-          title: "Compte désactivé",
-          body: "Votre compte a été désactivé. Vous pouvez le réactiver à tout moment.",
-        };
-      }
-
-      if (ev.event_type === "account.deleted") {
-        return {
-          title: "Compte supprimé",
-          body: "Votre demande de suppression de compte a été traitée.",
-        };
-      }
-
-      if (ev.event_type === "account.export_requested") {
-        return {
-          title: "Export de données",
-          body: "Votre demande d'export de données a été prise en compte.",
-        };
+      // Account lifecycle events - these should NOT create notifications
+      // They are internal events tracked for admin purposes only
+      if (
+        ev.event_type === "account.reactivated" ||
+        ev.event_type === "account.deactivated" ||
+        ev.event_type === "account.deleted" ||
+        ev.event_type === "account.export_requested" ||
+        ev.event_type === "password.reset_requested" ||
+        ev.event_type === "password.reset_link_requested" ||
+        ev.event_type === "password.reset_completed" ||
+        ev.event_type === "password.changed" ||
+        ev.event_type === "password.change_failed" ||
+        ev.event_type === "profile.updated"
+      ) {
+        return null; // Skip - don't create a notification for these events
       }
 
       // Booking events
@@ -237,8 +225,12 @@ export function buildUserNotifications(args: {
       }
 
       return { title: "Notification", body: bookingRef ? `Réservation ${bookingRef}` : String(ev.event_type ?? "").trim() };
-    })();
+    })() as { title: string; body: string } | null;
 
+    // Skip events that should not create notifications
+    if (!formatted) continue;
+
+    const { title, body } = formatted;
     const readAtIso = typeof (ev as any).read_at === "string" && String((ev as any).read_at).trim() ? String((ev as any).read_at).trim() : null;
 
     items.push({

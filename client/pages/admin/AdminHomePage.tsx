@@ -20,6 +20,11 @@ import {
   Save,
   Image,
   BookOpen,
+  Globe,
+  Flag,
+  Video,
+  Play,
+  ExternalLink,
 } from "lucide-react";
 import {
   DndContext,
@@ -64,6 +69,12 @@ import {
   reorderAdminHomeCities,
   deleteAdminHomeCity,
   uploadAdminHomeCityImage,
+  updateAdminHomeCityCountry,
+  listAdminCountries,
+  createAdminCountry,
+  updateAdminCountry,
+  deleteAdminCountry,
+  reorderAdminCountries,
   listAdminCategoryImages,
   createAdminCategoryImage,
   updateAdminCategoryImage,
@@ -73,7 +84,14 @@ import {
   createAdminCategory,
   updateAdminCategory,
   deleteAdminCategory,
+  listAdminHomeVideos,
+  createAdminHomeVideo,
+  updateAdminHomeVideo,
+  reorderAdminHomeVideos,
+  deleteAdminHomeVideo,
+  uploadAdminVideoThumbnail,
   type HomeCurationItemAdmin,
+  type HomeVideoAdmin,
   type HomeCurationKind,
   type EstablishmentListItemAdmin,
   type UniverseAdmin,
@@ -82,6 +100,7 @@ import {
   type HomeCityAdmin,
   type CategoryImageAdmin,
   type CategoryAdmin,
+  type CountryAdmin,
 } from "@/lib/adminApi";
 import { useToast } from "@/hooks/use-toast";
 
@@ -159,6 +178,18 @@ type CityEditorState = {
   slug: string;
   image_url: string | null;
   is_active: boolean;
+  country_code: string;
+};
+
+type VideoEditorState = {
+  id?: string;
+  youtube_url: string;
+  title: string;
+  description: string | null;
+  thumbnail_url: string | null;
+  establishment_id: string | null;
+  establishment_name: string | null;
+  is_active: boolean;
 };
 
 // Sortable City Row Component
@@ -220,6 +251,11 @@ function SortableCityRow({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="font-medium text-slate-900">{city.name}</span>
+          {city.country_code && (
+            <Badge variant="outline" className="text-xs">
+              {city.country_code}
+            </Badge>
+          )}
           {!city.is_active && (
             <Badge variant="secondary" className="text-xs">
               Inactif
@@ -250,6 +286,116 @@ function SortableCityRow({
           size="sm"
           onClick={() => onDelete(city)}
           className="text-red-600 hover:text-red-700 hover:bg-red-50"
+        >
+          <Trash2 className="w-4 h-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// Sortable Country Row Component
+function SortableCountryRow({
+  country,
+  onEdit,
+  onDelete,
+  onToggleActive,
+  onSetDefault,
+}: {
+  country: CountryAdmin;
+  onEdit: (c: CountryAdmin) => void;
+  onDelete: (c: CountryAdmin) => void;
+  onToggleActive: (c: CountryAdmin) => void;
+  onSetDefault: (c: CountryAdmin) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: country.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center gap-4 p-4 bg-white rounded-lg border border-slate-200 hover:border-slate-300 transition"
+    >
+      <button
+        type="button"
+        className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="w-5 h-5" />
+      </button>
+
+      <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0 text-2xl">
+        {country.flag_emoji || "🌍"}
+      </div>
+
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-slate-900">{country.name}</span>
+          <span className="text-sm text-slate-500">({country.code})</span>
+          {country.is_default && (
+            <Badge variant="default" className="text-xs bg-amber-500">
+              ⭐ Par défaut
+            </Badge>
+          )}
+          {!country.is_active && (
+            <Badge variant="secondary" className="text-xs">
+              Inactif
+            </Badge>
+          )}
+        </div>
+        <div className="text-sm text-slate-500 flex items-center gap-3">
+          {country.phone_prefix && <span>{country.phone_prefix}</span>}
+          {country.currency_code && <span>{country.currency_code}</span>}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        {!country.is_default && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onSetDefault(country)}
+            title="Définir comme pays par défaut"
+          >
+            <Star className="w-4 h-4 text-slate-400" />
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onToggleActive(country)}
+          title={country.is_active ? "Désactiver" : "Activer"}
+        >
+          {country.is_active ? (
+            <Power className="w-4 h-4 text-green-600" />
+          ) : (
+            <PowerOff className="w-4 h-4 text-slate-400" />
+          )}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => onEdit(country)}>
+          <Edit3 className="w-4 h-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onDelete(country)}
+          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+          disabled={country.is_default}
+          title={country.is_default ? "Impossible de supprimer le pays par défaut" : "Supprimer"}
         >
           <Trash2 className="w-4 h-4" />
         </Button>
@@ -349,6 +495,135 @@ function SortableUniverseRow({
   );
 }
 
+// Sortable Video Row Component
+function SortableVideoRow({
+  video,
+  onEdit,
+  onDelete,
+  onToggleActive,
+}: {
+  video: HomeVideoAdmin;
+  onEdit: (v: HomeVideoAdmin) => void;
+  onDelete: (v: HomeVideoAdmin) => void;
+  onToggleActive: (v: HomeVideoAdmin) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: video.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  // Extract YouTube video ID for thumbnail
+  const getYoutubeVideoId = (url: string): string | null => {
+    const patterns = [
+      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([^&?\s]+)/,
+    ];
+    for (const pattern of patterns) {
+      const match = url.match(pattern);
+      if (match?.[1]) return match[1];
+    }
+    return null;
+  };
+
+  const videoId = getYoutubeVideoId(video.youtube_url);
+  const thumbnailUrl = videoId
+    ? `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`
+    : null;
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center gap-4 p-4 bg-white rounded-lg border border-slate-200 hover:border-slate-300 transition"
+    >
+      <button
+        type="button"
+        className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="w-5 h-5" />
+      </button>
+
+      <div className="w-24 h-16 rounded-md overflow-hidden bg-slate-100 flex-shrink-0 relative">
+        {thumbnailUrl ? (
+          <>
+            <img
+              src={thumbnailUrl}
+              alt={video.title}
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+              <Play className="w-6 h-6 text-white fill-white" />
+            </div>
+          </>
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-slate-400">
+            <Video className="w-6 h-6" />
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-slate-900 truncate">{video.title}</span>
+          {!video.is_active && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">
+              Inactif
+            </span>
+          )}
+        </div>
+        {video.description && (
+          <p className="text-sm text-slate-500 truncate">{video.description}</p>
+        )}
+        <a
+          href={video.youtube_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs text-primary hover:underline inline-flex items-center gap-1 mt-1"
+        >
+          Voir sur YouTube <ExternalLink className="w-3 h-3" />
+        </a>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onToggleActive(video)}
+          title={video.is_active ? "Désactiver" : "Activer"}
+        >
+          {video.is_active ? (
+            <Power className="w-4 h-4 text-green-600" />
+          ) : (
+            <PowerOff className="w-4 h-4 text-slate-400" />
+          )}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => onEdit(video)}>
+          <Edit3 className="w-4 h-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onDelete(video)}
+          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+        >
+          <Trash2 className="w-4 h-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // Universes for category images
 const UNIVERSES = [
   { value: "restaurants", label: "Restaurants" },
@@ -361,7 +636,7 @@ const UNIVERSES = [
 
 export default function AdminHomePage() {
   const { toast } = useToast();
-  const [tab, setTab] = useState<"appearance" | "curation" | "universes" | "cities" | "categories">("appearance");
+  const [tab, setTab] = useState<"appearance" | "curation" | "universes" | "countries" | "cities" | "videos" | "categories">("appearance");
 
   // ==================== APPEARANCE STATE ====================
   const [homeSettings, setHomeSettings] = useState<HomeSettings | null>(null);
@@ -400,6 +675,24 @@ export default function AdminHomePage() {
   const [universeEditor, setUniverseEditor] =
     useState<UniverseEditorState | null>(null);
 
+  // ==================== COUNTRIES STATE ====================
+  const [countries, setCountries] = useState<CountryAdmin[]>([]);
+  const [countriesLoading, setCountriesLoading] = useState(false);
+  const [countriesError, setCountriesError] = useState<string | null>(null);
+  const [countryDialogOpen, setCountryDialogOpen] = useState(false);
+  const [countrySaving, setCountrySaving] = useState(false);
+  const [countryEditor, setCountryEditor] = useState<{
+    id?: string;
+    name: string;
+    name_en: string;
+    code: string;
+    flag_emoji: string;
+    currency_code: string;
+    phone_prefix: string;
+    is_active: boolean;
+    is_default: boolean;
+  } | null>(null);
+
   // ==================== CITIES STATE ====================
   const [cities, setCities] = useState<HomeCityAdmin[]>([]);
   const [citiesLoading, setCitiesLoading] = useState(false);
@@ -408,6 +701,16 @@ export default function AdminHomePage() {
   const [citySaving, setCitySaving] = useState(false);
   const [cityEditor, setCityEditor] = useState<CityEditorState | null>(null);
   const [cityImageUploading, setCityImageUploading] = useState(false);
+  const [cityCountryFilter, setCityCountryFilter] = useState<string>("");
+
+  // ==================== VIDEOS STATE ====================
+  const [videos, setVideos] = useState<HomeVideoAdmin[]>([]);
+  const [videosLoading, setVideosLoading] = useState(false);
+  const [videosError, setVideosError] = useState<string | null>(null);
+  const [videoDialogOpen, setVideoDialogOpen] = useState(false);
+  const [videoSaving, setVideoSaving] = useState(false);
+  const [videoThumbnailUploading, setVideoThumbnailUploading] = useState(false);
+  const [videoEditor, setVideoEditor] = useState<VideoEditorState | null>(null);
 
   // ==================== CATEGORIES (Category Images) STATE ====================
   const [categoryImages, setCategoryImages] = useState<CategoryImageAdmin[]>([]);
@@ -906,6 +1209,203 @@ export default function AdminHomePage() {
     [universes, refreshUniverses, toast],
   );
 
+  // ==================== COUNTRIES LOGIC ====================
+  const refreshCountries = useCallback(async () => {
+    setCountriesLoading(true);
+    setCountriesError(null);
+    try {
+      const res = await listAdminCountries(undefined, { includeInactive: true });
+      setCountries(res.items ?? []);
+    } catch (e) {
+      setCountriesError(humanAdminError(e));
+    } finally {
+      setCountriesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === "countries") {
+      void refreshCountries();
+    }
+  }, [tab, refreshCountries]);
+
+  const openNewCountry = useCallback(() => {
+    setCountryEditor({
+      name: "",
+      name_en: "",
+      code: "",
+      flag_emoji: "",
+      currency_code: "MAD",
+      phone_prefix: "+212",
+      is_active: true,
+      is_default: false,
+    });
+    setCountryDialogOpen(true);
+  }, []);
+
+  const openEditCountry = useCallback((c: CountryAdmin) => {
+    setCountryEditor({
+      id: c.id,
+      name: c.name,
+      name_en: c.name_en ?? "",
+      code: c.code,
+      flag_emoji: c.flag_emoji ?? "",
+      currency_code: c.currency_code ?? "MAD",
+      phone_prefix: c.phone_prefix ?? "",
+      is_active: c.is_active,
+      is_default: c.is_default,
+    });
+    setCountryDialogOpen(true);
+  }, []);
+
+  const handleDeleteCountry = useCallback(
+    async (c: CountryAdmin) => {
+      if (c.is_default) {
+        toast({
+          title: "Erreur",
+          description: "Impossible de supprimer le pays par défaut",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (!confirm(`Supprimer le pays "${c.name}" ?`)) return;
+      try {
+        await deleteAdminCountry(undefined, c.id);
+        toast({ title: "Pays supprimé" });
+        await refreshCountries();
+      } catch (e) {
+        toast({
+          title: "Erreur",
+          description: humanAdminError(e),
+          variant: "destructive",
+        });
+      }
+    },
+    [refreshCountries, toast],
+  );
+
+  const handleToggleCountryActive = useCallback(
+    async (c: CountryAdmin) => {
+      try {
+        await updateAdminCountry(undefined, {
+          id: c.id,
+          is_active: !c.is_active,
+        });
+        toast({
+          title: c.is_active ? "Pays désactivé" : "Pays activé",
+        });
+        await refreshCountries();
+      } catch (e) {
+        toast({
+          title: "Erreur",
+          description: humanAdminError(e),
+          variant: "destructive",
+        });
+      }
+    },
+    [refreshCountries, toast],
+  );
+
+  const handleSetDefaultCountry = useCallback(
+    async (c: CountryAdmin) => {
+      if (c.is_default) return;
+      try {
+        await updateAdminCountry(undefined, {
+          id: c.id,
+          is_default: true,
+        });
+        toast({ title: `${c.name} est maintenant le pays par défaut` });
+        await refreshCountries();
+      } catch (e) {
+        toast({
+          title: "Erreur",
+          description: humanAdminError(e),
+          variant: "destructive",
+        });
+      }
+    },
+    [refreshCountries, toast],
+  );
+
+  const saveCountry = useCallback(async () => {
+    if (!countryEditor) return;
+    if (!countryEditor.name || !countryEditor.code) {
+      toast({
+        title: "Erreur",
+        description: "Le nom et le code pays sont obligatoires",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setCountrySaving(true);
+    try {
+      if (!countryEditor.id) {
+        await createAdminCountry(undefined, {
+          name: countryEditor.name,
+          name_en: countryEditor.name_en || null,
+          code: countryEditor.code.toUpperCase(),
+          flag_emoji: countryEditor.flag_emoji || null,
+          currency_code: countryEditor.currency_code || null,
+          phone_prefix: countryEditor.phone_prefix || null,
+          is_active: countryEditor.is_active,
+          is_default: countryEditor.is_default,
+        });
+      } else {
+        await updateAdminCountry(undefined, {
+          id: countryEditor.id,
+          name: countryEditor.name,
+          name_en: countryEditor.name_en || null,
+          code: countryEditor.code.toUpperCase(),
+          flag_emoji: countryEditor.flag_emoji || null,
+          currency_code: countryEditor.currency_code || null,
+          phone_prefix: countryEditor.phone_prefix || null,
+          is_active: countryEditor.is_active,
+          is_default: countryEditor.is_default,
+        });
+      }
+      toast({ title: "Enregistré" });
+      setCountryDialogOpen(false);
+      await refreshCountries();
+    } catch (e) {
+      toast({
+        title: "Erreur",
+        description: humanAdminError(e),
+        variant: "destructive",
+      });
+    } finally {
+      setCountrySaving(false);
+    }
+  }, [countryEditor, refreshCountries, toast]);
+
+  const handleCountryDragEnd = useCallback(
+    async (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+
+      const oldIndex = countries.findIndex((c) => c.id === active.id);
+      const newIndex = countries.findIndex((c) => c.id === over.id);
+      const newOrder = arrayMove(countries, oldIndex, newIndex);
+
+      setCountries(newOrder);
+
+      try {
+        await reorderAdminCountries(
+          undefined,
+          newOrder.map((c) => c.id),
+        );
+      } catch (e) {
+        toast({
+          title: "Erreur de réorganisation",
+          description: humanAdminError(e),
+          variant: "destructive",
+        });
+        await refreshCountries();
+      }
+    },
+    [countries, refreshCountries, toast],
+  );
+
   // ==================== CITIES LOGIC ====================
   const refreshCities = useCallback(async () => {
     setCitiesLoading(true);
@@ -923,18 +1423,25 @@ export default function AdminHomePage() {
   useEffect(() => {
     if (tab === "cities") {
       void refreshCities();
+      // Also load countries for the filter
+      if (countries.length === 0) {
+        void refreshCountries();
+      }
     }
-  }, [tab, refreshCities]);
+  }, [tab, refreshCities, refreshCountries, countries.length]);
 
   const openNewCity = useCallback(() => {
+    // Get default country code
+    const defaultCountry = countries.find(c => c.is_default);
     setCityEditor({
       name: "",
       slug: "",
       image_url: null,
       is_active: true,
+      country_code: defaultCountry?.code || "MA",
     });
     setCityDialogOpen(true);
-  }, []);
+  }, [countries]);
 
   const openEditCity = useCallback((c: HomeCityAdmin) => {
     setCityEditor({
@@ -943,6 +1450,7 @@ export default function AdminHomePage() {
       slug: c.slug,
       image_url: c.image_url,
       is_active: c.is_active,
+      country_code: c.country_code || "MA",
     });
     setCityDialogOpen(true);
   }, []);
@@ -1006,6 +1514,7 @@ export default function AdminHomePage() {
           slug: cityEditor.slug,
           image_url: cityEditor.image_url,
           is_active: cityEditor.is_active,
+          country_code: cityEditor.country_code,
         });
       } else {
         await updateAdminHomeCity(undefined, {
@@ -1014,6 +1523,7 @@ export default function AdminHomePage() {
           slug: cityEditor.slug,
           image_url: cityEditor.image_url,
           is_active: cityEditor.is_active,
+          country_code: cityEditor.country_code,
         });
       }
       toast({ title: "Enregistré" });
@@ -1093,6 +1603,192 @@ export default function AdminHomePage() {
     },
     [cities, refreshCities, toast],
   );
+
+  // ==================== VIDEOS LOGIC ====================
+  const refreshVideos = useCallback(async () => {
+    setVideosLoading(true);
+    setVideosError(null);
+    try {
+      const res = await listAdminHomeVideos(undefined, { includeInactive: true });
+      setVideos(res.items ?? []);
+    } catch (e) {
+      setVideosError(humanAdminError(e));
+    } finally {
+      setVideosLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === "videos") {
+      void refreshVideos();
+    }
+  }, [tab, refreshVideos]);
+
+  const openNewVideo = useCallback(() => {
+    setVideoEditor({
+      youtube_url: "",
+      title: "",
+      description: null,
+      thumbnail_url: null,
+      establishment_id: null,
+      establishment_name: null,
+      is_active: true,
+    });
+    setVideoDialogOpen(true);
+  }, []);
+
+  const openEditVideo = useCallback((v: HomeVideoAdmin) => {
+    setVideoEditor({
+      id: v.id,
+      youtube_url: v.youtube_url,
+      title: v.title,
+      description: v.description,
+      thumbnail_url: v.thumbnail_url ?? null,
+      establishment_id: v.establishment_id ?? null,
+      establishment_name: v.establishment_name ?? null,
+      is_active: v.is_active,
+    });
+    setVideoDialogOpen(true);
+  }, []);
+
+  const handleDeleteVideo = useCallback(
+    async (v: HomeVideoAdmin) => {
+      if (!confirm(`Supprimer la vidéo "${v.title}" ?`)) return;
+      try {
+        await deleteAdminHomeVideo(undefined, v.id);
+        toast({ title: "Vidéo supprimée" });
+        await refreshVideos();
+      } catch (e) {
+        toast({
+          title: "Erreur",
+          description: humanAdminError(e),
+          variant: "destructive",
+        });
+      }
+    },
+    [refreshVideos, toast],
+  );
+
+  const handleToggleVideoActive = useCallback(
+    async (v: HomeVideoAdmin) => {
+      try {
+        await updateAdminHomeVideo(undefined, {
+          id: v.id,
+          is_active: !v.is_active,
+        });
+        toast({
+          title: v.is_active ? "Vidéo désactivée" : "Vidéo activée",
+        });
+        await refreshVideos();
+      } catch (e) {
+        toast({
+          title: "Erreur",
+          description: humanAdminError(e),
+          variant: "destructive",
+        });
+      }
+    },
+    [refreshVideos, toast],
+  );
+
+  const saveVideo = useCallback(async () => {
+    if (!videoEditor) return;
+    if (!videoEditor.youtube_url || !videoEditor.title) {
+      toast({
+        title: "Erreur",
+        description: "L'URL YouTube et le titre sont obligatoires",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate YouTube URL format
+    const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|embed\/|shorts\/)|youtu\.be\/)[\w-]+/;
+    if (!youtubeRegex.test(videoEditor.youtube_url)) {
+      toast({
+        title: "Erreur",
+        description: "URL YouTube invalide",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setVideoSaving(true);
+    try {
+      if (!videoEditor.id) {
+        await createAdminHomeVideo(undefined, {
+          youtube_url: videoEditor.youtube_url,
+          title: videoEditor.title,
+          description: videoEditor.description,
+          thumbnail_url: videoEditor.thumbnail_url,
+          establishment_id: videoEditor.establishment_id,
+          is_active: videoEditor.is_active,
+        });
+      } else {
+        await updateAdminHomeVideo(undefined, {
+          id: videoEditor.id,
+          youtube_url: videoEditor.youtube_url,
+          title: videoEditor.title,
+          description: videoEditor.description,
+          thumbnail_url: videoEditor.thumbnail_url,
+          establishment_id: videoEditor.establishment_id,
+          is_active: videoEditor.is_active,
+        });
+      }
+      toast({ title: "Enregistré" });
+      setVideoDialogOpen(false);
+      await refreshVideos();
+    } catch (e) {
+      toast({
+        title: "Erreur",
+        description: humanAdminError(e),
+        variant: "destructive",
+      });
+    } finally {
+      setVideoSaving(false);
+    }
+  }, [videoEditor, refreshVideos, toast]);
+
+  const handleVideoDragEnd = useCallback(
+    async (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+
+      const oldIndex = videos.findIndex((v) => v.id === active.id);
+      const newIndex = videos.findIndex((v) => v.id === over.id);
+
+      const newOrder = arrayMove(videos, oldIndex, newIndex);
+      setVideos(newOrder);
+
+      try {
+        await reorderAdminHomeVideos(
+          undefined,
+          newOrder.map((v) => v.id),
+        );
+        toast({ title: "Ordre mis à jour" });
+      } catch (e) {
+        toast({
+          title: "Erreur",
+          description: humanAdminError(e),
+          variant: "destructive",
+        });
+        await refreshVideos();
+      }
+    },
+    [videos, refreshVideos, toast],
+  );
+
+  // Helper to extract YouTube video ID
+  const getYoutubeVideoId = useCallback((url: string): string | null => {
+    const patterns = [
+      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([^&?\s]+)/,
+    ];
+    for (const pattern of patterns) {
+      const match = url.match(pattern);
+      if (match?.[1]) return match[1];
+    }
+    return null;
+  }, []);
 
   // ==================== CATEGORIES (Category Images) LOGIC ====================
   const refreshCategoryImages = useCallback(async () => {
@@ -1670,7 +2366,9 @@ export default function AdminHomePage() {
           <TabsTrigger value="appearance">Apparence</TabsTrigger>
           <TabsTrigger value="curation">Sections Homepage</TabsTrigger>
           <TabsTrigger value="universes">Univers</TabsTrigger>
+          <TabsTrigger value="countries">Pays</TabsTrigger>
           <TabsTrigger value="cities">Villes</TabsTrigger>
+          <TabsTrigger value="videos">Vidéos</TabsTrigger>
           <TabsTrigger value="categories">Catégories</TabsTrigger>
         </TabsList>
 
@@ -2253,12 +2951,106 @@ export default function AdminHomePage() {
           </div>
         </TabsContent>
 
+        {/* ==================== COUNTRIES TAB ==================== */}
+        <TabsContent value="countries" className="space-y-4 mt-4">
+          <div className="flex justify-between items-center">
+            <p className="text-sm text-slate-600">
+              Gérez les pays où la plateforme opère. Le pays détecté automatiquement filtrera les villes affichées.
+            </p>
+            <Button className="gap-2" onClick={openNewCountry}>
+              <Plus className="w-4 h-4" />
+              Ajouter un pays
+            </Button>
+          </div>
+
+          {countriesError && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+              {countriesError}
+            </div>
+          )}
+
+          {countriesLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+            </div>
+          ) : countries.length === 0 ? (
+            <div className="text-center py-12 text-slate-500">
+              <Globe className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p>Aucun pays configuré</p>
+              <p className="text-sm mt-1">
+                Ajoutez des pays pour permettre le filtrage géographique
+              </p>
+            </div>
+          ) : (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleCountryDragEnd}
+            >
+              <SortableContext
+                items={countries.map((c) => c.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="space-y-2">
+                  {countries.map((country) => (
+                    <SortableCountryRow
+                      key={country.id}
+                      country={country}
+                      onEdit={openEditCountry}
+                      onDelete={handleDeleteCountry}
+                      onToggleActive={handleToggleCountryActive}
+                      onSetDefault={handleSetDefaultCountry}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+          )}
+
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <h3 className="font-semibold text-slate-900 mb-2">
+              À propos des pays
+            </h3>
+            <ul className="text-sm text-slate-600 space-y-1">
+              <li>
+                • Le pays par défaut (⭐) est utilisé si la détection automatique échoue
+              </li>
+              <li>
+                • Les villes sont associées à un pays via leur code pays (MA, FR, etc.)
+              </li>
+              <li>
+                • La détection automatique utilise l'adresse IP de l'utilisateur
+              </li>
+              <li>
+                • Les pays désactivés ne sont pas proposés aux utilisateurs
+              </li>
+            </ul>
+          </div>
+        </TabsContent>
+
         {/* ==================== CITIES TAB ==================== */}
         <TabsContent value="cities" className="space-y-4 mt-4">
           <div className="flex justify-between items-center">
-            <p className="text-sm text-slate-600">
-              Gérez les villes affichées dans la section "Autres villes au Maroc" de la page d'accueil.
-            </p>
+            <div className="flex items-center gap-4">
+              <p className="text-sm text-slate-600">
+                Gérez les villes affichées dans la section "Autres villes" de la page d'accueil.
+              </p>
+              {countries.length > 1 && (
+                <Select value={cityCountryFilter || "__all__"} onValueChange={(v) => setCityCountryFilter(v === "__all__" ? "" : v)}>
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Tous les pays" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">Tous les pays</SelectItem>
+                    {countries.map((c) => (
+                      <SelectItem key={c.id} value={c.code}>
+                        {c.flag_emoji} {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
             <Button className="gap-2" onClick={openNewCity}>
               <Plus className="w-4 h-4" />
               Ajouter une ville
@@ -2324,6 +3116,88 @@ export default function AdminHomePage() {
               </li>
               <li>
                 • Les villes désactivées ne sont pas visibles pour les utilisateurs
+              </li>
+            </ul>
+          </div>
+        </TabsContent>
+
+        {/* ==================== VIDEOS TAB ==================== */}
+        <TabsContent value="videos" className="space-y-4 mt-4">
+          <div className="flex justify-between items-center">
+            <p className="text-sm text-slate-600">
+              Gérez les vidéos YouTube affichées dans la section vidéos de la page d'accueil.
+            </p>
+            <Button className="gap-2" onClick={openNewVideo}>
+              <Plus className="w-4 h-4" />
+              Ajouter une vidéo
+            </Button>
+          </div>
+
+          {videosError && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+              {videosError}
+            </div>
+          )}
+
+          {videosLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+            </div>
+          ) : videos.length === 0 ? (
+            <div className="text-center py-12 text-slate-500">
+              <Video className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p>Aucune vidéo configurée</p>
+              <p className="text-sm mt-1">
+                Ajoutez des vidéos YouTube pour les afficher sur la page d'accueil
+              </p>
+            </div>
+          ) : (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleVideoDragEnd}
+            >
+              <SortableContext
+                items={videos.map((v) => v.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="space-y-2">
+                  {videos.map((video) => (
+                    <SortableVideoRow
+                      key={video.id}
+                      video={video}
+                      onEdit={openEditVideo}
+                      onDelete={handleDeleteVideo}
+                      onToggleActive={handleToggleVideoActive}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+          )}
+
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <h3 className="font-semibold text-slate-900 mb-2">
+              A propos des vidéos
+            </h3>
+            <ul className="text-sm text-slate-600 space-y-1">
+              <li>
+                • Les vidéos s'affichent dans un carousel sur la page d'accueil
+              </li>
+              <li>
+                • Utilisez des URLs YouTube valides (youtube.com/watch?v=..., youtu.be/..., etc.)
+              </li>
+              <li>
+                • Les miniatures sont automatiquement extraites de YouTube
+              </li>
+              <li>
+                • Sur mobile: toucher 3 secondes affiche un aperçu animé, cliquer ouvre en plein écran
+              </li>
+              <li>
+                • Sur desktop: cliquer ouvre un lecteur modal avec option plein écran
+              </li>
+              <li>
+                • Les vidéos désactivées ne sont pas visibles pour les utilisateurs
               </li>
             </ul>
           </div>
@@ -2885,27 +3759,59 @@ export default function AdminHomePage() {
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label>Slug URL *</Label>
-                <Input
-                  value={cityEditor.slug}
-                  onChange={(e) =>
-                    setCityEditor((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            slug: e.target.value
-                              .toLowerCase()
-                              .replace(/[^a-z0-9-]/g, ""),
-                          }
-                        : prev,
-                    )
-                  }
-                  placeholder="ex: casablanca, marrakech, rabat"
-                />
-                <p className="text-xs text-slate-500">
-                  L'URL sera: /villes/{cityEditor.slug || "slug"}
-                </p>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Slug URL *</Label>
+                  <Input
+                    value={cityEditor.slug}
+                    onChange={(e) =>
+                      setCityEditor((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              slug: e.target.value
+                                .toLowerCase()
+                                .replace(/[^a-z0-9-]/g, ""),
+                            }
+                          : prev,
+                      )
+                    }
+                    placeholder="ex: casablanca, marrakech, rabat"
+                  />
+                  <p className="text-xs text-slate-500">
+                    L'URL sera: /villes/{cityEditor.slug || "slug"}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Pays</Label>
+                  <Select
+                    value={cityEditor.country_code}
+                    onValueChange={(v) =>
+                      setCityEditor((prev) =>
+                        prev ? { ...prev, country_code: v } : prev,
+                      )
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Sélectionner un pays" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {countries.length > 0 ? (
+                        countries.map((country) => (
+                          <SelectItem key={country.id} value={country.code}>
+                            {country.flag_emoji} {country.name} ({country.code})
+                          </SelectItem>
+                        ))
+                      ) : (
+                        <SelectItem value="MA">🇲🇦 Maroc (MA)</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500">
+                    Code ISO du pays de cette ville
+                  </p>
+                </div>
               </div>
 
               {cityEditor.id && (
@@ -3003,6 +3909,172 @@ export default function AdminHomePage() {
               className="gap-2"
             >
               {citySaving && <Loader2 className="w-4 h-4 animate-spin" />}
+              Enregistrer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ==================== COUNTRY EDITOR DIALOG ==================== */}
+      <Dialog open={countryDialogOpen} onOpenChange={setCountryDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {countryEditor?.id ? "Modifier le pays" : "Ajouter un pays"}
+            </DialogTitle>
+          </DialogHeader>
+
+          {countryEditor && (
+            <div className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Nom du pays *</Label>
+                  <Input
+                    value={countryEditor.name}
+                    onChange={(e) =>
+                      setCountryEditor((prev) =>
+                        prev ? { ...prev, name: e.target.value } : prev,
+                      )
+                    }
+                    placeholder="ex: Maroc, France"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Nom (anglais)</Label>
+                  <Input
+                    value={countryEditor.name_en}
+                    onChange={(e) =>
+                      setCountryEditor((prev) =>
+                        prev ? { ...prev, name_en: e.target.value } : prev,
+                      )
+                    }
+                    placeholder="ex: Morocco, France"
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label>Code pays (ISO) *</Label>
+                  <Input
+                    value={countryEditor.code}
+                    onChange={(e) =>
+                      setCountryEditor((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              code: e.target.value
+                                .toUpperCase()
+                                .replace(/[^A-Z]/g, "")
+                                .slice(0, 2),
+                            }
+                          : prev,
+                      )
+                    }
+                    placeholder="MA"
+                    maxLength={2}
+                  />
+                  <p className="text-xs text-slate-500">ISO 3166-1 alpha-2</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Emoji drapeau</Label>
+                  <Input
+                    value={countryEditor.flag_emoji}
+                    onChange={(e) =>
+                      setCountryEditor((prev) =>
+                        prev ? { ...prev, flag_emoji: e.target.value } : prev,
+                      )
+                    }
+                    placeholder="🇲🇦"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Préfixe tél.</Label>
+                  <Input
+                    value={countryEditor.phone_prefix}
+                    onChange={(e) =>
+                      setCountryEditor((prev) =>
+                        prev ? { ...prev, phone_prefix: e.target.value } : prev,
+                      )
+                    }
+                    placeholder="+212"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Code devise</Label>
+                <Input
+                  value={countryEditor.currency_code}
+                  onChange={(e) =>
+                    setCountryEditor((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            currency_code: e.target.value.toUpperCase().slice(0, 3),
+                          }
+                        : prev,
+                    )
+                  }
+                  placeholder="MAD"
+                  maxLength={3}
+                />
+                <p className="text-xs text-slate-500">ISO 4217 (ex: MAD, EUR, USD)</p>
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg border p-4">
+                <div>
+                  <div className="font-medium">Actif</div>
+                  <div className="text-sm text-slate-500">
+                    Les pays inactifs ne sont pas proposés aux utilisateurs
+                  </div>
+                </div>
+                <Switch
+                  checked={countryEditor.is_active}
+                  onCheckedChange={(v) =>
+                    setCountryEditor((prev) =>
+                      prev ? { ...prev, is_active: v } : prev,
+                    )
+                  }
+                />
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg border p-4">
+                <div>
+                  <div className="font-medium">Pays par défaut</div>
+                  <div className="text-sm text-slate-500">
+                    Utilisé si la détection automatique échoue
+                  </div>
+                </div>
+                <Switch
+                  checked={countryEditor.is_default}
+                  onCheckedChange={(v) =>
+                    setCountryEditor((prev) =>
+                      prev ? { ...prev, is_default: v } : prev,
+                    )
+                  }
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setCountryDialogOpen(false)}
+              disabled={countrySaving}
+            >
+              Annuler
+            </Button>
+            <Button
+              onClick={saveCountry}
+              disabled={countrySaving}
+              className="gap-2"
+            >
+              {countrySaving && <Loader2 className="w-4 h-4 animate-spin" />}
               Enregistrer
             </Button>
           </DialogFooter>
@@ -3187,6 +4259,235 @@ export default function AdminHomePage() {
               disabled={categorySaving}
             >
               {categorySaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Enregistrer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ==================== VIDEO EDITOR DIALOG ==================== */}
+      <Dialog open={videoDialogOpen} onOpenChange={setVideoDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {videoEditor?.id ? "Modifier la vidéo" : "Ajouter une vidéo"}
+            </DialogTitle>
+          </DialogHeader>
+
+          {videoEditor && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>URL YouTube *</Label>
+                <Input
+                  value={videoEditor.youtube_url}
+                  onChange={(e) =>
+                    setVideoEditor((prev) =>
+                      prev ? { ...prev, youtube_url: e.target.value } : prev,
+                    )
+                  }
+                  placeholder="https://www.youtube.com/watch?v=..."
+                />
+                <p className="text-xs text-slate-500">
+                  Formats acceptés: youtube.com/watch?v=..., youtu.be/..., youtube.com/shorts/...
+                </p>
+              </div>
+
+              {/* Thumbnail preview - custom or YouTube */}
+              {(videoEditor.thumbnail_url || (videoEditor.youtube_url && getYoutubeVideoId(videoEditor.youtube_url))) && (
+                <div className="rounded-lg overflow-hidden border border-slate-200 relative">
+                  <img
+                    src={videoEditor.thumbnail_url || `https://img.youtube.com/vi/${getYoutubeVideoId(videoEditor.youtube_url)}/mqdefault.jpg`}
+                    alt="Aperçu"
+                    className="w-full h-auto"
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                    <Play className="w-12 h-12 text-white fill-white" />
+                  </div>
+                  {videoEditor.thumbnail_url && (
+                    <div className="absolute top-2 left-2 px-2 py-1 bg-green-600 text-white text-xs rounded">
+                      Couverture personnalisée
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Custom thumbnail upload */}
+              <div className="space-y-2">
+                <Label>Couverture personnalisée (optionnelle)</Label>
+                <div className="flex items-center gap-3">
+                  <label className="flex-1">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={videoThumbnailUploading}
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        // Check file size (max 500KB)
+                        if (file.size > 512000) {
+                          toast({
+                            title: "Erreur",
+                            description: "L'image ne doit pas dépasser 500KB",
+                            variant: "destructive",
+                          });
+                          return;
+                        }
+                        setVideoThumbnailUploading(true);
+                        try {
+                          const result = await uploadAdminVideoThumbnail(undefined, {
+                            file,
+                            fileName: file.name,
+                          });
+                          setVideoEditor((prev) =>
+                            prev ? { ...prev, thumbnail_url: result.item.public_url } : prev
+                          );
+                          toast({ title: "Image uploadée" });
+                        } catch (err) {
+                          toast({
+                            title: "Erreur",
+                            description: humanAdminError(err),
+                            variant: "destructive",
+                          });
+                        } finally {
+                          setVideoThumbnailUploading(false);
+                        }
+                        e.target.value = "";
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full gap-2"
+                      disabled={videoThumbnailUploading}
+                      asChild
+                    >
+                      <span>
+                        {videoThumbnailUploading ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Upload className="w-4 h-4" />
+                        )}
+                        {videoEditor.thumbnail_url ? "Changer l'image" : "Uploader une image"}
+                      </span>
+                    </Button>
+                  </label>
+                  {videoEditor.thumbnail_url && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() =>
+                        setVideoEditor((prev) =>
+                          prev ? { ...prev, thumbnail_url: null } : prev
+                        )
+                      }
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500">
+                  640×360px recommandé (ratio 16:9), max 500KB. Sans image, la miniature YouTube sera utilisée.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Titre *</Label>
+                <Input
+                  value={videoEditor.title}
+                  onChange={(e) =>
+                    setVideoEditor((prev) =>
+                      prev ? { ...prev, title: e.target.value } : prev,
+                    )
+                  }
+                  placeholder="Titre de la vidéo"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Description (optionnelle)</Label>
+                <Textarea
+                  value={videoEditor.description || ""}
+                  onChange={(e) =>
+                    setVideoEditor((prev) =>
+                      prev ? { ...prev, description: e.target.value || null } : prev,
+                    )
+                  }
+                  placeholder="Description courte de la vidéo..."
+                  rows={3}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Établissement lié (optionnel)</Label>
+                <Select
+                  value={videoEditor.establishment_id || "none"}
+                  onValueChange={(v) =>
+                    setVideoEditor((prev) => {
+                      if (!prev) return prev;
+                      if (v === "none") {
+                        return { ...prev, establishment_id: null, establishment_name: null };
+                      }
+                      const est = allEstablishments.find((e) => e.id === v);
+                      return {
+                        ...prev,
+                        establishment_id: v,
+                        establishment_name: est?.name ?? null,
+                      };
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sélectionner un établissement..." />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-60">
+                    <SelectItem value="none">Aucun établissement</SelectItem>
+                    {allEstablishments.map((est) => (
+                      <SelectItem key={est.id} value={est.id}>
+                        {est.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500">
+                  Si un établissement est lié, un lien vers sa fiche s'affichera sous la vidéo
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg border p-4">
+                <div>
+                  <div className="font-medium">Active</div>
+                  <div className="text-sm text-slate-500">
+                    Les vidéos inactives ne sont pas visibles sur la homepage
+                  </div>
+                </div>
+                <Switch
+                  checked={videoEditor.is_active}
+                  onCheckedChange={(v) =>
+                    setVideoEditor((prev) =>
+                      prev ? { ...prev, is_active: v } : prev,
+                    )
+                  }
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setVideoDialogOpen(false)}
+              disabled={videoSaving}
+            >
+              Annuler
+            </Button>
+            <Button
+              onClick={saveVideo}
+              disabled={videoSaving}
+              className="gap-2"
+            >
+              {videoSaving && <Loader2 className="w-4 h-4 animate-spin" />}
               Enregistrer
             </Button>
           </DialogFooter>

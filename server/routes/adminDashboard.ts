@@ -75,7 +75,12 @@ type DashboardStats = {
   // Packs
   packsSold: { value: number; delta: string };
   packsRevenue: { value: number; delta: string };
-  mediaPacksSold: { value: number; delta: string };
+
+  // Pro Services (Visibility)
+  usernameSubscriptionsSold: { value: number; delta: string };
+  menuDigitalSold: { value: number; delta: string };
+  videosSold: { value: number; delta: string };
+  complementaryServicesSold: { value: number; delta: string };
 
   // Payout
   pendingPayouts: { value: number; delta: string };
@@ -139,6 +144,16 @@ export function registerAdminDashboardRoutes(router: Router): void {
         // Packs sold
         packsRes,
         prevPacksRes,
+
+        // Pro Services (Visibility)
+        usernameSubsRes,
+        prevUsernameSubsRes,
+        menuDigitalRes,
+        prevMenuDigitalRes,
+        videosRes,
+        prevVideosRes,
+        complementaryServicesRes,
+        prevComplementaryServicesRes,
 
         // Pending payouts
         payoutsRes,
@@ -246,6 +261,70 @@ export function registerAdminDashboardRoutes(router: Router): void {
           .select("amount", { count: "exact" })
           .gte("created_at", prevStartStr)
           .lte("created_at", prevEndStr),
+
+        // Pro Services: Username subscriptions sold (from visibility_order_items via orders)
+        supabase
+          .from("visibility_order_items")
+          .select("id, visibility_orders!inner(id, payment_status, created_at)", { count: "exact", head: true })
+          .eq("type", "username_subscription")
+          .eq("visibility_orders.payment_status", "paid")
+          .gte("visibility_orders.created_at", startStr)
+          .lte("visibility_orders.created_at", endStr),
+        supabase
+          .from("visibility_order_items")
+          .select("id, visibility_orders!inner(id, payment_status, created_at)", { count: "exact", head: true })
+          .eq("type", "username_subscription")
+          .eq("visibility_orders.payment_status", "paid")
+          .gte("visibility_orders.created_at", prevStartStr)
+          .lte("visibility_orders.created_at", prevEndStr),
+
+        // Pro Services: Menu Digital sold (from visibility_order_items via orders)
+        supabase
+          .from("visibility_order_items")
+          .select("id, visibility_orders!inner(id, payment_status, created_at)", { count: "exact", head: true })
+          .eq("type", "menu_digital")
+          .eq("visibility_orders.payment_status", "paid")
+          .gte("visibility_orders.created_at", startStr)
+          .lte("visibility_orders.created_at", endStr),
+        supabase
+          .from("visibility_order_items")
+          .select("id, visibility_orders!inner(id, payment_status, created_at)", { count: "exact", head: true })
+          .eq("type", "menu_digital")
+          .eq("visibility_orders.payment_status", "paid")
+          .gte("visibility_orders.created_at", prevStartStr)
+          .lte("visibility_orders.created_at", prevEndStr),
+
+        // Pro Services: Videos sold (media_video type)
+        supabase
+          .from("visibility_order_items")
+          .select("id, visibility_orders!inner(id, payment_status, created_at)", { count: "exact", head: true })
+          .eq("type", "media_video")
+          .eq("visibility_orders.payment_status", "paid")
+          .gte("visibility_orders.created_at", startStr)
+          .lte("visibility_orders.created_at", endStr),
+        supabase
+          .from("visibility_order_items")
+          .select("id, visibility_orders!inner(id, payment_status, created_at)", { count: "exact", head: true })
+          .eq("type", "media_video")
+          .eq("visibility_orders.payment_status", "paid")
+          .gte("visibility_orders.created_at", prevStartStr)
+          .lte("visibility_orders.created_at", prevEndStr),
+
+        // Pro Services: Complementary services (pack type - includes bundles/packs of services)
+        supabase
+          .from("visibility_order_items")
+          .select("id, visibility_orders!inner(id, payment_status, created_at)", { count: "exact", head: true })
+          .eq("type", "pack")
+          .eq("visibility_orders.payment_status", "paid")
+          .gte("visibility_orders.created_at", startStr)
+          .lte("visibility_orders.created_at", endStr),
+        supabase
+          .from("visibility_order_items")
+          .select("id, visibility_orders!inner(id, payment_status, created_at)", { count: "exact", head: true })
+          .eq("type", "pack")
+          .eq("visibility_orders.payment_status", "paid")
+          .gte("visibility_orders.created_at", prevStartStr)
+          .lte("visibility_orders.created_at", prevEndStr),
 
         // Pending payouts
         supabase.from("payout_requests").select("amount").eq("status", "pending"),
@@ -431,9 +510,22 @@ export function registerAdminDashboardRoutes(router: Router): void {
           value: packsRevenue,
           delta: calculateDelta(packsRevenue, prevPacksRevenue),
         },
-        mediaPacksSold: {
-          value: Math.round((packsRes.count || 0) * 0.32), // Estimate
-          delta: calculateDelta((packsRes.count || 0) * 0.32, (prevPacksRes.count || 0) * 0.32),
+
+        usernameSubscriptionsSold: {
+          value: usernameSubsRes.count || 0,
+          delta: calculateDelta(usernameSubsRes.count || 0, prevUsernameSubsRes.count || 0),
+        },
+        menuDigitalSold: {
+          value: menuDigitalRes.count || 0,
+          delta: calculateDelta(menuDigitalRes.count || 0, prevMenuDigitalRes.count || 0),
+        },
+        videosSold: {
+          value: videosRes.count || 0,
+          delta: calculateDelta(videosRes.count || 0, prevVideosRes.count || 0),
+        },
+        complementaryServicesSold: {
+          value: complementaryServicesRes.count || 0,
+          delta: calculateDelta(complementaryServicesRes.count || 0, prevComplementaryServicesRes.count || 0),
         },
 
         pendingPayouts: {

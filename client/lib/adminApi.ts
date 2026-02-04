@@ -456,7 +456,8 @@ export type ConsumerUser = {
   first_name: string | null;
   last_name: string | null;
   phone: string | null;
-  email: string;
+  email: string | null;
+  auth_method?: "email" | "phone";
   status: string;
   city: string;
   country: string;
@@ -511,8 +512,8 @@ export class AdminApiError extends Error {
   }
 }
 
-const STORAGE_KEY = "sam_booking_admin_api_key";
-const SESSION_TOKEN_KEY = "sam_booking_admin_session_token";
+const STORAGE_KEY = "sam_admin_api_key";
+const SESSION_TOKEN_KEY = "sam_admin_session_token";
 
 export function loadAdminApiKey(): string | null {
   try {
@@ -1629,11 +1630,20 @@ export async function setProUserMemberships(
   );
 }
 
+export type RegeneratePasswordResponse = {
+  ok: true;
+  message: string;
+  credentials: {
+    email: string;
+    password: string;
+  };
+};
+
 export async function regenerateProUserPassword(
   adminKey: string | undefined,
   userId: string,
-): Promise<{ ok: true; message: string }> {
-  return requestJson<{ ok: true; message: string }>(
+): Promise<RegeneratePasswordResponse> {
+  return requestJson<RegeneratePasswordResponse>(
     `/api/admin/pros/users/${encodeURIComponent(userId)}/regenerate-password`,
     adminKey,
     {
@@ -2843,6 +2853,19 @@ export async function markAllAdminNotificationsRead(
     {
       method: "POST",
       body: JSON.stringify({}),
+    },
+  );
+}
+
+export async function deleteAdminNotification(
+  adminKey: string | undefined,
+  id: string,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/alerts/${encodeURIComponent(id)}`,
+    adminKey,
+    {
+      method: "DELETE",
     },
   );
 }
@@ -4084,7 +4107,7 @@ export type AdminTestEmailSenderKey =
   | "support"
   | "pro"
   | "finance"
-  | "no-reply";
+  | "noreply";
 
 export async function sendAdminTestEmail(
   adminKey: string | undefined,
@@ -4207,6 +4230,42 @@ export async function updateAdminEmailBranding(
       method: "POST",
       body: JSON.stringify(args),
     },
+  );
+}
+
+export async function uploadEmailBrandingLogo(
+  adminKey: string | undefined,
+  file: Blob,
+): Promise<{ ok: true; url: string; path: string; size_bytes: number }> {
+  const session = getStoredAdminSession();
+  const headers: Record<string, string> = {
+    "Content-Type": file.type,
+  };
+  if (adminKey) headers["x-admin-key"] = adminKey;
+  if (session?.token) headers["x-admin-session"] = session.token;
+
+  const response = await fetch("/api/admin/emails/branding/logo/upload", {
+    method: "POST",
+    headers,
+    body: file,
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: "Upload failed" }));
+    throw new AdminApiError(err.error || "Upload failed", response.status);
+  }
+
+  return response.json();
+}
+
+export async function deleteEmailBrandingLogo(
+  adminKey: string | undefined,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    "/api/admin/emails/branding/logo",
+    adminKey,
+    { method: "DELETE" },
   );
 }
 
@@ -6068,6 +6127,7 @@ export type HomeCityAdmin = {
   image_url: string | null;
   sort_order: number;
   is_active: boolean;
+  country_code: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -6093,6 +6153,7 @@ export async function createAdminHomeCity(
     image_url?: string | null;
     sort_order?: number;
     is_active?: boolean;
+    country_code?: string;
   },
 ): Promise<{ id: string }> {
   return requestJson<{ id: string }>(
@@ -6111,6 +6172,7 @@ export async function updateAdminHomeCity(
     image_url?: string | null;
     sort_order?: number;
     is_active?: boolean;
+    country_code?: string;
   },
 ): Promise<{ ok: true }> {
   return requestJson<{ ok: true }>(
@@ -6152,6 +6214,254 @@ export async function uploadAdminHomeCityImage(
     `/api/admin/home-cities/${encodeURIComponent(cityId)}/image`,
     adminKey,
     { method: "POST", body: JSON.stringify({ image: imageBase64, mime_type: mimeType }) },
+  );
+}
+
+export async function updateAdminHomeCityCountry(
+  adminKey: string | undefined,
+  cityId: string,
+  countryCode: string,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/home-cities/${encodeURIComponent(cityId)}/country`,
+    adminKey,
+    { method: "POST", body: JSON.stringify({ country_code: countryCode }) },
+  );
+}
+
+// ============================================
+// HOME VIDEOS MANAGEMENT
+// ============================================
+
+export type HomeVideoAdmin = {
+  id: string;
+  youtube_url: string;
+  title: string;
+  description: string | null;
+  thumbnail_url: string | null;
+  establishment_id: string | null;
+  establishment_name?: string | null;
+  establishment_universe?: string | null;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function listAdminHomeVideos(
+  adminKey: string | undefined,
+  options?: { includeInactive?: boolean },
+): Promise<{ items: HomeVideoAdmin[] }> {
+  const params = new URLSearchParams();
+  if (options?.includeInactive) params.set("include_inactive", "true");
+  const qs = params.toString();
+  return requestJson<{ items: HomeVideoAdmin[] }>(
+    `/api/admin/home-videos${qs ? `?${qs}` : ""}`,
+    adminKey,
+  );
+}
+
+export async function createAdminHomeVideo(
+  adminKey: string | undefined,
+  data: {
+    youtube_url: string;
+    title: string;
+    description?: string | null;
+    thumbnail_url?: string | null;
+    establishment_id?: string | null;
+    sort_order?: number;
+    is_active?: boolean;
+  },
+): Promise<{ id: string }> {
+  return requestJson<{ id: string }>(
+    "/api/admin/home-videos",
+    adminKey,
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function updateAdminHomeVideo(
+  adminKey: string | undefined,
+  data: {
+    id: string;
+    youtube_url?: string;
+    title?: string;
+    description?: string | null;
+    thumbnail_url?: string | null;
+    establishment_id?: string | null;
+    sort_order?: number;
+    is_active?: boolean;
+  },
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/home-videos/${encodeURIComponent(data.id)}/update`,
+    adminKey,
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function reorderAdminHomeVideos(
+  adminKey: string | undefined,
+  order: string[],
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    "/api/admin/home-videos/reorder",
+    adminKey,
+    { method: "POST", body: JSON.stringify({ order }) },
+  );
+}
+
+export async function deleteAdminHomeVideo(
+  adminKey: string | undefined,
+  id: string,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/home-videos/${encodeURIComponent(id)}/delete`,
+    adminKey,
+    { method: "POST" },
+  );
+}
+
+export type VideoThumbnailUploadResult = {
+  bucket: string;
+  path: string;
+  public_url: string;
+  mime_type: string;
+  size_bytes: number;
+};
+
+export async function uploadAdminVideoThumbnail(
+  adminKey: string | undefined,
+  args: { file: Blob; fileName: string },
+): Promise<{ ok: true; item: VideoThumbnailUploadResult }> {
+  const sessionToken = loadAdminSessionToken();
+
+  const headers: Record<string, string> = {
+    "content-type": args.file.type || "application/octet-stream",
+    "x-file-name": args.fileName,
+  };
+
+  if (adminKey) headers["x-admin-key"] = adminKey;
+  if (sessionToken) headers["x-admin-session"] = sessionToken;
+
+  const res = await fetch("/api/admin/home-videos/upload-thumbnail", {
+    method: "POST",
+    headers,
+    body: args.file,
+  });
+
+  const json = (await res.json().catch(() => null)) as any;
+  if (!res.ok) {
+    const message =
+      json && typeof json.error === "string"
+        ? json.error
+        : `HTTP_${res.status}`;
+    throw new AdminApiError(message, res.status);
+  }
+
+  return json as { ok: true; item: VideoThumbnailUploadResult };
+}
+
+// ============================================
+// COUNTRIES MANAGEMENT
+// ============================================
+
+export type CountryAdmin = {
+  id: string;
+  name: string;
+  name_en: string | null;
+  code: string;
+  flag_emoji: string | null;
+  currency_code: string | null;
+  phone_prefix: string | null;
+  default_locale: string | null;
+  timezone: string | null;
+  is_active: boolean;
+  is_default: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function listAdminCountries(
+  adminKey: string | undefined,
+  options?: { includeInactive?: boolean },
+): Promise<{ items: CountryAdmin[] }> {
+  const params = new URLSearchParams();
+  if (options?.includeInactive) params.set("include_inactive", "true");
+  const qs = params.toString();
+  return requestJson<{ items: CountryAdmin[] }>(
+    `/api/admin/countries${qs ? `?${qs}` : ""}`,
+    adminKey,
+  );
+}
+
+export async function createAdminCountry(
+  adminKey: string | undefined,
+  data: {
+    name: string;
+    code: string;
+    name_en?: string | null;
+    flag_emoji?: string | null;
+    currency_code?: string | null;
+    phone_prefix?: string | null;
+    default_locale?: string | null;
+    timezone?: string | null;
+    is_active?: boolean;
+    is_default?: boolean;
+    sort_order?: number;
+  },
+): Promise<{ id: string }> {
+  return requestJson<{ id: string }>(
+    "/api/admin/countries",
+    adminKey,
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function updateAdminCountry(
+  adminKey: string | undefined,
+  data: {
+    id: string;
+    name?: string;
+    code?: string;
+    name_en?: string | null;
+    flag_emoji?: string | null;
+    currency_code?: string | null;
+    phone_prefix?: string | null;
+    default_locale?: string | null;
+    timezone?: string | null;
+    is_active?: boolean;
+    is_default?: boolean;
+    sort_order?: number;
+  },
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/countries/${encodeURIComponent(data.id)}/update`,
+    adminKey,
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function deleteAdminCountry(
+  adminKey: string | undefined,
+  id: string,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/countries/${encodeURIComponent(id)}/delete`,
+    adminKey,
+    { method: "POST" },
+  );
+}
+
+export async function reorderAdminCountries(
+  adminKey: string | undefined,
+  order: string[],
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    "/api/admin/countries/reorder",
+    adminKey,
+    { method: "POST", body: JSON.stringify({ order }) },
   );
 }
 
@@ -6371,5 +6681,185 @@ export async function resolveAdminReport(
     `/api/admin/reports/${encodeURIComponent(reportId)}/resolve`,
     adminKey,
     { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Username moderation
+// ---------------------------------------------------------------------------
+
+export type UsernameRequest = {
+  id: string;
+  establishment_id: string;
+  requested_username: string;
+  requested_by: string;
+  status: "pending" | "approved" | "rejected";
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  rejection_reason: string | null;
+  created_at: string;
+  updated_at: string;
+  establishments?: {
+    id: string;
+    name: string | null;
+    city: string | null;
+    username: string | null;
+  };
+};
+
+export async function listUsernameRequests(
+  adminKey: string | undefined,
+  options?: {
+    status?: string;
+    limit?: number;
+    offset?: number;
+  },
+): Promise<{
+  requests: UsernameRequest[];
+  total: number;
+  limit: number;
+  offset: number;
+}> {
+  const params = new URLSearchParams();
+  if (options?.status) params.set("status", options.status);
+  if (options?.limit) params.set("limit", String(options.limit));
+  if (options?.offset) params.set("offset", String(options.offset));
+
+  const query = params.toString();
+  return requestJson<{
+    requests: UsernameRequest[];
+    total: number;
+    limit: number;
+    offset: number;
+  }>(`/api/admin/username-requests${query ? `?${query}` : ""}`, adminKey);
+}
+
+export async function approveUsernameRequest(
+  adminKey: string | undefined,
+  requestId: string,
+): Promise<{ ok: true; message: string }> {
+  return requestJson<{ ok: true; message: string }>(
+    `/api/admin/username-requests/${encodeURIComponent(requestId)}/approve`,
+    adminKey,
+    { method: "POST" },
+  );
+}
+
+export async function rejectUsernameRequest(
+  adminKey: string | undefined,
+  requestId: string,
+  reason?: string,
+): Promise<{ ok: true; message: string }> {
+  return requestJson<{ ok: true; message: string }>(
+    `/api/admin/username-requests/${encodeURIComponent(requestId)}/reject`,
+    adminKey,
+    { method: "POST", body: JSON.stringify({ reason }) },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Username Subscriptions (Admin)
+// ---------------------------------------------------------------------------
+
+export type AdminUsernameSubscription = {
+  id: string;
+  establishment_id: string;
+  visibility_order_id: string | null;
+  status: "trial" | "pending" | "active" | "expired" | "grace_period" | "cancelled";
+  is_trial: boolean;
+  trial_ends_at: string | null;
+  starts_at: string | null;
+  expires_at: string | null;
+  grace_period_ends_at: string | null;
+  cancelled_at: string | null;
+  price_cents: number;
+  currency: string;
+  created_at: string;
+  updated_at: string;
+  // Joined data
+  establishment_name?: string | null;
+  establishment_city?: string | null;
+  username?: string | null;
+  days_remaining?: number;
+};
+
+export type AdminUsernameSubscriptionStats = {
+  active_count: number;
+  trial_count: number;
+  grace_period_count: number;
+  expired_count: number;
+  mrr_cents: number;
+  arr_cents: number;
+  expiring_this_month: number;
+  expiring_next_month: number;
+};
+
+export async function listAdminUsernameSubscriptions(
+  adminKey: string | undefined,
+  options?: {
+    status?: string;
+    establishment_id?: string;
+    limit?: number;
+    offset?: number;
+  },
+): Promise<{
+  ok: true;
+  subscriptions: AdminUsernameSubscription[];
+  total: number;
+}> {
+  const params = new URLSearchParams();
+  if (options?.status) params.set("status", options.status);
+  if (options?.establishment_id) params.set("establishment_id", options.establishment_id);
+  if (options?.limit) params.set("limit", String(options.limit));
+  if (options?.offset) params.set("offset", String(options.offset));
+
+  const query = params.toString();
+  return requestJson<{
+    ok: true;
+    subscriptions: AdminUsernameSubscription[];
+    total: number;
+  }>(`/api/admin/username-subscriptions${query ? `?${query}` : ""}`, adminKey);
+}
+
+export async function getAdminUsernameSubscriptionStats(
+  adminKey: string | undefined,
+): Promise<{
+  ok: true;
+  stats: AdminUsernameSubscriptionStats;
+}> {
+  return requestJson<{
+    ok: true;
+    stats: AdminUsernameSubscriptionStats;
+  }>("/api/admin/username-subscriptions/stats", adminKey);
+}
+
+export async function extendAdminUsernameSubscription(
+  adminKey: string | undefined,
+  subscriptionId: string,
+  days: number,
+  reason?: string,
+): Promise<{ ok: true; message: string }> {
+  return requestJson<{ ok: true; message: string }>(
+    `/api/admin/username-subscriptions/${encodeURIComponent(subscriptionId)}/extend`,
+    adminKey,
+    {
+      method: "POST",
+      body: JSON.stringify({ days, reason }),
+    },
+  );
+}
+
+export async function cancelAdminUsernameSubscription(
+  adminKey: string | undefined,
+  subscriptionId: string,
+  reason?: string,
+): Promise<{ ok: true; message: string }> {
+  return requestJson<{ ok: true; message: string }>(
+    `/api/admin/username-subscriptions/${encodeURIComponent(subscriptionId)}/cancel`,
+    adminKey,
+    {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    },
   );
 }

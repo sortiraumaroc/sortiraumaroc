@@ -279,7 +279,7 @@ export async function submitEstablishmentLead(req: Request, res: Response) {
 
     sendLoggedEmail({
       emailId: `${emailIdBase}-ack`,
-      fromKey: "no-reply",
+      fromKey: "noreply",
       to: [email],
       subject: ackSubject,
       bodyText: ackBody,
@@ -407,7 +407,7 @@ export async function submitProDemoRequest(req: Request, res: Response) {
 
     sendLoggedEmail({
       emailId: `${emailIdBase}-ack`,
-      fromKey: "no-reply",
+      fromKey: "noreply",
       to: [email],
       subject: ackSubject,
       bodyText: ackBody,

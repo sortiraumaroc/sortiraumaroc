@@ -8,6 +8,11 @@ import { PKPass } from "passkit-generator";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
+import { fileURLToPath } from "url";
+
+// ESM equivalent of __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 interface WalletPassRequest {
   bookingReference: string;
@@ -77,11 +82,13 @@ export async function createAppleWalletPass(
     // Check if Apple Wallet credentials are configured
     const passTypeId = process.env.APPLE_WALLET_PASS_TYPE_ID;
     const teamId = process.env.APPLE_WALLET_TEAM_ID;
-    const certPath = process.env.APPLE_WALLET_CERT_PATH;
-    const certPassword = process.env.APPLE_WALLET_CERT_PASSWORD || "";
+    const signerCertPath = process.env.APPLE_WALLET_SIGNER_CERT_PATH;
+    const signerKeyPath = process.env.APPLE_WALLET_SIGNER_KEY_PATH;
+    const signerKeyPassphrase = process.env.APPLE_WALLET_CERT_PASSWORD || "";
 
-    if (!passTypeId || !teamId || !certPath) {
+    if (!passTypeId || !teamId || !signerCertPath || !signerKeyPath) {
       console.log("[wallet] Apple Wallet credentials not configured, using demo mode");
+      console.log("[wallet] Config check:", { passTypeId, teamId, signerCertPath, signerKeyPath });
 
       res.json({
         success: true,
@@ -89,30 +96,37 @@ export async function createAppleWalletPass(
         message: "Apple Wallet integration en mode démo",
         setupInstructions: {
           step1: "Obtenir un compte Apple Developer",
-          step2: "Créer un Pass Type ID (ex: pass.ma.sambooking.reservation)",
-          step3: "Générer et exporter le certificat en .p12",
+          step2: "Créer un Pass Type ID (ex: pass.ma.sam.reservation)",
+          step3: "Exporter le certificat (.pem) et la clé privée (.pem) séparément",
           step4: "Définir les variables d'environnement:",
           variables: [
-            "APPLE_WALLET_PASS_TYPE_ID=pass.ma.sambooking.reservation",
+            "APPLE_WALLET_PASS_TYPE_ID=pass.ma.sambooking.booking",
             "APPLE_WALLET_TEAM_ID=VOTRE_TEAM_ID",
-            "APPLE_WALLET_CERT_PATH=/chemin/vers/certificat.p12",
-            "APPLE_WALLET_CERT_PASSWORD=mot_de_passe",
+            "APPLE_WALLET_SIGNER_CERT_PATH=/chemin/vers/signerCert.pem",
+            "APPLE_WALLET_SIGNER_KEY_PATH=/chemin/vers/signerKey.pem",
+            "APPLE_WALLET_CERT_PASSWORD=mot_de_passe_cle",
           ],
         },
       });
       return;
     }
 
-    // Verify certificate file exists
-    if (!fs.existsSync(certPath)) {
-      console.error(`[wallet] Certificate file not found: ${certPath}`);
+    // Verify certificate files exist
+    if (!fs.existsSync(signerCertPath)) {
+      console.error(`[wallet] Signer certificate not found: ${signerCertPath}`);
       res.status(500).json({ error: "Certificate configuration error" });
+      return;
+    }
+    if (!fs.existsSync(signerKeyPath)) {
+      console.error(`[wallet] Signer key not found: ${signerKeyPath}`);
+      res.status(500).json({ error: "Key configuration error" });
       return;
     }
 
     try {
       // Load certificates
-      const signerCert = fs.readFileSync(certPath);
+      const signerCert = fs.readFileSync(signerCertPath);
+      const signerKey = fs.readFileSync(signerKeyPath);
       const wwdrCert = await getWWDRCertificate();
 
       // Format date for display
@@ -125,8 +139,8 @@ export async function createAppleWalletPass(
         {
           wwdr: wwdrCert,
           signerCert: signerCert,
-          signerKey: signerCert,
-          signerKeyPassphrase: certPassword,
+          signerKey: signerKey,
+          signerKeyPassphrase: signerKeyPassphrase,
         },
         {
           formatVersion: 1,
@@ -255,7 +269,7 @@ export async function createAppleWalletPass(
         success: true,
         passData: base64Pass,
         mimeType: "application/vnd.apple.pkpass",
-        filename: `sambooking-${data.bookingReference}.pkpass`,
+        filename: `sam-${data.bookingReference}.pkpass`,
       });
 
     } catch (signError) {
@@ -329,7 +343,7 @@ export async function createGoogleWalletPass(
 
     // Google Wallet Generic Pass object
     const passObject = {
-      id: `sambooking.reservation.${data.bookingReference}`,
+      id: `sam.reservation.${data.bookingReference}`,
       classId: `sam.reservation_class`,
       genericType: "GENERIC_TYPE_UNSPECIFIED",
       hexBackgroundColor: "#a3001d",

@@ -1,5 +1,5 @@
 import React, { Fragment, useEffect, useMemo, useState } from "react";
-import { Pencil, CheckCircle, ShieldCheck } from "lucide-react";
+import { Pencil, CheckCircle, ShieldCheck, ChevronDown, Search, Mail, Phone } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,11 +14,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useI18n } from "@/lib/i18n";
-import { isAuthed } from "@/lib/auth";
+import { isAuthed, getConsumerAuthInfo, type ConsumerAuthInfo } from "@/lib/auth";
 import { updateMyConsumerMe } from "@/lib/consumerMeApi";
 import type { SocioProfessionalStatus, UserProfile } from "@/lib/userData";
 import { saveUserProfile } from "@/lib/userData";
+import { COUNTRIES, findCountryByCity, parsePhoneNumber } from "@/lib/countriesData";
 
 function formatUpdatedAt(updatedAtIso: string | undefined, intlLocale: string): string | null {
   if (!updatedAtIso) return null;
@@ -112,12 +118,27 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
 
   const [firstName, setFirstName] = useState(profile.firstName ?? "");
   const [lastName, setLastName] = useState(profile.lastName ?? "");
-  const [contact, setContact] = useState(profile.contact ?? "");
+
+  // Téléphone: séparer indicatif et numéro
+  const initialPhone = parsePhoneNumber(profile.contact ?? "");
+  const [phoneDialCode, setPhoneDialCode] = useState(initialPhone.dialCode);
+  const [phoneNumber, setPhoneNumber] = useState(initialPhone.number);
+  const [phonePopoverOpen, setPhonePopoverOpen] = useState(false);
+  const [phoneSearchQuery, setPhoneSearchQuery] = useState("");
+
   const [socioProfessionalStatus, setSocioProfessionalStatus] = useState<SocioProfessionalStatus | "">(
     profile.socio_professional_status ?? "",
   );
   const [dateOfBirth, setDateOfBirth] = useState(profile.date_of_birth ?? "");
+
+  // Pays et ville
+  const initialCountry = findCountryByCity(profile.city ?? "");
+  const [selectedCountryCode, setSelectedCountryCode] = useState(initialCountry?.code ?? "");
   const [city, setCity] = useState(profile.city ?? "");
+  const [countryPopoverOpen, setCountryPopoverOpen] = useState(false);
+  const [countrySearchQuery, setCountrySearchQuery] = useState("");
+  const [cityPopoverOpen, setCityPopoverOpen] = useState(false);
+  const [citySearchQuery, setCitySearchQuery] = useState("");
 
   const [error, setError] = useState<string | null>(null);
   const [remoteSyncError, setRemoteSyncError] = useState<string | null>(null);
@@ -131,13 +152,62 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
   // Vérification du téléphone (pour empêcher la modification après vérification)
   const isPhoneVerified = profile.phoneVerified ?? false;
 
+  // Auth info (email/phone utilisé pour la connexion)
+  const [authInfo, setAuthInfo] = useState<ConsumerAuthInfo | null>(null);
+
+  useEffect(() => {
+    if (isAuthed()) {
+      getConsumerAuthInfo().then(setAuthInfo).catch(() => setAuthInfo(null));
+    }
+  }, []);
+
+  // Obtenir le pays sélectionné
+  const selectedCountry = COUNTRIES.find(c => c.code === selectedCountryCode);
+
+  // Filtrer les pays pour le sélecteur de téléphone
+  const filteredPhoneCountries = useMemo(() => {
+    if (!phoneSearchQuery.trim()) return COUNTRIES;
+    const query = phoneSearchQuery.toLowerCase();
+    return COUNTRIES.filter(
+      c => c.name.toLowerCase().includes(query) ||
+           c.dialCode.includes(query) ||
+           c.code.toLowerCase().includes(query)
+    );
+  }, [phoneSearchQuery]);
+
+  // Filtrer les pays pour le sélecteur de pays
+  const filteredCountries = useMemo(() => {
+    if (!countrySearchQuery.trim()) return COUNTRIES;
+    const query = countrySearchQuery.toLowerCase();
+    return COUNTRIES.filter(
+      c => c.name.toLowerCase().includes(query) ||
+           c.code.toLowerCase().includes(query)
+    );
+  }, [countrySearchQuery]);
+
+  // Filtrer les villes du pays sélectionné
+  const filteredCities = useMemo(() => {
+    if (!selectedCountry) return [];
+    if (!citySearchQuery.trim()) return selectedCountry.cities;
+    const query = citySearchQuery.toLowerCase();
+    return selectedCountry.cities.filter(c => c.toLowerCase().includes(query));
+  }, [selectedCountry, citySearchQuery]);
+
   useEffect(() => {
     setFirstName(profile.firstName ?? "");
     setLastName(profile.lastName ?? "");
-    setContact(profile.contact ?? "");
+
+    const parsed = parsePhoneNumber(profile.contact ?? "");
+    setPhoneDialCode(parsed.dialCode);
+    setPhoneNumber(parsed.number);
+
     setSocioProfessionalStatus(profile.socio_professional_status ?? "");
     setDateOfBirth(profile.date_of_birth ?? "");
+
+    const country = findCountryByCity(profile.city ?? "");
+    setSelectedCountryCode(country?.code ?? "");
     setCity(profile.city ?? "");
+
     setSavedAtIso(null);
     setError(null);
     setRemoteSyncError(null);
@@ -158,6 +228,12 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
 
   const updatedAtLabel = useMemo(() => formatUpdatedAt(profile.updatedAtIso, intlLocale), [intlLocale, profile.updatedAtIso]);
 
+  // Combiner indicatif + numéro pour le stockage
+  const getFullPhoneNumber = () => {
+    if (!phoneNumber.trim()) return "";
+    return `${phoneDialCode}${phoneNumber.trim()}`;
+  };
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (saving) return;
@@ -167,11 +243,13 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
     setRemoteSyncError(null);
     setSavedAtIso(null);
 
+    const fullPhone = getFullPhoneNumber();
+
     try {
       const res = saveUserProfile({
         firstName,
         lastName,
-        contact,
+        contact: fullPhone,
         socio_professional_status: socioProfessionalStatus === "" ? undefined : socioProfessionalStatus,
         date_of_birth: dateOfBirth.trim() ? dateOfBirth.trim() : undefined,
         city,
@@ -190,7 +268,7 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
           await updateMyConsumerMe({
             first_name: firstName.trim() ? firstName.trim() : null,
             last_name: lastName.trim() ? lastName.trim() : null,
-            phone: contact.trim() ? contact.trim() : null,
+            phone: fullPhone ? fullPhone : null,
           });
         } catch {
           setRemoteSyncError("Impossible de synchroniser vos infos pour le pré-remplissage. Vous pouvez quand même réserver.");
@@ -208,6 +286,12 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
   const handleEnableEditing = () => {
     setIsEditing(true);
     setSavedAtIso(null);
+  };
+
+  // Quand on change de pays, réinitialiser la ville
+  const handleCountryChange = (countryCode: string) => {
+    setSelectedCountryCode(countryCode);
+    setCity(""); // Reset city when country changes
   };
 
   // Styles pour les champs désactivés (mode lecture)
@@ -236,6 +320,40 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
         )}
       </div>
 
+      {/* Identifiants de connexion - affiché si l'utilisateur est connecté */}
+      {authInfo && (authInfo.email || authInfo.phone) && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <div className="text-sm font-medium text-slate-700 mb-3">{t("profile.info.login_credentials")}</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Email de connexion */}
+            {authInfo.email && (
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center w-9 h-9 rounded-full bg-white border border-slate-200">
+                  <Mail className="w-4 h-4 text-slate-500" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs text-slate-500">{t("profile.info.email.label")}</div>
+                  <div className="text-sm font-medium text-foreground truncate">{authInfo.email}</div>
+                </div>
+              </div>
+            )}
+
+            {/* Téléphone de connexion (si inscrit via téléphone) */}
+            {authInfo.phone && authInfo.authMethod === "phone" && (
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center w-9 h-9 rounded-full bg-white border border-slate-200">
+                  <Phone className="w-4 h-4 text-slate-500" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs text-slate-500">{t("profile.info.phone.login_label")}</div>
+                  <div className="text-sm font-medium text-foreground truncate">{authInfo.phone}</div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Prénom - toujours éditable (pas grisé après enregistrement) */}
         <div className="space-y-2">
@@ -259,7 +377,7 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
           />
         </div>
 
-        {/* Téléphone - grisé si vérifié ou en mode lecture */}
+        {/* Téléphone avec indicatif pays */}
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <Label htmlFor="profile-contact">{t("profile.info.phone.label")}</Label>
@@ -270,15 +388,80 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
               </span>
             )}
           </div>
-          <Input
-            id="profile-contact"
-            value={contact}
-            onChange={(e) => setContact(e.target.value)}
-            inputMode="tel"
-            placeholder={t("profile.info.phone.placeholder")}
-            disabled={isPhoneVerified || !isEditing}
-            className={isPhoneVerified || !isEditing ? disabledInputClass : ""}
-          />
+          <div className="flex gap-2">
+            {/* Sélecteur d'indicatif pays */}
+            <Popover open={phonePopoverOpen} onOpenChange={(open) => {
+              setPhonePopoverOpen(open);
+              if (!open) setPhoneSearchQuery("");
+            }}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={`w-[120px] justify-between px-2 ${isPhoneVerified || !isEditing ? disabledInputClass : ""}`}
+                  disabled={isPhoneVerified || !isEditing}
+                >
+                  <span className="flex items-center gap-1 text-sm truncate">
+                    {COUNTRIES.find(c => c.dialCode === phoneDialCode)?.flag || "🌍"}
+                    <span className="font-medium">{phoneDialCode}</span>
+                  </span>
+                  <ChevronDown className="h-4 w-4 opacity-50 flex-shrink-0" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[300px] p-0" align="start">
+                {/* Barre de recherche */}
+                <div className="p-2 border-b">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+                    <Input
+                      placeholder="Rechercher un pays..."
+                      value={phoneSearchQuery}
+                      onChange={(e) => setPhoneSearchQuery(e.target.value)}
+                      className="pl-8 h-9"
+                    />
+                  </div>
+                </div>
+                {/* Liste des pays */}
+                <div className="max-h-[250px] overflow-y-auto p-1">
+                  {filteredPhoneCountries.length === 0 ? (
+                    <div className="py-4 text-center text-sm text-slate-500">
+                      Aucun pays trouvé
+                    </div>
+                  ) : (
+                    filteredPhoneCountries.map((country) => (
+                      <button
+                        key={country.code}
+                        type="button"
+                        className={`w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded hover:bg-slate-100 transition-colors ${
+                          phoneDialCode === country.dialCode ? "bg-slate-100 font-medium" : ""
+                        }`}
+                        onClick={() => {
+                          setPhoneDialCode(country.dialCode);
+                          setPhonePopoverOpen(false);
+                          setPhoneSearchQuery("");
+                        }}
+                      >
+                        <span className="text-base">{country.flag}</span>
+                        <span className="flex-1 text-left truncate">{country.name}</span>
+                        <span className="text-slate-500 text-xs">{country.dialCode}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            {/* Numéro de téléphone */}
+            <Input
+              id="profile-contact"
+              value={phoneNumber}
+              onChange={(e) => setPhoneNumber(e.target.value)}
+              inputMode="tel"
+              placeholder="6 12 34 56 78"
+              disabled={isPhoneVerified || !isEditing}
+              className={`flex-1 ${isPhoneVerified || !isEditing ? disabledInputClass : ""}`}
+            />
+          </div>
           <div className="text-xs text-slate-600">
             {isPhoneVerified
               ? t("profile.info.phone.verified_help")
@@ -332,17 +515,149 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
           <div className="text-xs text-slate-600">{t("profile.info.dob.help")}</div>
         </div>
 
-        {/* Ville - grisé en mode lecture */}
+        {/* Pays - avec recherche */}
+        <div className="space-y-2">
+          <Label>Pays</Label>
+          <Popover open={countryPopoverOpen} onOpenChange={(open) => {
+            if (!isEditing) return;
+            setCountryPopoverOpen(open);
+            if (!open) setCountrySearchQuery("");
+          }}>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                className={`w-full justify-between ${!isEditing ? disabledInputClass : ""}`}
+                disabled={!isEditing}
+              >
+                <span className="flex items-center gap-2 truncate">
+                  {selectedCountry ? (
+                    <>
+                      <span>{selectedCountry.flag}</span>
+                      <span>{selectedCountry.name}</span>
+                    </>
+                  ) : (
+                    <span className="text-slate-500">Sélectionnez votre pays</span>
+                  )}
+                </span>
+                <ChevronDown className="h-4 w-4 opacity-50 flex-shrink-0" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[300px] p-0" align="start">
+              {/* Barre de recherche */}
+              <div className="p-2 border-b">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+                  <Input
+                    placeholder="Rechercher un pays..."
+                    value={countrySearchQuery}
+                    onChange={(e) => setCountrySearchQuery(e.target.value)}
+                    className="pl-8 h-9"
+                  />
+                </div>
+              </div>
+              {/* Liste des pays */}
+              <div className="max-h-[250px] overflow-y-auto p-1">
+                {filteredCountries.length === 0 ? (
+                  <div className="py-4 text-center text-sm text-slate-500">
+                    Aucun pays trouvé
+                  </div>
+                ) : (
+                  filteredCountries.map((country) => (
+                    <button
+                      key={country.code}
+                      type="button"
+                      className={`w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded hover:bg-slate-100 transition-colors ${
+                        selectedCountryCode === country.code ? "bg-slate-100 font-medium" : ""
+                      }`}
+                      onClick={() => {
+                        handleCountryChange(country.code);
+                        setCountryPopoverOpen(false);
+                        setCountrySearchQuery("");
+                      }}
+                    >
+                      <span className="text-base">{country.flag}</span>
+                      <span className="flex-1 text-left truncate">{country.name}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
+
+        {/* Ville - avec recherche */}
         <div className="space-y-2">
           <Label htmlFor="profile-city">{t("profile.info.city.label")}</Label>
-          <Input
-            id="profile-city"
-            value={city}
-            onChange={(e) => setCity(e.target.value)}
-            placeholder={t("profile.info.city.placeholder")}
-            disabled={!isEditing}
-            className={!isEditing ? disabledInputClass : ""}
-          />
+          {selectedCountry ? (
+            <Popover open={cityPopoverOpen} onOpenChange={(open) => {
+              if (!isEditing) return;
+              setCityPopoverOpen(open);
+              if (!open) setCitySearchQuery("");
+            }}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={`w-full justify-between ${!isEditing ? disabledInputClass : ""}`}
+                  disabled={!isEditing}
+                >
+                  <span className="truncate">
+                    {city || <span className="text-slate-500">Sélectionnez votre ville</span>}
+                  </span>
+                  <ChevronDown className="h-4 w-4 opacity-50 flex-shrink-0" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[300px] p-0" align="start">
+                {/* Barre de recherche */}
+                <div className="p-2 border-b">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+                    <Input
+                      placeholder="Rechercher une ville..."
+                      value={citySearchQuery}
+                      onChange={(e) => setCitySearchQuery(e.target.value)}
+                      className="pl-8 h-9"
+                    />
+                  </div>
+                </div>
+                {/* Liste des villes */}
+                <div className="max-h-[250px] overflow-y-auto p-1">
+                  {filteredCities.length === 0 ? (
+                    <div className="py-4 text-center text-sm text-slate-500">
+                      Aucune ville trouvée
+                    </div>
+                  ) : (
+                    filteredCities.map((cityName) => (
+                      <button
+                        key={cityName}
+                        type="button"
+                        className={`w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded hover:bg-slate-100 transition-colors ${
+                          city === cityName ? "bg-slate-100 font-medium" : ""
+                        }`}
+                        onClick={() => {
+                          setCity(cityName);
+                          setCityPopoverOpen(false);
+                          setCitySearchQuery("");
+                        }}
+                      >
+                        <span className="flex-1 text-left">{cityName}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              className={`w-full justify-start ${disabledInputClass}`}
+              disabled
+            >
+              <span className="text-slate-500">Sélectionnez d'abord un pays</span>
+            </Button>
+          )}
         </div>
       </div>
 

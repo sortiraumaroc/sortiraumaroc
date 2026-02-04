@@ -579,6 +579,7 @@ export function ProInventoryManager({ establishment, role }: Props) {
         open={itemDialogOpen}
         onOpenChange={setItemDialogOpen}
         establishmentId={establishment.id}
+        universe={establishment.universe}
         categories={categories}
         item={itemToEdit}
         canWrite={canEdit}

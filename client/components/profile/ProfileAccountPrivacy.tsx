@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Eye, EyeOff, Key, Mail } from "lucide-react";
 
 import { useI18n } from "@/lib/i18n";
 
@@ -14,7 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 
 import { clearAuthed } from "@/lib/auth";
 import { clearUserLocalData } from "@/lib/userData";
-import { deactivateMyConsumerAccount, deleteMyConsumerAccount, requestMyConsumerDataExport } from "@/lib/consumerAccountApi";
+import { deactivateMyConsumerAccount, deleteMyConsumerAccount, requestMyConsumerDataExport, requestPasswordResetLink, changePassword } from "@/lib/consumerAccountApi";
 
 function SectionCard({
   title,
@@ -153,6 +154,18 @@ export function ProfileAccountPrivacy() {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
+  // Password management states
+  const [passwordResetLoading, setPasswordResetLoading] = useState(false);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [changePasswordLoading, setChangePasswordLoading] = useState(false);
+  const [changePasswordError, setChangePasswordError] = useState<string | null>(null);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
   const confirmWord = t("profile.privacy.delete.confirm_word");
 
   const selectedDeactivate = deactivateReasons.find((r) => r.code === deactivateReason) ?? deactivateReasons[0];
@@ -190,6 +203,82 @@ export function ProfileAccountPrivacy() {
       });
     } finally {
       setExportLoading(false);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    setPasswordResetLoading(true);
+    try {
+      await requestPasswordResetLink();
+      toast({
+        title: t("profile.password.reset.toast.title"),
+        description: t("profile.password.reset.toast.description"),
+      });
+    } catch (e) {
+      const errorMsg = e instanceof Error ? e.message : "";
+      if (errorMsg === "no_email" || errorMsg.includes("phone_only")) {
+        toast({
+          variant: "destructive",
+          title: t("profile.password.reset.error.phone_only.title"),
+          description: t("profile.password.reset.error.phone_only.description"),
+        });
+      } else {
+        toast({
+          variant: "destructive",
+          title: t("common.error.generic"),
+          description: errorMsg || t("common.error.unexpected"),
+        });
+      }
+    } finally {
+      setPasswordResetLoading(false);
+    }
+  };
+
+  const resetChangePasswordDialog = () => {
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setChangePasswordError(null);
+    setChangePasswordLoading(false);
+    setShowCurrentPassword(false);
+    setShowNewPassword(false);
+    setShowConfirmPassword(false);
+  };
+
+  const handleChangePassword = async () => {
+    setChangePasswordError(null);
+
+    if (newPassword.length < 8) {
+      setChangePasswordError(t("profile.password.change.error.too_short"));
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setChangePasswordError(t("profile.password.change.error.mismatch"));
+      return;
+    }
+
+    setChangePasswordLoading(true);
+    try {
+      await changePassword({
+        current_password: currentPassword,
+        new_password: newPassword,
+      });
+      toast({
+        title: t("profile.password.change.toast.title"),
+        description: t("profile.password.change.toast.description"),
+      });
+      setChangePasswordOpen(false);
+      resetChangePasswordDialog();
+    } catch (e) {
+      const errorMsg = e instanceof Error ? e.message : "";
+      if (errorMsg.includes("invalid_current_password")) {
+        setChangePasswordError(t("profile.password.change.error.invalid_current"));
+      } else {
+        setChangePasswordError(errorMsg || t("common.error.unexpected"));
+      }
+    } finally {
+      setChangePasswordLoading(false);
     }
   };
 
@@ -251,14 +340,9 @@ export function ProfileAccountPrivacy() {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-lg border border-slate-200 bg-primary/5 p-4">
-        <div className="font-bold text-foreground">{t("profile.privacy.title")}</div>
-        <div className="mt-1 text-sm text-slate-700">{t("profile.privacy.subtitle")}</div>
-      </div>
-
-      <SectionCard title={t("profile.privacy.export.title")} description={t("profile.privacy.export.description")}> 
+      <SectionCard title={t("profile.privacy.export.title")} description={t("profile.privacy.export.description")}>
         <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-          <Select value={exportFormat} onValueChange={(v) => setExportFormat(v === "csv" ? "csv" : "json")}> 
+          <Select value={exportFormat} onValueChange={(v) => setExportFormat(v === "csv" ? "csv" : "json")}>
             <SelectTrigger className="w-full sm:w-[160px]">
               <SelectValue />
             </SelectTrigger>
@@ -272,6 +356,148 @@ export function ProfileAccountPrivacy() {
           </Button>
         </div>
       </SectionCard>
+
+      {/* Password Management Section */}
+      <div className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5">
+        <div className="flex items-center gap-2 mb-1">
+          <Key className="w-5 h-5 text-slate-500" />
+          <div className="font-bold text-foreground">{t("profile.password.title")}</div>
+        </div>
+        <div className="text-sm text-slate-600 mb-4">{t("profile.password.description")}</div>
+
+        <div className="space-y-4">
+          {/* Reset Password (send by email) */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 rounded-lg bg-slate-50 border border-slate-100">
+            <div className="flex items-start gap-3">
+              <Mail className="w-5 h-5 text-slate-400 shrink-0 mt-0.5" />
+              <div>
+                <div className="text-sm font-medium text-foreground">{t("profile.password.reset.title")}</div>
+                <div className="text-xs text-slate-500">{t("profile.password.reset.description")}</div>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void handlePasswordReset()}
+              disabled={passwordResetLoading}
+              className="shrink-0"
+            >
+              {passwordResetLoading ? t("profile.password.reset.button.loading") : t("profile.password.reset.button")}
+            </Button>
+          </div>
+
+          {/* Change Password */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 rounded-lg bg-slate-50 border border-slate-100">
+            <div className="flex items-start gap-3">
+              <Key className="w-5 h-5 text-slate-400 shrink-0 mt-0.5" />
+              <div>
+                <div className="text-sm font-medium text-foreground">{t("profile.password.change.title")}</div>
+                <div className="text-xs text-slate-500">{t("profile.password.change.description")}</div>
+              </div>
+            </div>
+            <AlertDialog
+              open={changePasswordOpen}
+              onOpenChange={(open) => {
+                setChangePasswordOpen(open);
+                if (!open) resetChangePasswordDialog();
+              }}
+            >
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" size="sm" className="shrink-0">
+                  {t("profile.password.change.button")}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>{t("profile.password.change.dialog.title")}</AlertDialogTitle>
+                  <AlertDialogDescription>{t("profile.password.change.dialog.description")}</AlertDialogDescription>
+                </AlertDialogHeader>
+
+                <div className="mt-4 space-y-4">
+                  {/* Current Password */}
+                  <div className="space-y-2">
+                    <Label>{t("profile.password.change.current")}</Label>
+                    <div className="relative">
+                      <Input
+                        type={showCurrentPassword ? "text" : "password"}
+                        value={currentPassword}
+                        onChange={(e) => setCurrentPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      >
+                        {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* New Password */}
+                  <div className="space-y-2">
+                    <Label>{t("profile.password.change.new")}</Label>
+                    <div className="relative">
+                      <Input
+                        type={showNewPassword ? "text" : "password"}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowNewPassword(!showNewPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      >
+                        {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    <div className="text-xs text-slate-500">{t("profile.password.change.hint")}</div>
+                  </div>
+
+                  {/* Confirm Password */}
+                  <div className="space-y-2">
+                    <Label>{t("profile.password.change.confirm")}</Label>
+                    <div className="relative">
+                      <Input
+                        type={showConfirmPassword ? "text" : "password"}
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      >
+                        {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {changePasswordError ? <div className="text-sm text-red-600">{changePasswordError}</div> : null}
+                </div>
+
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={changePasswordLoading}>{t("common.cancel")}</AlertDialogCancel>
+                  <AlertDialogAction asChild>
+                    <Button
+                      onClick={() => void handleChangePassword()}
+                      disabled={changePasswordLoading || !currentPassword || !newPassword || !confirmPassword}
+                      className="bg-primary hover:bg-primary/90 text-white font-bold"
+                    >
+                      {changePasswordLoading ? t("profile.password.change.button.loading") : t("profile.password.change.button.confirm")}
+                    </Button>
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        </div>
+      </div>
 
       <SectionCard title={t("profile.privacy.deactivate.title")} description={t("profile.privacy.deactivate.description")}> 
         <AlertDialog

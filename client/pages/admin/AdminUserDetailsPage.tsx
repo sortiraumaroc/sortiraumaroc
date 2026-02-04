@@ -56,6 +56,7 @@ type DetailUser = {
   lastName: string;
   phone: string;
   email: string;
+  authMethod: "email" | "phone" | null;
   status: "active" | "suspended";
   city: string;
   country: string;
@@ -158,6 +159,7 @@ function formatStatusLabel(status: string): "active" | "suspended" {
 function mapUser(u: ConsumerUser): DetailUser {
   const created = String(u.created_at ?? "");
   const last = String(u.last_activity_at ?? "");
+  const authMethod = u.auth_method === "phone" ? "phone" : u.auth_method === "email" ? "email" : null;
   return {
     id: String(u.id ?? ""),
     name: String(u.name ?? ""),
@@ -166,6 +168,7 @@ function mapUser(u: ConsumerUser): DetailUser {
     lastName: String(u.last_name ?? ""),
     phone: String(u.phone ?? ""),
     email: String(u.email ?? ""),
+    authMethod,
     status: formatStatusLabel(String(u.status ?? "")),
     city: String(u.city ?? ""),
     country: String(u.country ?? ""),
@@ -599,14 +602,24 @@ export function AdminUserDetailsPage() {
               <div className="flex items-center gap-2 min-w-0">
                 <Mail className="h-4 w-4 text-slate-500 shrink-0" />
                 <div className="min-w-0">
-                  <div className="text-xs font-semibold text-slate-500">Email</div>
-                  <div className="font-medium text-slate-900 truncate">{user.email}</div>
+                  <div className="text-xs font-semibold text-slate-500 flex items-center gap-1">
+                    Email
+                    {user.authMethod === "email" && (
+                      <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-[10px] px-1 py-0">Connexion</Badge>
+                    )}
+                  </div>
+                  <div className="font-medium text-slate-900 truncate">{user.email || "—"}</div>
                 </div>
               </div>
               <div className="flex items-center gap-2 min-w-0">
                 <Phone className="h-4 w-4 text-slate-500 shrink-0" />
                 <div className="min-w-0">
-                  <div className="text-xs font-semibold text-slate-500">Téléphone</div>
+                  <div className="text-xs font-semibold text-slate-500 flex items-center gap-1">
+                    Téléphone
+                    {user.authMethod === "phone" && (
+                      <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-[10px] px-1 py-0">Connexion</Badge>
+                    )}
+                  </div>
                   <div className="font-medium text-slate-900 truncate">{user.phone || "—"}</div>
                 </div>
               </div>
