@@ -102,3 +102,4 @@ server/certs/
 .netlify
 .vercel
 .env*.local
+.env.example

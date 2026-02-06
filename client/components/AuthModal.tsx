@@ -4,13 +4,13 @@ import { Eye, EyeOff, X, Phone, RefreshCw, Loader2, ShieldCheck, Gift, CheckCirc
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { PhoneAuthModal } from "@/components/PhoneAuthModal";
+import { TwilioPhoneAuthModal } from "@/components/TwilioPhoneAuthModal";
 import { markAuthed } from "@/lib/auth";
 import { markEmailAsVerified } from "@/lib/userData";
 import { getDemoConsumerCredentials, isDemoModeEnabled } from "@/lib/demoMode";
 import { useI18n } from "@/lib/i18n";
 import { consumerSupabase } from "@/lib/supabase";
-import { isFirebaseConfigured } from "@/lib/firebase";
+import { isTwilioAuthAvailable } from "@/lib/twilioAuth";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { validateReferralCode } from "@/lib/referral/api";
 
@@ -777,8 +777,8 @@ export function AuthModal({ isOpen, onClose, onAuthed, contextTitle, contextSubt
                   icon={<FacebookIcon />}
                 />
 
-                {/* Phone Auth Button - Mobile only */}
-                {isMobile && isFirebaseConfigured() && (
+                {/* Phone Auth Button - Mobile only (uses Twilio) */}
+                {isMobile && (
                   <SocialButton
                     label={t("auth.phone.use_phone_instead")}
                     onClick={() => setShowPhoneAuth(true)}
@@ -1080,8 +1080,8 @@ export function AuthModal({ isOpen, onClose, onAuthed, contextTitle, contextSubt
         </div>
       </DialogContent>
 
-      {/* Phone Auth Modal for Mobile */}
-      <PhoneAuthModal
+      {/* Phone Auth Modal for Mobile (Twilio SMS) */}
+      <TwilioPhoneAuthModal
         isOpen={showPhoneAuth}
         onClose={() => setShowPhoneAuth(false)}
         onAuthed={() => {
