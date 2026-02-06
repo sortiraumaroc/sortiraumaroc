@@ -23,6 +23,8 @@ import {
   downloadConsumerDataExport,
   requestConsumerPasswordReset,
   requestConsumerPasswordResetLink,
+  requestPublicPasswordResetLink,
+  sendWelcomeEmail,
   validatePasswordResetToken,
   completePasswordReset,
   changeConsumerPassword,
@@ -65,6 +67,7 @@ import {
   getPublicCountries,
   detectUserCountry,
   getPublicEstablishmentByUsername,
+  validateBookingPromoCode,
 } from "./routes/public";
 import {
   trackEmailClick,
@@ -75,6 +78,11 @@ import {
   authenticateWithFirebase,
   checkFirebaseAuthStatus,
 } from "./routes/firebaseAuth";
+import {
+  sendPhoneCode,
+  verifyPhoneCode,
+  checkPhoneAuthStatus,
+} from "./routes/twilioAuth";
 import {
   sendEmailVerificationCode,
   verifyEmailCode,
@@ -126,6 +134,7 @@ import {
   adminProductionCheck,
   approveModerationItem,
   createEstablishment,
+  deleteEstablishment,
   createProUser,
   getConsumerUser,
   recomputeConsumerUserReliability,
@@ -169,6 +178,7 @@ import {
   suspendProUser,
   bulkDeleteProUsers,
   regenerateProUserPassword,
+  removeProFromEstablishment,
   runAdminFinanceReconciliation,
   updateAdminEstablishmentReservation,
   updateAdminFinanceDiscrepancy,
@@ -317,6 +327,10 @@ import {
   listAdminEstablishmentBankDetailsHistory,
   uploadAdminEstablishmentBankDocument,
   listAdminEstablishmentBankDocuments,
+  listAdminEstablishmentContracts,
+  uploadAdminEstablishmentContract,
+  updateAdminEstablishmentContract,
+  deleteAdminEstablishmentContract,
   getAdminEstablishmentBookingPolicy,
   updateAdminEstablishmentBookingPolicy,
   resetAdminEstablishmentBookingPolicy,
@@ -324,6 +338,10 @@ import {
   getAdminUsernameSubscriptionStats,
   extendAdminUsernameSubscription,
   cancelAdminUsernameSubscription,
+  listAdminClaimRequests,
+  getAdminClaimRequest,
+  updateAdminClaimRequest,
+  detectDuplicateEstablishments,
 } from "./routes/admin";
 
 import {
@@ -350,8 +368,26 @@ import { registerAdminImportExportRoutes } from "./routes/adminImportExport";
 import { registerAdminDashboardRoutes } from "./routes/adminDashboard";
 import { registerAdminUserManagementRoutes } from "./routes/adminUserManagement";
 import { registerAdminAmazonSESRoutes } from "./routes/adminAmazonSES";
+import { registerAdminImportChrRoutes } from "./routes/adminImportChr";
+import { registerAdminImportSqlRoutes } from "./routes/adminImportSql";
 import { registerProAdsRoutes } from "./routes/proAds";
 import { registerAdminAdsRoutes } from "./routes/adminAds";
+import {
+  listLoyaltyPrograms,
+  createLoyaltyProgram,
+  updateLoyaltyProgram,
+  deleteLoyaltyProgram,
+  getLoyaltyMembers,
+  getLoyaltyDashboardStats,
+  addLoyaltyStamp,
+  redeemLoyaltyReward,
+  getUserLoyaltyInfo,
+  getMyLoyaltyCards,
+  getMyLoyaltyCardDetails,
+  getMyLoyaltyRewards,
+  getPublicLoyaltyPrograms,
+  applyRetroactiveStamps,
+} from "./routes/loyalty";
 import { registerPublicAdsRoutes } from "./routes/publicAds";
 import { registerSponsoredNotificationRoutes } from "./routes/sponsoredNotifications";
 import {
@@ -452,6 +488,32 @@ import {
   deleteAdminNotification,
 } from "./routes/adminNotifications";
 import {
+  listAdminContactForms,
+  getAdminContactForm,
+  createAdminContactForm,
+  updateAdminContactForm,
+  deleteAdminContactForm,
+  duplicateAdminContactForm,
+  addAdminContactFormField,
+  updateAdminContactFormField,
+  deleteAdminContactFormField,
+  reorderAdminContactFormFields,
+  listAdminContactFormSubmissions,
+  listAllAdminContactFormSubmissions,
+  getAdminContactFormSubmission,
+  updateAdminContactFormSubmission,
+  bulkUpdateAdminContactFormSubmissions,
+  deleteAdminContactFormSubmission,
+  exportAdminContactFormSubmissions,
+  getAdminContactFormsUnreadCount,
+} from "./routes/adminContactForms";
+import {
+  getPublicContactForm,
+  submitPublicContactForm,
+  getPublicCountriesList,
+} from "./routes/publicContactForms";
+import { submitClaimRequest } from "./routes/claimRequests";
+import {
   listAdminReviews,
   getAdminReview,
   approveReview,
@@ -539,13 +601,25 @@ import {
 } from "./routes/prestataires";
 import { handlePaymentsWebhook } from "./routes/payments";
 import { createLacaissePaySession, paymentRateLimiter } from "./routes/lacaissepay";
-import { createGoogleWalletPass, createAppleWalletPass } from "./routes/wallet";
+import {
+  createGoogleWalletPass,
+  createAppleWalletPass,
+  createUserAppleWalletPass,
+  createUserGoogleWalletPass,
+} from "./routes/wallet";
 import {
   getTOTPSecret,
   generateTOTPCode,
   validateTOTPCode,
   regenerateTOTPSecret,
 } from "./routes/totp";
+import {
+  getConsumerTOTPSecret,
+  generateConsumerTOTPCode,
+  regenerateConsumerTOTPSecret,
+  validateConsumerTOTPCode,
+  getConsumerUserInfo,
+} from "./routes/consumerTotp";
 import {
   sendH3ConfirmationEmails,
   confirmBookingByToken,
@@ -598,6 +672,7 @@ import {
   upsertProSlots,
   deleteProSlot,
   createProPack,
+  validateCreateProPack,
   updateProPack,
   deleteProPack,
   getProBookingPolicy,
@@ -666,6 +741,9 @@ import {
   startUsernameTrialHandler,
   cancelUsernameSubscriptionHandler,
   getProBookingSourceStats,
+  getProOnlineStatus,
+  toggleProOnlineStatus,
+  getProActivityStats,
 } from "./routes/pro";
 
 import {
@@ -773,6 +851,18 @@ export function createServer() {
     // X-XSS-Protection (legacy, but still useful for older browsers)
     res.setHeader("X-XSS-Protection", "1; mode=block");
 
+    // X-Content-Type-Options - Prevents MIME type sniffing
+    res.setHeader("X-Content-Type-Options", "nosniff");
+
+    // Referrer-Policy - Controls referrer information sent with requests
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+
+    // Permissions-Policy - Restricts browser features
+    res.setHeader(
+      "Permissions-Policy",
+      "camera=(), microphone=(), geolocation=(self), payment=(self)"
+    );
+
     next();
   });
 
@@ -807,6 +897,9 @@ export function createServer() {
     uploadAdminCategoryImage,
   );
 
+  // SQL Import routes — registered BEFORE global body parser because they need a higher limit (50 MB)
+  registerAdminImportSqlRoutes(app);
+
   app.use(express.json({ limit: "2mb" }));
   app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 
@@ -839,6 +932,7 @@ export function createServer() {
   app.get("/api/public/establishments/by-username/:username", getPublicEstablishmentByUsername);
   app.get("/api/public/establishments/:ref", getPublicEstablishment);
   app.get("/api/public/establishments/:id/reviews", listPublicEstablishmentReviews);
+  app.get("/api/public/establishments/:establishmentId/loyalty/programs", getPublicLoyaltyPrograms);
   app.get("/api/public/home", getPublicHomeFeed);
   app.get("/api/public/categories", getPublicCategories);
   app.get("/api/public/category-images", getPublicCategoryImages);
@@ -931,11 +1025,37 @@ export function createServer() {
   app.post("/api/wallet/apple", createAppleWalletPass);
   app.post("/api/wallet/google", createGoogleWalletPass);
 
-  // TOTP Dynamic QR Code routes
+  // User Membership Wallet passes
+  app.post("/api/wallet/user/apple", createUserAppleWalletPass);
+  app.post("/api/wallet/user/google", createUserGoogleWalletPass);
+
+  // TOTP Dynamic QR Code routes (for reservations)
   app.get("/api/totp/secret/:reservationId", getTOTPSecret);
   app.get("/api/totp/code/:reservationId", generateTOTPCode);
   app.post("/api/totp/validate", validateTOTPCode);
   app.post("/api/totp/regenerate/:reservationId", regenerateTOTPSecret);
+
+  // Consumer TOTP routes (personal user QR codes)
+  app.get("/api/consumer/totp/secret", getConsumerTOTPSecret);
+  app.get("/api/consumer/totp/code", generateConsumerTOTPCode);
+  app.post("/api/consumer/totp/regenerate", regenerateConsumerTOTPSecret);
+  app.post("/api/consumer/totp/validate", validateConsumerTOTPCode);
+  app.get("/api/consumer/totp/user-info/:userId", getConsumerUserInfo);
+
+  // ==========================================================================
+  // BOOKING PROMO CODES
+  // ==========================================================================
+
+  // Public: Validate a promo code for a booking/reservation
+  app.post("/api/public/booking/promo/validate", validateBookingPromoCode);
+
+  // Public: Password reset (no auth required)
+  app.post("/api/public/password/reset-link", requestPublicPasswordResetLink);
+  app.get("/api/public/password/validate-token", validatePasswordResetToken);
+  app.post("/api/public/password/complete-reset", completePasswordReset);
+
+  // Public: Welcome email after signup
+  app.post("/api/public/welcome-email", sendWelcomeEmail);
 
   // ==========================================================================
   // BOOKING CONFIRMATION H-3 SYSTEM (Ramadan no-show prevention)
@@ -1034,9 +1154,14 @@ export function createServer() {
     app.post("/api/consumer/demo/ensure", ensureConsumerDemoAccount);
   }
 
-  // Firebase phone authentication
+  // Firebase phone authentication (legacy)
   app.post("/api/consumer/auth/firebase", authenticateWithFirebase);
   app.get("/api/consumer/auth/firebase/status", checkFirebaseAuthStatus);
+
+  // Twilio phone authentication (new — no reCAPTCHA needed)
+  app.post("/api/consumer/auth/phone/send-code", sendPhoneCode);
+  app.post("/api/consumer/auth/phone/verify-code", verifyPhoneCode);
+  app.get("/api/consumer/auth/phone/status", checkPhoneAuthStatus);
 
   // Email verification (for signup)
   app.post("/api/consumer/verify-email/send", sendEmailVerificationCode);
@@ -1063,6 +1188,11 @@ export function createServer() {
 
   app.post("/api/consumer/reservations", createConsumerReservation);
   app.get("/api/consumer/reservations", listConsumerReservations);
+
+  // Consumer: Loyalty cards
+  app.get("/api/consumer/loyalty/cards", getMyLoyaltyCards);
+  app.get("/api/consumer/loyalty/cards/:cardId", getMyLoyaltyCardDetails);
+  app.get("/api/consumer/loyalty/rewards", getMyLoyaltyRewards);
 
   app.get("/api/consumer/notifications", listConsumerNotifications);
   app.get(
@@ -1166,6 +1296,11 @@ export function createServer() {
   registerProAdsRoutes(app);
   registerAdminAdsRoutes(app);
   registerSponsoredNotificationRoutes(app);
+
+  // CHR Import routes
+  registerAdminImportChrRoutes(app);
+
+
 
   app.get("/api/admin/health", adminHealth);
   app.get("/api/admin/production-check", adminProductionCheck);
@@ -1351,6 +1486,11 @@ export function createServer() {
   app.get("/api/admin/username-subscriptions/stats", getAdminUsernameSubscriptionStats);
   app.post("/api/admin/username-subscriptions/:id/extend", extendAdminUsernameSubscription);
   app.post("/api/admin/username-subscriptions/:id/cancel", cancelAdminUsernameSubscription);
+
+  // Claim requests (demandes de revendication)
+  app.get("/api/admin/claim-requests", listAdminClaimRequests);
+  app.get("/api/admin/claim-requests/:id", getAdminClaimRequest);
+  app.post("/api/admin/claim-requests/:id", updateAdminClaimRequest);
 
   // Homepage curation
   app.get("/api/admin/home-curation", listAdminHomeCurationItems);
@@ -1551,6 +1691,8 @@ export function createServer() {
   app.get("/api/admin/establishments/:id", getEstablishment);
   app.post("/api/admin/establishments/:id/status", updateEstablishmentStatus);
   app.post("/api/admin/establishments/:id/flags", updateEstablishmentFlags);
+  app.delete("/api/admin/establishments/:id", deleteEstablishment);
+  app.get("/api/admin/establishments-duplicates", detectDuplicateEstablishments);
 
   // PRO bank details (RIB) — Superadmin-only
   app.get(
@@ -1577,6 +1719,25 @@ export function createServer() {
     "/api/admin/establishments/:id/bank-details/documents/upload",
     express.raw({ type: "application/pdf", limit: "12mb" }),
     uploadAdminEstablishmentBankDocument,
+  );
+
+  // Establishment contracts (PDF documents) — Superadmin only
+  app.get(
+    "/api/admin/establishments/:id/contracts",
+    listAdminEstablishmentContracts,
+  );
+  app.post(
+    "/api/admin/establishments/:id/contracts/upload",
+    express.raw({ type: "application/pdf", limit: "12mb" }),
+    uploadAdminEstablishmentContract,
+  );
+  app.patch(
+    "/api/admin/establishments/:id/contracts/:contractId",
+    updateAdminEstablishmentContract,
+  );
+  app.delete(
+    "/api/admin/establishments/:id/contracts/:contractId",
+    deleteAdminEstablishmentContract,
   );
 
   // Booking policies (per-establishment) — Superadmin only
@@ -1861,6 +2022,9 @@ export function createServer() {
   app.post("/api/admin/pros/users/:id/suspend", suspendProUser);
   app.post("/api/admin/pros/users/bulk-delete", bulkDeleteProUsers);
 
+  // Remove a Pro from an establishment (admin only)
+  app.delete("/api/admin/establishments/:establishmentId/pros/:proUserId", removeProFromEstablishment);
+
   app.get("/api/admin/users", listConsumerUsers);
   app.get("/api/admin/users/account-actions", listConsumerAccountActions);
   app.get("/api/admin/users/:id", getConsumerUser);
@@ -2123,7 +2287,7 @@ export function createServer() {
     "/api/pro/establishments/:establishmentId/slots/:slotId/delete",
     deleteProSlot,
   );
-  app.post("/api/pro/establishments/:establishmentId/packs", createProPack);
+  app.post("/api/pro/establishments/:establishmentId/packs", validateCreateProPack, createProPack);
   app.patch(
     "/api/pro/establishments/:establishmentId/packs/:packId/update",
     updateProPack,
@@ -2169,6 +2333,62 @@ export function createServer() {
   app.get(
     "/api/pro/establishments/:establishmentId/promo-codes/export-csv",
     exportProPromoCodesCsv,
+  );
+
+  // ==========================================================================
+  // LOYALTY SYSTEM - Programme de fidélité
+  // ==========================================================================
+
+  // Pro: Gestion des programmes
+  app.get(
+    "/api/pro/establishments/:establishmentId/loyalty/programs",
+    listLoyaltyPrograms,
+  );
+  app.post(
+    "/api/pro/establishments/:establishmentId/loyalty/programs",
+    createLoyaltyProgram,
+  );
+  app.patch(
+    "/api/pro/establishments/:establishmentId/loyalty/programs/:programId",
+    updateLoyaltyProgram,
+  );
+  app.delete(
+    "/api/pro/establishments/:establishmentId/loyalty/programs/:programId",
+    deleteLoyaltyProgram,
+  );
+
+  // Pro: Dashboard & Stats
+  app.get(
+    "/api/pro/establishments/:establishmentId/loyalty/stats",
+    getLoyaltyDashboardStats,
+  );
+  app.get(
+    "/api/pro/establishments/:establishmentId/loyalty/members",
+    getLoyaltyMembers,
+  );
+
+  // Pro: Stamps (via scanner)
+  app.post(
+    "/api/pro/establishments/:establishmentId/loyalty/stamps",
+    addLoyaltyStamp,
+  );
+
+  // Pro: User info (for scanner display)
+  app.get(
+    "/api/pro/establishments/:establishmentId/loyalty/users/:userId",
+    getUserLoyaltyInfo,
+  );
+
+  // Pro: Reward redemption
+  app.post(
+    "/api/pro/establishments/:establishmentId/loyalty/rewards/:rewardId/redeem",
+    redeemLoyaltyReward,
+  );
+
+  // Pro: Retroactive stamps
+  app.post(
+    "/api/pro/establishments/:establishmentId/loyalty/programs/:programId/retroactive",
+    applyRetroactiveStamps,
   );
 
   // Promo Templates
@@ -2243,6 +2463,20 @@ export function createServer() {
   app.get(
     "/api/pro/establishments/:establishmentId/stats/booking-sources",
     getProBookingSourceStats,
+  );
+
+  // Online status and activity tracking
+  app.get(
+    "/api/pro/establishments/:establishmentId/online-status",
+    getProOnlineStatus,
+  );
+  app.post(
+    "/api/pro/establishments/:establishmentId/toggle-online",
+    toggleProOnlineStatus,
+  );
+  app.get(
+    "/api/pro/establishments/:establishmentId/activity-stats",
+    getProActivityStats,
   );
 
   app.get(
@@ -2525,6 +2759,40 @@ export function createServer() {
   );
   app.get("/api/admin/prestataires/:id/messages", listAdminPrestataireMessages);
   app.post("/api/admin/prestataires/:id/messages", sendAdminPrestataireMessage);
+
+  // ==========================================================================
+  // CONTACT FORMS (Formulaires de contact)
+  // ==========================================================================
+
+  // Public routes (no auth)
+  app.get("/api/form/:slug", getPublicContactForm);
+  app.post("/api/form/:slug/submit", submitPublicContactForm);
+  app.get("/api/public/countries-list", getPublicCountriesList);
+  app.post("/api/public/claim-request", submitClaimRequest);
+
+  // Admin routes
+  app.get("/api/admin/contact-forms", listAdminContactForms);
+  app.get("/api/admin/contact-forms/unread-count", getAdminContactFormsUnreadCount);
+  app.get("/api/admin/contact-forms/submissions", listAllAdminContactFormSubmissions);
+  app.post("/api/admin/contact-forms", createAdminContactForm);
+  app.get("/api/admin/contact-forms/:id", getAdminContactForm);
+  app.post("/api/admin/contact-forms/:id/update", updateAdminContactForm);
+  app.delete("/api/admin/contact-forms/:id", deleteAdminContactForm);
+  app.post("/api/admin/contact-forms/:id/duplicate", duplicateAdminContactForm);
+
+  // Form fields
+  app.post("/api/admin/contact-forms/:formId/fields", addAdminContactFormField);
+  app.post("/api/admin/contact-forms/fields/:fieldId/update", updateAdminContactFormField);
+  app.delete("/api/admin/contact-forms/fields/:fieldId", deleteAdminContactFormField);
+  app.post("/api/admin/contact-forms/:formId/fields/reorder", reorderAdminContactFormFields);
+
+  // Form submissions
+  app.get("/api/admin/contact-forms/:formId/submissions", listAdminContactFormSubmissions);
+  app.get("/api/admin/contact-forms/:formId/submissions/export", exportAdminContactFormSubmissions);
+  app.get("/api/admin/contact-forms/submissions/:submissionId", getAdminContactFormSubmission);
+  app.post("/api/admin/contact-forms/submissions/:submissionId/update", updateAdminContactFormSubmission);
+  app.post("/api/admin/contact-forms/submissions/bulk-update", bulkUpdateAdminContactFormSubmissions);
+  app.delete("/api/admin/contact-forms/submissions/:submissionId", deleteAdminContactFormSubmission);
 
   // Sentry error handler must be before other error handlers
   app.use(sentryErrorHandler());
