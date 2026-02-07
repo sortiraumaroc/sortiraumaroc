@@ -7,14 +7,15 @@ import {
   CheckCircle2,
   Clock,
   Download,
+  Filter,
   Hourglass,
   ListPlus,
   Loader2,
   MailQuestion,
   Search,
   Send,
+  Timer,
   Trash2,
-  TrendingUp,
   Users,
   XCircle,
 } from "lucide-react";
@@ -31,7 +32,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -96,30 +96,72 @@ function formatOfferExpiryLabel(iso: string | null | undefined): string {
   return hhmm ? hhmm : "—";
 }
 
-function statusBadge(entry: ProWaitlistEntry): { label: string; className: string } {
+type StatusBadgeResult = {
+  label: string;
+  className: string;
+  icon: React.ReactNode;
+  priority: number; // For sorting: lower = more important
+};
+
+function statusBadge(entry: ProWaitlistEntry): StatusBadgeResult {
   const status = String(entry.status ?? "").trim();
 
-  if (status === "offer_sent" && !isOfferExpiredByIso(entry.offer_expires_at)) {
-    return { label: "Offre envoyée", className: "bg-amber-50 text-amber-800 border-amber-200" };
-  }
-
-  if (status === "offer_sent" && isOfferExpiredByIso(entry.offer_expires_at)) {
-    return { label: "Offre expirée", className: "bg-slate-100 text-slate-700 border-slate-200" };
-  }
-
+  // En attente (jaune) - Le client attend qu'une place se libère
   if (status === "waiting" || status === "queued") {
-    return { label: "En attente", className: "bg-blue-50 text-blue-800 border-blue-200" };
+    return {
+      label: "En attente",
+      className: "bg-yellow-100 text-yellow-800 border-yellow-300",
+      icon: <Hourglass className="h-3.5 w-3.5" />,
+      priority: 1,
+    };
   }
 
+  // Offre envoyée (orange) - Une offre a été envoyée, en attente de réponse
+  if (status === "offer_sent" && !isOfferExpiredByIso(entry.offer_expires_at)) {
+    return {
+      label: "Offre envoyée",
+      className: "bg-orange-100 text-orange-800 border-orange-300",
+      icon: <Send className="h-3.5 w-3.5" />,
+      priority: 2,
+    };
+  }
+
+  // Offre expirée (gris) - L'offre n'a pas été acceptée à temps
+  if (status === "offer_sent" && isOfferExpiredByIso(entry.offer_expires_at)) {
+    return {
+      label: "Offre expirée",
+      className: "bg-slate-200 text-slate-700 border-slate-300",
+      icon: <Timer className="h-3.5 w-3.5" />,
+      priority: 4,
+    };
+  }
+
+  // Acceptée/Convertie (vert) - Réservation confirmée
   if (status === "accepted" || status === "converted_to_booking") {
-    return { label: "Acceptée", className: "bg-emerald-50 text-emerald-800 border-emerald-200" };
+    return {
+      label: "Confirmée",
+      className: "bg-emerald-100 text-emerald-800 border-emerald-300",
+      icon: <CheckCircle2 className="h-3.5 w-3.5" />,
+      priority: 3,
+    };
   }
 
+  // Terminée/Annulée (rouge/gris) - Demande clôturée
   if (status === "removed" || status === "cancelled" || status === "declined" || status === "expired" || status.startsWith("offer_")) {
-    return { label: "Terminée", className: "bg-slate-100 text-slate-700 border-slate-200" };
+    return {
+      label: "Annulée",
+      className: "bg-red-100 text-red-700 border-red-300",
+      icon: <XCircle className="h-3.5 w-3.5" />,
+      priority: 5,
+    };
   }
 
-  return { label: status || "Statut", className: "bg-slate-100 text-slate-700 border-slate-200" };
+  return {
+    label: status || "Statut",
+    className: "bg-slate-100 text-slate-700 border-slate-200",
+    icon: null,
+    priority: 99,
+  };
 }
 
 // ============================================================================
@@ -272,10 +314,10 @@ export function ProWaitlistTab({ establishment, role }: Props) {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<"queue" | "reservations">("queue");
-  const [status, setStatus] = useState<"active" | "waiting" | "offer_sent" | "all">("active");
+  // Filtre par statut: tous, en_attente, offre_envoyee, confirmee, terminee
+  const [statusFilter, setStatusFilter] = useState<"all" | "waiting" | "offer_sent" | "confirmed" | "closed">("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortOrder, setSortOrder] = useState<"position" | "date_asc" | "date_desc">("position");
+  const [sortOrder, setSortOrder] = useState<"position" | "date_asc" | "date_desc" | "status">("position");
 
   const [items, setItems] = useState<ProWaitlistEntry[]>([]);
   const [allItems, setAllItems] = useState<ProWaitlistEntry[]>([]); // For stats
@@ -287,13 +329,13 @@ export function ProWaitlistTab({ establishment, role }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const [queueRes, allQueueRes, reservationsRes] = await Promise.all([
-        listProWaitlist({ establishmentId: establishment.id, status }),
+      // Toujours charger toutes les entrées pour pouvoir filtrer côté client
+      const [allQueueRes, reservationsRes] = await Promise.all([
         listProWaitlist({ establishmentId: establishment.id, status: "all" }),
         listProReservations(establishment.id),
       ]);
-      setItems((queueRes.items ?? []) as ProWaitlistEntry[]);
       setAllItems((allQueueRes.items ?? []) as ProWaitlistEntry[]);
+      setItems((allQueueRes.items ?? []) as ProWaitlistEntry[]);
       setReservations((reservationsRes.reservations ?? []) as Reservation[]);
     } catch (e) {
       setItems([]);
@@ -308,14 +350,42 @@ export function ProWaitlistTab({ establishment, role }: Props) {
   useEffect(() => {
     void reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [establishment.id, status]);
+  }, [establishment.id]);
 
   // Calculate stats
   const stats = useMemo(() => calculateStats(items, allItems), [items, allItems]);
 
   // Filter and sort entries
   const filteredAndSorted = useMemo(() => {
-    let rows = items.slice();
+    let rows = allItems.slice();
+
+    // Apply status filter
+    if (statusFilter !== "all") {
+      rows = rows.filter((entry) => {
+        const status = String(entry.status ?? "").trim();
+        const badge = statusBadge(entry);
+
+        if (statusFilter === "waiting") {
+          return status === "waiting" || status === "queued";
+        }
+        if (statusFilter === "offer_sent") {
+          return status === "offer_sent" && !isOfferExpiredByIso(entry.offer_expires_at);
+        }
+        if (statusFilter === "confirmed") {
+          return status === "accepted" || status === "converted_to_booking";
+        }
+        if (statusFilter === "closed") {
+          return (
+            (status === "offer_sent" && isOfferExpiredByIso(entry.offer_expires_at)) ||
+            status === "removed" ||
+            status === "cancelled" ||
+            status === "declined" ||
+            status === "expired"
+          );
+        }
+        return true;
+      });
+    }
 
     // Apply search filter
     if (searchQuery.trim()) {
@@ -329,6 +399,12 @@ export function ProWaitlistTab({ establishment, role }: Props) {
 
     // Apply sort
     rows.sort((a, b) => {
+      if (sortOrder === "status") {
+        const aPriority = statusBadge(a).priority;
+        const bPriority = statusBadge(b).priority;
+        if (aPriority !== bPriority) return aPriority - bPriority;
+        return String(a.created_at ?? "") < String(b.created_at ?? "") ? -1 : 1;
+      }
       if (sortOrder === "position") {
         const ap = typeof a.position === "number" ? a.position : 999999;
         const bp = typeof b.position === "number" ? b.position : 999999;
@@ -345,15 +421,25 @@ export function ProWaitlistTab({ establishment, role }: Props) {
     });
 
     return rows;
-  }, [items, searchQuery, sortOrder]);
+  }, [allItems, statusFilter, searchQuery, sortOrder]);
 
-  const waitlistStatusReservations = useMemo(() => {
-    const list = reservations ?? [];
-    return list
-      .filter((r) => String(r.status ?? "").trim() === "waitlist")
-      .slice()
-      .sort((a, b) => (String(a.created_at ?? "") < String(b.created_at ?? "") ? 1 : -1));
-  }, [reservations]);
+  // Compteurs par statut pour les badges de filtre
+  const statusCounts = useMemo(() => {
+    const counts = { waiting: 0, offer_sent: 0, confirmed: 0, closed: 0 };
+    for (const entry of allItems) {
+      const status = String(entry.status ?? "").trim();
+      if (status === "waiting" || status === "queued") {
+        counts.waiting++;
+      } else if (status === "offer_sent" && !isOfferExpiredByIso(entry.offer_expires_at)) {
+        counts.offer_sent++;
+      } else if (status === "accepted" || status === "converted_to_booking") {
+        counts.confirmed++;
+      } else {
+        counts.closed++;
+      }
+    }
+    return counts;
+  }, [allItems]);
 
   const goToReservationsTab = () => {
     setSearchParams((prev) => {
@@ -481,237 +567,219 @@ export function ProWaitlistTab({ establishment, role }: Props) {
             </div>
           ) : null}
 
-          {/* Tabs for Queue vs Reservations */}
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "queue" | "reservations")}>
-            <TabsList className="grid w-full grid-cols-2 max-w-md">
-              <TabsTrigger value="queue" className="gap-2">
-                <Hourglass className="h-4 w-4" />
-                File d'attente
-                {stats.totalWaiting > 0 && (
-                  <Badge variant="secondary" className="ml-1 text-xs">
-                    {stats.totalWaiting}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="reservations" className="gap-2">
-                <Users className="h-4 w-4" />
-                En statut WL
-                {waitlistStatusReservations.length > 0 && (
-                  <Badge variant="secondary" className="ml-1 text-xs">
-                    {waitlistStatusReservations.length}
-                  </Badge>
-                )}
-              </TabsTrigger>
-            </TabsList>
+          {/* Filtres par statut - Boutons colorés */}
+          <div className="flex flex-wrap gap-2 pb-2 border-b border-slate-200">
+            <button
+              onClick={() => setStatusFilter("all")}
+              className={cn(
+                "px-3 py-1.5 rounded-full text-sm font-medium transition-all flex items-center gap-1.5",
+                statusFilter === "all"
+                  ? "bg-slate-800 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              )}
+            >
+              <Filter className="h-3.5 w-3.5" />
+              Tout
+              <Badge variant="secondary" className="ml-1 text-xs bg-white/20">
+                {allItems.length}
+              </Badge>
+            </button>
 
-            <TabsContent value="queue" className="mt-4 space-y-4">
-              {/* Filters */}
-              <div className="flex flex-col sm:flex-row gap-3">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                  <Input
-                    placeholder="Rechercher par référence ou téléphone..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-9"
-                  />
-                </div>
+            <button
+              onClick={() => setStatusFilter("waiting")}
+              className={cn(
+                "px-3 py-1.5 rounded-full text-sm font-medium transition-all flex items-center gap-1.5",
+                statusFilter === "waiting"
+                  ? "bg-yellow-500 text-white"
+                  : "bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
+              )}
+            >
+              <Hourglass className="h-3.5 w-3.5" />
+              En attente
+              {statusCounts.waiting > 0 && (
+                <Badge variant="secondary" className={cn("ml-1 text-xs", statusFilter === "waiting" ? "bg-white/20" : "bg-yellow-200")}>
+                  {statusCounts.waiting}
+                </Badge>
+              )}
+            </button>
 
-                <div className="flex gap-2">
-                  <Select value={status} onValueChange={(v) => setStatus(v as typeof status)}>
-                    <SelectTrigger className="w-[160px]">
-                      <SelectValue placeholder="Statut" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="active">Actives</SelectItem>
-                      <SelectItem value="waiting">En attente</SelectItem>
-                      <SelectItem value="offer_sent">Offres envoyées</SelectItem>
-                      <SelectItem value="all">Toutes</SelectItem>
-                    </SelectContent>
-                  </Select>
+            <button
+              onClick={() => setStatusFilter("offer_sent")}
+              className={cn(
+                "px-3 py-1.5 rounded-full text-sm font-medium transition-all flex items-center gap-1.5",
+                statusFilter === "offer_sent"
+                  ? "bg-orange-500 text-white"
+                  : "bg-orange-100 text-orange-800 hover:bg-orange-200"
+              )}
+            >
+              <Send className="h-3.5 w-3.5" />
+              Offre envoyée
+              {statusCounts.offer_sent > 0 && (
+                <Badge variant="secondary" className={cn("ml-1 text-xs", statusFilter === "offer_sent" ? "bg-white/20" : "bg-orange-200")}>
+                  {statusCounts.offer_sent}
+                </Badge>
+              )}
+            </button>
 
-                  <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as typeof sortOrder)}>
-                    <SelectTrigger className="w-[160px]">
-                      <ArrowUpDown className="h-4 w-4 mr-2" />
-                      <SelectValue placeholder="Tri" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="position">Par position</SelectItem>
-                      <SelectItem value="date_asc">Plus anciens</SelectItem>
-                      <SelectItem value="date_desc">Plus récents</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+            <button
+              onClick={() => setStatusFilter("confirmed")}
+              className={cn(
+                "px-3 py-1.5 rounded-full text-sm font-medium transition-all flex items-center gap-1.5",
+                statusFilter === "confirmed"
+                  ? "bg-emerald-500 text-white"
+                  : "bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
+              )}
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Confirmée
+              {statusCounts.confirmed > 0 && (
+                <Badge variant="secondary" className={cn("ml-1 text-xs", statusFilter === "confirmed" ? "bg-white/20" : "bg-emerald-200")}>
+                  {statusCounts.confirmed}
+                </Badge>
+              )}
+            </button>
 
-              {/* Loading state */}
-              {loading ? (
-                <div className="text-sm text-slate-600 flex items-center gap-2 py-8 justify-center">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  Chargement...
-                </div>
-              ) : null}
+            <button
+              onClick={() => setStatusFilter("closed")}
+              className={cn(
+                "px-3 py-1.5 rounded-full text-sm font-medium transition-all flex items-center gap-1.5",
+                statusFilter === "closed"
+                  ? "bg-slate-500 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              )}
+            >
+              <XCircle className="h-3.5 w-3.5" />
+              Terminée
+              {statusCounts.closed > 0 && (
+                <Badge variant="secondary" className={cn("ml-1 text-xs", statusFilter === "closed" ? "bg-white/20" : "bg-slate-200")}>
+                  {statusCounts.closed}
+                </Badge>
+              )}
+            </button>
+          </div>
 
-              {/* Empty state */}
-              {!loading && !filteredAndSorted.length ? <EmptyWaitlistState onGoToReservations={goToReservationsTab} /> : null}
+          {/* Recherche et tri */}
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Input
+                placeholder="Rechercher par référence ou téléphone..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
 
-              {/* Table */}
-              {!loading && filteredAndSorted.length > 0 ? (
-                <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-[80px]">Position</TableHead>
-                        <TableHead>Date/heure</TableHead>
-                        <TableHead className="w-[100px]">Personnes</TableHead>
-                        <TableHead>Référence</TableHead>
-                        <TableHead>Statut</TableHead>
-                        <TableHead className="w-[100px]">Expire</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredAndSorted.map((entry, index) => {
-                        const reservation = entry.reservation;
-                        const startsAt = reservation?.starts_at ?? null;
-                        const ref = (reservation?.booking_reference ?? reservation?.id ?? entry.reservation_id ?? "").trim();
-                        const people = typeof reservation?.party_size === "number" ? Math.max(1, Math.round(reservation.party_size)) : null;
+            <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as typeof sortOrder)}>
+              <SelectTrigger className="w-[180px]">
+                <ArrowUpDown className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="Tri" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="status">Par statut</SelectItem>
+                <SelectItem value="position">Par position</SelectItem>
+                <SelectItem value="date_asc">Plus anciens</SelectItem>
+                <SelectItem value="date_desc">Plus récents</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-                        const badge = statusBadge(entry);
-                        const offerActive = String(entry.status ?? "").trim() === "offer_sent" && !isOfferExpiredByIso(entry.offer_expires_at);
+          {/* Loading state */}
+          {loading ? (
+            <div className="text-sm text-slate-600 flex items-center gap-2 py-8 justify-center">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Chargement...
+            </div>
+          ) : null}
 
-                        const canSendOffer = canManage && (entry.status === "waiting" || entry.status === "queued" || offerActive);
-                        const canClose = canManage && (entry.status === "waiting" || entry.status === "queued" || entry.status === "offer_sent");
+          {/* Empty state */}
+          {!loading && !filteredAndSorted.length ? <EmptyWaitlistState onGoToReservations={goToReservationsTab} /> : null}
 
-                        return (
-                          <TableRow key={entry.id} className={cn("text-sm", savingId === entry.id ? "opacity-60" : "")}>
-                            <TableCell>
-                              <div className="flex items-center gap-2">
-                                <span className="font-bold text-lg text-primary tabular-nums">
-                                  #{typeof entry.position === "number" ? entry.position : index + 1}
-                                </span>
-                              </div>
-                            </TableCell>
-                            <TableCell>{startsAt ? formatLeJjMmAaAHeure(startsAt) : "—"}</TableCell>
-                            <TableCell>
-                              <div className="flex items-center gap-1.5">
-                                <Users className="h-4 w-4 text-slate-400" />
-                                <span>{people != null ? people : "—"}</span>
-                              </div>
-                            </TableCell>
-                            <TableCell className="font-mono text-xs">{ref || "—"}</TableCell>
-                            <TableCell>
-                              <Badge className={badge.className}>{badge.label}</Badge>
-                            </TableCell>
-                            <TableCell className="text-xs">{offerActive ? formatOfferExpiryLabel(entry.offer_expires_at) : "—"}</TableCell>
-                            <TableCell className="text-right">
-                              <div className="inline-flex items-center justify-end gap-2">
-                                {reservation?.id ? (
-                                  <Button type="button" variant="ghost" size="sm" onClick={() => goToReservation(reservation.id)}>
-                                    Voir
-                                  </Button>
-                                ) : null}
+          {/* Table unifiée */}
+          {!loading && filteredAndSorted.length > 0 ? (
+            <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[80px]">Position</TableHead>
+                    <TableHead className="w-[150px]">Statut</TableHead>
+                    <TableHead>Date/heure</TableHead>
+                    <TableHead className="w-[100px]">Personnes</TableHead>
+                    <TableHead>Référence</TableHead>
+                    <TableHead className="w-[100px]">Expire</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredAndSorted.map((entry, index) => {
+                    const reservation = entry.reservation;
+                    const startsAt = reservation?.starts_at ?? null;
+                    const ref = (reservation?.booking_reference ?? reservation?.id ?? entry.reservation_id ?? "").trim();
+                    const people = typeof reservation?.party_size === "number" ? Math.max(1, Math.round(reservation.party_size)) : null;
 
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  className="gap-1.5"
-                                  disabled={!canSendOffer || savingId === entry.id}
-                                  onClick={() => handleSendOffer(entry)}
-                                >
-                                  <Send className="h-3.5 w-3.5" />
-                                  Proposer
-                                </Button>
+                    const badge = statusBadge(entry);
+                    const offerActive = String(entry.status ?? "").trim() === "offer_sent" && !isOfferExpiredByIso(entry.offer_expires_at);
 
-                                {canClose ? (
-                                  <CloseEntryButton disabled={!canClose || savingId === entry.id} onConfirm={(reason) => handleClose(entry, reason)} />
-                                ) : null}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-              ) : null}
-            </TabsContent>
+                    const canSendOffer = canManage && (entry.status === "waiting" || entry.status === "queued" || offerActive);
+                    const canClose = canManage && (entry.status === "waiting" || entry.status === "queued" || entry.status === "offer_sent");
 
-            <TabsContent value="reservations" className="mt-4 space-y-4">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <div className="flex items-start gap-3">
-                  <TrendingUp className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <div className="text-sm font-medium text-blue-900">Réservations en statut « Liste d'attente »</div>
-                    <div className="text-sm text-blue-700 mt-1">
-                      Ces demandes ont le statut "waitlist" mais ne sont pas encore dans la file active. Elles peuvent être converties en
-                      réservations confirmées depuis l'onglet Réservations.
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {loading ? (
-                <div className="text-sm text-slate-600 flex items-center gap-2 py-8 justify-center">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  Chargement...
-                </div>
-              ) : null}
-
-              {!loading && !waitlistStatusReservations.length ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <div className="rounded-full bg-emerald-100 p-4 mb-4">
-                    <CheckCircle2 className="h-10 w-10 text-emerald-500" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-slate-900 mb-2">Tout est en ordre</h3>
-                  <p className="text-sm text-slate-600 max-w-md">
-                    Aucune réservation n'est en statut liste d'attente. Toutes les demandes sont soit confirmées, soit dans la file active.
-                  </p>
-                </div>
-              ) : null}
-
-              {!loading && waitlistStatusReservations.length > 0 ? (
-                <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Date/heure</TableHead>
-                        <TableHead className="w-[100px]">Personnes</TableHead>
-                        <TableHead>Référence</TableHead>
-                        <TableHead>Détail</TableHead>
-                        <TableHead className="text-right">Action</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {waitlistStatusReservations.map((r) => {
-                        const ref = (r.booking_reference ?? r.id ?? "").trim();
-                        const people = typeof r.party_size === "number" ? Math.max(1, Math.round(r.party_size)) : null;
-                        const detail = r.slot_id ? "Liée à un créneau" : "Sans créneau";
-                        return (
-                          <TableRow key={r.id} className="text-sm">
-                            <TableCell>{r.starts_at ? formatLeJjMmAaAHeure(r.starts_at) : "—"}</TableCell>
-                            <TableCell>
-                              <div className="flex items-center gap-1.5">
-                                <Users className="h-4 w-4 text-slate-400" />
-                                <span>{people != null ? people : "—"}</span>
-                              </div>
-                            </TableCell>
-                            <TableCell className="font-mono text-xs">{ref || "—"}</TableCell>
-                            <TableCell className="text-xs text-slate-600">{detail}</TableCell>
-                            <TableCell className="text-right">
-                              <Button type="button" variant="outline" size="sm" onClick={() => goToReservation(r.id)}>
-                                Voir la réservation
+                    return (
+                      <TableRow key={entry.id} className={cn("text-sm", savingId === entry.id ? "opacity-60" : "")}>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-lg text-primary tabular-nums">
+                              #{typeof entry.position === "number" ? entry.position : index + 1}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={cn("flex items-center gap-1.5 w-fit", badge.className)}>
+                            {badge.icon}
+                            {badge.label}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{startsAt ? formatLeJjMmAaAHeure(startsAt) : "—"}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1.5">
+                            <Users className="h-4 w-4 text-slate-400" />
+                            <span>{people != null ? people : "—"}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">{ref || "—"}</TableCell>
+                        <TableCell className="text-xs">{offerActive ? formatOfferExpiryLabel(entry.offer_expires_at) : "—"}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="inline-flex items-center justify-end gap-2">
+                            {reservation?.id ? (
+                              <Button type="button" variant="ghost" size="sm" onClick={() => goToReservation(reservation.id)}>
+                                Voir
                               </Button>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-              ) : null}
-            </TabsContent>
-          </Tabs>
+                            ) : null}
+
+                            {canSendOffer && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="gap-1.5"
+                                disabled={savingId === entry.id}
+                                onClick={() => handleSendOffer(entry)}
+                              >
+                                <Send className="h-3.5 w-3.5" />
+                                Proposer
+                              </Button>
+                            )}
+
+                            {canClose ? (
+                              <CloseEntryButton disabled={savingId === entry.id} onConfirm={(reason) => handleClose(entry, reason)} />
+                            ) : null}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          ) : null}
 
           {!canManage ? (
             <div className="flex items-center gap-2 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-3">

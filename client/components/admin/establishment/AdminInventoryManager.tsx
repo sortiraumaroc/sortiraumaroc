@@ -15,6 +15,9 @@ import {
   Image as ImageIcon,
   RefreshCcw,
   X,
+  GripVertical,
+  FolderPlus,
+  Tag,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -46,6 +49,14 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { loadAdminSessionToken } from "@/lib/adminApi";
 import { AdminItemEditorDialog } from "./AdminItemEditorDialog";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 // Types
 type ProInventoryCategory = {
@@ -102,9 +113,43 @@ type ExtractedCategory = {
   selected: boolean;
 };
 
+type DuplicateCategory = {
+  title: string;
+  existingId: string;
+};
+
+type DuplicateItem = {
+  title: string;
+  existingId: string;
+  extractedPrice?: number;
+  existingPrice?: number | null;
+  priceDiff: boolean;
+};
+
+type ExtractionStats = {
+  totalExtracted: {
+    categories: number;
+    items: number;
+  };
+  newToImport: {
+    categories: number;
+    items: number;
+  };
+  duplicatesSkipped: {
+    categories: number;
+    items: number;
+  };
+  priceUpdatesAvailable: number;
+};
+
 type ExtractionResult = {
   categories: ExtractedCategory[];
   items: ExtractedItem[];
+  duplicates?: {
+    categories: DuplicateCategory[];
+    items: DuplicateItem[];
+  };
+  stats?: ExtractionStats;
   confidence: number;
   itemCount: number;
   categoryCount: number;
@@ -177,13 +222,42 @@ async function adminListInventory(establishmentId: string): Promise<{
 // Create category for admin
 async function adminCreateCategory(
   establishmentId: string,
-  data: { title: string; description?: string }
+  data: { title: string; description?: string; parent_id?: string | null; sort_order?: number }
 ): Promise<{ category: ProInventoryCategory }> {
   return adminApiFetch(
     `/api/admin/establishments/${encodeURIComponent(establishmentId)}/inventory/categories`,
     {
       method: "POST",
       body: JSON.stringify(data),
+    }
+  );
+}
+
+// Update category for admin
+async function adminUpdateCategory(
+  establishmentId: string,
+  categoryId: string,
+  patch: Partial<{ title: string; description: string | null; parent_id: string | null; sort_order: number; is_active: boolean }>
+): Promise<{ category: ProInventoryCategory }> {
+  return adminApiFetch(
+    `/api/admin/establishments/${encodeURIComponent(establishmentId)}/inventory/categories/${encodeURIComponent(categoryId)}`,
+    {
+      method: "POST",
+      body: JSON.stringify(patch),
+    }
+  );
+}
+
+// Reorder items for admin
+async function adminReorderItems(
+  establishmentId: string,
+  itemIds: string[]
+): Promise<{ ok: true }> {
+  return adminApiFetch(
+    `/api/admin/establishments/${encodeURIComponent(establishmentId)}/inventory/reorder`,
+    {
+      method: "POST",
+      body: JSON.stringify({ itemIds }),
     }
   );
 }
@@ -311,6 +385,28 @@ export function AdminInventoryManager({
   // Delete confirmations
   const [deleteItemConfirm, setDeleteItemConfirm] = useState<string | null>(null);
   const [clearAllConfirm, setClearAllConfirm] = useState(false);
+
+  // Category dialog state
+  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<ProInventoryCategory | null>(null);
+  const [categoryForm, setCategoryForm] = useState({
+    title: "",
+    description: "",
+    parentId: "",
+    sortOrder: "0",
+    isActive: true,
+  });
+  const [savingCategory, setSavingCategory] = useState(false);
+
+  // New item dialog state
+  const [newItemDialogOpen, setNewItemDialogOpen] = useState(false);
+
+  // Drag & drop mode
+  const [sortMode, setSortMode] = useState(false);
+  const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+
+  // Delete category confirmation
+  const [deleteCategoryConfirm, setDeleteCategoryConfirm] = useState<string | null>(null);
 
   // Load inventory
   const loadInventory = useCallback(async () => {
@@ -448,10 +544,20 @@ export function AdminInventoryManager({
   // Handle extraction success
   const handleExtractionSuccess = (result: ExtractionResult) => {
     setExtraction(result);
+    // Mark new categories/items as selected by default
     setExtractedCategories(result.categories.map((c) => ({ ...c, selected: true })));
     setExtractedItems(result.items.map((i) => ({ ...i, selected: true })));
     setExpandedCategories(new Set(result.categories.map((c) => c.title)));
     setImportStep("review");
+
+    // Show info about duplicates if any were detected
+    const stats = result.stats;
+    if (stats && (stats.duplicatesSkipped.categories > 0 || stats.duplicatesSkipped.items > 0)) {
+      toast({
+        title: "Doublons détectés",
+        description: `${stats.duplicatesSkipped.categories} catégorie(s) et ${stats.duplicatesSkipped.items} produit(s) existant(s) ont été ignorés.`,
+      });
+    }
   };
 
   // Toggle selection
@@ -624,6 +730,154 @@ export function AdminInventoryManager({
     }
   };
 
+  // Open category dialog for creating
+  const openCreateCategory = (parentId?: string) => {
+    setEditingCategory(null);
+    setCategoryForm({
+      title: "",
+      description: "",
+      parentId: parentId || "",
+      sortOrder: "0",
+      isActive: true,
+    });
+    setCategoryDialogOpen(true);
+  };
+
+  // Open category dialog for editing
+  const openEditCategory = (cat: ProInventoryCategory) => {
+    setEditingCategory(cat);
+    setCategoryForm({
+      title: cat.title || "",
+      description: cat.description || "",
+      parentId: cat.parent_id || "",
+      sortOrder: String(cat.sort_order || 0),
+      isActive: cat.is_active !== false,
+    });
+    setCategoryDialogOpen(true);
+  };
+
+  // Save category (create or update)
+  const handleSaveCategory = async () => {
+    if (!categoryForm.title.trim()) return;
+
+    setSavingCategory(true);
+    try {
+      const sortOrder = Number(categoryForm.sortOrder) || 0;
+
+      if (editingCategory) {
+        await adminUpdateCategory(establishmentId, editingCategory.id, {
+          title: categoryForm.title.trim(),
+          description: categoryForm.description.trim() || null,
+          sort_order: sortOrder,
+          is_active: categoryForm.isActive,
+        });
+        toast({ title: "Catégorie modifiée" });
+      } else {
+        await adminCreateCategory(establishmentId, {
+          title: categoryForm.title.trim(),
+          description: categoryForm.description.trim() || undefined,
+          parent_id: categoryForm.parentId || null,
+          sort_order: sortOrder,
+        });
+        toast({ title: "Catégorie créée" });
+      }
+
+      setCategoryDialogOpen(false);
+      setEditingCategory(null);
+      await loadInventory();
+    } catch (err) {
+      toast({
+        title: "Erreur",
+        description: err instanceof Error ? err.message : "Erreur lors de l'enregistrement",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingCategory(false);
+    }
+  };
+
+  // Delete category
+  const handleDeleteCategory = async (categoryId: string) => {
+    try {
+      await adminDeleteCategory(establishmentId, categoryId);
+      toast({ title: "Catégorie supprimée" });
+      setDeleteCategoryConfirm(null);
+      await loadInventory();
+    } catch (err) {
+      toast({
+        title: "Erreur",
+        description: err instanceof Error ? err.message : "Erreur lors de la suppression",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Handle drag start
+  const handleDragStart = (e: React.DragEvent, itemId: string) => {
+    setDraggedItemId(itemId);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  // Handle drag over
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  // Handle drop (reorder)
+  const handleDrop = async (e: React.DragEvent, targetItemId: string, categoryItems: ProInventoryItem[]) => {
+    e.preventDefault();
+    if (!draggedItemId || draggedItemId === targetItemId) {
+      setDraggedItemId(null);
+      return;
+    }
+
+    const draggedIndex = categoryItems.findIndex((item) => item.id === draggedItemId);
+    const targetIndex = categoryItems.findIndex((item) => item.id === targetItemId);
+
+    if (draggedIndex === -1 || targetIndex === -1) {
+      setDraggedItemId(null);
+      return;
+    }
+
+    // Reorder locally first
+    const newOrder = [...categoryItems];
+    const [removed] = newOrder.splice(draggedIndex, 1);
+    newOrder.splice(targetIndex, 0, removed);
+
+    // Update order in backend
+    try {
+      await adminReorderItems(establishmentId, newOrder.map((item) => item.id));
+      await loadInventory();
+    } catch (err) {
+      toast({
+        title: "Erreur",
+        description: err instanceof Error ? err.message : "Erreur lors du réordonnancement",
+        variant: "destructive",
+      });
+    }
+
+    setDraggedItemId(null);
+  };
+
+  // Build parent options for category select
+  const parentOptions = useMemo(() => {
+    return categories
+      .filter((c) => c.is_active !== false && (!editingCategory || c.id !== editingCategory.id))
+      .map((c) => {
+        // Build full path
+        const path: string[] = [c.title];
+        let current = c;
+        while (current.parent_id) {
+          const parent = categories.find((p) => p.id === current.parent_id);
+          if (!parent) break;
+          path.unshift(parent.title);
+          current = parent;
+        }
+        return { id: c.id, label: path.join(" / ") };
+      });
+  }, [categories, editingCategory]);
+
   // Group items by category
   const itemsByCategory = useMemo(() => {
     const groups: Record<string, ProInventoryItem[]> = {};
@@ -708,6 +962,27 @@ export function AdminInventoryManager({
             Import IA
           </Button>
 
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => openCreateCategory()}
+          >
+            <FolderPlus className="w-4 h-4" />
+            Catégorie
+          </Button>
+
+          <Button
+            variant="outline"
+            className="gap-2 bg-primary text-white hover:bg-primary/90"
+            onClick={() => {
+              setEditingItem(null);
+              setNewItemDialogOpen(true);
+            }}
+          >
+            <Plus className="w-4 h-4" />
+            Produit
+          </Button>
+
           {items.length > 0 && (
             <Button
               variant="destructive"
@@ -719,6 +994,18 @@ export function AdminInventoryManager({
             </Button>
           )}
         </div>
+
+        {/* Sort mode toggle */}
+        {items.length > 1 && (
+          <div className="flex items-center gap-3 p-2 bg-slate-50 rounded-lg border border-slate-200">
+            <GripVertical className="w-4 h-4 text-slate-400" />
+            <span className="text-sm text-slate-600">Mode réorganisation</span>
+            <Switch checked={sortMode} onCheckedChange={setSortMode} />
+            {sortMode && (
+              <span className="text-xs text-slate-500">Glissez les produits pour les réordonner</span>
+            )}
+          </div>
+        )}
 
         {/* Current inventory display */}
         {loading ? (
@@ -735,67 +1022,110 @@ export function AdminInventoryManager({
           </div>
         ) : (
           <div className="space-y-3 max-h-[500px] overflow-y-auto">
-            {Object.entries(itemsByCategory).map(([categoryName, categoryItems]) => (
-              <div key={categoryName} className="border border-slate-200 rounded-lg overflow-hidden">
-                <div className="bg-slate-50 px-3 py-2 font-medium text-sm text-slate-800 flex items-center justify-between">
-                  <span>{categoryName}</span>
-                  <Badge variant="secondary" className="text-xs">
-                    {categoryItems.length}
-                  </Badge>
-                </div>
-                <div className="divide-y divide-slate-100">
-                  {categoryItems.map((item) => (
-                    <div
-                      key={item.id}
-                      className="flex items-center justify-between gap-3 p-3 hover:bg-slate-50"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-sm text-slate-900 truncate">
-                          {item.title}
-                        </div>
-                        {item.description && (
-                          <div className="text-xs text-slate-500 truncate">
-                            {item.description}
-                          </div>
-                        )}
-                        {item.labels && item.labels.length > 0 && (
-                          <div className="flex gap-1 mt-1">
-                            {item.labels.slice(0, 3).map((l) => (
-                              <Badge key={l} variant="outline" className="text-xs py-0">
-                                {l}
-                              </Badge>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      {item.base_price != null && (
-                        <div className="text-sm font-medium text-slate-700 shrink-0">
-                          {item.base_price.toFixed(2)} MAD
-                        </div>
-                      )}
+            {Object.entries(itemsByCategory).map(([categoryName, categoryItems]) => {
+              const category = categories.find((c) => c.title === categoryName);
+              return (
+                <div key={categoryName} className="border border-slate-200 rounded-lg overflow-hidden">
+                  <div className="bg-slate-50 px-3 py-2 font-medium text-sm text-slate-800 flex items-center justify-between gap-2">
+                    <span className="flex-1">{categoryName}</span>
+                    <Badge variant="secondary" className="text-xs">
+                      {categoryItems.length}
+                    </Badge>
+                    {category && categoryName !== "Sans catégorie" && (
                       <div className="flex items-center gap-1">
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-8 w-8 p-0"
-                          onClick={() => openEditDialog(item)}
+                          className="h-7 w-7 p-0"
+                          onClick={() => openCreateCategory(category.id)}
+                          title="Ajouter sous-catégorie"
                         >
-                          <Edit2 className="h-4 w-4" />
+                          <Plus className="h-3.5 w-3.5" />
                         </Button>
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-                          onClick={() => setDeleteItemConfirm(item.id)}
+                          className="h-7 w-7 p-0"
+                          onClick={() => openEditCategory(category)}
+                          title="Modifier catégorie"
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Edit2 className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => setDeleteCategoryConfirm(category.id)}
+                          title="Supprimer catégorie"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
-                    </div>
-                  ))}
+                    )}
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {categoryItems.map((item) => (
+                      <div
+                        key={item.id}
+                        className={`flex items-center justify-between gap-3 p-3 hover:bg-slate-50 ${
+                          sortMode ? "cursor-grab active:cursor-grabbing" : ""
+                        } ${draggedItemId === item.id ? "opacity-50 bg-slate-100" : ""}`}
+                        draggable={sortMode}
+                        onDragStart={(e) => sortMode && handleDragStart(e, item.id)}
+                        onDragOver={sortMode ? handleDragOver : undefined}
+                        onDrop={(e) => sortMode && handleDrop(e, item.id, categoryItems)}
+                      >
+                        {sortMode && (
+                          <GripVertical className="w-4 h-4 text-slate-400 shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-sm text-slate-900 truncate">
+                            {item.title}
+                          </div>
+                          {item.description && (
+                            <div className="text-xs text-slate-500 truncate">
+                              {item.description}
+                            </div>
+                          )}
+                          {item.labels && item.labels.length > 0 && (
+                            <div className="flex gap-1 mt-1">
+                              {item.labels.slice(0, 3).map((l) => (
+                                <Badge key={l} variant="outline" className="text-xs py-0">
+                                  {l}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        {item.base_price != null && (
+                          <div className="text-sm font-medium text-slate-700 shrink-0">
+                            {item.base_price.toFixed(2)} MAD
+                          </div>
+                        )}
+                        <div className="flex items-center gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 w-8 p-0"
+                            onClick={() => openEditDialog(item)}
+                          >
+                            <Edit2 className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => setDeleteItemConfirm(item.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </CardContent>
@@ -947,13 +1277,61 @@ export function AdminInventoryManager({
                 <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                 <div className="flex-1">
                   <div className="font-medium text-emerald-800">
-                    {extraction.itemCount} produits et {extraction.categoryCount} catégories détectés
+                    {extraction.itemCount} produits et {extraction.categoryCount} catégories à importer
                   </div>
                   <div className="text-xs text-emerald-600">
                     Confiance: {Math.round(extraction.confidence * 100)}%
                   </div>
                 </div>
               </div>
+
+              {/* Duplicates info */}
+              {extraction.stats && (extraction.stats.duplicatesSkipped.categories > 0 || extraction.stats.duplicatesSkipped.items > 0) && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <div className="font-medium text-amber-800 text-sm">
+                        Doublons détectés et ignorés
+                      </div>
+                      <div className="text-xs text-amber-700 mt-1 space-y-1">
+                        {extraction.stats.duplicatesSkipped.categories > 0 && (
+                          <div>• {extraction.stats.duplicatesSkipped.categories} catégorie(s) existante(s)</div>
+                        )}
+                        {extraction.stats.duplicatesSkipped.items > 0 && (
+                          <div>• {extraction.stats.duplicatesSkipped.items} produit(s) existant(s)</div>
+                        )}
+                        <div className="text-amber-600 mt-2">
+                          Sur {extraction.stats.totalExtracted.categories} catégories et {extraction.stats.totalExtracted.items} produits extraits au total.
+                        </div>
+                      </div>
+                      {/* Show duplicate details */}
+                      {extraction.duplicates && extraction.duplicates.items.length > 0 && (
+                        <details className="mt-2">
+                          <summary className="text-xs text-amber-700 cursor-pointer hover:text-amber-800">
+                            Voir les doublons ignorés ({extraction.duplicates.items.length})
+                          </summary>
+                          <div className="mt-1 max-h-24 overflow-y-auto text-xs text-amber-600 space-y-0.5">
+                            {extraction.duplicates.items.slice(0, 20).map((dup, i) => (
+                              <div key={i} className="truncate">
+                                • {dup.title}
+                                {dup.priceDiff && (
+                                  <span className="ml-1 text-amber-500">
+                                    (prix différent: {dup.extractedPrice?.toFixed(2)} vs {dup.existingPrice?.toFixed(2)} MAD)
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                            {extraction.duplicates.items.length > 20 && (
+                              <div className="text-amber-500">...et {extraction.duplicates.items.length - 20} autres</div>
+                            )}
+                          </div>
+                        </details>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Selection controls */}
               <div className="flex items-center justify-between text-sm">
@@ -1324,6 +1702,169 @@ export function AdminInventoryManager({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Category Dialog (Create/Edit) */}
+      <Dialog
+        open={categoryDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCategoryDialogOpen(false);
+            setEditingCategory(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Tag className="w-4 h-4 text-primary" />
+              {editingCategory ? "Modifier la catégorie" : "Créer une catégorie"}
+            </DialogTitle>
+            <DialogDescription>
+              {editingCategory
+                ? "Modifiez les informations de la catégorie"
+                : "Créez une nouvelle catégorie ou sous-catégorie pour organiser vos produits"}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 mt-4">
+            <div className="space-y-2">
+              <Label htmlFor="cat-title">Titre *</Label>
+              <Input
+                id="cat-title"
+                value={categoryForm.title}
+                onChange={(e) => setCategoryForm((p) => ({ ...p, title: e.target.value }))}
+                placeholder="Ex: Entrées, Plats, Desserts..."
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="cat-description">Description (optionnel)</Label>
+              <Input
+                id="cat-description"
+                value={categoryForm.description}
+                onChange={(e) => setCategoryForm((p) => ({ ...p, description: e.target.value }))}
+                placeholder="Description de la catégorie..."
+              />
+            </div>
+
+            {!editingCategory && (
+              <div className="space-y-2">
+                <Label htmlFor="cat-parent">Catégorie parente (sous-catégorie)</Label>
+                <Select
+                  value={categoryForm.parentId || "none"}
+                  onValueChange={(v) => setCategoryForm((p) => ({ ...p, parentId: v === "none" ? "" : v }))}
+                >
+                  <SelectTrigger id="cat-parent">
+                    <SelectValue placeholder="Aucune (catégorie principale)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Aucune (catégorie principale)</SelectItem>
+                    {parentOptions.map((opt) => (
+                      <SelectItem key={opt.id} value={opt.id}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="cat-sort">Ordre (tri)</Label>
+                <Input
+                  id="cat-sort"
+                  type="number"
+                  value={categoryForm.sortOrder}
+                  onChange={(e) => setCategoryForm((p) => ({ ...p, sortOrder: e.target.value }))}
+                  placeholder="0"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Active</Label>
+                <div className="flex items-center gap-3 h-10">
+                  <Switch
+                    checked={categoryForm.isActive}
+                    onCheckedChange={(checked) => setCategoryForm((p) => ({ ...p, isActive: checked }))}
+                  />
+                  <span className="text-sm text-slate-600">
+                    {categoryForm.isActive ? "Visible" : "Masquée"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="mt-4">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setCategoryDialogOpen(false);
+                setEditingCategory(null);
+              }}
+            >
+              Annuler
+            </Button>
+            <Button
+              onClick={handleSaveCategory}
+              disabled={!categoryForm.title.trim() || savingCategory}
+              className="gap-2"
+            >
+              {savingCategory ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Enregistrement...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  {editingCategory ? "Enregistrer" : "Créer"}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Category Confirm */}
+      <AlertDialog
+        open={!!deleteCategoryConfirm}
+        onOpenChange={(open) => !open && setDeleteCategoryConfirm(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer cette catégorie ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Les sous-catégories seront supprimées. Les produits resteront mais passeront en "Sans catégorie".
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => deleteCategoryConfirm && handleDeleteCategory(deleteCategoryConfirm)}
+            >
+              Supprimer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* New Item Dialog */}
+      <AdminItemEditorDialog
+        open={newItemDialogOpen}
+        onOpenChange={setNewItemDialogOpen}
+        establishmentId={establishmentId}
+        universe={universe}
+        categories={categories}
+        item={null}
+        onSaved={async () => {
+          toast({ title: "Produit créé" });
+          setNewItemDialogOpen(false);
+          await loadInventory();
+        }}
+      />
     </Card>
   );
 }

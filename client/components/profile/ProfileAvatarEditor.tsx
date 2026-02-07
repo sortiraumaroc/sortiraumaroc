@@ -15,7 +15,31 @@ import {
 import { fileToAvatarDataUrl } from "@/lib/profilePhoto";
 import { removeUserAvatar, saveUserAvatar } from "@/lib/userData";
 
-export function ProfileAvatarEditor({ initials, avatarDataUrl }: { initials: string; avatarDataUrl?: string }) {
+interface ProfileAvatarEditorProps {
+  initials: string;
+  avatarDataUrl?: string;
+  size?: "sm" | "md" | "lg";
+}
+
+const sizeClasses = {
+  sm: "h-9 w-9",
+  md: "h-12 w-12",
+  lg: "h-16 w-16",
+};
+
+const cameraIconSize = {
+  sm: "h-3 w-3",
+  md: "h-3.5 w-3.5",
+  lg: "h-4 w-4",
+};
+
+const cameraBadgeSize = {
+  sm: "p-0.5",
+  md: "p-1",
+  lg: "p-1.5",
+};
+
+export function ProfileAvatarEditor({ initials, avatarDataUrl, size = "md" }: ProfileAvatarEditorProps) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -90,12 +114,12 @@ export function ProfileAvatarEditor({ initials, avatarDataUrl }: { initials: str
           className="group relative"
           aria-label="Modifier la photo de profil"
         >
-          <Avatar className="h-12 w-12 border-2 border-primary/20">
+          <Avatar className={`${sizeClasses[size]} border-2 border-primary/20`}>
             {avatarDataUrl ? <AvatarImage src={avatarDataUrl} alt="Photo de profil" /> : null}
             <AvatarFallback className="bg-primary text-white font-bold">{initials}</AvatarFallback>
           </Avatar>
-          <div className="absolute -bottom-1 -right-1 rounded-full border-2 border-white bg-primary text-white p-1 shadow-sm group-hover:bg-primary/90 transition-colors">
-            <Camera className="h-3.5 w-3.5" />
+          <div className={`absolute -bottom-1 -right-1 rounded-full border-2 border-white bg-primary text-white ${cameraBadgeSize[size]} shadow-sm group-hover:bg-primary/90 transition-colors`}>
+            <Camera className={cameraIconSize[size]} />
           </div>
         </button>
       </DialogTrigger>

@@ -28,7 +28,7 @@ import { readSelectedEstablishmentId, writeSelectedEstablishmentId } from "@/lib
 import { getProSession, listMyEstablishments } from "@/lib/pro/api";
 import { proSupabase } from "@/lib/pro/supabase";
 
-import { AuthModal } from "@/components/AuthModal";
+import { AuthModalV2 } from "@/components/AuthModalV2";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -385,7 +385,7 @@ export function Header() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AuthModal
+      <AuthModalV2
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
         onAuthed={() => {

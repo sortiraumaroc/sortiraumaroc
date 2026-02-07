@@ -180,6 +180,7 @@ export const generateReservationPDF = async (data: ReservationPdfData): Promise<
       @media print {
         body { margin: 0; padding: 0; }
         * { -webkit-print-color-adjust: exact !important; color-adjust: exact !important; print-color-adjust: exact !important; }
+        .print-button { display: none !important; }
       }
       @page {
         size: A4;
@@ -191,49 +192,52 @@ export const generateReservationPDF = async (data: ReservationPdfData): Promise<
         font-family: 'Segoe UI', Arial, sans-serif;
         background: #f5f5f5;
         display: flex;
-        justify-content: center;
-        align-items: flex-start;
+        flex-direction: column;
+        align-items: center;
         min-height: 100vh;
+      }
+      .print-button {
+        margin-bottom: 16px;
+        padding: 10px 24px;
+        background: linear-gradient(135deg, #a3001d 0%, #7a0016 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: transform 0.2s, box-shadow 0.2s;
+      }
+      .print-button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(163, 0, 29, 0.3);
+      }
+      .print-button svg {
+        width: 18px;
+        height: 18px;
       }
     `);
     printWindow.document.write('</style>');
     printWindow.document.write('</head>');
     printWindow.document.write('<body>');
+    // Add print button at the top
+    printWindow.document.write(`
+      <button class="print-button" onclick="window.print()">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+        </svg>
+        Imprimer / Enregistrer PDF
+      </button>
+    `);
     printWindow.document.write(htmlContent);
     printWindow.document.write('</body>');
     printWindow.document.write('</html>');
     printWindow.document.close();
 
-    // Track if print has been triggered to avoid double printing
-    let printTriggered = false;
-
-    const triggerPrint = () => {
-      if (printTriggered) return;
-      printTriggered = true;
-
-      // Close the window after print dialog closes (print or cancel)
-      printWindow.onafterprint = () => {
-        printWindow.close();
-      };
-
-      printWindow.print();
-
-      // Fallback: close window after a delay if onafterprint doesn't fire
-      // This handles browsers that don't support onafterprint well
-      setTimeout(() => {
-        if (!printWindow.closed) {
-          printWindow.close();
-        }
-      }, 1000);
-    };
-
-    // Wait for content to render, then trigger print
-    printWindow.onload = () => {
-      setTimeout(triggerPrint, 250);
-    };
-
-    // Fallback if onload doesn't fire (some browsers)
-    setTimeout(triggerPrint, 500);
+    // No automatic print - user can click the print button if needed
   } catch (error) {
     console.error('Error generating PDF:', error);
     alert('Une erreur est survenue lors de la génération du PDF. Veuillez réessayer.');

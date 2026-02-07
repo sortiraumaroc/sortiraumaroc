@@ -24,6 +24,12 @@ import {
 import { Header } from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useGeocodedQuery } from "@/hooks/useGeocodedQuery";
 import { useUserLocation } from "@/hooks/useUserLocation";
 import { useTrackEstablishmentVisit } from "@/hooks/useTrackEstablishmentVisit";
@@ -36,7 +42,7 @@ import { ReservationBanner } from "@/components/booking/ReservationBanner";
 import { OpeningHoursBlock } from "@/components/restaurant/OpeningHoursBlock";
 import { MenuSection } from "@/components/restaurant/MenuSection";
 import { RestaurantMap } from "@/components/restaurant/RestaurantMap";
-import type { Pack } from "@/components/restaurant/MenuSection";
+import type { Pack, MenuCategory, MenuItem, MenuBadge } from "@/components/restaurant/MenuSection";
 import {
   clampRating,
   createRng,
@@ -56,6 +62,7 @@ import { EstablishmentTabs } from "@/components/establishment/EstablishmentTabs"
 import { EstablishmentSectionHeading } from "@/components/establishment/EstablishmentSectionHeading";
 import { EstablishmentReviewsSection } from "@/components/EstablishmentReviewsSection";
 import { ReportEstablishmentDialog } from "@/components/ReportEstablishmentDialog";
+import { ClaimEstablishmentDialog } from "@/components/ClaimEstablishmentDialog";
 
 interface RestaurantReview {
   id: number;
@@ -66,27 +73,7 @@ interface RestaurantReview {
   helpful: number;
 }
 
-type MenuItemBadge =
-  | "Best seller"
-  | "New"
-  | "Chef selection"
-  | "Nouveau"
-  | "Spécialité"
-  | "Spécialité du Chef";
-
-interface MenuItem {
-  id: number;
-  name: string;
-  description: string;
-  price: string;
-  badge?: MenuItemBadge;
-}
-
-interface MenuCategory {
-  id: string;
-  name: string;
-  items: MenuItem[];
-}
+// MenuCategory and MenuItem types are imported from MenuSection
 
 interface TimeSlotService {
   service: string;
@@ -970,7 +957,9 @@ export default function Restaurant() {
     const isFav = stored.some((f) => f.id === estId);
     setIsFavorited(isFav);
   }, [publicPayload?.establishment?.id, id]);
+
   const [showReportDialog, setShowReportDialog] = React.useState(false);
+  const [showClaimDialog, setShowClaimDialog] = React.useState(false);
   const [touchStartX, setTouchStartX] = React.useState(0);
   const [mouseStartX, setMouseStartX] = React.useState(0);
   const [isDragging, setIsDragging] = React.useState(false);
@@ -981,6 +970,14 @@ export default function Restaurant() {
   const bookingEstablishmentId = publicPayload?.establishment?.id ?? canonicalEstablishmentId ?? restaurantId;
   // Booking is only enabled if the establishment has an email address registered
   const hasEstablishmentEmail = Boolean(publicPayload?.establishment?.email);
+
+  // Open booking modal automatically if action=book is in URL
+  React.useEffect(() => {
+    const action = searchParams.get("action");
+    if (action === "book" && hasEstablishmentEmail) {
+      setBookingOpen(true);
+    }
+  }, [searchParams, hasEstablishmentEmail]);
   const preset = id ? RESTAURANT_DETAILS[id] : RESTAURANT_DETAILS["1"];
 
   const baseRestaurant =
@@ -994,6 +991,23 @@ export default function Restaurant() {
     });
 
   const packsFromDb = mapPublicPacksToMenuPacks(publicPayload?.offers?.packs);
+
+  // Transform menu from API to MenuCategory format
+  const menuFromDb: MenuCategory[] = React.useMemo(() => {
+    const apiMenu = publicPayload?.menu;
+    if (!apiMenu || !Array.isArray(apiMenu) || apiMenu.length === 0) return [];
+    return apiMenu.map((cat) => ({
+      id: cat.id,
+      name: cat.name,
+      items: (cat.items ?? []).map((item) => ({
+        id: item.id,
+        name: item.name,
+        description: item.description ?? "",
+        price: item.price ?? "",
+        badges: (item.badges ?? []) as MenuBadge[],
+      })),
+    }));
+  }, [publicPayload?.menu]);
 
   const dbCover = publicPayload?.establishment?.cover_url ? [publicPayload.establishment.cover_url] : [];
   const dbGallery = Array.isArray(publicPayload?.establishment?.gallery_urls) ? publicPayload!.establishment.gallery_urls : [];
@@ -1012,6 +1026,7 @@ export default function Restaurant() {
     images: dbImages.length ? dbImages : baseRestaurant.images,
     availableSlots: (publicPayload?.offers?.availableSlots as unknown as DateSlots[] | undefined) ?? baseRestaurant.availableSlots,
     packs: packsFromDb.length ? packsFromDb : baseRestaurant.packs,
+    menu: menuFromDb.length > 0 ? menuFromDb : baseRestaurant.menu,
   };
 
   const geocode = useGeocodedQuery(`${restaurant.name} ${restaurant.address}`);
@@ -1288,90 +1303,123 @@ export default function Restaurant() {
         </div>
 
         {/* Action Buttons Overlay */}
-        <div className="absolute top-4 right-4 flex gap-2 z-20">
-          <IconButton
-            onClick={() => {
-              // Check if user is authenticated before adding to favorites
-              if (!isAuthed()) {
-                openAuthModal();
-                return;
-              }
+        <TooltipProvider>
+          <div className="absolute top-4 right-4 flex gap-2 z-20">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <IconButton
+                  onClick={() => {
+                    // Check if user is authenticated before adding to favorites
+                    if (!isAuthed()) {
+                      openAuthModal();
+                      return;
+                    }
 
-              const estId = bookingEstablishmentId;
-              const estName = restaurant.name;
-              // Restaurant page is always kind "restaurant" (Hotel.tsx handles hotels)
-              const kind: FavoriteItem["kind"] = "restaurant";
+                    const estId = bookingEstablishmentId;
+                    const estName = restaurant.name;
+                    // Restaurant page is always kind "restaurant" (Hotel.tsx handles hotels)
+                    const kind: FavoriteItem["kind"] = "restaurant";
 
-              if (isFavorited) {
-                removeFavorite({ kind, id: estId });
-              } else {
-                addFavorite({
-                  kind,
-                  id: estId,
-                  title: estName,
-                  createdAtIso: new Date().toISOString(),
-                });
-              }
+                    if (isFavorited) {
+                      removeFavorite({ kind, id: estId });
+                    } else {
+                      addFavorite({
+                        kind,
+                        id: estId,
+                        title: estName,
+                        createdAtIso: new Date().toISOString(),
+                      });
+                    }
 
-              setIsFavorited(!isFavorited);
-            }}
-            aria-label={isFavorited ? "Retirer des favoris" : "Ajouter aux favoris"}
-          >
-            <Heart className={`w-6 h-6 transition ${isFavorited ? "fill-red-500 text-red-500" : "text-slate-400"}`} />
-          </IconButton>
-          <div className="relative">
-            <IconButton
-              onClick={handleShareButtonClick}
-              aria-label="Partager"
-            >
-              <Share2 className="w-6 h-6 text-slate-400" />
-            </IconButton>
+                    setIsFavorited(!isFavorited);
+                  }}
+                  aria-label={isFavorited ? "Retirer des favoris" : "Ajouter aux favoris"}
+                >
+                  <Heart className={`w-6 h-6 transition ${isFavorited ? "fill-red-500 text-red-500" : "text-slate-400"}`} />
+                </IconButton>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {isFavorited ? "Retirer des favoris" : "Ajouter aux favoris"}
+              </TooltipContent>
+            </Tooltip>
 
-            {/* Share Menu - Desktop only (mobile uses native share) */}
-            {showShareMenu && (
-              <div className="absolute top-full right-0 mt-2 bg-white rounded-lg shadow-lg border border-slate-200 z-50 min-w-48">
-                <button onClick={() => handleShare("facebook")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
-                  f Facebook
-                </button>
-                <button onClick={() => handleShare("twitter")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
-                  𝕏 Twitter
-                </button>
-                <button onClick={() => handleShare("whatsapp")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
-                  💬 WhatsApp
-                </button>
-                <button onClick={() => handleShare("sms")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
-                  💬 SMS
-                </button>
-                <button onClick={() => handleShare("email")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
-                  ✉️ Email
-                </button>
-                <button onClick={() => handleShare("copy")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm border-t border-slate-200">
-                  🔗 Copier le lien
-                </button>
-              </div>
-            )}
+            <div className="relative">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <IconButton
+                    onClick={handleShareButtonClick}
+                    aria-label="Partager"
+                  >
+                    <Share2 className="w-6 h-6 text-slate-400" />
+                  </IconButton>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  Partager
+                </TooltipContent>
+              </Tooltip>
+
+              {/* Share Menu - Desktop only (mobile uses native share) */}
+              {showShareMenu && (
+                <div className="absolute top-full right-0 mt-2 bg-white rounded-lg shadow-lg border border-slate-200 z-50 min-w-48">
+                  <button onClick={() => handleShare("facebook")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
+                    f Facebook
+                  </button>
+                  <button onClick={() => handleShare("twitter")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
+                    𝕏 Twitter
+                  </button>
+                  <button onClick={() => handleShare("whatsapp")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
+                    💬 WhatsApp
+                  </button>
+                  <button onClick={() => handleShare("sms")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
+                    💬 SMS
+                  </button>
+                  <button onClick={() => handleShare("email")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
+                    ✉️ Email
+                  </button>
+                  <button onClick={() => handleShare("copy")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm border-t border-slate-200">
+                    🔗 Copier le lien
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Report button - discreet placement */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <IconButton
+                  onClick={() => {
+                    if (!isAuthed()) {
+                      openAuthModal();
+                      return;
+                    }
+                    setShowReportDialog(true);
+                  }}
+                  aria-label={t("report.button_tooltip")}
+                  className="opacity-60 hover:opacity-100"
+                >
+                  <Flag className="w-5 h-5 text-slate-400" />
+                </IconButton>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                Signaler
+              </TooltipContent>
+            </Tooltip>
           </div>
-          {/* Report button - discreet placement */}
-          <IconButton
-            onClick={() => {
-              if (!isAuthed()) {
-                openAuthModal();
-                return;
-              }
-              setShowReportDialog(true);
-            }}
-            aria-label={t("report.button_tooltip")}
-            className="opacity-60 hover:opacity-100"
-          >
-            <Flag className="w-5 h-5 text-slate-400" />
-          </IconButton>
-        </div>
+        </TooltipProvider>
       </div>
 
       {/* Report Dialog */}
       <ReportEstablishmentDialog
         open={showReportDialog}
         onOpenChange={setShowReportDialog}
+        establishmentId={bookingEstablishmentId}
+        establishmentName={restaurant.name}
+      />
+
+      {/* Claim Establishment Dialog */}
+      <ClaimEstablishmentDialog
+        open={showClaimDialog}
+        onOpenChange={setShowClaimDialog}
         establishmentId={bookingEstablishmentId}
         establishmentName={restaurant.name}
       />
@@ -1586,6 +1634,23 @@ export default function Restaurant() {
                   </div>
                 </div>
               </div>
+            </div>
+          </section>
+
+          {/* Claim Establishment Section */}
+          <section className="mt-8 p-4 bg-slate-50 rounded-xl border border-slate-200">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <p className="font-semibold text-primary uppercase tracking-wide">C'EST VOTRE ENTREPRISE ?</p>
+                <p className="text-sm text-slate-600">Revendiquez cette fiche pour gérer vos informations et accéder à votre espace professionnel.</p>
+              </div>
+              <Button
+                variant="outline"
+                className="border-primary text-primary hover:bg-primary/10 whitespace-nowrap rounded-lg"
+                onClick={() => setShowClaimDialog(true)}
+              >
+                Revendiquer cette fiche
+              </Button>
             </div>
           </section>
         </section>

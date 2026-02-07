@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import { ChevronRight, ChevronLeft, Loader2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronRight, ChevronLeft, Loader2, Tag, CheckCircle2, XCircle } from "lucide-react";
+import { validateBookingPromoCode } from "@/lib/bookingPromoApi";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { BookingRecapCard } from "@/components/booking/BookingRecapCard";
@@ -72,6 +73,7 @@ export default function Step3Info() {
     checkInDate,
     checkOutDate,
     hotelRoomSelection,
+    selectedPack,
     reservationMode,
     bookingReference,
     setBookingReference,
@@ -87,9 +89,18 @@ export default function Step3Info() {
     setPhone,
     message,
     setMessage,
+    promoCode,
+    setPromoCode,
+    promoValidation,
+    setPromoValidation,
     setCurrentStep,
     canProceed,
   } = useBooking();
+
+  // Hide promo code field if establishment already has a promotion
+  const hasExistingPromotion = selectedPack?.originalPrice != null &&
+    selectedPack.price != null &&
+    selectedPack.originalPrice > selectedPack.price;
 
   const establishmentName = (() => {
     const title = searchParams.get("title");
@@ -124,6 +135,8 @@ export default function Step3Info() {
   const [prefillLoading, setPrefillLoading] = useState(false);
   const [prefillError, setPrefillError] = useState<string | null>(null);
   const [serverReliabilityScore, setServerReliabilityScore] = useState<number | null>(null);
+  const [promoValidating, setPromoValidating] = useState(false);
+  const promoValidationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -176,6 +189,47 @@ export default function Step3Info() {
     // Prefill must run once per screen open; we use refs to avoid overwriting user edits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Promo code validation with debounce
+  const validatePromoCodeDebounced = useCallback(
+    (code: string) => {
+      if (promoValidationTimeoutRef.current) {
+        clearTimeout(promoValidationTimeoutRef.current);
+      }
+
+      if (!code.trim()) {
+        setPromoValidation(null);
+        setPromoValidating(false);
+        return;
+      }
+
+      setPromoValidating(true);
+      promoValidationTimeoutRef.current = setTimeout(async () => {
+        try {
+          const result = await validateBookingPromoCode(code, establishmentId || undefined);
+          setPromoValidation(result);
+        } catch {
+          setPromoValidation({
+            valid: false,
+            message: "Erreur lors de la validation du code promo",
+          });
+        } finally {
+          setPromoValidating(false);
+        }
+      }, 500);
+    },
+    [establishmentId, setPromoValidation],
+  );
+
+  // Validate promo code when it changes
+  useEffect(() => {
+    validatePromoCodeDebounced(promoCode);
+    return () => {
+      if (promoValidationTimeoutRef.current) {
+        clearTimeout(promoValidationTimeoutRef.current);
+      }
+    };
+  }, [promoCode, validatePromoCodeDebounced]);
 
   const handleBack = () => {
     setCurrentStep(2);
@@ -528,6 +582,62 @@ export default function Step3Info() {
             rows={4}
           />
         </div>
+
+        {/* Promo Code - Hidden if establishment already has a promotion */}
+        {!hasExistingPromotion && (
+          <div className="mb-5">
+            <label className="block text-sm font-semibold text-foreground mb-2">
+              <span className="flex items-center gap-2">
+                <Tag className="w-4 h-4" />
+                Code promo
+              </span>
+              <span className="text-slate-600 font-normal ml-1">
+                ({t("booking.form.optional")})
+              </span>
+            </label>
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Ex: SAMBIENVENUE"
+                value={promoCode}
+                onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                className={`w-full px-4 py-3 pr-12 border-2 rounded-lg focus:outline-none focus:ring-2 text-foreground placeholder:text-slate-500 transition-colors bg-slate-50 uppercase tracking-wider ${
+                  promoCode && promoValidation
+                    ? promoValidation.valid
+                      ? "border-green-500 focus:border-green-500 focus:ring-green-500/20"
+                      : "border-red-500 focus:border-red-500 focus:ring-red-500/20"
+                    : "border-slate-300 focus:border-primary focus:ring-primary/20"
+                }`}
+              />
+              {promoCode && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  {promoValidating ? (
+                    <Loader2 className="w-5 h-5 text-slate-400 animate-spin" />
+                  ) : promoValidation?.valid ? (
+                    <CheckCircle2 className="w-5 h-5 text-green-500" />
+                  ) : promoValidation ? (
+                    <XCircle className="w-5 h-5 text-red-500" />
+                  ) : null}
+                </div>
+              )}
+            </div>
+            {promoCode && promoValidation && (
+              <div className={`mt-2 text-sm ${promoValidation.valid ? "text-green-600" : "text-red-600"}`}>
+                {promoValidation.valid ? (
+                  <span className="flex items-center gap-1">
+                    <CheckCircle2 className="w-4 h-4" />
+                    {promoValidation.discountPercent}% de réduction appliquée !
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1">
+                    <XCircle className="w-4 h-4" />
+                    {promoValidation.message || "Code promo invalide"}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Privacy Notice */}

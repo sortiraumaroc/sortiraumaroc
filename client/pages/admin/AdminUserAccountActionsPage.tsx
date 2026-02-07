@@ -30,14 +30,14 @@ function pad2(v: number): string {
   return String(v).padStart(2, "0");
 }
 
-function formatLocalYmdHm(d: Date): string {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+function formatLocalDmyHm(d: Date): string {
+  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
-function isoToLocalYmdHm(iso: string): string {
+function isoToLocalDmyHm(iso: string): string {
   const dt = new Date(iso);
   if (!Number.isFinite(dt.getTime())) return String(iso ?? "");
-  return formatLocalYmdHm(dt);
+  return formatLocalDmyHm(dt);
 }
 
 const columns: ColumnDef<AccountActionRow>[] = [
@@ -144,7 +144,7 @@ export function AdminUserAccountActionsPage() {
 
       const mapped: AccountActionRow[] = (res.items ?? []).map((r: ConsumerAccountAction) => ({
         id: String(r.id ?? ""),
-        occurredAt: isoToLocalYmdHm(String(r.occurred_at ?? "")),
+        occurredAt: isoToLocalDmyHm(String(r.occurred_at ?? "")),
         actionType: String(r.action_type ?? ""),
         userId: String(r.user_id ?? ""),
         userEmail: String(r.user_email ?? ""),

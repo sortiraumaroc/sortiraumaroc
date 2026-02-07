@@ -54,6 +54,11 @@ function getNotificationHref(n: AdminNotification): string | null {
 
   if (type.includes("profile_update")) return "/admin/moderation";
 
+  // Claim requests (demandes de revendication)
+  if (type.includes("claim_request") || type.includes("claim-request") || type.includes("revendication")) {
+    return "/admin/claim-requests";
+  }
+
   if (type.includes("payment")) return "/admin/payments";
 
   if (type.includes("pack") || type.includes("deal") || type.includes("offer")) return "/admin/deals";
@@ -98,6 +103,7 @@ function getNotificationCategory(type: string): string {
   if (t.includes("visibility")) return "visibility";
   if (t.includes("review") || t.includes("signal")) return "review";
   if (t.includes("moderation") || t.includes("profile_update")) return "moderation";
+  if (t.includes("claim") || t.includes("revendication")) return "claim";
   if (t.includes("message") || t.includes("support")) return "support";
   return "system";
 }
@@ -114,6 +120,8 @@ function categoryBadge(category: string) {
     return "bg-violet-100 text-violet-700 border-violet-200";
   if (category === "review")
     return "bg-orange-100 text-orange-700 border-orange-200";
+  if (category === "claim")
+    return "bg-purple-100 text-purple-700 border-purple-200";
   return base;
 }
 

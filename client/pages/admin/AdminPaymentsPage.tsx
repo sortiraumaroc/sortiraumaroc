@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RefreshIconButton } from "@/components/ui/refresh-icon-button";
 import { Input } from "@/components/ui/input";
 import { AdminApiError, listAdminNotifications, type AdminNotification } from "@/lib/adminApi";
+import { PaginationControls } from "@/components/admin/table/PaginationControls";
 import { formatLeJjMmAaAHeure } from "@shared/datetime";
 
 function humanAdminError(err: unknown): string {
@@ -44,6 +45,8 @@ export function AdminPaymentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<AdminNotification[]>([]);
   const [search, setSearch] = useState<string>("");
+  const [pageSize, setPageSize] = useState(25);
+  const [currentPage, setCurrentPage] = useState(0);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -74,6 +77,13 @@ export function AdminPaymentsPage() {
       return hay.includes(q);
     });
   }, [items, search]);
+
+  useEffect(() => { setCurrentPage(0); }, [search]);
+
+  const paginatedVisible = useMemo(() => {
+    const start = currentPage * pageSize;
+    return visible.slice(start, start + pageSize);
+  }, [visible, currentPage, pageSize]);
 
   return (
     <div className="space-y-4">
@@ -114,7 +124,7 @@ export function AdminPaymentsPage() {
 
           {!loading && visible.length ? (
             <div className="space-y-2">
-              {visible.slice(0, 50).map((n) => (
+              {paginatedVisible.map((n) => (
                 <div key={n.id} className="rounded-lg border border-slate-200 p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -139,6 +149,16 @@ export function AdminPaymentsPage() {
               ))}
             </div>
           ) : null}
+
+          {visible.length > 0 && (
+            <PaginationControls
+              currentPage={currentPage}
+              pageSize={pageSize}
+              totalItems={visible.length}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
+            />
+          )}
 
           <div className="mt-3 text-xs text-slate-500">
             Cette page affiche des événements (notifications) générés par le backend. La liste exhaustive des transactions (réservations + achats de packs)

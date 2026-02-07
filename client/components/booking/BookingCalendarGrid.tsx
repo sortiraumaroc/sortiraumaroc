@@ -99,13 +99,13 @@ export function BookingCalendarGrid({
         </button>
       </div>
 
-      <div className="grid grid-cols-7 gap-2 text-center text-xs font-medium text-gray-500">
+      <div className="grid grid-cols-7 gap-1 sm:gap-2 text-center text-xs font-medium text-gray-500">
         {weekHeader.map((d) => (
-          <div key={d}>{d}</div>
+          <div key={d} className="py-1">{d}</div>
         ))}
       </div>
 
-      <div className="grid grid-cols-7 gap-2 mt-2">
+      <div className="grid grid-cols-7 gap-1 sm:gap-2 mt-1 sm:mt-2">
         {grid.map((date) => {
           const day = startOfDayLocal(date);
           const isOutsideMonth = day.getMonth() !== month.getMonth();
@@ -132,9 +132,9 @@ export function BookingCalendarGrid({
                 onSelect(day);
               }}
               className={cn(
-                "aspect-square rounded-xl border text-sm transition-colors",
-                "min-h-[44px] min-w-[44px] sm:min-h-[52px] sm:min-w-[52px]",
-                "flex flex-col items-center justify-start pt-2 pb-1 gap-1",
+                "aspect-square rounded-lg sm:rounded-xl border text-sm transition-colors",
+                "min-h-[40px] min-w-[40px] sm:min-h-[48px] sm:min-w-[48px]",
+                "flex flex-col items-center justify-start pt-1.5 sm:pt-2 pb-0.5 sm:pb-1 gap-0.5 sm:gap-1",
                 "enabled:hover:border-[#A3001D]",
                 "focus:outline-none focus:ring-2 focus:ring-[#A3001D]/25",
                 disabled

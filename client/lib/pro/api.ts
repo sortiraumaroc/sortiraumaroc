@@ -820,6 +820,7 @@ export async function createProPack(args: {
     valid_from?: string | null;
     valid_to?: string | null;
     conditions?: string | null;
+    cover_url?: string | null;
     active?: boolean;
   };
 }): Promise<{ ok: true; id: string | null }> {
@@ -848,6 +849,7 @@ export async function createProPack(args: {
         valid_from: args.pack.valid_from ?? null,
         valid_to: args.pack.valid_to ?? null,
         conditions: args.pack.conditions ?? null,
+        cover_url: args.pack.cover_url ?? null,
       }),
     },
   );
@@ -918,6 +920,7 @@ export async function updateProPack(args: {
     valid_from?: string | null;
     valid_to?: string | null;
     conditions?: string | null;
+    cover_url?: string | null;
   };
 }): Promise<{ ok: true }> {
   const token = await requireProAccessToken();

@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { ChevronLeft } from "lucide-react";
 
-import { AuthModal } from "@/components/AuthModal";
+import { AuthModalV2 } from "@/components/AuthModalV2";
 import { BookingCalendarGrid } from "@/components/booking/BookingCalendarGrid";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -481,6 +481,7 @@ export function ProgressiveBookingModule(props: {
 
   const [authOpen, setAuthOpen] = React.useState(false);
   const [pendingUrl, setPendingUrl] = React.useState<string | null>(null);
+  const scrollAreaRef = React.useRef<HTMLDivElement>(null);
 
   const slots = React.useMemo(() => {
     const normalized = normalizeSlots(props.availableSlots);
@@ -682,6 +683,13 @@ export function ProgressiveBookingModule(props: {
   const stepOrder: BookingStep[] = ["date", "time", "people"];
   const currentStep = Math.max(1, stepOrder.indexOf(step) + 1);
 
+  // Scroll to top of the dialog content when step changes
+  React.useEffect(() => {
+    if (scrollAreaRef.current) {
+      scrollAreaRef.current.scrollTo({ top: 0, behavior: "instant" });
+    }
+  }, [step]);
+
   const headerTitle =
     step === "date"
       ? t("booking.step1.section.date")
@@ -754,7 +762,7 @@ export function ProgressiveBookingModule(props: {
               <div className="h-10 w-10" aria-hidden="true" />
             </div>
 
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 [-webkit-overflow-scrolling:touch]">
+            <div ref={scrollAreaRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 [-webkit-overflow-scrolling:touch]">
               {step === "people" ? (
                 <div className="space-y-4">
                   <div className="text-sm text-slate-600">{t("booking.step1.people.helper")}</div>
@@ -903,7 +911,7 @@ export function ProgressiveBookingModule(props: {
         </DialogContent>
       </Dialog>
 
-      <AuthModal
+      <AuthModalV2
         isOpen={authOpen}
         onClose={() => {
           setAuthOpen(false);

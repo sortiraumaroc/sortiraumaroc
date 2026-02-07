@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { AdminApiError, adminHealth, adminLogin, adminLogout, clearAdminSessionToken, loadAdminSessionToken, saveAdminSessionToken } from "@/lib/adminApi";
+import { useSessionConflict } from "@/hooks/useSessionConflict";
+import { SessionConflictDialog } from "@/components/SessionConflictDialog";
 
 export type AdminKeyGateState =
   | { status: "idle" }
@@ -28,6 +30,10 @@ export function AdminKeyGate(props: {
   const [password, setPassword] = useState("");
   const [peekPassword, setPeekPassword] = useState(false);
   const hasCheckedRef = useRef(false);
+
+  // Session conflict check
+  const { hasConflict, conflictingSession, clearConflict } = useSessionConflict("admin");
+  const [showConflictDialog, setShowConflictDialog] = useState(false);
 
   // If we have a cached valid session, start as "ready" to prevent flicker
   const hasToken = !!loadAdminSessionToken();
@@ -129,6 +135,13 @@ export function AdminKeyGate(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Show conflict dialog when there's a conflicting session
+  useEffect(() => {
+    if (hasConflict && state.status !== "ready") {
+      setShowConflictDialog(true);
+    }
+  }, [hasConflict, state.status]);
+
   if (state.status === "ready") {
     return <>{props.children({ adminKey: undefined, signOut: () => void signOut() })}</>;
   }
@@ -147,6 +160,23 @@ export function AdminKeyGate(props: {
 
   return (
     <div className="container mx-auto px-4 py-10 md:py-14 relative">
+      {/* Session conflict dialog */}
+      {conflictingSession && (
+        <SessionConflictDialog
+          open={showConflictDialog}
+          onOpenChange={(open) => {
+            setShowConflictDialog(open);
+            if (!open) clearConflict();
+          }}
+          currentSession={conflictingSession}
+          targetType="admin"
+          onProceed={() => {
+            clearConflict();
+            setShowConflictDialog(false);
+          }}
+        />
+      )}
+
       <div className="absolute top-4 right-4">
         <Button variant="outline" size="sm" asChild className="gap-2 bg-white/80 backdrop-blur">
           <Link to="/" aria-label="Revenir à l'accueil">

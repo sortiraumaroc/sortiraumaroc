@@ -2,6 +2,12 @@ import * as React from "react";
 import { ChevronLeft, ChevronRight, Flag, Heart, Share2 } from "lucide-react";
 
 import { IconButton } from "@/components/ui/icon-button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useI18n } from "@/lib/i18n";
 
 type HotelGalleryProps = {
@@ -179,58 +185,81 @@ export function HotelGallery({ name, images, onReport }: HotelGalleryProps) {
         </>
       ) : null}
 
-      <div className="absolute top-4 right-4 flex gap-2 z-20">
-        <IconButton
-          onClick={() => setIsFavorited((v) => !v)}
-          aria-label={isFavorited ? "Retirer des favoris" : "Ajouter aux favoris"}
-        >
-          <Heart className={`w-6 h-6 transition ${isFavorited ? "fill-[#a3001d] text-[#a3001d]" : "text-slate-400"}`} />
-        </IconButton>
-
-        <div className="relative">
-          <IconButton
-            onClick={handleShareButtonClick}
-            aria-label="Partager"
-          >
-            <Share2 className="w-6 h-6 text-slate-400" />
-          </IconButton>
-
-          {showShareMenu ? (
-            <div className="absolute top-full right-0 mt-2 bg-white rounded-lg shadow-lg border border-slate-200 z-50 min-w-52 overflow-hidden">
-              <button type="button" onClick={() => handleShare("facebook")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
-                f Facebook
-              </button>
-              <button type="button" onClick={() => handleShare("x")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
-                𝕏 X
-              </button>
-              <button type="button" onClick={() => handleShare("whatsapp")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
-                💬 WhatsApp
-              </button>
-              <button type="button" onClick={() => handleShare("email")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
-                ✉️ Email
-              </button>
-              <button
-                type="button"
-                onClick={() => handleShare("copy")}
-                className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm border-t border-slate-200"
+      <TooltipProvider>
+        <div className="absolute top-4 right-4 flex gap-2 z-20">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <IconButton
+                onClick={() => setIsFavorited((v) => !v)}
+                aria-label={isFavorited ? "Retirer des favoris" : "Ajouter aux favoris"}
               >
-                🔗 Copier le lien
-              </button>
-            </div>
-          ) : null}
-        </div>
+                <Heart className={`w-6 h-6 transition ${isFavorited ? "fill-[#a3001d] text-[#a3001d]" : "text-slate-400"}`} />
+              </IconButton>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {isFavorited ? "Retirer des favoris" : "Ajouter aux favoris"}
+            </TooltipContent>
+          </Tooltip>
 
-        {/* Report button - discreet placement */}
-        {onReport && (
-          <IconButton
-            onClick={onReport}
-            aria-label={t("report.button_tooltip")}
-            className="opacity-60 hover:opacity-100"
-          >
-            <Flag className="w-5 h-5 text-slate-400" />
-          </IconButton>
-        )}
-      </div>
+          <div className="relative">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <IconButton
+                  onClick={handleShareButtonClick}
+                  aria-label="Partager"
+                >
+                  <Share2 className="w-6 h-6 text-slate-400" />
+                </IconButton>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                Partager
+              </TooltipContent>
+            </Tooltip>
+
+            {showShareMenu ? (
+              <div className="absolute top-full right-0 mt-2 bg-white rounded-lg shadow-lg border border-slate-200 z-50 min-w-52 overflow-hidden">
+                <button type="button" onClick={() => handleShare("facebook")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
+                  f Facebook
+                </button>
+                <button type="button" onClick={() => handleShare("x")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
+                  𝕏 X
+                </button>
+                <button type="button" onClick={() => handleShare("whatsapp")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
+                  💬 WhatsApp
+                </button>
+                <button type="button" onClick={() => handleShare("email")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
+                  ✉️ Email
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleShare("copy")}
+                  className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm border-t border-slate-200"
+                >
+                  🔗 Copier le lien
+                </button>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Report button - discreet placement */}
+          {onReport && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <IconButton
+                  onClick={onReport}
+                  aria-label={t("report.button_tooltip")}
+                  className="opacity-60 hover:opacity-100"
+                >
+                  <Flag className="w-5 h-5 text-slate-400" />
+                </IconButton>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                Signaler
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+      </TooltipProvider>
     </div>
   );
 }

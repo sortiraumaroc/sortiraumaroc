@@ -153,7 +153,7 @@ export function CookieConsent({ className }: CookieConsentProps) {
           // Simple banner view
           <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
             <div className="flex items-start gap-3 flex-1">
-              <Cookie className="h-6 w-6 text-orange-500 shrink-0 mt-0.5" />
+              <Cookie className="h-6 w-6 text-[#a3001d] shrink-0 mt-0.5" />
               <div className="flex-1">
                 <p className="text-sm text-gray-700 dark:text-gray-300">
                   Nous utilisons des cookies pour améliorer votre expérience sur Sortir Au Maroc.
@@ -162,7 +162,7 @@ export function CookieConsent({ className }: CookieConsentProps) {
                 </p>
                 <button
                   onClick={() => setShowDetails(true)}
-                  className="text-sm text-orange-600 hover:text-orange-700 underline mt-1"
+                  className="text-sm text-[#a3001d] hover:text-[#8a0018] underline mt-1"
                 >
                   En savoir plus et personnaliser
                 </button>
@@ -180,7 +180,7 @@ export function CookieConsent({ className }: CookieConsentProps) {
               <Button
                 size="sm"
                 onClick={handleAcceptAll}
-                className="flex-1 md:flex-none bg-orange-500 hover:bg-orange-600 text-white"
+                className="flex-1 md:flex-none bg-[#a3001d] hover:bg-[#8a0018] text-white"
               >
                 Tout accepter
               </Button>
@@ -230,7 +230,7 @@ export function CookieConsent({ className }: CookieConsentProps) {
                     onChange={(e) =>
                       setLocalPreferences((p) => ({ ...p, analytics: e.target.checked }))
                     }
-                    className="h-4 w-4 text-orange-500 rounded border-gray-300 focus:ring-orange-500"
+                    className="h-4 w-4 text-[#a3001d] rounded border-gray-300 focus:ring-[#a3001d]"
                   />
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
@@ -251,7 +251,7 @@ export function CookieConsent({ className }: CookieConsentProps) {
                     onChange={(e) =>
                       setLocalPreferences((p) => ({ ...p, marketing: e.target.checked }))
                     }
-                    className="h-4 w-4 text-orange-500 rounded border-gray-300 focus:ring-orange-500"
+                    className="h-4 w-4 text-[#a3001d] rounded border-gray-300 focus:ring-[#a3001d]"
                   />
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
@@ -272,7 +272,7 @@ export function CookieConsent({ className }: CookieConsentProps) {
                     onChange={(e) =>
                       setLocalPreferences((p) => ({ ...p, personalization: e.target.checked }))
                     }
-                    className="h-4 w-4 text-orange-500 rounded border-gray-300 focus:ring-orange-500"
+                    className="h-4 w-4 text-[#a3001d] rounded border-gray-300 focus:ring-[#a3001d]"
                   />
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
@@ -299,7 +299,7 @@ export function CookieConsent({ className }: CookieConsentProps) {
               <Button
                 size="sm"
                 onClick={handleSavePreferences}
-                className="bg-orange-500 hover:bg-orange-600 text-white"
+                className="bg-[#a3001d] hover:bg-[#8a0018] text-white"
               >
                 Enregistrer mes choix
               </Button>
@@ -307,11 +307,11 @@ export function CookieConsent({ className }: CookieConsentProps) {
 
             <p className="text-xs text-gray-500 text-center">
               Pour plus d'informations, consultez notre{" "}
-              <a href="/content/politique-confidentialite" className="underline hover:text-orange-600">
+              <a href="/content/politique-confidentialite" className="underline hover:text-[#a3001d]">
                 Politique de confidentialité
               </a>{" "}
               et notre{" "}
-              <a href="/content/politique-cookies" className="underline hover:text-orange-600">
+              <a href="/content/politique-cookies" className="underline hover:text-[#a3001d]">
                 Politique des cookies
               </a>
               .

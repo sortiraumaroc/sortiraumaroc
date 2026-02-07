@@ -390,7 +390,7 @@ export const deleteDemoAccounts: RequestHandler = async (req, res) => {
         .update({
           email: anonEmail,
           full_name: "[Compte supprimé]",
-          status: "inactive",
+          status: "suspended",
           account_status: "deleted",
           deleted_at: new Date().toISOString(),
         })

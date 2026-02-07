@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, Copy, Plus, BadgeCheck, Crown, Star } from "lucide-react";
+import { ArrowRight, Copy, Plus, BadgeCheck, Crown, Star, Trash2, Power, Eye, GitCompareArrows } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { RefreshIconButton } from "@/components/ui/refresh-icon-button";
@@ -39,14 +39,19 @@ import {
   updateEstablishmentFlags,
   listAdminUniverses,
   UniverseAdmin,
+  deleteEstablishment,
+  isAdminSuperadmin,
+  getAdminUserRole,
 } from "@/lib/adminApi";
 import { useToast } from "@/hooks/use-toast";
 import { DynamicLucideIcon } from "@/components/admin/LucideIconPicker";
+import { DuplicateEstablishmentsDialog } from "@/components/admin/DuplicateEstablishmentsDialog";
+import { PaginationControls } from "@/components/admin/table/PaginationControls";
 
 const STATUS_OPTIONS: Array<{ value: EstablishmentStatus; label: string; badge: "default" | "secondary" | "destructive" | "outline" }> = [
   { value: "pending", label: "En attente", badge: "secondary" },
   { value: "active", label: "Actif", badge: "default" },
-  { value: "disabled", label: "Désactivé", badge: "outline" },
+  { value: "suspended", label: "Désactivé", badge: "outline" },
   { value: "rejected", label: "Rejeté", badge: "destructive" },
 ];
 
@@ -67,11 +72,33 @@ function formatDate(iso: string | null | undefined): string {
   return d.toLocaleString();
 }
 
+/**
+ * Convertit une chaîne en Title Case
+ * Ex: "THE CLOUD COFFEE LAB" -> "The Cloud Coffee Lab"
+ */
+function toTitleCase(str: string): string {
+  // Mots qu'on garde en minuscule (sauf en début de phrase)
+  const minorWords = new Set(["de", "du", "la", "le", "les", "des", "et", "ou", "à", "au", "aux", "en", "par", "pour", "sur", "avec", "sans", "sous", "chez"]);
+
+  return str
+    .toLowerCase()
+    .split(" ")
+    .map((word, index) => {
+      if (!word) return word;
+      // Premier mot toujours capitalisé, ou si le mot n'est pas un mot mineur
+      if (index === 0 || !minorWords.has(word)) {
+        return word.charAt(0).toUpperCase() + word.slice(1);
+      }
+      return word;
+    })
+    .join(" ");
+}
+
 function getLabel(est: Establishment): string {
   const a = typeof est.name === "string" ? est.name.trim() : "";
-  if (a) return a;
+  if (a) return toTitleCase(a);
   const b = typeof est.title === "string" ? est.title.trim() : "";
-  if (b) return b;
+  if (b) return toTitleCase(b);
   return est.id;
 }
 
@@ -107,6 +134,10 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
   const [items, setItems] = useState<Establishment[]>([]);
   const [savingIds, setSavingIds] = useState<Set<string>>(() => new Set());
   const [draftStatus, setDraftStatus] = useState<Record<string, EstablishmentStatus>>({});
+
+  // Pagination
+  const [pageSize, setPageSize] = useState(25);
+  const [currentPage, setCurrentPage] = useState(0);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -277,6 +308,47 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
     }
   };
 
+  // État pour la suppression
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Doublons
+  const [duplicatesOpen, setDuplicatesOpen] = useState(false);
+
+  // Vérifier si l'utilisateur peut supprimer (admin ou superadmin)
+  const canDelete = useMemo(() => {
+    const role = getAdminUserRole();
+    return role === "superadmin" || role === "admin";
+  }, []);
+
+  const handleDelete = async () => {
+    if (!deleteConfirm || deleting) return;
+
+    setDeleting(true);
+    setError(null);
+
+    try {
+      await deleteEstablishment(props.adminKey, deleteConfirm.id);
+      toast({
+        title: "Supprimé",
+        description: `L'établissement "${deleteConfirm.name}" a été supprimé.`,
+      });
+      setDeleteConfirm(null);
+      await refresh();
+    } catch (e) {
+      if (e instanceof AdminApiError) setError(e.message);
+      else setError("Erreur lors de la suppression");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  // Toggle activer/désactiver
+  const handleToggleActive = async (id: string, currentStatus: string) => {
+    const nextStatus: EstablishmentStatus = currentStatus === "active" ? "suspended" : "active";
+    await handleSave(id, nextStatus);
+  };
+
   const filtersLabel = useMemo(() => {
     const parts: string[] = [];
     parts.push(statusFilter === "all" ? "Tous" : statusFilter.toString());
@@ -322,6 +394,16 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
     });
   }, [cityFilter, items, search, universeFilter]);
 
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [search, statusFilter, cityFilter, universeFilter]);
+
+  const paginatedItems = useMemo(() => {
+    const start = currentPage * pageSize;
+    return visibleItems.slice(start, start + pageSize);
+  }, [visibleItems, currentPage, pageSize]);
+
   return (
     <div className="rounded-lg border-2 border-slate-200 bg-white">
       <div className="p-4 md:p-6 border-b border-slate-200 space-y-3">
@@ -353,6 +435,18 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
             >
               +
             </Button>
+
+            {canDelete && (
+              <Button
+                variant="outline"
+                className="gap-2 text-amber-600 border-amber-300 hover:bg-amber-50"
+                onClick={() => setDuplicatesOpen(true)}
+                title="Détecter et supprimer les doublons"
+              >
+                <GitCompareArrows className="h-4 w-4" />
+                <span className="hidden sm:inline">Doublons</span>
+              </Button>
+            )}
 
             <RefreshIconButton className="h-9 w-9" loading={loading} label="Rafraîchir" onClick={() => void refresh()} />
           </div>
@@ -640,6 +734,40 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
         </DialogContent>
       </Dialog>
 
+      {/* Dialog de confirmation de suppression */}
+      <Dialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Supprimer l'établissement</DialogTitle>
+            <DialogDescription>
+              Êtes-vous sûr de vouloir supprimer définitivement l'établissement <strong>{deleteConfirm?.name}</strong> ?
+              <br /><br />
+              Cette action est irréversible et supprimera toutes les données associées (réservations, avis, etc.).
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteConfirm(null)}
+              disabled={deleting}
+            >
+              Annuler
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void handleDelete()}
+              disabled={deleting}
+              className="gap-2"
+            >
+              <Trash2 className="h-4 w-4" />
+              {deleting ? "Suppression..." : "Supprimer"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="p-4 md:p-6 overflow-x-auto">
         <TooltipProvider>
           <Table>
@@ -654,7 +782,7 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {visibleItems.map((item) => {
+              {paginatedItems.map((item) => {
                 const current = (item.status ?? "").toString();
                 const draft = draftStatus[item.id] ?? (current as EstablishmentStatus);
                 const isSaving = savingIds.has(item.id);
@@ -751,40 +879,65 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
                     </TableCell>
                     <TableCell className="text-sm text-slate-600">{formatDate(item.created_at ?? null)}</TableCell>
                     <TableCell className="text-right">
-                      <div className="grid grid-cols-2 gap-1.5 w-[170px] ml-auto">
-                        <Button size="sm" variant="outline" asChild className="w-full justify-center text-xs">
-                          <Link to={`/admin/establishments/${encodeURIComponent(item.id)}`}>Voir</Link>
-                        </Button>
+                      <div className="flex gap-1.5 justify-end">
+                        {/* Bouton Voir */}
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="icon"
+                              variant="outline"
+                              className="h-8 w-8"
+                              asChild
+                            >
+                              <Link to={`/admin/establishments/${encodeURIComponent(item.id)}`}>
+                                <Eye className="h-4 w-4" />
+                              </Link>
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Voir les détails</TooltipContent>
+                        </Tooltip>
 
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="w-full justify-center text-xs"
-                          onClick={() => void handleSave(item.id, "active")}
-                          disabled={loading || isSaving || current === "active"}
-                        >
-                          Valider
-                        </Button>
+                        {/* Bouton Activer/Désactiver */}
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="icon"
+                              variant="outline"
+                              className={`h-8 w-8 ${
+                                current === "active"
+                                  ? "text-amber-600 border-amber-300 hover:bg-amber-50"
+                                  : "text-emerald-600 border-emerald-300 hover:bg-emerald-50"
+                              }`}
+                              onClick={() => void handleToggleActive(item.id, current)}
+                              disabled={loading || isSaving}
+                            >
+                              <Power className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {current === "active"
+                              ? "Désactiver (suspendre)"
+                              : "Activer"}
+                          </TooltipContent>
+                        </Tooltip>
 
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="w-full justify-center text-xs"
-                          onClick={() => void handleSave(item.id, "disabled")}
-                          disabled={loading || isSaving || current === "disabled"}
-                        >
-                          Suspendre
-                        </Button>
-
-                        <Button
-                          size="sm"
-                          variant="brand"
-                          className="w-full justify-center text-xs"
-                          onClick={() => void handleSave(item.id)}
-                          disabled={loading || isSaving || !hasChanged}
-                        >
-                          {isSaving ? "…" : "Sauver"}
-                        </Button>
+                        {/* Bouton Supprimer (admin et superadmin) */}
+                        {canDelete && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="icon"
+                                variant="outline"
+                                className="h-8 w-8 text-red-600 border-red-300 hover:bg-red-50"
+                                onClick={() => setDeleteConfirm({ id: item.id, name: getLabel(item) })}
+                                disabled={loading || isSaving}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Supprimer</TooltipContent>
+                          </Tooltip>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -802,6 +955,24 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
           </Table>
         </TooltipProvider>
       </div>
+
+      {visibleItems.length > 0 && (
+        <PaginationControls
+          currentPage={currentPage}
+          pageSize={pageSize}
+          totalItems={visibleItems.length}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={setPageSize}
+        />
+      )}
+
+      {/* Dialog doublons */}
+      <DuplicateEstablishmentsDialog
+        open={duplicatesOpen}
+        onOpenChange={setDuplicatesOpen}
+        adminKey={props.adminKey}
+        onDeleted={() => void refresh()}
+      />
     </div>
   );
 }

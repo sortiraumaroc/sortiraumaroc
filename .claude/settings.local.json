@@ -144,7 +144,9 @@
       "Bash(openssl genrsa:*)",
       "Bash(openssl req -new -key pass-sambooking-key.pem -out pass-sambooking.csr -subj \"/emailAddress=s.aitnasser@me.com/CN=SAMBooking Wallet/C=MA/O=SAY MEDIA\")",
       "Bash(openssl rsa:*)",
-      "Bash(openssl req -noout -modulus -in pass-sambooking.csr)"
+      "Bash(openssl req -noout -modulus -in pass-sambooking.csr)",
+      "Bash(git rebase:*)",
+      "Bash(GIT_EDITOR=true git rebase:*)"
     ]
   }
 }

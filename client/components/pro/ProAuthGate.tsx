@@ -3,6 +3,9 @@ import { Link, useSearchParams } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import { Eye, Loader2, ShieldCheck } from "lucide-react";
 
+import { useSessionConflict } from "@/hooks/useSessionConflict";
+import { SessionConflictDialog } from "@/components/SessionConflictDialog";
+
 import {
   Card,
   CardContent,
@@ -89,6 +92,10 @@ export function ProAuthGate({ children, variant = "pro" }: Props) {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
 
+  // Session conflict check
+  const { hasConflict, conflictingSession, clearConflict } = useSessionConflict("pro");
+  const [showConflictDialog, setShowConflictDialog] = useState(false);
+
   const [mode, setMode] = useState<"signin" | "signup" | "forgot-password">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -126,6 +133,13 @@ export function ProAuthGate({ children, variant = "pro" }: Props) {
     if (paramMode === "signup") setMode("signup");
     if (paramMode === "signin") setMode("signin");
   }, [searchParams]);
+
+  // Show conflict dialog when there's a conflicting session and user is not logged in
+  useEffect(() => {
+    if (hasConflict && !user && !loading) {
+      setShowConflictDialog(true);
+    }
+  }, [hasConflict, user, loading]);
 
   useEffect(() => {
     setError(null);
@@ -353,12 +367,29 @@ export function ProAuthGate({ children, variant = "pro" }: Props) {
 
     return (
       <div className="relative container mx-auto px-4 pb-10 md:pb-14">
+        {/* Session conflict dialog */}
+        {conflictingSession && (
+          <SessionConflictDialog
+            open={showConflictDialog}
+            onOpenChange={(open) => {
+              setShowConflictDialog(open);
+              if (!open) clearConflict();
+            }}
+            currentSession={conflictingSession}
+            targetType="pro"
+            onProceed={() => {
+              clearConflict();
+              setShowConflictDialog(false);
+            }}
+          />
+        )}
+
         <div className="absolute right-4 top-4">
           <Link
             to="/"
             className="inline-flex h-10 items-center justify-center rounded-md border border-primary px-4 text-sm font-bold text-primary hover:bg-primary hover:text-white active:bg-primary active:text-white"
           >
-            Revenir à l’accueil
+            Revenir à l'accueil
           </Link>
         </div>
 

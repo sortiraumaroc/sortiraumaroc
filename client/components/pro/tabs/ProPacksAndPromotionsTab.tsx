@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { BarChart3, Calendar, Copy, Download, Edit3, Eye, FileText, Gift, Loader2, Package, Percent, Plus, Save, Sparkles, Tag, Trash2, TrendingUp, Wallet } from "lucide-react";
+import { BarChart3, Calendar, Copy, Download, Edit3, Eye, FileText, Gift, ImagePlus, Loader2, Package, Percent, Plus, Save, Sparkles, Tag, Trash2, TrendingUp, Upload, Wallet, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -147,7 +147,11 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
     validFrom: "",
     validTo: "",
     conditions: "",
+    coverUrl: "",
   });
+
+  // Cover image upload state
+  const [uploadingCover, setUploadingCover] = useState(false);
 
   // Pack edit state
   const [editPackDialogOpen, setEditPackDialogOpen] = useState(false);
@@ -163,6 +167,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
     validFrom: "",
     validTo: "",
     conditions: "",
+    coverUrl: "",
     active: true,
   });
 
@@ -302,6 +307,16 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
       return;
     }
 
+    // Check for duplicate pack (same title and price)
+    const normalizedTitle = title.toLowerCase();
+    const existingPack = packs.find(
+      (p) => p.title.toLowerCase() === normalizedTitle && p.price === price
+    );
+    if (existingPack) {
+      setPacksError(`Un pack "${existingPack.title}" avec ce prix existe déjà.`);
+      return;
+    }
+
     const originalPrice = newPack.originalPrice.trim() ? Math.round(Number(newPack.originalPrice) * 100) : null;
     const stock = newPack.stock.trim() ? Math.round(Number(newPack.stock)) : null;
 
@@ -320,6 +335,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
           valid_from: newPack.validFrom || null,
           valid_to: newPack.validTo || null,
           conditions: newPack.conditions.trim() || null,
+          cover_url: newPack.coverUrl.trim() || null,
           active: true,
         },
       });
@@ -338,6 +354,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
       validFrom: "",
       validTo: "",
       conditions: "",
+      coverUrl: "",
     });
 
     await loadPacks();
@@ -366,6 +383,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
       validFrom: pack.valid_from ?? "",
       validTo: pack.valid_to ?? "",
       conditions: pack.conditions ?? "",
+      coverUrl: pack.cover_url ?? "",
       active: pack.active ?? true,
     });
     setEditPackDialogOpen(true);
@@ -403,6 +421,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
           valid_from: editPack.validFrom || null,
           valid_to: editPack.validTo || null,
           conditions: editPack.conditions.trim() || null,
+          cover_url: editPack.coverUrl.trim() || null,
           active: editPack.active,
         },
       });
@@ -970,6 +989,100 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                     )}
                   </div>
 
+                  {/* Section Image de couverture */}
+                  <div className="rounded-xl border-2 border-dashed border-violet-200 bg-violet-50/50 p-4 space-y-3">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-violet-700">
+                      <ImagePlus className="w-4 h-4" />
+                      Image de couverture
+                    </div>
+
+                    {newPack.coverUrl ? (
+                      <div className="relative">
+                        <img
+                          src={newPack.coverUrl}
+                          alt="Couverture du pack"
+                          className="w-full h-32 object-cover rounded-lg"
+                        />
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          className="absolute top-2 right-2 h-8 w-8 p-0"
+                          onClick={() => setNewPack((p) => ({ ...p, coverUrl: "" }))}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <label
+                          htmlFor="pack-cover-upload"
+                          className="flex flex-col items-center justify-center w-full h-28 border-2 border-violet-300 border-dashed rounded-lg cursor-pointer bg-white hover:bg-violet-50 transition-colors"
+                        >
+                          <div className="flex flex-col items-center justify-center pt-4 pb-4">
+                            <Upload className="w-8 h-8 mb-2 text-violet-500" />
+                            <p className="text-sm text-violet-600 font-medium">
+                              Cliquez pour télécharger
+                            </p>
+                            <p className="text-xs text-violet-400 mt-1">PNG, JPG (max 2 Mo)</p>
+                          </div>
+                          <input
+                            id="pack-cover-upload"
+                            type="file"
+                            className="hidden"
+                            accept="image/png,image/jpeg,image/webp"
+                            disabled={uploadingCover}
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+
+                              if (file.size > 2 * 1024 * 1024) {
+                                setPacksError("L'image ne doit pas dépasser 2 Mo.");
+                                return;
+                              }
+
+                              setUploadingCover(true);
+                              setPacksError(null);
+
+                              try {
+                                const formData = new FormData();
+                                formData.append("image", file);
+
+                                const token = localStorage.getItem("sb_access_token");
+                                const res = await fetch(`/api/pro/establishments/${establishment.id}/inventory/images/upload`, {
+                                  method: "POST",
+                                  headers: {
+                                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                                  },
+                                  body: formData,
+                                });
+
+                                if (!res.ok) {
+                                  const data = await res.json().catch(() => null);
+                                  throw new Error(data?.error || "Erreur lors de l'upload");
+                                }
+
+                                const { url } = await res.json();
+                                setNewPack((p) => ({ ...p, coverUrl: url }));
+                              } catch (err) {
+                                setPacksError(err instanceof Error ? err.message : "Erreur lors de l'upload");
+                              } finally {
+                                setUploadingCover(false);
+                                e.target.value = "";
+                              }
+                            }}
+                          />
+                        </label>
+                        {uploadingCover && (
+                          <div className="flex items-center justify-center gap-2 text-sm text-violet-600">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Téléchargement en cours...
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Section Disponibilité */}
                   <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4 space-y-4">
                     <div className="flex items-center gap-2 text-sm font-semibold text-blue-700">
@@ -1036,54 +1149,71 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                 <>
                   <div className="md:hidden space-y-3">
                     {packs.map((p) => (
-                      <div key={p.id} className="rounded-xl border bg-white p-4 space-y-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <div className="font-semibold truncate">{p.title}</div>
-                              {!p.active && <Badge className="bg-slate-100 text-slate-600 border-0 text-xs">Inactif</Badge>}
+                      <div key={p.id} className="rounded-xl border bg-white overflow-hidden">
+                        {/* Cover image */}
+                        {p.cover_url && (
+                          <div className="relative h-32 w-full">
+                            <img
+                              src={p.cover_url}
+                              alt={p.title}
+                              className="w-full h-full object-cover"
+                            />
+                            {!p.active && (
+                              <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                                <Badge className="bg-slate-800 text-white border-0">Inactif</Badge>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        <div className="p-4 space-y-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <div className="font-semibold truncate">{p.title}</div>
+                                {!p.active && !p.cover_url && <Badge className="bg-slate-100 text-slate-600 border-0 text-xs">Inactif</Badge>}
+                              </div>
+                              {p.label ? <Badge className="mt-1 bg-primary/10 text-primary border-0 text-xs">{p.label}</Badge> : null}
                             </div>
-                            {p.label ? <Badge className="mt-1 bg-primary/10 text-primary border-0 text-xs">{p.label}</Badge> : null}
-                          </div>
-                          <div className="flex gap-2">
-                            <Button variant="outline" size="sm" className="gap-1" disabled={!canEdit} onClick={() => openEditPackDialog(p)}>
-                              <Edit3 className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="gap-1 text-red-600 hover:text-red-700 hover:bg-red-50"
-                              disabled={!canEdit}
-                              onClick={() => {
-                                if (window.confirm(`Supprimer le pack "${p.title}" ?`)) deletePack(p.id);
-                              }}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3 text-sm">
-                          <div>
-                            <div className="text-xs text-slate-500">Prix</div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold tabular-nums text-emerald-700">{formatMoney(p.price, "MAD")}</span>
-                              {p.original_price && p.original_price > p.price && (
-                                <span className="text-xs text-slate-400 line-through">{formatMoney(p.original_price, "MAD")}</span>
-                              )}
+                            <div className="flex gap-2">
+                              <Button variant="outline" size="sm" className="gap-1" disabled={!canEdit} onClick={() => openEditPackDialog(p)}>
+                                <Edit3 className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="gap-1 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                disabled={!canEdit}
+                                onClick={() => {
+                                  if (window.confirm(`Supprimer le pack "${p.title}" ?`)) deletePack(p.id);
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
                             </div>
                           </div>
-                          <div className="text-right">
-                            <div className="text-xs text-slate-500">Stock</div>
-                            <div className="font-semibold tabular-nums">{p.stock ?? "Illimité"}</div>
-                          </div>
-                        </div>
 
-                        <div className="grid grid-cols-2 gap-3 text-sm">
-                          <div>
-                            <div className="text-xs text-slate-500">Validité</div>
-                            <div className="text-sm text-slate-700 whitespace-nowrap">
-                              {p.valid_from || p.valid_to ? `${p.valid_from ?? "..."} → ${p.valid_to ?? "..."}` : "Permanente"}
+                          <div className="grid grid-cols-2 gap-3 text-sm">
+                            <div>
+                              <div className="text-xs text-slate-500">Prix</div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold tabular-nums text-emerald-700">{formatMoney(p.price, "MAD")}</span>
+                                {p.original_price && p.original_price > p.price && (
+                                  <span className="text-xs text-slate-400 line-through">{formatMoney(p.original_price, "MAD")}</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-xs text-slate-500">Stock</div>
+                              <div className="font-semibold tabular-nums">{p.stock ?? "Illimité"}</div>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3 text-sm">
+                            <div>
+                              <div className="text-xs text-slate-500">Validité</div>
+                              <div className="text-sm text-slate-700 whitespace-nowrap">
+                                {p.valid_from || p.valid_to ? `${p.valid_from ?? "..."} → ${p.valid_to ?? "..."}` : "Permanente"}
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -1095,6 +1225,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                     <Table className="min-w-[920px]">
                       <TableHeader>
                         <TableRow>
+                          <TableHead className="w-16">Image</TableHead>
                           <TableHead>Titre</TableHead>
                           <TableHead>Prix</TableHead>
                           <TableHead>Stock</TableHead>
@@ -1106,6 +1237,19 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                       <TableBody>
                         {packs.map((p) => (
                           <TableRow key={p.id} className={!p.active ? "opacity-60" : ""}>
+                            <TableCell>
+                              {p.cover_url ? (
+                                <img
+                                  src={p.cover_url}
+                                  alt={p.title}
+                                  className="w-12 h-12 object-cover rounded-lg"
+                                />
+                              ) : (
+                                <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center">
+                                  <ImagePlus className="w-5 h-5 text-slate-400" />
+                                </div>
+                              )}
+                            </TableCell>
                             <TableCell>
                               <div className="font-semibold">{p.title}</div>
                               {p.label ? <Badge className="mt-1 bg-primary/10 text-primary border-0 text-xs">{p.label}</Badge> : null}
@@ -1280,6 +1424,95 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                         onChange={(e) => setEditPack((p) => ({ ...p, validTo: e.target.value }))}
                       />
                     </div>
+                  </div>
+
+                  {/* Image de couverture */}
+                  <div className="rounded-xl border-2 border-dashed border-violet-200 bg-violet-50/50 p-3 space-y-2">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-violet-700">
+                      <ImagePlus className="w-4 h-4" />
+                      Image de couverture
+                    </div>
+
+                    {editPack.coverUrl ? (
+                      <div className="relative">
+                        <img
+                          src={editPack.coverUrl}
+                          alt="Couverture du pack"
+                          className="w-full h-24 object-cover rounded-lg"
+                        />
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          className="absolute top-1 right-1 h-7 w-7 p-0"
+                          onClick={() => setEditPack((p) => ({ ...p, coverUrl: "" }))}
+                        >
+                          <X className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <label
+                        htmlFor="edit-pack-cover-upload"
+                        className="flex flex-col items-center justify-center w-full h-20 border-2 border-violet-300 border-dashed rounded-lg cursor-pointer bg-white hover:bg-violet-50 transition-colors"
+                      >
+                        <Upload className="w-6 h-6 mb-1 text-violet-500" />
+                        <p className="text-xs text-violet-600 font-medium">
+                          Télécharger une image
+                        </p>
+                        <input
+                          id="edit-pack-cover-upload"
+                          type="file"
+                          className="hidden"
+                          accept="image/png,image/jpeg,image/webp"
+                          disabled={uploadingCover}
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+
+                            if (file.size > 2 * 1024 * 1024) {
+                              setPacksError("L'image ne doit pas dépasser 2 Mo.");
+                              return;
+                            }
+
+                            setUploadingCover(true);
+                            setPacksError(null);
+
+                            try {
+                              const formData = new FormData();
+                              formData.append("image", file);
+
+                              const token = localStorage.getItem("sb_access_token");
+                              const res = await fetch(`/api/pro/establishments/${establishment.id}/inventory/images/upload`, {
+                                method: "POST",
+                                headers: {
+                                  ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                                },
+                                body: formData,
+                              });
+
+                              if (!res.ok) {
+                                const data = await res.json().catch(() => null);
+                                throw new Error(data?.error || "Erreur lors de l'upload");
+                              }
+
+                              const { url } = await res.json();
+                              setEditPack((p) => ({ ...p, coverUrl: url }));
+                            } catch (err) {
+                              setPacksError(err instanceof Error ? err.message : "Erreur lors de l'upload");
+                            } finally {
+                              setUploadingCover(false);
+                              e.target.value = "";
+                            }
+                          }}
+                        />
+                      </label>
+                    )}
+                    {uploadingCover && (
+                      <div className="flex items-center justify-center gap-2 text-xs text-violet-600">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Téléchargement...
+                      </div>
+                    )}
                   </div>
 
                   <div className="rounded-lg border p-3 flex items-center justify-between">

@@ -264,7 +264,12 @@ export function registerAdminInventoryRoutes(router: Router): void {
       }
 
       const { establishmentId } = req.params;
-      const { title, description } = req.body as { title?: string; description?: string };
+      const { title, description, parent_id, sort_order } = req.body as {
+        title?: string;
+        description?: string;
+        parent_id?: string | null;
+        sort_order?: number;
+      };
 
       if (!title || typeof title !== "string" || !title.trim()) {
         return res.status(400).json({ error: "title is required" });
@@ -272,15 +277,18 @@ export function registerAdminInventoryRoutes(router: Router): void {
 
       const supabase = getAdminSupabase();
 
-      // Get max sort_order
-      const { data: existing } = await supabase
-        .from("pro_inventory_categories")
-        .select("sort_order")
-        .eq("establishment_id", establishmentId)
-        .order("sort_order", { ascending: false })
-        .limit(1);
+      // Get max sort_order if not provided
+      let finalSortOrder = sort_order;
+      if (typeof finalSortOrder !== "number") {
+        const { data: existing } = await supabase
+          .from("pro_inventory_categories")
+          .select("sort_order")
+          .eq("establishment_id", establishmentId)
+          .order("sort_order", { ascending: false })
+          .limit(1);
 
-      const maxOrder = existing?.[0]?.sort_order ?? 0;
+        finalSortOrder = (existing?.[0]?.sort_order ?? 0) + 1;
+      }
 
       const { data: category, error } = await supabase
         .from("pro_inventory_categories")
@@ -288,7 +296,8 @@ export function registerAdminInventoryRoutes(router: Router): void {
           establishment_id: establishmentId,
           title: title.trim(),
           description: description?.trim() || null,
-          sort_order: maxOrder + 1,
+          parent_id: parent_id || null,
+          sort_order: finalSortOrder,
           is_active: true,
         })
         .select()
@@ -606,6 +615,45 @@ export function registerAdminInventoryRoutes(router: Router): void {
       return res.json({ ok: true });
     } catch (error) {
       console.error("[Admin Inventory] Delete item error:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }) as RequestHandler);
+
+  // Reorder items
+  router.post("/api/admin/establishments/:establishmentId/inventory/reorder", (async (req, res) => {
+    try {
+      const session = requireAdminSession(req);
+      if (!session) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      if (!isSuperAdmin(session)) {
+        return res.status(403).json({ error: "Forbidden", message: "Accès réservé aux super administrateurs" });
+      }
+
+      const { establishmentId } = req.params;
+      const { itemIds } = req.body as { itemIds?: string[] };
+
+      if (!Array.isArray(itemIds) || itemIds.length === 0) {
+        return res.status(400).json({ error: "itemIds array is required" });
+      }
+
+      const supabase = getAdminSupabase();
+
+      // Update sort_order for each item
+      const updates = itemIds.map((id, index) =>
+        supabase
+          .from("pro_inventory_items")
+          .update({ sort_order: index })
+          .eq("id", id)
+          .eq("establishment_id", establishmentId)
+      );
+
+      await Promise.all(updates);
+
+      return res.json({ ok: true });
+    } catch (error) {
+      console.error("[Admin Inventory] Reorder error:", error);
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -1202,6 +1250,27 @@ export function registerAdminInventoryRoutes(router: Router): void {
         return res.status(404).json({ error: "Établissement non trouvé" });
       }
 
+      // Fetch existing inventory for duplicate detection
+      const [existingCategoriesRes, existingItemsRes] = await Promise.all([
+        supabase
+          .from("pro_inventory_categories")
+          .select("id, title")
+          .eq("establishment_id", establishmentId)
+          .eq("is_active", true),
+        supabase
+          .from("pro_inventory_items")
+          .select("id, title, category_id, base_price")
+          .eq("establishment_id", establishmentId)
+          .eq("is_active", true),
+      ]);
+
+      const existingCategories = (existingCategoriesRes.data ?? []) as { id: string; title: string }[];
+      const existingItems = (existingItemsRes.data ?? []) as { id: string; title: string; category_id: string | null; base_price: number | null }[];
+
+      // Create lookup maps for fast duplicate detection (normalize titles to lowercase)
+      const existingCategoryTitles = new Map(existingCategories.map((c) => [c.title.toLowerCase().trim(), c]));
+      const existingItemTitles = new Map(existingItems.map((i) => [i.title.toLowerCase().trim(), i]));
+
       const universe = (establishment as any)?.universe ?? "restaurant";
       const establishmentName = (establishment as any)?.name ?? "";
 
@@ -1309,11 +1378,11 @@ export function registerAdminInventoryRoutes(router: Router): void {
       }
 
       // Validate and clean the extraction
-      const categories = Array.isArray(extraction.categories)
+      const rawCategories = Array.isArray(extraction.categories)
         ? extraction.categories.filter((c) => c && typeof c.title === "string" && c.title.trim())
         : [];
 
-      const items = Array.isArray(extraction.items)
+      const rawItems = Array.isArray(extraction.items)
         ? extraction.items
             .filter((i) => i && typeof i.title === "string" && i.title.trim())
             .map((item) => ({
@@ -1325,17 +1394,82 @@ export function registerAdminInventoryRoutes(router: Router): void {
             }))
         : [];
 
+      // Detect duplicates and separate new vs existing
+      const newCategories: typeof rawCategories = [];
+      const duplicateCategories: Array<{ extracted: (typeof rawCategories)[0]; existing: { id: string; title: string } }> = [];
+
+      for (const cat of rawCategories) {
+        const normalizedTitle = cat.title.toLowerCase().trim();
+        const existing = existingCategoryTitles.get(normalizedTitle);
+        if (existing) {
+          duplicateCategories.push({ extracted: cat, existing });
+        } else {
+          newCategories.push(cat);
+        }
+      }
+
+      const newItems: typeof rawItems = [];
+      const duplicateItems: Array<{
+        extracted: (typeof rawItems)[0];
+        existing: { id: string; title: string; base_price: number | null };
+        priceDiff: boolean;
+      }> = [];
+
+      for (const item of rawItems) {
+        const normalizedTitle = item.title.toLowerCase().trim();
+        const existing = existingItemTitles.get(normalizedTitle);
+        if (existing) {
+          // Check if price differs (potential update needed)
+          const priceDiff = item.price !== undefined && existing.base_price !== null && Math.abs(item.price - existing.base_price) > 0.01;
+          duplicateItems.push({ extracted: item, existing, priceDiff });
+        } else {
+          newItems.push(item);
+        }
+      }
+
       const confidence =
         typeof extraction.confidence === "number" ? Math.min(1, Math.max(0, extraction.confidence)) : 0.5;
 
       return res.json({
         ok: true,
         extraction: {
-          categories,
-          items,
+          // Only new items to import
+          categories: newCategories,
+          items: newItems,
+          // Duplicates for user information
+          duplicates: {
+            categories: duplicateCategories.map((d) => ({
+              title: d.extracted.title,
+              existingId: d.existing.id,
+            })),
+            items: duplicateItems.map((d) => ({
+              title: d.extracted.title,
+              existingId: d.existing.id,
+              extractedPrice: d.extracted.price,
+              existingPrice: d.existing.base_price,
+              priceDiff: d.priceDiff,
+            })),
+          },
+          // Stats
           confidence,
-          itemCount: items.length,
-          categoryCount: categories.length,
+          stats: {
+            totalExtracted: {
+              categories: rawCategories.length,
+              items: rawItems.length,
+            },
+            newToImport: {
+              categories: newCategories.length,
+              items: newItems.length,
+            },
+            duplicatesSkipped: {
+              categories: duplicateCategories.length,
+              items: duplicateItems.length,
+            },
+            priceUpdatesAvailable: duplicateItems.filter((d) => d.priceDiff).length,
+          },
+          // Legacy fields for backwards compatibility
+          itemCount: newItems.length,
+          categoryCount: newCategories.length,
         },
       });
     } catch (error) {
@@ -1590,11 +1724,44 @@ export function registerAdminInventoryRoutes(router: Router): void {
         }
 
         case "bulk_import": {
-          // Handle bulk imports
+          // Handle bulk imports with duplicate detection
           const bulk = change.bulk_data;
+
+          // First, fetch existing categories and items for duplicate detection
+          const [existingCatsRes, existingItemsRes] = await Promise.all([
+            supabase
+              .from("pro_inventory_categories")
+              .select("id, title")
+              .eq("establishment_id", change.establishment_id)
+              .eq("is_active", true),
+            supabase
+              .from("pro_inventory_items")
+              .select("id, title")
+              .eq("establishment_id", change.establishment_id)
+              .eq("is_active", true),
+          ]);
+
+          const existingCatTitles = new Set(
+            (existingCatsRes.data ?? []).map((c: { title: string }) => c.title.toLowerCase().trim())
+          );
+          const existingItemTitles = new Set(
+            (existingItemsRes.data ?? []).map((i: { title: string }) => i.title.toLowerCase().trim())
+          );
+
+          let categoriesAdded = 0;
+          let categoriesSkipped = 0;
+          let itemsAdded = 0;
+          let itemsSkipped = 0;
+
           if (bulk?.categories && Array.isArray(bulk.categories)) {
             for (const cat of bulk.categories) {
-              await supabase
+              const normalizedTitle = (cat.title || "").toLowerCase().trim();
+              if (existingCatTitles.has(normalizedTitle)) {
+                categoriesSkipped++;
+                continue; // Skip duplicate
+              }
+
+              const { error: catErr } = await supabase
                 .from("pro_inventory_categories")
                 .insert({
                   establishment_id: change.establishment_id,
@@ -1603,10 +1770,22 @@ export function registerAdminInventoryRoutes(router: Router): void {
                   sort_order: cat.sort_order ?? 0,
                   is_active: true,
                 });
+
+              if (!catErr) {
+                existingCatTitles.add(normalizedTitle); // Add to set for subsequent checks
+                categoriesAdded++;
+              }
             }
           }
+
           if (bulk?.items && Array.isArray(bulk.items)) {
             for (const item of bulk.items) {
+              const normalizedTitle = (item.title || "").toLowerCase().trim();
+              if (existingItemTitles.has(normalizedTitle)) {
+                itemsSkipped++;
+                continue; // Skip duplicate
+              }
+
               // Find category ID by name
               let categoryId = null;
               if (item.category) {
@@ -1614,13 +1793,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
                   .from("pro_inventory_categories")
                   .select("id")
                   .eq("establishment_id", change.establishment_id)
-                  .eq("title", item.category)
+                  .ilike("title", item.category) // Case insensitive match
                   .limit(1)
                   .single();
                 categoryId = foundCat?.id ?? null;
               }
 
-              await supabase
+              const { error: itemErr } = await supabase
                 .from("pro_inventory_items")
                 .insert({
                   establishment_id: change.establishment_id,
@@ -1632,9 +1811,23 @@ export function registerAdminInventoryRoutes(router: Router): void {
                   currency: "MAD",
                   is_active: true,
                 });
+
+              if (!itemErr) {
+                existingItemTitles.add(normalizedTitle);
+                itemsAdded++;
+              }
             }
           }
-          result = { ok: true };
+
+          result = {
+            ok: true,
+            data: {
+              categoriesAdded,
+              categoriesSkipped,
+              itemsAdded,
+              itemsSkipped,
+            },
+          };
           break;
         }
 

@@ -17,6 +17,7 @@ import { listPublicBlogArticles, isPublicBlogListItemV2, type PublicBlogListItem
 import { useI18n } from "@/lib/i18n";
 import type { ActivityCategory } from "@/lib/taxonomy";
 import { readSearchState } from "@/lib/searchState";
+import { useDetectedCity } from "@/hooks/useDetectedCity";
 import { getVisitSessionId } from "@/lib/pro/visits";
 import { isAuthed, openAuthModal } from "@/lib/auth";
 import { useScrollContext } from "@/lib/scrollContext";
@@ -831,9 +832,27 @@ export default function Home() {
 
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
 
-  // Unified search state
+  // Détection automatique de la ville de l'utilisateur
+  const { city: detectedCity, coordinates: detectedCoordinates, status: detectedCityStatus } = useDetectedCity(true);
+
+  // Unified search state - utilise la ville sauvegardée, ou la ville détectée si disponible
   const [searchCity, setSearchCity] = useState(() => selectedCity ?? "");
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Mettre à jour la ville de recherche quand la détection est terminée
+  // (seulement si aucune ville n'est déjà sélectionnée)
+  useEffect(() => {
+    if (detectedCityStatus === "detected" && detectedCity && !searchCity) {
+      setSearchCity(detectedCity);
+    }
+  }, [detectedCityStatus, detectedCity, searchCity]);
+
+  // Mettre à jour userLocation quand on détecte les coordonnées
+  useEffect(() => {
+    if (detectedCoordinates && !userLocation) {
+      setUserLocation(detectedCoordinates);
+    }
+  }, [detectedCoordinates, userLocation]);
 
   const handleUnifiedSearch = useCallback(
     (params: { city: string; query: string; category?: string }) => {

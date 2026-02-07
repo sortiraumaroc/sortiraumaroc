@@ -81,7 +81,8 @@ export async function notifyBriefSubmitted(args: {
     const { job, establishment } = ctx;
 
     await sendLoggedEmail({
-      fromKey: "production",
+      emailId: `mf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      fromKey: "noreply",
       to: [RC_EMAIL],
       subject: `[MEDIA FACTORY] Brief soumis - ${establishment.name || "Établissement"}`,
       bodyText: `
@@ -121,7 +122,8 @@ export async function notifyBriefApproved(args: {
     if (!proEmail) return { ok: false, error: "pro_email_not_found" };
 
     await sendLoggedEmail({
-      fromKey: "production",
+      emailId: `mf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      fromKey: "noreply",
       to: [proEmail],
       subject: `[MEDIA FACTORY] Brief validé - ${establishment.name || "Votre établissement"}`,
       bodyText: `
@@ -199,7 +201,8 @@ export async function notifyAppointmentConfirmed(args: {
     };
 
     await sendLoggedEmail({
-      fromKey: "production",
+      emailId: `mf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      fromKey: "noreply",
       to: recipients,
       subject: `[MEDIA FACTORY] RDV confirmé - ${establishment.name || "Établissement"}`,
       bodyText: `
@@ -246,7 +249,8 @@ export async function notifyDeliverableUploaded(args: {
     const { job, establishment } = ctx;
 
     await sendLoggedEmail({
-      fromKey: "production",
+      emailId: `mf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      fromKey: "noreply",
       to: [RC_EMAIL],
       subject: `[MEDIA FACTORY] Livrable uploadé (v${args.version}) - ${establishment.name || "Établissement"}`,
       bodyText: `
@@ -311,7 +315,8 @@ export async function notifyDeliverableReviewed(args: {
           : "ℹ️";
 
     await sendLoggedEmail({
-      fromKey: "production",
+      emailId: `mf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      fromKey: "noreply",
       to: [partnerEmail],
       subject: `[MEDIA FACTORY] Livrable ${statusText} - ${establishment.name || "Mission"}`,
       bodyText: `
@@ -374,7 +379,8 @@ export async function notifyInvoiceRequested(args: {
     const amount = (args.amountCents / 100).toFixed(2);
 
     await sendLoggedEmail({
-      fromKey: "production",
+      emailId: `mf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      fromKey: "noreply",
       to: [COMPTA_EMAIL],
       subject: `[MEDIA FACTORY] Demande facture partenaire - ${amount} ${args.currency}`,
       bodyText: `
@@ -421,7 +427,8 @@ export async function notifyJobDelivered(args: {
     if (!proEmail) return { ok: false, error: "pro_email_not_found" };
 
     await sendLoggedEmail({
-      fromKey: "production",
+      emailId: `mf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      fromKey: "noreply",
       to: [proEmail],
       subject: `[MEDIA FACTORY] 🎬 Votre production est prête ! - ${establishment.name || "Votre établissement"}`,
       bodyText: `

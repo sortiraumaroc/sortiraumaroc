@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { HelpCircle, LogIn, Phone } from "lucide-react";
 
 import { Header } from "@/components/Header";
-import { AuthModal } from "@/components/AuthModal";
+import { AuthModalV2 } from "@/components/AuthModalV2";
 import { FaqSection } from "@/components/support/FaqSection";
 import { SupportChatPanel } from "@/components/support/SupportChatPanel";
 import { SupportTicketsPanel } from "@/components/support/SupportTicketsPanel";
@@ -102,7 +102,7 @@ export default function Help() {
       </main>
 
 
-      <AuthModal
+      <AuthModalV2
         isOpen={authOpen}
         onClose={() => setAuthOpen(false)}
         onAuthed={() => {

@@ -52,7 +52,7 @@ export type EstablishmentPendingProfileUpdateAdmin = {
 export type EstablishmentStatus =
   | "pending"
   | "active"
-  | "disabled"
+  | "suspended"
   | "rejected"
   | string;
 
@@ -1578,6 +1578,45 @@ export async function updateEstablishmentFlags(
   );
 }
 
+export async function deleteEstablishment(
+  adminKey: string | undefined,
+  id: string,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/establishments/${encodeURIComponent(id)}`,
+    adminKey,
+    {
+      method: "DELETE",
+    },
+  );
+}
+
+export type DuplicateItem = {
+  id: string;
+  name: string | null;
+  city: string | null;
+  status: string | null;
+  created_at: string | null;
+  completeness: number;
+  filledFields: number;
+  totalFields: number;
+};
+
+export type DuplicateGroup = {
+  name: string;
+  city: string;
+  items: DuplicateItem[];
+};
+
+export async function detectDuplicateEstablishments(
+  adminKey: string | undefined,
+): Promise<{ groups: DuplicateGroup[] }> {
+  return requestJson<{ groups: DuplicateGroup[] }>(
+    "/api/admin/establishments-duplicates",
+    adminKey,
+  );
+}
+
 export async function listProUsers(
   adminKey: string | undefined,
 ): Promise<ListResponse<ProUserAdmin>> {
@@ -1678,6 +1717,22 @@ export interface BulkDeleteProUsersResult {
   error?: string;
 }
 
+export interface ProUserDependencies {
+  media_quotes: number;
+  media_invoices: number;
+  establishment_memberships: number;
+}
+
+export async function getProUserDependencies(
+  adminKey: string | undefined,
+  userId: string,
+): Promise<{ ok: true; userId: string; deps: ProUserDependencies; total: number }> {
+  return requestJson<{ ok: true; userId: string; deps: ProUserDependencies; total: number }>(
+    `/api/admin/pros/users/${userId}/dependencies`,
+    adminKey,
+  );
+}
+
 export async function bulkDeleteProUsers(
   adminKey: string | undefined,
   ids: string[],
@@ -1688,6 +1743,20 @@ export async function bulkDeleteProUsers(
     {
       method: "POST",
       body: JSON.stringify({ ids }),
+    },
+  );
+}
+
+export async function removeProFromEstablishment(
+  adminKey: string | undefined,
+  establishmentId: string,
+  proUserId: string,
+): Promise<{ ok: true; message: string; pro_email: string | null; establishment_name: string | null }> {
+  return requestJson<{ ok: true; message: string; pro_email: string | null; establishment_name: string | null }>(
+    `/api/admin/establishments/${encodeURIComponent(establishmentId)}/pros/${encodeURIComponent(proUserId)}`,
+    adminKey,
+    {
+      method: "DELETE",
     },
   );
 }
@@ -2734,6 +2803,28 @@ export async function updateConsumerUserStatus(
   );
 }
 
+export async function deleteConsumerUsers(
+  adminKey: string | undefined,
+  ids: string[],
+): Promise<{
+  ok: boolean;
+  deleted_count: number;
+  error_count: number;
+  deleted: { id: string; email: string }[];
+  errors: { id: string; error: string }[];
+}> {
+  return requestJson<{
+    ok: boolean;
+    deleted_count: number;
+    error_count: number;
+    deleted: { id: string; email: string }[];
+    errors: { id: string; error: string }[];
+  }>("/api/admin/users/delete", adminKey, {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+}
+
 export async function updateConsumerUserEvent(
   adminKey: string | undefined,
   args: {
@@ -3209,6 +3300,130 @@ export async function uploadAdminEstablishmentBankDocument(
   }
 
   return payload as { ok: true; item: AdminProBankDocument };
+}
+
+// ---------------------------------------------------------------------------
+// Establishment Contracts (admin)
+// ---------------------------------------------------------------------------
+
+export type AdminEstablishmentContract = {
+  id: string;
+  establishment_id: string;
+  contract_type: string;
+  contract_reference: string | null;
+  file_path: string;
+  file_name: string | null;
+  mime_type: string;
+  size_bytes: number | null;
+  signed_at: string | null;
+  starts_at: string | null;
+  expires_at: string | null;
+  status: string;
+  notes: string | null;
+  uploaded_by: string | null;
+  uploaded_at: string;
+  updated_at: string;
+  signed_url?: string | null;
+};
+
+export async function listAdminEstablishmentContracts(
+  adminKey: string | undefined,
+  establishmentId: string,
+): Promise<{ ok: true; items: AdminEstablishmentContract[] }> {
+  return requestJson<{ ok: true; items: AdminEstablishmentContract[] }>(
+    `/api/admin/establishments/${encodeURIComponent(establishmentId)}/contracts`,
+    adminKey,
+  );
+}
+
+export async function uploadAdminEstablishmentContract(
+  adminKey: string | undefined,
+  establishmentId: string,
+  file: File,
+  metadata?: {
+    contractType?: string;
+    contractReference?: string;
+    signedAt?: string;
+    startsAt?: string;
+    expiresAt?: string;
+    notes?: string;
+  },
+): Promise<{ ok: true; item: AdminEstablishmentContract }> {
+  const sessionToken = loadAdminSessionToken();
+
+  const headers: Record<string, string> = {
+    ...(adminKey ? { "x-admin-key": adminKey } : {}),
+    ...(sessionToken ? { "x-admin-session": sessionToken } : {}),
+    "content-type": "application/pdf",
+    "x-file-name": file.name,
+  };
+
+  if (metadata?.contractType) headers["x-contract-type"] = metadata.contractType;
+  if (metadata?.contractReference) headers["x-contract-reference"] = metadata.contractReference;
+  if (metadata?.signedAt) headers["x-signed-at"] = metadata.signedAt;
+  if (metadata?.startsAt) headers["x-starts-at"] = metadata.startsAt;
+  if (metadata?.expiresAt) headers["x-expires-at"] = metadata.expiresAt;
+  if (metadata?.notes) headers["x-notes"] = metadata.notes;
+
+  let res: Response;
+  try {
+    res = await fetch(
+      `/api/admin/establishments/${encodeURIComponent(establishmentId)}/contracts/upload`,
+      {
+        method: "POST",
+        credentials: "omit",
+        headers,
+        body: await file.arrayBuffer(),
+      },
+    );
+  } catch (e) {
+    throw new AdminApiError(
+      "Impossible de contacter le serveur. Vérifiez votre connexion et réessayez.",
+      0,
+      e,
+    );
+  }
+
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = extractErrorMessage(payload) || `HTTP ${res.status}`;
+    throw new AdminApiError(msg, res.status, payload);
+  }
+
+  return payload as { ok: true; item: AdminEstablishmentContract };
+}
+
+export async function updateAdminEstablishmentContract(
+  adminKey: string | undefined,
+  establishmentId: string,
+  contractId: string,
+  data: {
+    contract_type?: string;
+    contract_reference?: string | null;
+    signed_at?: string | null;
+    starts_at?: string | null;
+    expires_at?: string | null;
+    status?: string;
+    notes?: string | null;
+  },
+): Promise<{ ok: true; item: AdminEstablishmentContract }> {
+  return requestJson<{ ok: true; item: AdminEstablishmentContract }>(
+    `/api/admin/establishments/${encodeURIComponent(establishmentId)}/contracts/${encodeURIComponent(contractId)}`,
+    adminKey,
+    { method: "PATCH", body: JSON.stringify(data) },
+  );
+}
+
+export async function deleteAdminEstablishmentContract(
+  adminKey: string | undefined,
+  establishmentId: string,
+  contractId: string,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/establishments/${encodeURIComponent(establishmentId)}/contracts/${encodeURIComponent(contractId)}`,
+    adminKey,
+    { method: "DELETE" },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -4237,12 +4452,12 @@ export async function uploadEmailBrandingLogo(
   adminKey: string | undefined,
   file: Blob,
 ): Promise<{ ok: true; url: string; path: string; size_bytes: number }> {
-  const session = getStoredAdminSession();
+  const sessionToken = loadAdminSessionToken();
   const headers: Record<string, string> = {
     "Content-Type": file.type,
   };
   if (adminKey) headers["x-admin-key"] = adminKey;
-  if (session?.token) headers["x-admin-session"] = session.token;
+  if (sessionToken) headers["x-admin-session"] = sessionToken;
 
   const response = await fetch("/api/admin/emails/branding/logo/upload", {
     method: "POST",
@@ -6860,6 +7075,468 @@ export async function cancelAdminUsernameSubscription(
     {
       method: "POST",
       body: JSON.stringify({ reason }),
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Contact Forms (Admin)
+// ---------------------------------------------------------------------------
+
+export type ContactFormFieldType =
+  | "text"
+  | "textarea"
+  | "email"
+  | "phone"
+  | "number"
+  | "select"
+  | "radio"
+  | "checkbox"
+  | "date"
+  | "time"
+  | "datetime"
+  | "file"
+  | "country"
+  | "google_place"
+  | "rating"
+  | "hidden"
+  | "heading"
+  | "paragraph";
+
+export type ContactFormField = {
+  id: string;
+  form_id: string;
+  field_type: ContactFormFieldType;
+  label: string;
+  placeholder: string | null;
+  helper_text: string | null;
+  options: { value: string; label: string }[] | null;
+  is_required: boolean;
+  min_length: number | null;
+  max_length: number | null;
+  min_value: number | null;
+  max_value: number | null;
+  pattern: string | null;
+  default_country_code: string | null;
+  allowed_country_codes: string[] | null;
+  allowed_file_types: string[] | null;
+  max_file_size_mb: number | null;
+  width: "full" | "half" | "third";
+  sort_order: number;
+  conditional_field_id: string | null;
+  conditional_value: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ContactForm = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  hero_image_url: string | null;
+  hero_title: string;
+  hero_subtitle: string | null;
+  hero_background_color: string;
+  hero_text_color: string;
+  show_hero: boolean;
+  logo_url: string | null;
+  logo_title: string | null;
+  logo_description: string | null;
+  show_logo: boolean;
+  form_title: string | null;
+  submit_button_text: string;
+  submit_button_color: string;
+  success_message: string;
+  success_redirect_url: string | null;
+  layout: "split" | "centered" | "full-width";
+  is_active: boolean;
+  require_all_fields: boolean;
+  send_confirmation_email: boolean;
+  confirmation_email_subject: string | null;
+  confirmation_email_body: string | null;
+  notify_on_submission: boolean;
+  notification_emails: string[] | null;
+  meta_title: string | null;
+  meta_description: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  fields?: ContactFormField[];
+};
+
+export type ContactFormStats = {
+  form_id: string;
+  form_name: string;
+  slug: string;
+  is_active: boolean;
+  total_submissions: number;
+  new_submissions: number;
+  read_submissions: number;
+  replied_submissions: number;
+  archived_submissions: number;
+  spam_submissions: number;
+  last_submission_at: string | null;
+};
+
+export type ContactFormSubmission = {
+  id: string;
+  form_id: string;
+  data: Record<string, unknown>;
+  email: string | null;
+  phone: string | null;
+  full_name: string | null;
+  status: "new" | "read" | "replied" | "archived" | "spam";
+  admin_notes: string | null;
+  handled_by: string | null;
+  handled_at: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  referrer: string | null;
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  created_at: string;
+  updated_at: string;
+  contact_forms?: { name: string; slug: string };
+};
+
+// List all forms with stats
+export async function listAdminContactForms(
+  adminKey: string | undefined,
+): Promise<{ forms: ContactFormStats[] }> {
+  return requestJson<{ forms: ContactFormStats[] }>("/api/admin/contact-forms", adminKey);
+}
+
+// Get unread count
+export async function getAdminContactFormsUnreadCount(
+  adminKey: string | undefined,
+): Promise<{ count: number }> {
+  return requestJson<{ count: number }>("/api/admin/contact-forms/unread-count", adminKey);
+}
+
+// Get single form with fields
+export async function getAdminContactForm(
+  adminKey: string | undefined,
+  formId: string,
+): Promise<{ form: ContactForm }> {
+  return requestJson<{ form: ContactForm }>(
+    `/api/admin/contact-forms/${encodeURIComponent(formId)}`,
+    adminKey,
+  );
+}
+
+// Create form
+export async function createAdminContactForm(
+  adminKey: string | undefined,
+  data: Partial<ContactForm>,
+): Promise<{ form: ContactForm }> {
+  return requestJson<{ form: ContactForm }>("/api/admin/contact-forms", adminKey, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+// Update form
+export async function updateAdminContactForm(
+  adminKey: string | undefined,
+  formId: string,
+  data: Partial<ContactForm>,
+): Promise<{ form: ContactForm }> {
+  return requestJson<{ form: ContactForm }>(
+    `/api/admin/contact-forms/${encodeURIComponent(formId)}/update`,
+    adminKey,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+  );
+}
+
+// Delete form
+export async function deleteAdminContactForm(
+  adminKey: string | undefined,
+  formId: string,
+): Promise<{ success: boolean }> {
+  return requestJson<{ success: boolean }>(
+    `/api/admin/contact-forms/${encodeURIComponent(formId)}`,
+    adminKey,
+    { method: "DELETE" },
+  );
+}
+
+// Duplicate form
+export async function duplicateAdminContactForm(
+  adminKey: string | undefined,
+  formId: string,
+): Promise<{ form: ContactForm }> {
+  return requestJson<{ form: ContactForm }>(
+    `/api/admin/contact-forms/${encodeURIComponent(formId)}/duplicate`,
+    adminKey,
+    { method: "POST" },
+  );
+}
+
+// Add field
+export async function addAdminContactFormField(
+  adminKey: string | undefined,
+  formId: string,
+  data: Partial<ContactFormField>,
+): Promise<{ field: ContactFormField }> {
+  return requestJson<{ field: ContactFormField }>(
+    `/api/admin/contact-forms/${encodeURIComponent(formId)}/fields`,
+    adminKey,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+  );
+}
+
+// Update field
+export async function updateAdminContactFormField(
+  adminKey: string | undefined,
+  fieldId: string,
+  data: Partial<ContactFormField>,
+): Promise<{ field: ContactFormField }> {
+  return requestJson<{ field: ContactFormField }>(
+    `/api/admin/contact-forms/fields/${encodeURIComponent(fieldId)}/update`,
+    adminKey,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+  );
+}
+
+// Delete field
+export async function deleteAdminContactFormField(
+  adminKey: string | undefined,
+  fieldId: string,
+): Promise<{ success: boolean }> {
+  return requestJson<{ success: boolean }>(
+    `/api/admin/contact-forms/fields/${encodeURIComponent(fieldId)}`,
+    adminKey,
+    { method: "DELETE" },
+  );
+}
+
+// Reorder fields
+export async function reorderAdminContactFormFields(
+  adminKey: string | undefined,
+  formId: string,
+  fieldIds: string[],
+): Promise<{ success: boolean }> {
+  return requestJson<{ success: boolean }>(
+    `/api/admin/contact-forms/${encodeURIComponent(formId)}/fields/reorder`,
+    adminKey,
+    {
+      method: "POST",
+      body: JSON.stringify({ fieldIds }),
+    },
+  );
+}
+
+// List submissions for a form
+export async function listAdminContactFormSubmissions(
+  adminKey: string | undefined,
+  formId: string,
+  options?: {
+    status?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  },
+): Promise<{ submissions: ContactFormSubmission[]; total: number }> {
+  const params = new URLSearchParams();
+  if (options?.status) params.set("status", options.status);
+  if (options?.search) params.set("search", options.search);
+  if (options?.limit) params.set("limit", String(options.limit));
+  if (options?.offset) params.set("offset", String(options.offset));
+
+  const query = params.toString();
+  return requestJson<{ submissions: ContactFormSubmission[]; total: number }>(
+    `/api/admin/contact-forms/${encodeURIComponent(formId)}/submissions${query ? `?${query}` : ""}`,
+    adminKey,
+  );
+}
+
+// List all submissions (across all forms)
+export async function listAllAdminContactFormSubmissions(
+  adminKey: string | undefined,
+  options?: {
+    formId?: string;
+    status?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  },
+): Promise<{ submissions: ContactFormSubmission[]; total: number }> {
+  const params = new URLSearchParams();
+  if (options?.formId) params.set("formId", options.formId);
+  if (options?.status) params.set("status", options.status);
+  if (options?.search) params.set("search", options.search);
+  if (options?.limit) params.set("limit", String(options.limit));
+  if (options?.offset) params.set("offset", String(options.offset));
+
+  const query = params.toString();
+  return requestJson<{ submissions: ContactFormSubmission[]; total: number }>(
+    `/api/admin/contact-forms/submissions${query ? `?${query}` : ""}`,
+    adminKey,
+  );
+}
+
+// Get single submission
+export async function getAdminContactFormSubmission(
+  adminKey: string | undefined,
+  submissionId: string,
+): Promise<{
+  submission: ContactFormSubmission;
+  fields: ContactFormField[];
+  files: Array<{
+    id: string;
+    submission_id: string;
+    field_id: string;
+    file_name: string;
+    file_type: string;
+    file_size: number;
+    file_url: string;
+  }>;
+}> {
+  return requestJson<{
+    submission: ContactFormSubmission;
+    fields: ContactFormField[];
+    files: Array<{
+      id: string;
+      submission_id: string;
+      field_id: string;
+      file_name: string;
+      file_type: string;
+      file_size: number;
+      file_url: string;
+    }>;
+  }>(
+    `/api/admin/contact-forms/submissions/${encodeURIComponent(submissionId)}`,
+    adminKey,
+  );
+}
+
+// Update submission
+export async function updateAdminContactFormSubmission(
+  adminKey: string | undefined,
+  submissionId: string,
+  data: {
+    status?: string;
+    admin_notes?: string;
+    handled_by?: string;
+  },
+): Promise<{ submission: ContactFormSubmission }> {
+  return requestJson<{ submission: ContactFormSubmission }>(
+    `/api/admin/contact-forms/submissions/${encodeURIComponent(submissionId)}/update`,
+    adminKey,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+  );
+}
+
+// Bulk update submissions
+export async function bulkUpdateAdminContactFormSubmissions(
+  adminKey: string | undefined,
+  submissionIds: string[],
+  status: string,
+): Promise<{ success: boolean; updated: number }> {
+  return requestJson<{ success: boolean; updated: number }>(
+    "/api/admin/contact-forms/submissions/bulk-update",
+    adminKey,
+    {
+      method: "POST",
+      body: JSON.stringify({ submissionIds, status }),
+    },
+  );
+}
+
+// Delete submission
+export async function deleteAdminContactFormSubmission(
+  adminKey: string | undefined,
+  submissionId: string,
+): Promise<{ success: boolean }> {
+  return requestJson<{ success: boolean }>(
+    `/api/admin/contact-forms/submissions/${encodeURIComponent(submissionId)}`,
+    adminKey,
+    { method: "DELETE" },
+  );
+}
+
+// Export submissions to CSV
+export function getAdminContactFormSubmissionsExportUrl(
+  formId: string,
+  status?: string,
+): string {
+  const params = new URLSearchParams();
+  if (status && status !== "all") params.set("status", status);
+  const query = params.toString();
+  return `/api/admin/contact-forms/${encodeURIComponent(formId)}/submissions/export${query ? `?${query}` : ""}`;
+}
+
+// ---------------------------------------------------------------------------
+// Claim Requests (Demandes de revendication)
+// ---------------------------------------------------------------------------
+
+export type ClaimRequestAdmin = {
+  id: string;
+  establishment_id: string;
+  establishment_name: string | null;
+  first_name: string;
+  last_name: string;
+  phone: string;
+  email: string;
+  preferred_day: string | null;
+  preferred_time: string | null;
+  status: "pending" | "approved" | "rejected" | "contacted";
+  notes: string | null;
+  created_at: string;
+  updated_at: string | null;
+  decided_at: string | null;
+  decided_by: string | null;
+};
+
+export async function listAdminClaimRequests(
+  adminKey: string | undefined,
+  options?: { status?: string; limit?: number },
+): Promise<{ items: ClaimRequestAdmin[] }> {
+  const params = new URLSearchParams();
+  if (options?.status) params.set("status", options.status);
+  if (options?.limit) params.set("limit", String(options.limit));
+  const query = params.toString();
+  return requestJson<{ items: ClaimRequestAdmin[] }>(
+    `/api/admin/claim-requests${query ? `?${query}` : ""}`,
+    adminKey,
+  );
+}
+
+export async function getAdminClaimRequest(
+  adminKey: string | undefined,
+  id: string,
+): Promise<{ item: ClaimRequestAdmin }> {
+  return requestJson<{ item: ClaimRequestAdmin }>(
+    `/api/admin/claim-requests/${encodeURIComponent(id)}`,
+    adminKey,
+  );
+}
+
+export async function updateAdminClaimRequest(
+  adminKey: string | undefined,
+  id: string,
+  data: { status: string; notes?: string },
+): Promise<{ ok: true; item: ClaimRequestAdmin }> {
+  return requestJson<{ ok: true; item: ClaimRequestAdmin }>(
+    `/api/admin/claim-requests/${encodeURIComponent(id)}`,
+    adminKey,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
     },
   );
 }

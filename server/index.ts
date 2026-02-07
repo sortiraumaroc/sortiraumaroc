@@ -81,11 +81,14 @@ import {
 import {
   sendPhoneCode,
   verifyPhoneCode,
+  verifyPhoneLogin,
   checkPhoneAuthStatus,
+  lookupPhone,
 } from "./routes/twilioAuth";
 import {
   sendEmailVerificationCode,
   verifyEmailCode,
+  signupWithEmail,
 } from "./routes/emailVerification";
 import {
   createAdminEmailCampaign,
@@ -177,6 +180,7 @@ import {
   setProUserMemberships,
   suspendProUser,
   bulkDeleteProUsers,
+  getProUserDependencies,
   regenerateProUserPassword,
   removeProFromEstablishment,
   runAdminFinanceReconciliation,
@@ -196,6 +200,7 @@ import {
   updateConsumerUserEvent,
   updateConsumerUserPurchase,
   updateConsumerUserStatus,
+  deleteConsumerUsers,
   updateEstablishmentStatus,
   updateEstablishmentFlags,
   getAdminSupportTicket,
@@ -367,7 +372,7 @@ import { registerAdminInventoryRoutes } from "./routes/adminInventory";
 import { registerAdminImportExportRoutes } from "./routes/adminImportExport";
 import { registerAdminDashboardRoutes } from "./routes/adminDashboard";
 import { registerAdminUserManagementRoutes } from "./routes/adminUserManagement";
-import { registerAdminAmazonSESRoutes } from "./routes/adminAmazonSES";
+import { registerAdminMarketingRoutes } from "./routes/adminMarketing";
 import { registerAdminImportChrRoutes } from "./routes/adminImportChr";
 import { registerAdminImportSqlRoutes } from "./routes/adminImportSql";
 import { registerProAdsRoutes } from "./routes/proAds";
@@ -1161,11 +1166,14 @@ export function createServer() {
   // Twilio phone authentication (new — no reCAPTCHA needed)
   app.post("/api/consumer/auth/phone/send-code", sendPhoneCode);
   app.post("/api/consumer/auth/phone/verify-code", verifyPhoneCode);
+  app.post("/api/consumer/auth/phone/verify-login", verifyPhoneLogin);
+  app.post("/api/consumer/auth/phone/lookup", lookupPhone);
   app.get("/api/consumer/auth/phone/status", checkPhoneAuthStatus);
 
   // Email verification (for signup)
   app.post("/api/consumer/verify-email/send", sendEmailVerificationCode);
   app.post("/api/consumer/verify-email/verify", verifyEmailCode);
+  app.post("/api/consumer/auth/email/signup", signupWithEmail);
 
   app.get("/api/consumer/me", getConsumerMe);
   app.post("/api/consumer/me/update", updateConsumerMe);
@@ -1290,7 +1298,7 @@ export function createServer() {
 
   // User management & marketing routes
   registerAdminUserManagementRoutes(app);
-  registerAdminAmazonSESRoutes(app);
+  registerAdminMarketingRoutes(app);
 
   // Ads system routes
   registerProAdsRoutes(app);
@@ -2020,12 +2028,14 @@ export function createServer() {
   app.post("/api/admin/pros/users/:id/memberships", setProUserMemberships);
   app.post("/api/admin/pros/users/:id/regenerate-password", regenerateProUserPassword);
   app.post("/api/admin/pros/users/:id/suspend", suspendProUser);
+  app.get("/api/admin/pros/users/:id/dependencies", getProUserDependencies);
   app.post("/api/admin/pros/users/bulk-delete", bulkDeleteProUsers);
 
   // Remove a Pro from an establishment (admin only)
   app.delete("/api/admin/establishments/:establishmentId/pros/:proUserId", removeProFromEstablishment);
 
   app.get("/api/admin/users", listConsumerUsers);
+  app.post("/api/admin/users/delete", deleteConsumerUsers);
   app.get("/api/admin/users/account-actions", listConsumerAccountActions);
   app.get("/api/admin/users/:id", getConsumerUser);
   app.post(

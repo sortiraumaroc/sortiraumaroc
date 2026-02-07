@@ -1,4 +1,5 @@
 import { createRoot } from "react-dom/client";
+import { HelmetProvider } from "react-helmet-async";
 
 import "./global.css";
 
@@ -15,8 +16,10 @@ initConsumerAuth();
 const container = document.getElementById("root");
 if (container) {
   createRoot(container).render(
-    <I18nProvider>
-      <App />
-    </I18nProvider>,
+    <HelmetProvider>
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    </HelmetProvider>,
   );
 }

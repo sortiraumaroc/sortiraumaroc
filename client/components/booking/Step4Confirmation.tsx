@@ -49,6 +49,7 @@ export default function Step4Confirmation() {
     generateBookingReference,
     setCurrentStep,
     establishmentId,
+    establishmentName: contextEstablishmentName,
     waitlistRequested,
   } = useBooking();
 
@@ -58,7 +59,9 @@ export default function Step4Confirmation() {
       ? ("pending_pro_validation" as const)
       : ("pending_pro_validation" as const);
 
+  // Use establishment name from context first, then fallback to URL param, then default
   const establishmentName = (() => {
+    if (contextEstablishmentName && contextEstablishmentName.trim()) return contextEstablishmentName.trim();
     const title = searchParams.get("title");
     if (title && title.trim()) return title.trim();
     if (establishmentId === "1") return "Restaurant Riad Atlas";
@@ -541,18 +544,10 @@ export default function Step4Confirmation() {
       </div>
 
       {/* Trust Elements */}
-      <div className="bg-primary/15 p-4 rounded-lg border-2 border-primary/30 space-y-3 text-sm">
-        <div className="flex items-center gap-2">
-          <span className="text-lg">🔒</span>
-          <span className="text-slate-900 font-medium">{t("booking.step4.trust.ssl")}</span>
-        </div>
+      <div className="bg-primary/15 p-4 rounded-lg border-2 border-primary/30 text-sm">
         <div className="flex items-center gap-2">
           <span className="text-lg">⚡</span>
           <span className="text-slate-900 font-medium">{t("booking.step4.trust.managed_by")}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-lg">⭐</span>
-          <span className="text-slate-900 font-medium">{t("booking.step4.trust.count")}</span>
         </div>
       </div>
 

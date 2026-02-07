@@ -4,6 +4,8 @@ import { randomUUID, randomBytes } from "node:crypto";
 import { mkIsoInTimeZoneDayOffset } from "../../shared/datetime";
 
 import { getAdminSupabase } from "../supabaseAdmin";
+import { validateBody } from "../middleware/validate";
+import { createPackSchema, updatePackSchema, type CreatePackInput, type UpdatePackInput } from "../schemas/pack";
 import { ensureEscrowHoldForReservation, settleEscrowForReservation, ensureInvoiceForProInvoice, ensureInvoiceForVisibilityOrder } from "../finance";
 import { emitAdminNotification } from "../adminNotifications";
 import { notifyProMembers } from "../proNotifications";
@@ -490,8 +492,9 @@ export const requestPasswordReset: RequestHandler = async (req, res) => {
     // Send the email using our template system
     await sendTemplateEmail({
       templateKey: "pro_password_reset",
+      fromKey: "noreply",
       lang: "fr",
-      to: email,
+      to: [email],
       variables: {
         email,
         reset_link: resetLink,
@@ -1753,6 +1756,12 @@ export const deleteProSlot: RequestHandler = async (req, res) => {
   res.json({ ok: true });
 };
 
+/**
+ * Middleware de validation pour createProPack
+ * Utilise Zod pour valider le body de la requête
+ */
+export const validateCreateProPack = validateBody(createPackSchema);
+
 export const createProPack: RequestHandler = async (req, res) => {
   const establishmentId = typeof req.params.establishmentId === "string" ? req.params.establishmentId : "";
   if (!establishmentId) return res.status(400).json({ error: "establishmentId is required" });
@@ -1766,39 +1775,56 @@ export const createProPack: RequestHandler = async (req, res) => {
   const permission = await ensureCanManageOffers({ establishmentId, userId: userResult.user.id });
   if (permission.ok === false) return res.status(permission.status).json({ error: permission.error });
 
-  if (!isRecord(req.body)) return res.status(400).json({ error: "Invalid body" });
+  // Utiliser les données validées par Zod si disponibles, sinon fallback sur l'ancien comportement
+  const validatedBody = req.validatedBody as CreatePackInput | undefined;
 
-  const title = asString(req.body.title);
-  const price = asNumber(req.body.price);
+  const title = validatedBody?.title ?? asString(req.body?.title);
+  const price = validatedBody?.price ?? asNumber(req.body?.price);
 
   if (!title || !title.trim()) return res.status(400).json({ error: "title is required" });
   if (price === undefined || !Number.isFinite(price) || price <= 0) return res.status(400).json({ error: "price is required" });
 
   const supabase = getAdminSupabase();
 
+  // Check for duplicate pack (same title and price for this establishment)
+  const { data: existingPacks } = await supabase
+    .from("packs")
+    .select("id, title")
+    .eq("establishment_id", establishmentId)
+    .ilike("title", title.trim())
+    .eq("price", Math.round(price));
+
+  if (existingPacks && existingPacks.length > 0) {
+    return res.status(409).json({ error: `Un pack "${existingPacks[0].title}" avec ce prix existe déjà.` });
+  }
+
+  // Utiliser les données validées pour l'insertion
+  const body = validatedBody ?? req.body;
+
   const { data, error } = await supabase
     .from("packs")
     .insert({
       establishment_id: establishmentId,
       title: title.trim(),
-      description: typeof req.body.description === "string" && req.body.description.trim() ? req.body.description.trim() : null,
-      label: typeof req.body.label === "string" && req.body.label.trim() ? req.body.label.trim() : null,
-      items: Array.isArray(req.body.items) ? req.body.items : [],
+      description: body.description ?? null,
+      label: body.label ?? null,
+      items: body.items ?? [],
       price: Math.round(price),
-      original_price: req.body.original_price === null ? null : asNumber(req.body.original_price) ?? null,
-      is_limited: typeof req.body.is_limited === "boolean" ? req.body.is_limited : false,
-      stock: req.body.stock === null ? null : asNumber(req.body.stock) ?? null,
-      availability: typeof req.body.availability === "string" ? req.body.availability : "permanent",
-      max_reservations: req.body.max_reservations === null ? null : asNumber(req.body.max_reservations) ?? null,
-      active: typeof req.body.active === "boolean" ? req.body.active : true,
-      valid_from: typeof req.body.valid_from === "string" && req.body.valid_from.trim() ? req.body.valid_from.trim() : null,
-      valid_to: typeof req.body.valid_to === "string" && req.body.valid_to.trim() ? req.body.valid_to.trim() : null,
-      conditions: typeof req.body.conditions === "string" && req.body.conditions.trim() ? req.body.conditions.trim() : null,
+      original_price: body.original_price ?? null,
+      is_limited: body.is_limited ?? false,
+      stock: body.stock ?? null,
+      availability: body.availability ?? "permanent",
+      max_reservations: body.max_reservations ?? null,
+      active: body.active ?? true,
+      valid_from: body.valid_from ?? null,
+      valid_to: body.valid_to ?? null,
+      conditions: body.conditions ?? null,
+      cover_url: body.cover_url ?? null,
     })
     .select("id")
     .single();
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: "Erreur lors de la création du pack" });
 
   res.json({ ok: true, id: (data as { id: string } | null)?.id ?? null });
 };
@@ -1909,6 +1935,12 @@ export const updateProPack: RequestHandler = async (req, res) => {
     updates.conditions = req.body.conditions.trim() || null;
   } else if (req.body.conditions === null) {
     updates.conditions = null;
+  }
+
+  if (typeof req.body.cover_url === "string") {
+    updates.cover_url = req.body.cover_url.trim() || null;
+  } else if (req.body.cover_url === null) {
+    updates.cover_url = null;
   }
 
   if (Object.keys(updates).length === 0) {
@@ -4265,6 +4297,44 @@ export const updateProReservation: RequestHandler = async (req, res) => {
 
   const consumerUserId = typeof (existing as any)?.user_id === "string" ? String((existing as any).user_id).trim() : "";
   const bookingReference = typeof (existing as any)?.booking_reference === "string" ? String((existing as any).booking_reference).trim() : "";
+
+  // ---------------------------------------------------------------------------
+  // PROTECTION WINDOW CHECK: Prevent cancellation/refusal of free reservations
+  // within the protection window (X hours before the reservation starts)
+  // ---------------------------------------------------------------------------
+  const isNegativeStatusChange = statusRaw && (
+    statusRaw === "refused" ||
+    statusRaw === "cancelled_pro" ||
+    statusRaw === "cancelled" ||
+    statusRaw === "waitlist"
+  );
+
+  if (isNegativeStatusChange && previousStatus !== statusRaw) {
+    // Only check protection if the reservation is confirmed/pending and unpaid
+    const isPotentiallyProtected = (
+      (previousStatus === "confirmed" || previousStatus === "pending_pro_validation") &&
+      existingDepositCents === 0 &&
+      previousPaymentStatus !== "paid"
+    );
+
+    if (isPotentiallyProtected) {
+      const { data: protectionResult, error: protectionErr } = await supabase.rpc(
+        "is_reservation_protected",
+        { p_reservation_id: reservationId }
+      );
+
+      if (!protectionErr && protectionResult && (protectionResult as any).protected === true) {
+        const hoursUntilStart = (protectionResult as any).hours_until_start ?? 0;
+        const protectionWindowHours = (protectionResult as any).protection_window_hours ?? 2;
+
+        return res.status(403).json({
+          error: "reservation_protected",
+          message: `Cette réservation gratuite ne peut pas être annulée ou refusée car elle est protégée (${Math.round(hoursUntilStart * 10) / 10}h avant le début, fenêtre de protection: ${protectionWindowHours}h)`,
+          protection_details: protectionResult,
+        });
+      }
+    }
+  }
 
   if (statusRaw) {
     const allowedStatuses = new Set([
@@ -10072,3 +10142,229 @@ export const getProBookingSourceStats: RequestHandler = async (req, res) => {
     },
   });
 };
+
+// ---------------------------------------------------------------------------
+// PRO ONLINE STATUS (Activity/Assiduity System)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/pro/establishments/:establishmentId/online-status
+ * Get current online status and activity stats for an establishment
+ */
+export const getProOnlineStatus: RequestHandler = async (req, res) => {
+  const establishmentId = typeof req.params.establishmentId === "string" ? req.params.establishmentId : "";
+  if (!establishmentId) return res.status(400).json({ error: "establishmentId is required" });
+
+  const token = parseBearerToken(req.header("authorization") ?? undefined);
+  if (!token) return res.status(401).json({ error: "Missing bearer token" });
+
+  const userResult = await getUserFromBearerToken(token);
+  if (userResult.ok === false) return res.status(userResult.status).json({ error: userResult.error });
+
+  const permission = await ensureCanManageReservations({ establishmentId, userId: userResult.user.id });
+  if (permission.ok === false) return res.status(permission.status).json({ error: permission.error });
+
+  const supabase = getAdminSupabase();
+
+  // Get establishment online status and activity data
+  const { data: establishment, error: estErr } = await supabase
+    .from("establishments")
+    .select("id, name, is_online, online_since, last_online_at, total_online_minutes, activity_score")
+    .eq("id", establishmentId)
+    .maybeSingle();
+
+  if (estErr) return res.status(500).json({ error: estErr.message });
+  if (!establishment) return res.status(404).json({ error: "Establishment not found" });
+
+  // Get recent activity stats (last 7 days)
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+  const { data: recentActivity } = await supabase
+    .from("pro_activity_daily")
+    .select("date, online_minutes, sessions_count, reservations_handled, reservations_confirmed")
+    .eq("establishment_id", establishmentId)
+    .gte("date", sevenDaysAgo)
+    .order("date", { ascending: false });
+
+  // Calculate current session duration if online
+  let currentSessionMinutes = 0;
+  if (establishment.is_online && establishment.online_since) {
+    currentSessionMinutes = Math.floor((Date.now() - new Date(establishment.online_since).getTime()) / 60000);
+  }
+
+  return res.json({
+    ok: true,
+    status: {
+      is_online: establishment.is_online ?? false,
+      online_since: establishment.online_since,
+      last_online_at: establishment.last_online_at,
+      current_session_minutes: currentSessionMinutes,
+      total_online_minutes: establishment.total_online_minutes ?? 0,
+      activity_score: establishment.activity_score ?? 0,
+    },
+    recent_activity: recentActivity ?? [],
+  });
+};
+
+/**
+ * POST /api/pro/establishments/:establishmentId/toggle-online
+ * Toggle establishment online/offline status
+ */
+export const toggleProOnlineStatus: RequestHandler = async (req, res) => {
+  const establishmentId = typeof req.params.establishmentId === "string" ? req.params.establishmentId : "";
+  if (!establishmentId) return res.status(400).json({ error: "establishmentId is required" });
+
+  const token = parseBearerToken(req.header("authorization") ?? undefined);
+  if (!token) return res.status(401).json({ error: "Missing bearer token" });
+
+  const userResult = await getUserFromBearerToken(token);
+  if (userResult.ok === false) return res.status(userResult.status).json({ error: userResult.error });
+
+  const permission = await ensureCanManageReservations({ establishmentId, userId: userResult.user.id });
+  if (permission.ok === false) return res.status(permission.status).json({ error: permission.error });
+
+  const body = isRecord(req.body) ? req.body : {};
+  const isOnline = typeof body.is_online === "boolean" ? body.is_online : undefined;
+
+  if (isOnline === undefined) {
+    return res.status(400).json({ error: "is_online (boolean) is required" });
+  }
+
+  const supabase = getAdminSupabase();
+
+  // Call the RPC function to toggle status
+  const { data, error } = await supabase.rpc("toggle_establishment_online", {
+    p_establishment_id: establishmentId,
+    p_user_id: userResult.user.id,
+    p_is_online: isOnline,
+  });
+
+  if (error) {
+    console.error("[toggleProOnlineStatus] RPC error:", error);
+    return res.status(500).json({ error: error.message });
+  }
+
+  const result = data as { ok: boolean; action?: string; error?: string; [key: string]: unknown };
+
+  if (!result.ok) {
+    return res.status(400).json({ error: result.error || "toggle_failed" });
+  }
+
+  // Log the action
+  await supabase.from("system_logs").insert({
+    actor_user_id: userResult.user.id,
+    actor_role: `pro:${permission.role}`,
+    action: isOnline ? "establishment.went_online" : "establishment.went_offline",
+    entity_type: "establishment",
+    entity_id: establishmentId,
+    payload: result,
+  });
+
+  return res.json({
+    ok: true,
+    is_online: isOnline,
+    ...result,
+  });
+};
+
+/**
+ * GET /api/pro/establishments/:establishmentId/activity-stats
+ * Get detailed activity statistics for the dashboard
+ */
+export const getProActivityStats: RequestHandler = async (req, res) => {
+  const establishmentId = typeof req.params.establishmentId === "string" ? req.params.establishmentId : "";
+  if (!establishmentId) return res.status(400).json({ error: "establishmentId is required" });
+
+  const token = parseBearerToken(req.header("authorization") ?? undefined);
+  if (!token) return res.status(401).json({ error: "Missing bearer token" });
+
+  const userResult = await getUserFromBearerToken(token);
+  if (userResult.ok === false) return res.status(userResult.status).json({ error: userResult.error });
+
+  const permission = await ensureCanManageReservations({ establishmentId, userId: userResult.user.id });
+  if (permission.ok === false) return res.status(permission.status).json({ error: permission.error });
+
+  const supabase = getAdminSupabase();
+
+  // Get establishment activity score
+  const { data: establishment } = await supabase
+    .from("establishments")
+    .select("activity_score, total_online_minutes, is_online, last_online_at")
+    .eq("id", establishmentId)
+    .maybeSingle();
+
+  // Get last 30 days activity
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+  const { data: dailyStats } = await supabase
+    .from("pro_activity_daily")
+    .select("*")
+    .eq("establishment_id", establishmentId)
+    .gte("date", thirtyDaysAgo)
+    .order("date", { ascending: true });
+
+  // Calculate aggregates
+  const stats = (dailyStats ?? []).reduce(
+    (acc, day) => {
+      acc.total_online_minutes += day.online_minutes || 0;
+      acc.total_sessions += day.sessions_count || 0;
+      acc.total_reservations_handled += day.reservations_handled || 0;
+      acc.total_reservations_confirmed += day.reservations_confirmed || 0;
+      acc.days_active += 1;
+      return acc;
+    },
+    {
+      total_online_minutes: 0,
+      total_sessions: 0,
+      total_reservations_handled: 0,
+      total_reservations_confirmed: 0,
+      days_active: 0,
+    }
+  );
+
+  const confirmationRate =
+    stats.total_reservations_handled > 0
+      ? Math.round((stats.total_reservations_confirmed / stats.total_reservations_handled) * 100)
+      : 0;
+
+  return res.json({
+    ok: true,
+    activity_score: establishment?.activity_score ?? 0,
+    is_online: establishment?.is_online ?? false,
+    last_online_at: establishment?.last_online_at,
+    period: "30_days",
+    stats: {
+      ...stats,
+      total_online_hours: Math.round(stats.total_online_minutes / 60),
+      avg_daily_minutes: stats.days_active > 0 ? Math.round(stats.total_online_minutes / stats.days_active) : 0,
+      confirmation_rate: confirmationRate,
+    },
+    daily_breakdown: dailyStats ?? [],
+    // Tips for improving score
+    tips: getActivityImprovementTips(establishment?.activity_score ?? 0, stats),
+  });
+};
+
+function getActivityImprovementTips(score: number, stats: { days_active: number; total_online_minutes: number; total_reservations_handled: number }): string[] {
+  const tips: string[] = [];
+
+  if (score < 30) {
+    tips.push("Connectez-vous plus régulièrement pour améliorer votre visibilité");
+  }
+
+  if (stats.days_active < 15) {
+    tips.push("Essayez d'être en ligne au moins 15 jours par mois");
+  }
+
+  if (stats.total_online_minutes < 1800) { // Less than 30 hours/month
+    tips.push("Augmentez votre temps en ligne pour être mieux classé dans les recherches");
+  }
+
+  if (stats.total_reservations_handled < 5) {
+    tips.push("Répondez rapidement aux demandes de réservation");
+  }
+
+  if (score >= 70) {
+    tips.push("Excellent ! Maintenez votre activité pour garder votre visibilité");
+  }
+
+  return tips;
+}

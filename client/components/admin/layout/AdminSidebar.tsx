@@ -41,7 +41,7 @@ export function AdminSidebar(props: { onNavigate?: () => void }) {
 
   return (
     <aside className="h-full w-full">
-      <div className="h-full rounded-lg border border-slate-200 bg-white">
+      <div className="min-h-full rounded-lg border border-slate-200 bg-white">
         <div className="p-4 border-b border-slate-200">
           <div className="flex items-center gap-2.5">
             <img

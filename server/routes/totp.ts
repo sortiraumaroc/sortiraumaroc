@@ -82,10 +82,16 @@ export async function getTOTPSecret(req: Request, res: Response): Promise<void> 
       return;
     }
 
-    // Check ownership (if userId is available)
-    if (userId && reservation.user_id && reservation.user_id !== userId) {
-      res.status(403).json({ error: "Not authorized to access this reservation" });
-      return;
+    // SECURITY: Always check ownership - require user_id match if reservation has one
+    if (reservation.user_id) {
+      if (!userId) {
+        res.status(401).json({ error: "Authentication required" });
+        return;
+      }
+      if (reservation.user_id !== userId) {
+        res.status(403).json({ error: "Not authorized to access this reservation" });
+        return;
+      }
     }
 
     // Check if reservation is in a valid state
@@ -176,9 +182,16 @@ export async function generateTOTPCode(req: Request, res: Response): Promise<voi
       return;
     }
 
-    if (userId && reservation.user_id && reservation.user_id !== userId) {
-      res.status(403).json({ error: "Not authorized" });
-      return;
+    // SECURITY: Always check ownership
+    if (reservation.user_id) {
+      if (!userId) {
+        res.status(401).json({ error: "Authentication required" });
+        return;
+      }
+      if (reservation.user_id !== userId) {
+        res.status(403).json({ error: "Not authorized" });
+        return;
+      }
     }
 
     // Get TOTP secret
@@ -579,9 +592,16 @@ export async function regenerateTOTPSecret(req: Request, res: Response): Promise
       return;
     }
 
-    if (userId && reservation.user_id && reservation.user_id !== userId) {
-      res.status(403).json({ error: "Not authorized" });
-      return;
+    // SECURITY: Always check ownership
+    if (reservation.user_id) {
+      if (!userId) {
+        res.status(401).json({ error: "Authentication required" });
+        return;
+      }
+      if (reservation.user_id !== userId) {
+        res.status(403).json({ error: "Not authorized" });
+        return;
+      }
     }
 
     // Deactivate old secret

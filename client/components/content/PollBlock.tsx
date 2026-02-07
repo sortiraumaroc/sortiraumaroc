@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { AuthModal } from "@/components/AuthModal";
+import { AuthModalV2 } from "@/components/AuthModalV2";
 import { Button } from "@/components/ui/button";
 import { isAuthed } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
@@ -107,7 +107,7 @@ export function PollBlock({ slug, pollId, question, options }: Props) {
 
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-5">
-      <AuthModal
+      <AuthModalV2
         isOpen={authOpen}
         onClose={() => setAuthOpen(false)}
         onAuthed={() => {

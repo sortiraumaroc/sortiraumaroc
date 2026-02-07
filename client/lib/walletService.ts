@@ -201,3 +201,194 @@ export const handleAddToGoogleWallet = async (data: PassGenerationRequest): Prom
     alert('Impossible d\'ajouter à Google Wallet. Veuillez réessayer.');
   }
 };
+
+// ============================================================================
+// User Membership Card - Wallet Functions
+// ============================================================================
+
+import { getConsumerAccessToken } from "./auth";
+
+export interface UserPassGenerationRequest {
+  userId: string;
+  userName: string;
+  userEmail?: string;
+  userPhone?: string;
+  memberSince: string;
+  reliabilityLevel: string;
+  reservationsCount: number;
+}
+
+interface UserAppleWalletResponse {
+  success: boolean;
+  demo?: boolean;
+  passData?: string; // base64 encoded .pkpass
+  mimeType?: string;
+  filename?: string;
+  message?: string;
+  setupInstructions?: Record<string, unknown>;
+}
+
+interface UserGoogleWalletResponse {
+  success: boolean;
+  demo?: boolean;
+  walletLink?: string;
+  saveUrl?: string;
+  url?: string;
+  qrPageUrl?: string;
+  message?: string;
+  passData?: Record<string, unknown>;
+}
+
+/**
+ * Request Apple Wallet pass for user membership card
+ */
+export const requestUserAppleWalletPass = async (
+  data: UserPassGenerationRequest
+): Promise<UserAppleWalletResponse | null> => {
+  try {
+    const token = getConsumerAccessToken();
+    const response = await fetch("/api/wallet/user/apple", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      console.warn("User Apple Wallet: Backend error");
+      return null;
+    }
+
+    return (await response.json()) as UserAppleWalletResponse;
+  } catch (error) {
+    console.error("Error requesting user Apple Wallet pass:", error);
+    return null;
+  }
+};
+
+/**
+ * Request Google Wallet pass for user membership card
+ */
+export const requestUserGoogleWalletPass = async (
+  data: UserPassGenerationRequest
+): Promise<UserGoogleWalletResponse | null> => {
+  try {
+    const token = getConsumerAccessToken();
+    const response = await fetch("/api/wallet/user/google", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      console.warn("User Google Wallet: Backend error");
+      return null;
+    }
+
+    return (await response.json()) as UserGoogleWalletResponse;
+  } catch (error) {
+    console.error("Error requesting user Google Wallet pass:", error);
+    return null;
+  }
+};
+
+/**
+ * Handle Add to Apple Wallet for user membership card
+ */
+export const handleAddUserToAppleWallet = async (
+  data: UserPassGenerationRequest
+): Promise<void> => {
+  try {
+    const result = await requestUserAppleWalletPass(data);
+
+    if (!result) {
+      alert(
+        "Impossible de générer la carte membre Apple Wallet. Veuillez réessayer."
+      );
+      return;
+    }
+
+    // Demo mode
+    if (result.demo) {
+      alert(result.message || "Apple Wallet sera bientôt disponible.");
+      return;
+    }
+
+    // Check if we have base64 pass data
+    if (result.passData) {
+      // Convert base64 to blob and trigger download
+      const byteCharacters = atob(result.passData);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], {
+        type: result.mimeType || "application/vnd.apple.pkpass",
+      });
+
+      // Create download link
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = result.filename || `sam-membre-${data.userId.substring(0, 8)}.pkpass`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    alert("Impossible de télécharger la carte. Veuillez réessayer.");
+  } catch (error) {
+    console.error("Error adding user to Apple Wallet:", error);
+    alert("Impossible d'ajouter à Apple Wallet. Veuillez réessayer.");
+  }
+};
+
+/**
+ * Handle Add to Google Wallet for user membership card
+ */
+export const handleAddUserToGoogleWallet = async (
+  data: UserPassGenerationRequest
+): Promise<void> => {
+  try {
+    const result = await requestUserGoogleWalletPass(data);
+
+    if (!result) {
+      alert(
+        "Impossible de générer la carte membre Google Wallet. Veuillez réessayer."
+      );
+      return;
+    }
+
+    // Check if we have a direct wallet link
+    const walletLink = result.walletLink || result.saveUrl || result.url;
+
+    if (walletLink) {
+      // Open Google Wallet save link in new tab
+      window.open(walletLink, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    // Demo mode: open QR page as fallback
+    if (result.demo) {
+      if (result.qrPageUrl) {
+        window.open(result.qrPageUrl, "_blank", "noopener,noreferrer");
+      } else {
+        alert(result.message || "Google Wallet sera bientôt disponible.");
+      }
+      return;
+    }
+
+    alert("Impossible d'ajouter à Google Wallet. Veuillez réessayer.");
+  } catch (error) {
+    console.error("Error adding user to Google Wallet:", error);
+    alert("Impossible d'ajouter à Google Wallet. Veuillez réessayer.");
+  }
+};

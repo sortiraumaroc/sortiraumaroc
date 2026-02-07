@@ -135,6 +135,7 @@ export type Pack = {
   valid_to: string | null;
   conditions: string | null;
   max_reservations: number | null;
+  cover_url: string | null;
   active: boolean;
   created_at: string;
   updated_at: string;

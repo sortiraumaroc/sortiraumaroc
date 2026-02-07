@@ -513,7 +513,7 @@ export function AuthModal({ isOpen, onClose, onAuthed, contextTitle, contextSubt
     setBusy(true);
 
     try {
-      // Verify the code matches
+      // Verify the code matches (client-side check first)
       if (code !== expectedCode) {
         setError(t("profile.email_verification.error.invalid_code"));
         setVerificationCode("");
@@ -529,37 +529,61 @@ export function AuthModal({ isOpen, onClose, onAuthed, contextTitle, contextSubt
         return;
       }
 
-      // Create the account with Supabase
-      const { data, error: signupError } = await consumerSupabase.auth.signUp({
-        email: emailOrPhone.trim().toLowerCase(),
-        password,
+      const normalizedEmail = emailOrPhone.trim().toLowerCase();
+
+      // Step 1: Verify the code on the server
+      const verifyResponse = await fetch("/api/consumer/verify-email/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: normalizedEmail, code }),
       });
 
-      if (signupError) {
-        setError(t("auth.error.signup_failed"));
+      if (!verifyResponse.ok) {
+        const verifyData = await verifyResponse.json().catch(() => ({}));
+        setError(verifyData.error || t("profile.email_verification.error.invalid_code"));
+        setVerificationCode("");
+        setBusy(false);
+        return;
+      }
+
+      // Step 2: Create the account via server endpoint (bypasses Supabase confirmation email)
+      const signupResponse = await fetch("/api/consumer/auth/email/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: normalizedEmail,
+          password,
+          referralCode: referralCodeValid ? referralCode.trim() : undefined,
+        }),
+      });
+
+      const signupData = await signupResponse.json().catch(() => ({}));
+
+      if (!signupResponse.ok) {
+        setError(signupData.error || t("auth.error.signup_failed"));
         setBusy(false);
         return;
       }
 
       // Mark email as verified in local profile
-      markEmailAsVerified(emailOrPhone.trim().toLowerCase());
+      markEmailAsVerified(normalizedEmail);
 
-      // If there's a valid referral code, create the referral link
-      if (referralCodeValid && referralCode.trim() && data.user) {
-        try {
-          await fetch("/api/public/referral/link", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              referral_code: referralCode.trim(),
-              referree_user_id: data.user.id,
-              source: "registration",
-            }),
-          });
-        } catch (refErr) {
-          // Log but don't block signup if referral link creation fails
-          console.error("[Signup] Error creating referral link:", refErr);
+      // Step 3: Sign in with the newly created credentials
+      const { error: signInError } = await consumerSupabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password,
+      });
+
+      if (signInError) {
+        console.warn("[Signup] Auto sign-in failed, redirecting via actionLink:", signInError.message);
+        // Fallback: use actionLink if signIn fails
+        if (signupData.actionLink) {
+          window.location.assign(signupData.actionLink);
+          return;
         }
+        setNotice(t("auth.notice.account_created"));
+        setStep("login");
+        return;
       }
 
       // Show success step
@@ -567,12 +591,7 @@ export function AuthModal({ isOpen, onClose, onAuthed, contextTitle, contextSubt
 
       // After 1.5s, finish auth
       setTimeout(() => {
-        if (data.session) {
-          finishAuth();
-        } else {
-          setNotice(t("auth.notice.account_created"));
-          setStep("login");
-        }
+        finishAuth();
       }, 1500);
     } catch (err) {
       console.error("[Signup] Error creating account:", err);
@@ -632,9 +651,6 @@ export function AuthModal({ isOpen, onClose, onAuthed, contextTitle, contextSubt
               className="h-14 w-auto"
               loading="lazy"
             />
-            <p className="mt-1.5 text-sm text-black font-bold" style={{ fontFamily: "Poppins, sans-serif" }}>
-              La plateforme de réservation en ligne
-            </p>
           </div>
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">

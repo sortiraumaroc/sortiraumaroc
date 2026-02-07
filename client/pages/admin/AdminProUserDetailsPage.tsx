@@ -20,6 +20,8 @@ import {
   X,
   FileText,
   Hash,
+  ShieldBan,
+  ShieldCheck,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +47,7 @@ import {
   getAdminProProfile,
   listProUserMemberships,
   regenerateProUserPassword,
+  suspendProUser,
   updateAdminProProfile,
   type AdminProProfile,
   type ProMembershipAdmin,
@@ -72,7 +75,7 @@ function statusBadge(status: string): JSX.Element {
       ? "bg-emerald-50 text-emerald-700 border-emerald-200"
       : s === "pending"
         ? "bg-amber-50 text-amber-700 border-amber-200"
-        : s === "rejected" || s === "disabled"
+        : s === "rejected" || s === "suspended"
           ? "bg-red-50 text-red-700 border-red-200"
           : "bg-slate-50 text-slate-700 border-slate-200";
   return <Badge className={cls}>{formatLabel(status)}</Badge>;
@@ -117,6 +120,11 @@ export function AdminProUserDetailsPage() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [regeneratingPassword, setRegeneratingPassword] = useState(false);
+
+  // Suspend dialog state
+  const [suspendDialogOpen, setSuspendDialogOpen] = useState(false);
+  const [suspendReason, setSuspendReason] = useState("");
+  const [suspendLoading, setSuspendLoading] = useState(false);
 
   // Credentials dialog state
   const [credentialsDialogOpen, setCredentialsDialogOpen] = useState(false);
@@ -306,6 +314,30 @@ export function AdminProUserDetailsPage() {
     return parts.length > 0 ? parts.join(", ") : null;
   }, [profile]);
 
+  const isSuspended = (profile as Record<string, unknown>)?.status === "suspended";
+
+  const handleSuspendToggle = useCallback(async () => {
+    setSuspendLoading(true);
+    try {
+      const newSuspend = !isSuspended;
+      await suspendProUser(undefined, userId, newSuspend, suspendReason || undefined);
+      toast({
+        title: newSuspend ? "Compte suspendu" : "Compte réactivé",
+        description: newSuspend
+          ? `Le compte ${profile?.email} a été suspendu.`
+          : `Le compte ${profile?.email} a été réactivé.`,
+      });
+      setSuspendDialogOpen(false);
+      setSuspendReason("");
+      await refresh();
+    } catch (e) {
+      const msg = e instanceof AdminApiError ? e.message : "Erreur inattendue";
+      toast({ title: "Erreur", description: msg, variant: "destructive" });
+    } finally {
+      setSuspendLoading(false);
+    }
+  }, [userId, isSuspended, suspendReason, profile?.email, refresh, toast]);
+
   return (
     <div className="space-y-6">
       <AdminPageHeader
@@ -358,6 +390,14 @@ export function AdminProUserDetailsPage() {
 
       {/* Action buttons */}
       <div className="flex justify-end gap-2">
+        <Button
+          variant="outline"
+          onClick={() => { setSuspendReason(""); setSuspendDialogOpen(true); }}
+          className={`gap-2 h-10 ${isSuspended ? "text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50" : "text-red-600 hover:text-red-700 hover:bg-red-50"}`}
+        >
+          {isSuspended ? <ShieldCheck className="h-4 w-4" /> : <ShieldBan className="h-4 w-4" />}
+          {isSuspended ? "Réactiver" : "Suspendre"}
+        </Button>
         <Button
           variant="outline"
           onClick={handleRegeneratePassword}
@@ -568,6 +608,88 @@ export function AdminProUserDetailsPage() {
             </Button>
             <Button onClick={() => setCredentialsDialogOpen(false)}>
               Fermer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Suspend / Reactivate Dialog */}
+      <Dialog
+        open={suspendDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSuspendDialogOpen(false);
+            setSuspendReason("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className={isSuspended ? "text-emerald-600" : "text-red-600"}>
+              {isSuspended ? "Réactiver le compte Pro" : "Suspendre le compte Pro"}
+            </DialogTitle>
+            <DialogDescription>
+              {isSuspended ? (
+                <>
+                  Vous êtes sur le point de réactiver le compte{" "}
+                  <span className="font-semibold">{profile?.email}</span>.
+                  <br />
+                  L'utilisateur pourra à nouveau se connecter à son espace Pro.
+                </>
+              ) : (
+                <>
+                  Vous êtes sur le point de suspendre le compte{" "}
+                  <span className="font-semibold">{profile?.email}</span>.
+                  <br />
+                  L'utilisateur ne pourra plus se connecter à son espace Pro.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          {!isSuspended && (
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label htmlFor="suspend_reason_detail">Raison de la suspension (optionnel)</Label>
+                <Textarea
+                  id="suspend_reason_detail"
+                  value={suspendReason}
+                  onChange={(e) => setSuspendReason(e.target.value)}
+                  placeholder="Ex: Non-paiement, Violation des conditions d'utilisation..."
+                  rows={3}
+                />
+              </div>
+
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                <strong>Attention :</strong> Cette action empêchera l'utilisateur de se connecter.
+                Vous pourrez réactiver le compte ultérieurement.
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => { setSuspendDialogOpen(false); setSuspendReason(""); }}
+              disabled={suspendLoading}
+            >
+              Annuler
+            </Button>
+            <Button
+              variant={isSuspended ? "default" : "destructive"}
+              onClick={() => void handleSuspendToggle()}
+              disabled={suspendLoading}
+            >
+              {suspendLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  {isSuspended ? "Réactivation..." : "Suspension..."}
+                </>
+              ) : isSuspended ? (
+                "Confirmer la réactivation"
+              ) : (
+                "Confirmer la suspension"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

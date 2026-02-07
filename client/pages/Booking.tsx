@@ -8,7 +8,7 @@ import Step4Confirmation from '@/components/booking/Step4Confirmation';
 import { ChevronLeft } from "lucide-react";
 import { Header } from "@/components/Header";
 import { LanguageSwitcher } from "@/components/i18n/LanguageSwitcher";
-import { AuthModal } from "@/components/AuthModal";
+import { AuthModalV2 } from "@/components/AuthModalV2";
 import { isAuthed } from "@/lib/auth";
 import { getPublicEstablishment } from "@/lib/publicApi";
 import { isUuid } from "@/lib/pro/visits";
@@ -76,6 +76,7 @@ export default function Booking() {
     setCurrentStep,
     setBookingType,
     setEstablishmentId,
+    setEstablishmentName,
     reset,
     establishmentId: bookingEstId,
     partySize,
@@ -90,6 +91,11 @@ export default function Booking() {
     setSelectedService,
     setSelectedPack,
   } = useBooking();
+
+  // Scroll to top when step changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [currentStep]);
 
   useEffect(() => {
     const raw = (searchParams.get("universe") ?? "restaurants").toLowerCase();
@@ -113,18 +119,14 @@ export default function Booking() {
     let active = true;
 
     const resolve = async () => {
-      // Booking widgets (and some demo pages) still navigate using numeric ids ("1") or other refs.
-      // Our Supabase tables use a UUID for establishments.id.
-      if (isUuid(establishmentId)) {
-        setEstablishmentId(establishmentId);
-        return;
-      }
-
+      // Always try to fetch establishment details to get the name
       try {
         const title = searchParams.get("title");
         const payload = await getPublicEstablishment({ ref: establishmentId, title });
         if (!active) return;
-        setResolvedName(payload.establishment?.name ?? null);
+        const name = payload.establishment?.name ?? null;
+        setResolvedName(name);
+        setEstablishmentName(name);
         setEstablishmentId(payload.establishment.id);
       } catch {
         if (!active) return;
@@ -138,7 +140,7 @@ export default function Booking() {
     return () => {
       active = false;
     };
-  }, [establishmentId, searchParams, setEstablishmentId]);
+  }, [establishmentId, searchParams, setEstablishmentId, setEstablishmentName]);
 
   useEffect(() => {
     if (currentStep !== 1) return;
@@ -314,7 +316,7 @@ export default function Booking() {
         </div>
       </div>
 
-      <AuthModal
+      <AuthModalV2
         isOpen={authOpen}
         contextTitle={authContext?.title}
         contextSubtitle={authContext?.subtitle}

@@ -94,8 +94,8 @@ function pad2(v: number): string {
   return String(v).padStart(2, "0");
 }
 
-function formatLocalYmd(d: Date): string {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+function formatLocalDmy(d: Date): string {
+  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
 }
 
 function formatLocalYmdHm(iso: string): string {

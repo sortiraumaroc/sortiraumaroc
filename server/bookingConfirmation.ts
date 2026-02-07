@@ -129,8 +129,9 @@ export async function sendH3ConfirmationEmails(): Promise<{
       // Send email
       await sendTemplateEmail({
         templateKey: "user_booking_confirm_3h",
-        to: res.user_email,
-        locale: "fr",
+        fromKey: "noreply",
+        to: [res.user_email],
+        lang: "fr",
         variables: {
           user_name: res.user_name,
           establishment: res.establishment_name,
@@ -236,8 +237,9 @@ export async function confirmBookingByToken(token: string): Promise<{
     if (user?.email) {
       await sendTemplateEmail({
         templateKey: "user_booking_reconfirmed",
-        to: user.email,
-        locale: "fr",
+        fromKey: "noreply",
+        to: [user.email],
+        lang: "fr",
         variables: {
           user_name: user.display_name || `${user.first_name} ${user.last_name}`,
           establishment: establishment.name,
@@ -263,8 +265,9 @@ export async function confirmBookingByToken(token: string): Promise<{
     if (proEmail) {
       await sendTemplateEmail({
         templateKey: "pro_client_confirmed",
-        to: proEmail,
-        locale: "fr",
+        fromKey: "noreply",
+        to: [proEmail],
+        lang: "fr",
         variables: {
           user_name: user?.display_name || `${user?.first_name} ${user?.last_name}`,
           date: capitalizedDate2,
@@ -342,8 +345,9 @@ export async function autoCancelUnconfirmedReservations(): Promise<{
       // Notify user
       await sendTemplateEmail({
         templateKey: "user_booking_auto_cancelled",
-        to: res.user_email,
-        locale: "fr",
+        fromKey: "noreply",
+        to: [res.user_email],
+        lang: "fr",
         variables: {
           user_name: res.user_name,
           establishment: res.establishment_name,
@@ -357,8 +361,9 @@ export async function autoCancelUnconfirmedReservations(): Promise<{
       if (res.pro_email) {
         await sendTemplateEmail({
           templateKey: "pro_booking_auto_cancelled",
-          to: res.pro_email,
-          locale: "fr",
+          fromKey: "noreply",
+          to: [res.pro_email],
+          lang: "fr",
           variables: {
             user_name: res.user_name,
             date: capitalizedDate3,

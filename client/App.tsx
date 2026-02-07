@@ -24,6 +24,7 @@ const Booking = lazy(() => import("./pages/Booking"));
 const Profile = lazy(() => import("./pages/Profile"));
 const BookingDetails = lazy(() => import("./pages/BookingDetails"));
 const ProfileMessages = lazy(() => import("./pages/ProfileMessages"));
+const MyUserQRPage = lazy(() => import("./pages/MyUserQRPage"));
 const Faq = lazy(() => import("./pages/Faq"));
 const Help = lazy(() => import("./pages/Help"));
 const ContentPage = lazy(() => import("./pages/ContentPage"));
@@ -343,6 +344,23 @@ const AdminEmailsAudiencesPage = lazy(() =>
     default: m.AdminEmailsAudiencesPage,
   })),
 );
+const AdminContactFormsPage = lazy(() =>
+  import("./pages/admin/AdminContactFormsPage"),
+);
+const AdminContactFormEditPage = lazy(() =>
+  import("./pages/admin/AdminContactFormEditPage"),
+);
+const AdminContactFormSubmissionsPage = lazy(() =>
+  import("./pages/admin/AdminContactFormSubmissionsPage"),
+);
+const AdminClaimRequestsPage = lazy(() =>
+  import("./pages/admin/AdminClaimRequestsPage"),
+);
+
+// Public Contact Form
+const ContactFormPage = lazy(() =>
+  import("./pages/public/ContactFormPage"),
+);
 
 function LocaleLayout({ locale }: { locale: AppLocale }) {
   const { setLocale } = useI18n();
@@ -364,6 +382,7 @@ function LocaleLayout({ locale }: { locale: AppLocale }) {
         <Route path="hotel-booking/:hotelId" element={<HotelBooking />} />
         <Route path="booking/:establishmentId" element={<Booking />} />
         <Route path="profile" element={<Profile />} />
+        <Route path="mon-qr" element={<MyUserQRPage />} />
         <Route
           path="profile/notifications"
           element={
@@ -415,6 +434,7 @@ function LocaleLayout({ locale }: { locale: AppLocale }) {
         <Route path="quotes/:token" element={<PublicMediaQuote />} />
         <Route path="invoices/:token" element={<PublicMediaInvoice />} />
         <Route path="media/checkin" element={<PublicMediaCheckin />} />
+        <Route path="form/:slug" element={<ContactFormPage />} />
         <Route path="booking/confirm/:token" element={<BookingConfirm />} />
         <Route path="review/:token" element={<ReviewSubmission />} />
         <Route path="my-qr/:reservationId" element={<MyQRCodePage />} />
@@ -534,6 +554,10 @@ function AppContent() {
               <Route path="reviews" element={<AdminReviewsPage />} />
               <Route path="deals" element={<AdminDealsPage />} />
               <Route path="support" element={<AdminSupportPage />} />
+              <Route path="contact-forms" element={<AdminContactFormsPage />} />
+              <Route path="contact-forms/:id" element={<AdminContactFormEditPage />} />
+              <Route path="contact-forms/:id/submissions" element={<AdminContactFormSubmissionsPage />} />
+              <Route path="claim-requests" element={<AdminClaimRequestsPage />} />
               <Route path="content" element={<AdminContentPage />} />
               <Route path="homepage" element={<AdminHomePage />} />
               <Route path="settings" element={<AdminSettingsPage />} />

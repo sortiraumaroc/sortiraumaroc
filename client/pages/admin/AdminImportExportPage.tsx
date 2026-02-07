@@ -14,6 +14,26 @@ import {
   CheckCircle,
   Copy,
   Eye,
+  Database,
+  Play,
+  Check,
+  X,
+  RefreshCw,
+  AlertTriangle,
+  Search,
+  MapPin,
+  Phone,
+  Globe,
+  Mail,
+  ExternalLink,
+  Trash2,
+  CircleDot,
+  Sparkles,
+  Timer,
+  CheckCheck,
+  XOctagon,
+  Ban,
+  FileCode,
 } from "lucide-react";
 
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
@@ -42,6 +62,80 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { isAdminSuperadmin } from "@/lib/adminApi";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+
+// CHR Import types and functions
+import {
+  listImportSources,
+  listChrCategories,
+  listBatches,
+  createBatch,
+  runBatch,
+  deleteBatch,
+  listStagingEntries,
+  getStagingEntry,
+  approveStagingEntry,
+  rejectStagingEntry,
+  bulkApproveStagingEntries,
+  bulkRejectStagingEntries,
+  cleanupStagingDuplicates,
+  getImportStats,
+  getStagingExportUrl,
+  getStatusColor,
+  getStatusLabel,
+  getBatchStatusColor,
+  getBatchStatusLabel,
+  getSourceLabel,
+  getCategoryLabel,
+  MOROCCAN_CITIES,
+  type ImportSource,
+  type ChrCategory,
+  type ImportBatch,
+  type StagingEntry,
+  type StagingStatus,
+  type ImportSourceInfo,
+  type ChrCategoryInfo,
+  type ImportStats,
+} from "@/lib/adminImportChr";
+import { SqlImportTab } from "@/components/admin/SqlImportTab";
+import { PaginationControls } from "@/components/admin/table/PaginationControls";
+
+/**
+ * Convertit une chaîne en Title Case
+ * Ex: "THE CLOUD COFFEE LAB" -> "The Cloud Coffee Lab"
+ */
+function toTitleCase(str: string): string {
+  if (!str) return str;
+  // Mots qu'on garde en minuscule (sauf en début de phrase)
+  const minorWords = new Set(["de", "du", "la", "le", "les", "des", "et", "ou", "à", "au", "aux", "en", "par", "pour", "sur", "avec", "sans", "sous", "chez"]);
+
+  return str
+    .toLowerCase()
+    .split(" ")
+    .map((word, index) => {
+      if (!word) return word;
+      // Premier mot toujours capitalisé, ou si le mot n'est pas un mot mineur
+      if (index === 0 || !minorWords.has(word)) {
+        return word.charAt(0).toUpperCase() + word.slice(1);
+      }
+      return word;
+    })
+    .join(" ");
+}
 
 type ImportPreviewItem = {
   row: number;
@@ -123,6 +217,58 @@ export function AdminImportExportPage() {
   // Export state
   const [exporting, setExporting] = useState(false);
 
+  // ============================================
+  // CHR STATE
+  // ============================================
+  const [chrSources, setChrSources] = useState<ImportSourceInfo[]>([]);
+  const [chrCategories, setChrCategories] = useState<ChrCategoryInfo[]>([]);
+  const [chrBatches, setChrBatches] = useState<ImportBatch[]>([]);
+  const [chrStagingEntries, setChrStagingEntries] = useState<StagingEntry[]>([]);
+  const [chrStats, setChrStats] = useState<ImportStats | null>(null);
+  const [chrLoading, setChrLoading] = useState(false);
+
+  // CHR Staging filters
+  const [chrStagingFilters, setChrStagingFilters] = useState<{
+    status?: StagingStatus;
+    city?: string;
+    category?: string;
+    search?: string;
+  }>({});
+  const [chrStagingTotal, setChrStagingTotal] = useState(0);
+  const [chrStagingPage, setChrStagingPage] = useState(1);
+  const [chrStagingPageSize, setChrStagingPageSize] = useState(25);
+
+  // CHR Batches pagination
+  const [chrBatchPage, setChrBatchPage] = useState(0);
+  const [chrBatchPageSize, setChrBatchPageSize] = useState(25);
+
+  // CHR Selection
+  const [chrSelectedIds, setChrSelectedIds] = useState<Set<string>>(new Set());
+
+  // CHR Detail drawer
+  const [chrSelectedEntry, setChrSelectedEntry] = useState<StagingEntry | null>(null);
+  const [chrDrawerOpen, setChrDrawerOpen] = useState(false);
+
+  // CHR New batch dialog
+  const [chrNewBatchOpen, setChrNewBatchOpen] = useState(false);
+  const [chrNewBatchConfig, setChrNewBatchConfig] = useState<{
+    sources: ImportSource[];
+    cities: string[];
+    categories: ChrCategory[];
+    keywords: string;
+  }>({
+    sources: [],
+    cities: [],
+    categories: [],
+    keywords: "",
+  });
+
+  // CHR sub-tab
+  const [chrSubTab, setChrSubTab] = useState<"staging" | "batches">("staging");
+
+  // CHR Cleanup loading state
+  const [chrCleaningDuplicates, setChrCleaningDuplicates] = useState(false);
+
   // Load stats
   const loadStats = useCallback(async () => {
     try {
@@ -141,6 +287,323 @@ export function AdminImportExportPage() {
   useEffect(() => {
     void loadStats();
   }, [loadStats]);
+
+  // ============================================
+  // CHR DATA LOADING
+  // ============================================
+  const loadChrInitialData = useCallback(async () => {
+    setChrLoading(true);
+    try {
+      const [sourcesData, categoriesData, statsData] = await Promise.all([
+        listImportSources(),
+        listChrCategories(),
+        getImportStats(),
+      ]);
+      setChrSources(sourcesData);
+      setChrCategories(categoriesData);
+      setChrStats(statsData);
+      await loadChrBatches();
+      await loadChrStagingEntries();
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    } finally {
+      setChrLoading(false);
+    }
+  }, [toast]);
+
+  const loadChrBatches = useCallback(async () => {
+    try {
+      const { batches: data } = await listBatches(20, 0);
+      setChrBatches(data);
+    } catch (error) {
+      console.error("Failed to load batches:", error);
+    }
+  }, []);
+
+  const loadChrStagingEntries = useCallback(async () => {
+    try {
+      const { entries, total } = await listStagingEntries(
+        chrStagingFilters,
+        chrStagingPageSize,
+        (chrStagingPage - 1) * chrStagingPageSize
+      );
+      setChrStagingEntries(entries);
+      setChrStagingTotal(total);
+    } catch (error) {
+      console.error("Failed to load staging:", error);
+    }
+  }, [chrStagingFilters, chrStagingPage, chrStagingPageSize]);
+
+  // Load CHR staging when filters change
+  useEffect(() => {
+    if (chrStats) {
+      loadChrStagingEntries();
+    }
+  }, [chrStagingFilters, chrStagingPage, chrStats, loadChrStagingEntries]);
+
+  // ============================================
+  // CHR POLLING FOR RUNNING BATCHES
+  // ============================================
+  useEffect(() => {
+    // Check if any batch is running
+    const hasRunningBatch = chrBatches.some(
+      (b) => b.status === "running" || b.status === "pending"
+    );
+
+    if (!hasRunningBatch) return;
+
+    // Poll every 3 seconds while a batch is running
+    const interval = setInterval(async () => {
+      try {
+        const { batches: data } = await listBatches(20, 0);
+        setChrBatches(data);
+
+        // Check if batch just completed
+        const wasRunning = chrBatches.some((b) => b.status === "running");
+        const nowRunning = data.some((b) => b.status === "running");
+
+        if (wasRunning && !nowRunning) {
+          // Batch completed - refresh staging and stats
+          await loadChrStagingEntries();
+          const newStats = await getImportStats();
+          setChrStats(newStats);
+
+          // Find completed batch
+          const completed = data.find(
+            (b) =>
+              b.status === "completed" &&
+              chrBatches.find((old) => old.id === b.id)?.status === "running"
+          );
+
+          if (completed) {
+            toast({
+              title: "Collecte terminée",
+              description: `${completed.totalNormalized} établissements collectés, ${completed.totalDuplicates} doublons détectés`,
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Polling error:", error);
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [chrBatches, loadChrStagingEntries, toast]);
+
+  // ============================================
+  // CHR HANDLERS
+  // ============================================
+  async function handleChrCreateBatch() {
+    if (chrNewBatchConfig.sources.length === 0) {
+      toast({
+        title: "Erreur",
+        description: "Sélectionnez au moins une source",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (chrNewBatchConfig.cities.length === 0) {
+      toast({
+        title: "Erreur",
+        description: "Sélectionnez au moins une ville",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const batch = await createBatch({
+        sources: chrNewBatchConfig.sources,
+        cities: chrNewBatchConfig.cities,
+        categories:
+          chrNewBatchConfig.categories.length > 0
+            ? chrNewBatchConfig.categories
+            : undefined,
+        keywords: chrNewBatchConfig.keywords
+          ? chrNewBatchConfig.keywords.split(",").map((k) => k.trim())
+          : undefined,
+      });
+
+      // Lancer le batch immédiatement
+      await runBatch(batch.id);
+
+      toast({
+        title: "Batch créé",
+        description: "L'import a démarré en arrière-plan",
+      });
+
+      setChrNewBatchOpen(false);
+      setChrNewBatchConfig({
+        sources: [],
+        cities: [],
+        categories: [],
+        keywords: "",
+      });
+
+      // Rafraîchir
+      await loadChrBatches();
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    }
+  }
+
+  async function handleChrApprove(entry: StagingEntry) {
+    try {
+      await approveStagingEntry(entry.id);
+      toast({
+        title: "Établissement importé",
+        description: `${entry.name} créé en DRAFT`,
+      });
+      await loadChrStagingEntries();
+      setChrDrawerOpen(false);
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    }
+  }
+
+  async function handleChrReject(entry: StagingEntry, notes?: string) {
+    try {
+      await rejectStagingEntry(entry.id, notes);
+      toast({ title: "Entrée rejetée" });
+      await loadChrStagingEntries();
+      setChrDrawerOpen(false);
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    }
+  }
+
+  async function handleChrBulkApprove() {
+    if (chrSelectedIds.size === 0) return;
+
+    try {
+      const result = await bulkApproveStagingEntries(Array.from(chrSelectedIds));
+      toast({
+        title: "Import en masse",
+        description: `${result.success} importés, ${result.failed} échoués`,
+      });
+      setChrSelectedIds(new Set());
+      await loadChrStagingEntries();
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    }
+  }
+
+  async function handleChrBulkReject() {
+    if (chrSelectedIds.size === 0) return;
+
+    try {
+      await bulkRejectStagingEntries(Array.from(chrSelectedIds));
+      toast({ title: `${chrSelectedIds.size} entrées rejetées` });
+      setChrSelectedIds(new Set());
+      await loadChrStagingEntries();
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    }
+  }
+
+  async function handleChrCleanupDuplicates() {
+    if (!confirm("Voulez-vous nettoyer automatiquement les doublons ? Cette action supprimera les entrées en double et gardera les plus complètes.")) {
+      return;
+    }
+
+    setChrCleaningDuplicates(true);
+    try {
+      const result = await cleanupStagingDuplicates();
+      toast({
+        title: "Nettoyage terminé",
+        description: `${result.deletedCount} doublons supprimés, ${result.keptCount} entrées conservées (${result.groups} groupes traités)`,
+      });
+      // Rafraîchir les données
+      await loadChrStagingEntries();
+      const newStats = await getImportStats();
+      setChrStats(newStats);
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    } finally {
+      setChrCleaningDuplicates(false);
+    }
+  }
+
+  async function handleDeleteBatch(batchId: string) {
+    if (!confirm("Supprimer ce batch et toutes ses entrées staging associées ?")) {
+      return;
+    }
+
+    try {
+      await deleteBatch(batchId);
+      toast({
+        title: "Batch supprimé",
+        description: "Le batch et ses données ont été supprimés",
+      });
+      await loadChrBatches();
+      // Rafraîchir aussi les stats et le staging
+      const newStats = await getImportStats();
+      setChrStats(newStats);
+      await loadChrStagingEntries();
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    }
+  }
+
+  function toggleChrSelect(id: string) {
+    const newSet = new Set(chrSelectedIds);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setChrSelectedIds(newSet);
+  }
+
+  function toggleChrSelectAll() {
+    if (chrSelectedIds.size === chrStagingEntries.length) {
+      setChrSelectedIds(new Set());
+    } else {
+      setChrSelectedIds(new Set(chrStagingEntries.map((e) => e.id)));
+    }
+  }
+
+  async function openChrEntryDetail(entry: StagingEntry) {
+    try {
+      const fullEntry = await getStagingEntry(entry.id);
+      setChrSelectedEntry(fullEntry);
+      setChrDrawerOpen(true);
+    } catch (error) {
+      console.error("Failed to load entry details:", error);
+    }
+  }
 
   // Handle file selection
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -363,6 +826,18 @@ export function AdminImportExportPage() {
               Export
             </TabsTrigger>
           )}
+          <TabsTrigger value="chr" className="gap-2" onClick={() => {
+            if (!chrStats) {
+              loadChrInitialData();
+            }
+          }}>
+            <Database className="h-4 w-4" />
+            CHR
+          </TabsTrigger>
+          <TabsTrigger value="sql" className="gap-2">
+            <FileCode className="h-4 w-4" />
+            SQL
+          </TabsTrigger>
         </TabsList>
 
         {/* Import Tab */}
@@ -658,6 +1133,543 @@ export function AdminImportExportPage() {
             </Card>
           </TabsContent>
         )}
+
+        {/* CHR Tab */}
+        <TabsContent value="chr" className="space-y-4">
+          {chrLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <>
+              {/* CHR Header with action button */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-medium">Import CHR</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Collecte automatique d'établissements depuis plusieurs sources
+                  </p>
+                </div>
+                <Button onClick={() => setChrNewBatchOpen(true)}>
+                  <Play className="h-4 w-4 mr-2" />
+                  Nouvelle collecte
+                </Button>
+              </div>
+
+              {/* CHR Stats Cards */}
+              {chrStats && (
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <Card>
+                    <CardContent className="pt-4">
+                      <div className="text-2xl font-bold">{chrStats.staging.total}</div>
+                      <div className="text-sm text-muted-foreground">
+                        Total en staging
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-4">
+                      <div className="text-2xl font-bold text-blue-600">
+                        {chrStats.staging.byStatus["new"] || 0}
+                      </div>
+                      <div className="text-sm text-muted-foreground">À valider</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-4">
+                      <div className="text-2xl font-bold text-green-600">
+                        {chrStats.staging.byStatus["imported"] || 0}
+                      </div>
+                      <div className="text-sm text-muted-foreground">Importés</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-4">
+                      <div className="text-2xl font-bold text-red-600">
+                        {chrStats.staging.byStatus["rejected"] || 0}
+                      </div>
+                      <div className="text-sm text-muted-foreground">Rejetés</div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* CHR Sub-tabs */}
+              <Tabs value={chrSubTab} onValueChange={(v) => setChrSubTab(v as "staging" | "batches")}>
+                <TabsList>
+                  <TabsTrigger value="staging">
+                    Staging ({chrStats?.staging.byStatus["new"] || 0})
+                  </TabsTrigger>
+                  <TabsTrigger value="batches">Historique batches</TabsTrigger>
+                </TabsList>
+
+                {/* CHR STAGING TAB */}
+                <TabsContent value="staging" className="space-y-4">
+                  {/* Filters */}
+                  <Card>
+                    <CardContent className="pt-4">
+                      <div className="flex flex-wrap gap-4 items-center">
+                        <div className="flex-1 min-w-[200px]">
+                          <Input
+                            placeholder="Rechercher..."
+                            value={chrStagingFilters.search || ""}
+                            onChange={(e) =>
+                              setChrStagingFilters({
+                                ...chrStagingFilters,
+                                search: e.target.value || undefined,
+                              })
+                            }
+                            className="max-w-xs"
+                          />
+                        </div>
+
+                        <Select
+                          value={chrStagingFilters.status || "all"}
+                          onValueChange={(v) =>
+                            setChrStagingFilters({
+                              ...chrStagingFilters,
+                              status: v === "all" ? undefined : (v as StagingStatus),
+                            })
+                          }
+                        >
+                          <SelectTrigger className="w-[150px]">
+                            <SelectValue placeholder="Statut" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Tous</SelectItem>
+                            <SelectItem value="new">Nouveau</SelectItem>
+                            <SelectItem value="approved">Approuvé</SelectItem>
+                            <SelectItem value="rejected">Rejeté</SelectItem>
+                            <SelectItem value="imported">Importé</SelectItem>
+                          </SelectContent>
+                        </Select>
+
+                        <Select
+                          value={chrStagingFilters.city || "all"}
+                          onValueChange={(v) =>
+                            setChrStagingFilters({
+                              ...chrStagingFilters,
+                              city: v === "all" ? undefined : v,
+                            })
+                          }
+                        >
+                          <SelectTrigger className="w-[150px]">
+                            <SelectValue placeholder="Ville" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Toutes</SelectItem>
+                            {MOROCCAN_CITIES.map((city) => (
+                              <SelectItem key={city.value} value={city.value}>
+                                {city.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setChrStagingFilters({});
+                            setChrStagingPage(1);
+                          }}
+                        >
+                          <RefreshCw className="h-4 w-4 mr-2" />
+                          Réinitialiser
+                        </Button>
+
+                        <a
+                          href={getStagingExportUrl(chrStagingFilters)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <Button variant="outline">
+                            <Download className="h-4 w-4 mr-2" />
+                            Export CSV
+                          </Button>
+                        </a>
+
+                        <Button
+                          variant="outline"
+                          onClick={handleChrCleanupDuplicates}
+                          disabled={chrCleaningDuplicates}
+                          className="text-orange-600 border-orange-300 hover:bg-orange-50"
+                        >
+                          {chrCleaningDuplicates ? (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4 mr-2" />
+                          )}
+                          Nettoyer doublons
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Bulk Actions */}
+                  {chrSelectedIds.size > 0 && (
+                    <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
+                      <span className="font-medium">{chrSelectedIds.size} sélectionné(s)</span>
+                      <Button size="sm" onClick={handleChrBulkApprove}>
+                        <Check className="h-4 w-4 mr-2" />
+                        Valider
+                      </Button>
+                      <Button size="sm" variant="destructive" onClick={handleChrBulkReject}>
+                        <X className="h-4 w-4 mr-2" />
+                        Rejeter
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setChrSelectedIds(new Set())}
+                      >
+                        Annuler
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* Table */}
+                  <Card>
+                    <CardContent className="p-0">
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead className="bg-muted/50">
+                            <tr>
+                              <th className="p-3 text-left w-10">
+                                <Checkbox
+                                  checked={
+                                    chrSelectedIds.size === chrStagingEntries.length &&
+                                    chrStagingEntries.length > 0
+                                  }
+                                  onCheckedChange={toggleChrSelectAll}
+                                />
+                              </th>
+                              <th className="p-3 text-left">Nom</th>
+                              <th className="p-3 text-left whitespace-nowrap">Catégorie</th>
+                              <th className="p-3 text-left whitespace-nowrap">Ville</th>
+                              <th className="p-3 text-left whitespace-nowrap">Sources</th>
+                              <th className="p-3 text-left whitespace-nowrap">Score</th>
+                              <th className="p-3 text-left whitespace-nowrap">Statut</th>
+                              <th className="p-3 text-left whitespace-nowrap">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {chrStagingEntries.map((entry) => (
+                              <tr
+                                key={entry.id}
+                                className="border-t hover:bg-muted/30 cursor-pointer"
+                                onClick={() => openChrEntryDetail(entry)}
+                              >
+                                <td
+                                  className="p-3"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <Checkbox
+                                    checked={chrSelectedIds.has(entry.id)}
+                                    onCheckedChange={() => toggleChrSelect(entry.id)}
+                                  />
+                                </td>
+                                <td className="p-3">
+                                  <div className="font-medium">{toTitleCase(entry.name)}</div>
+                                  {entry.addressFull && (
+                                    <div className="text-sm text-muted-foreground truncate max-w-xs">
+                                      {entry.addressFull}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="p-3">
+                                  <Badge variant="outline">
+                                    {getCategoryLabel(entry.category)}
+                                  </Badge>
+                                </td>
+                                <td className="p-3 capitalize whitespace-nowrap">{entry.city}</td>
+                                <td className="p-3 whitespace-nowrap">
+                                  <div className="flex gap-1">
+                                    {entry.sources.map((s, i) => (
+                                      <Badge
+                                        key={i}
+                                        variant="secondary"
+                                        className="text-xs"
+                                      >
+                                        {s.source}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                </td>
+                                <td className="p-3 whitespace-nowrap">
+                                  <div className="flex items-center gap-2">
+                                    <div
+                                      className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
+                                        entry.confidenceScore >= 85
+                                          ? "bg-red-100 text-red-800"
+                                          : entry.confidenceScore >= 50
+                                            ? "bg-yellow-100 text-yellow-800"
+                                            : "bg-green-100 text-green-800"
+                                      }`}
+                                    >
+                                      {entry.confidenceScore}
+                                    </div>
+                                    {entry.confidenceScore >= 85 && (
+                                      <AlertTriangle className="h-4 w-4 text-red-500" />
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="p-3 whitespace-nowrap">
+                                  <Badge className={getStatusColor(entry.status)}>
+                                    {getStatusLabel(entry.status)}
+                                  </Badge>
+                                </td>
+                                <td
+                                  className="p-3"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <div className="flex gap-2">
+                                    {entry.status === "new" && (
+                                      <>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => handleChrApprove(entry)}
+                                        >
+                                          <Check className="h-4 w-4" />
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => handleChrReject(entry)}
+                                        >
+                                          <X className="h-4 w-4" />
+                                        </Button>
+                                      </>
+                                    )}
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => openChrEntryDetail(entry)}
+                                    >
+                                      <Eye className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Pagination */}
+                      <PaginationControls
+                        currentPage={chrStagingPage - 1}
+                        pageSize={chrStagingPageSize}
+                        totalItems={chrStagingTotal}
+                        onPageChange={(p) => setChrStagingPage(p + 1)}
+                        onPageSizeChange={(s) => {
+                          setChrStagingPageSize(s);
+                          setChrStagingPage(1);
+                        }}
+                      />
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                {/* CHR BATCHES TAB */}
+                <TabsContent value="batches" className="space-y-4">
+                  <Card>
+                    <CardContent className="p-0">
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead className="bg-muted/50">
+                            <tr>
+                              <th className="p-3 text-left">Date</th>
+                              <th className="p-3 text-left">Sources</th>
+                              <th className="p-3 text-left">Villes</th>
+                              <th className="p-3 text-left">Progression</th>
+                              <th className="p-3 text-left">Collectés</th>
+                              <th className="p-3 text-left">Normalisés</th>
+                              <th className="p-3 text-left">Doublons</th>
+                              <th className="p-3 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {chrBatches.slice(chrBatchPage * chrBatchPageSize, (chrBatchPage + 1) * chrBatchPageSize).map((batch) => (
+                              <tr key={batch.id} className={cn(
+                                "border-t",
+                                batch.status === "running" && "bg-blue-50/50"
+                              )}>
+                                <td className="p-3">
+                                  {new Date(batch.createdAt).toLocaleDateString("fr-FR")}
+                                </td>
+                                <td className="p-3">
+                                  <div className="flex flex-wrap gap-1">
+                                    {batch.sources.map((s) => (
+                                      <Badge key={s} variant="outline" className="text-xs">
+                                        {getSourceLabel(s)}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                </td>
+                                <td className="p-3">
+                                  {batch.cities.slice(0, 3).join(", ")}
+                                  {batch.cities.length > 3 && ` +${batch.cities.length - 3}`}
+                                </td>
+                                <td className="p-3">
+                                  {/* Colonne Progression avec icône dynamique */}
+                                  <div className="flex items-center gap-2">
+                                    {batch.status === "pending" && (
+                                      <>
+                                        <Timer className="h-5 w-5 text-slate-400" />
+                                        <span className="text-sm text-slate-500">En attente</span>
+                                      </>
+                                    )}
+                                    {batch.status === "running" && (
+                                      <>
+                                        <div className="relative">
+                                          <CircleDot className="h-5 w-5 text-blue-500 animate-pulse" />
+                                          <Sparkles className="h-3 w-3 text-blue-400 absolute -top-1 -right-1 animate-bounce" />
+                                        </div>
+                                        <div className="flex flex-col">
+                                          <span className="text-sm font-medium text-blue-600">En cours</span>
+                                          <span className="text-xs text-blue-500 animate-pulse">Scraping...</span>
+                                        </div>
+                                      </>
+                                    )}
+                                    {batch.status === "completed" && (
+                                      <>
+                                        <CheckCheck className="h-5 w-5 text-green-500" />
+                                        <span className="text-sm text-green-600">Terminé</span>
+                                      </>
+                                    )}
+                                    {batch.status === "failed" && (
+                                      <>
+                                        <XOctagon className="h-5 w-5 text-red-500" />
+                                        <span className="text-sm text-red-600">Échoué</span>
+                                      </>
+                                    )}
+                                    {batch.status === "cancelled" && (
+                                      <>
+                                        <Ban className="h-5 w-5 text-slate-400" />
+                                        <span className="text-sm text-slate-500">Annulé</span>
+                                      </>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="p-3">
+                                  <span className={cn(
+                                    batch.status === "running" && "animate-pulse font-medium text-blue-600"
+                                  )}>
+                                    {batch.totalFetched}
+                                  </span>
+                                </td>
+                                <td className="p-3">
+                                  <span className={cn(
+                                    batch.status === "running" && "animate-pulse font-medium text-blue-600"
+                                  )}>
+                                    {batch.totalNormalized}
+                                  </span>
+                                </td>
+                                <td className="p-3">{batch.totalDuplicates}</td>
+                                <td className="p-3 text-right">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleDeleteBatch(batch.id)}
+                                    className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                                    disabled={batch.status === "running"}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {chrBatches.length > 0 && (
+                        <PaginationControls
+                          currentPage={chrBatchPage}
+                          pageSize={chrBatchPageSize}
+                          totalItems={chrBatches.length}
+                          onPageChange={setChrBatchPage}
+                          onPageSizeChange={(s) => {
+                            setChrBatchPageSize(s);
+                            setChrBatchPage(0);
+                          }}
+                        />
+                      )}
+
+                      {/* Aperçu détaillé en temps réel pour le batch en cours */}
+                      {chrBatches.some((b) => b.status === "running") && (
+                        <div className="border-t bg-gradient-to-r from-blue-50 to-indigo-50 p-4">
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className="relative">
+                              <Loader2 className="h-6 w-6 text-blue-600 animate-spin" />
+                            </div>
+                            <div>
+                              <h4 className="font-medium text-blue-800">Collecte en cours...</h4>
+                              <p className="text-sm text-blue-600">Les données sont en train d'être récupérées</p>
+                            </div>
+                          </div>
+
+                          {/* Progress bar simulée */}
+                          <div className="mb-3">
+                            <div className="h-2 bg-blue-100 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full animate-pulse"
+                                style={{
+                                  width: '100%',
+                                  animation: 'indeterminate 1.5s infinite linear',
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Détails du batch en cours */}
+                          {chrBatches.filter((b) => b.status === "running").map((batch) => (
+                            <div key={batch.id} className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                              <div className="bg-white/60 rounded-lg p-3">
+                                <div className="text-slate-500 text-xs mb-1">Sources</div>
+                                <div className="font-medium">{batch.sources.map(getSourceLabel).join(", ")}</div>
+                              </div>
+                              <div className="bg-white/60 rounded-lg p-3">
+                                <div className="text-slate-500 text-xs mb-1">Villes ciblées</div>
+                                <div className="font-medium">{batch.cities.join(", ")}</div>
+                              </div>
+                              <div className="bg-white/60 rounded-lg p-3">
+                                <div className="text-slate-500 text-xs mb-1">Éléments récupérés</div>
+                                <div className="font-medium text-blue-600 animate-pulse">
+                                  {batch.totalFetched} lieu(x)
+                                </div>
+                              </div>
+                              <div className="bg-white/60 rounded-lg p-3">
+                                <div className="text-slate-500 text-xs mb-1">En traitement</div>
+                                <div className="font-medium text-indigo-600 animate-pulse">
+                                  {batch.totalNormalized} normalisé(s)
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+
+                          {/* Animation CSS pour la barre de progression indéterminée */}
+                          <style>{`
+                            @keyframes indeterminate {
+                              0% { transform: translateX(-100%); }
+                              100% { transform: translateX(100%); }
+                            }
+                          `}</style>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              </Tabs>
+            </>
+          )}
+        </TabsContent>
+
+        {/* SQL Tab */}
+        <TabsContent value="sql" className="space-y-4">
+          <SqlImportTab />
+        </TabsContent>
       </Tabs>
 
       {/* Preview Dialog */}
@@ -893,6 +1905,362 @@ export function AdminImportExportPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* CHR NEW BATCH DIALOG */}
+      <Dialog open={chrNewBatchOpen} onOpenChange={setChrNewBatchOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Nouvelle collecte CHR</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-6">
+            {/* Sources */}
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                Sources à utiliser
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {chrSources.map((source) => (
+                  <label
+                    key={source.slug}
+                    className={`flex items-center gap-2 p-3 border rounded-lg cursor-pointer hover:bg-muted/50 ${
+                      chrNewBatchConfig.sources.includes(source.slug)
+                        ? "border-primary bg-primary/5"
+                        : ""
+                    } ${!source.enabled ? "opacity-50" : ""}`}
+                  >
+                    <Checkbox
+                      checked={chrNewBatchConfig.sources.includes(source.slug)}
+                      disabled={!source.enabled}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setChrNewBatchConfig({
+                            ...chrNewBatchConfig,
+                            sources: [...chrNewBatchConfig.sources, source.slug],
+                          });
+                        } else {
+                          setChrNewBatchConfig({
+                            ...chrNewBatchConfig,
+                            sources: chrNewBatchConfig.sources.filter(
+                              (s) => s !== source.slug
+                            ),
+                          });
+                        }
+                      }}
+                    />
+                    <div>
+                      <div className="font-medium">{source.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {source.type === "api" ? "API officielle" : "Scraper"}
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Villes */}
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                Villes à scanner
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {MOROCCAN_CITIES.map((city) => (
+                  <label
+                    key={city.value}
+                    className={`flex items-center gap-2 p-2 border rounded cursor-pointer hover:bg-muted/50 ${
+                      chrNewBatchConfig.cities.includes(city.value)
+                        ? "border-primary bg-primary/5"
+                        : ""
+                    }`}
+                  >
+                    <Checkbox
+                      checked={chrNewBatchConfig.cities.includes(city.value)}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setChrNewBatchConfig({
+                            ...chrNewBatchConfig,
+                            cities: [...chrNewBatchConfig.cities, city.value],
+                          });
+                        } else {
+                          setChrNewBatchConfig({
+                            ...chrNewBatchConfig,
+                            cities: chrNewBatchConfig.cities.filter(
+                              (c) => c !== city.value
+                            ),
+                          });
+                        }
+                      }}
+                    />
+                    {city.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Catégories (optionnel) */}
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                Catégories (optionnel - toutes si vide)
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {chrCategories.map((cat) => (
+                  <label
+                    key={cat.slug}
+                    className={`flex items-center gap-2 p-2 border rounded cursor-pointer hover:bg-muted/50 ${
+                      chrNewBatchConfig.categories.includes(cat.slug as ChrCategory)
+                        ? "border-primary bg-primary/5"
+                        : ""
+                    }`}
+                  >
+                    <Checkbox
+                      checked={chrNewBatchConfig.categories.includes(
+                        cat.slug as ChrCategory
+                      )}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setChrNewBatchConfig({
+                            ...chrNewBatchConfig,
+                            categories: [
+                              ...chrNewBatchConfig.categories,
+                              cat.slug as ChrCategory,
+                            ],
+                          });
+                        } else {
+                          setChrNewBatchConfig({
+                            ...chrNewBatchConfig,
+                            categories: chrNewBatchConfig.categories.filter(
+                              (c) => c !== cat.slug
+                            ),
+                          });
+                        }
+                      }}
+                    />
+                    {getCategoryLabel(cat.slug)}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Keywords (optionnel) */}
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                Mots-clés (optionnel, séparés par des virgules)
+              </label>
+              <Input
+                placeholder="pizza, sushi, brunch..."
+                value={chrNewBatchConfig.keywords}
+                onChange={(e) =>
+                  setChrNewBatchConfig({
+                    ...chrNewBatchConfig,
+                    keywords: e.target.value,
+                  })
+                }
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setChrNewBatchOpen(false)}>
+              Annuler
+            </Button>
+            <Button onClick={handleChrCreateBatch}>
+              <Play className="h-4 w-4 mr-2" />
+              Lancer la collecte
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* CHR DETAIL DRAWER */}
+      <Sheet open={chrDrawerOpen} onOpenChange={setChrDrawerOpen}>
+        <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
+          {chrSelectedEntry && (
+            <>
+              <SheetHeader>
+                <SheetTitle>{toTitleCase(chrSelectedEntry.name)}</SheetTitle>
+              </SheetHeader>
+
+              <div className="mt-6 space-y-6">
+                {/* Status et score */}
+                <div className="flex items-center gap-4">
+                  <Badge className={getStatusColor(chrSelectedEntry.status)}>
+                    {getStatusLabel(chrSelectedEntry.status)}
+                  </Badge>
+                  {chrSelectedEntry.confidenceScore >= 85 && (
+                    <Badge variant="destructive">
+                      <AlertTriangle className="h-3 w-3 mr-1" />
+                      Doublon probable ({chrSelectedEntry.confidenceScore}%)
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Doublons potentiels */}
+                {chrSelectedEntry.dedupeCandidates &&
+                  chrSelectedEntry.dedupeCandidates.length > 0 && (
+                    <Card className="border-yellow-200 bg-yellow-50">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm text-yellow-800">
+                          Doublons potentiels détectés
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        {chrSelectedEntry.dedupeCandidates.map((candidate, i) => (
+                          <div key={i} className="text-sm py-2 border-t first:border-t-0">
+                            <div className="font-medium">
+                              {candidate.name} ({candidate.city})
+                            </div>
+                            <div className="text-muted-foreground">
+                              Score: {candidate.score}% -{" "}
+                              {candidate.reasons.join(", ")}
+                            </div>
+                            {candidate.establishmentId && (
+                              <a
+                                href={`/admin/establishments/${candidate.establishmentId}`}
+                                target="_blank"
+                                className="text-primary hover:underline text-xs"
+                              >
+                                Voir l'établissement existant
+                              </a>
+                            )}
+                          </div>
+                        ))}
+                      </CardContent>
+                    </Card>
+                  )}
+
+                {/* Infos principales */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm text-muted-foreground">
+                      Catégorie
+                    </label>
+                    <div className="font-medium">
+                      {getCategoryLabel(chrSelectedEntry.category)}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm text-muted-foreground">
+                      Ville
+                    </label>
+                    <div className="font-medium capitalize">
+                      {chrSelectedEntry.city}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Contact */}
+                <div className="space-y-2">
+                  {chrSelectedEntry.addressFull && (
+                    <div className="flex items-start gap-2">
+                      <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground" />
+                      <span>{chrSelectedEntry.addressFull}</span>
+                    </div>
+                  )}
+                  {chrSelectedEntry.phoneE164 && (
+                    <div className="flex items-center gap-2">
+                      <Phone className="h-4 w-4 text-muted-foreground" />
+                      <span>{chrSelectedEntry.phoneE164}</span>
+                    </div>
+                  )}
+                  {chrSelectedEntry.websiteUrl && (
+                    <div className="flex items-center gap-2">
+                      <Globe className="h-4 w-4 text-muted-foreground" />
+                      <a
+                        href={chrSelectedEntry.websiteUrl}
+                        target="_blank"
+                        className="text-primary hover:underline"
+                      >
+                        {chrSelectedEntry.websiteUrl}
+                      </a>
+                    </div>
+                  )}
+                  {chrSelectedEntry.email && (
+                    <div className="flex items-center gap-2">
+                      <Mail className="h-4 w-4 text-muted-foreground" />
+                      <span>{chrSelectedEntry.email}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Description */}
+                {chrSelectedEntry.descriptionShort && (
+                  <div>
+                    <label className="text-sm text-muted-foreground">
+                      Description
+                    </label>
+                    <p className="mt-1">{chrSelectedEntry.descriptionShort}</p>
+                  </div>
+                )}
+
+                {/* Photos */}
+                {chrSelectedEntry.photos && chrSelectedEntry.photos.length > 0 && (
+                  <div>
+                    <label className="text-sm text-muted-foreground mb-2 block">
+                      Photos ({chrSelectedEntry.photos.length})
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {chrSelectedEntry.photos.slice(0, 6).map((photo, i) => (
+                        <img
+                          key={i}
+                          src={photo.url}
+                          alt=""
+                          className="w-full h-24 object-cover rounded"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Sources */}
+                <div>
+                  <label className="text-sm text-muted-foreground mb-2 block">
+                    Sources
+                  </label>
+                  {chrSelectedEntry.sources.map((source, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between py-2 border-t"
+                    >
+                      <Badge variant="outline">
+                        {getSourceLabel(source.source)}
+                      </Badge>
+                      <a
+                        href={source.sourceUrl}
+                        target="_blank"
+                        className="text-sm text-primary hover:underline flex items-center gap-1"
+                      >
+                        Voir <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Actions */}
+                {chrSelectedEntry.status === "new" && (
+                  <div className="flex gap-2 pt-4 border-t">
+                    <Button
+                      className="flex-1"
+                      onClick={() => handleChrApprove(chrSelectedEntry)}
+                    >
+                      <Check className="h-4 w-4 mr-2" />
+                      Valider (créer en DRAFT)
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      className="flex-1"
+                      onClick={() => handleChrReject(chrSelectedEntry)}
+                    >
+                      <X className="h-4 w-4 mr-2" />
+                      Rejeter
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

@@ -102,6 +102,20 @@ export type PublicBookingPolicy = {
   deposit_per_person: number | null;
 };
 
+export type PublicMenuItem = {
+  id: number;
+  name: string;
+  description: string;
+  price: string;
+  badges?: string[];
+};
+
+export type PublicMenuCategory = {
+  id: string;
+  name: string;
+  items: PublicMenuItem[];
+};
+
 export type PublicEstablishmentResponse = {
   establishment: PublicEstablishment;
   booking_policy: PublicBookingPolicy | null;
@@ -110,6 +124,7 @@ export type PublicEstablishmentResponse = {
     packs: PublicOfferPack[];
     availableSlots: PublicDateSlots[];
   };
+  menu?: PublicMenuCategory[];
 };
 
 export type BillingCompanyProfile = {

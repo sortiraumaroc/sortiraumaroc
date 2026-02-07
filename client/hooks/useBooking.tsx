@@ -16,10 +16,18 @@ export type HotelRoomSelection = {
   roomsCount: number;
 };
 
+export type PromoValidation = {
+  valid: boolean;
+  discountPercent?: number;
+  promoId?: string;
+  message?: string;
+};
+
 export interface BookingState {
   bookingType: BookingType;
   currentStep: number;
   establishmentId: string | null;
+  establishmentName: string | null;
 
   partySize: number | null;
 
@@ -47,6 +55,8 @@ export interface BookingState {
   email: string;
   phone: string;
   message: string;
+  promoCode: string;
+  promoValidation: PromoValidation | null;
 
   bookingReference: string | null;
 
@@ -54,6 +64,7 @@ export interface BookingState {
   setWaitlistRequested: (requested: boolean) => void;
   setCurrentStep: (step: number) => void;
   setEstablishmentId: (id: string | null) => void;
+  setEstablishmentName: (name: string | null) => void;
 
   setPartySize: (size: number | null) => void;
 
@@ -73,6 +84,8 @@ export interface BookingState {
   setEmail: (email: string) => void;
   setPhone: (phone: string) => void;
   setMessage: (message: string) => void;
+  setPromoCode: (code: string) => void;
+  setPromoValidation: (validation: PromoValidation | null) => void;
 
   setBookingReference: (ref: string | null) => void;
   reset: () => void;
@@ -93,6 +106,7 @@ export const BookingProvider = ({ children }: { children: ReactNode }) => {
   const [bookingType, setBookingType] = useState<BookingType>("restaurant");
   const [currentStep, setCurrentStep] = useState(1);
   const [establishmentId, setEstablishmentId] = useState<string | null>(null);
+  const [establishmentName, setEstablishmentName] = useState<string | null>(null);
 
   const [partySize, setPartySize] = useState<number | null>(null);
 
@@ -116,6 +130,8 @@ export const BookingProvider = ({ children }: { children: ReactNode }) => {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [message, setMessage] = useState("");
+  const [promoCode, setPromoCode] = useState("");
+  const [promoValidation, setPromoValidation] = useState<PromoValidation | null>(null);
   const [bookingReference, setBookingReference] = useState<string | null>(null);
 
   const generateBookingReference = (): string => {
@@ -160,6 +176,7 @@ export const BookingProvider = ({ children }: { children: ReactNode }) => {
     setBookingType("restaurant");
     setCurrentStep(1);
     setEstablishmentId(null);
+    setEstablishmentName(null);
 
     setPartySize(null);
     setWaitlistRequested(false);
@@ -180,6 +197,8 @@ export const BookingProvider = ({ children }: { children: ReactNode }) => {
     setEmail("");
     setPhone("");
     setMessage("");
+    setPromoCode("");
+    setPromoValidation(null);
     setBookingReference(null);
   };
 
@@ -187,6 +206,7 @@ export const BookingProvider = ({ children }: { children: ReactNode }) => {
     bookingType,
     currentStep,
     establishmentId,
+    establishmentName,
 
     partySize,
     waitlistRequested,
@@ -207,12 +227,15 @@ export const BookingProvider = ({ children }: { children: ReactNode }) => {
     email,
     phone,
     message,
+    promoCode,
+    promoValidation,
 
     bookingReference,
 
     setBookingType,
     setCurrentStep,
     setEstablishmentId,
+    setEstablishmentName,
     setPartySize,
     setWaitlistRequested,
     setSelectedDate,
@@ -228,6 +251,8 @@ export const BookingProvider = ({ children }: { children: ReactNode }) => {
     setEmail,
     setPhone,
     setMessage,
+    setPromoCode,
+    setPromoValidation,
     setBookingReference,
     reset,
     canProceed,

@@ -2,7 +2,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, Copy, UsersRound, Trash2 } from "lucide-react";
+import { ArrowRight, Copy, UsersRound, Trash2, AlertTriangle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,8 +34,11 @@ import {
   setProUserMemberships,
   suspendProUser,
   bulkDeleteProUsers,
+  getProUserDependencies,
+  type ProUserDependencies,
   getAdminProProfile,
   updateAdminProProfile,
+  isAdminSuperadmin,
   type Establishment,
   type ProUserAdmin,
   type AdminProProfile,
@@ -143,6 +146,7 @@ type CreatedOwner = {
 
 export function AdminProsPage() {
   const { toast } = useToast();
+  const isSuperadmin = isAdminSuperadmin();
 
   const [items, setItems] = useState<ProRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -183,6 +187,12 @@ export function AdminProsPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // Single delete
+  const [singleDeleteUser, setSingleDeleteUser] = useState<{ id: string; email: string } | null>(null);
+  const [singleDeleteOpen, setSingleDeleteOpen] = useState(false);
+  const [singleDeleteDeps, setSingleDeleteDeps] = useState<ProUserDependencies | null>(null);
+  const [depsLoading, setDepsLoading] = useState(false);
 
   const [search, setSearch] = useState("");
   const [hasEstFilter, setHasEstFilter] = useState<"all" | "yes" | "no">("all");
@@ -415,34 +425,89 @@ export function AdminProsPage() {
     }
   }, [selectedIds, refresh, toast]);
 
+  const openSingleDeleteDialog = useCallback(async (row: ProRow) => {
+    setSingleDeleteUser({ id: row.id, email: row.email });
+    setSingleDeleteDeps(null);
+    setSingleDeleteOpen(true);
+    setDepsLoading(true);
+    try {
+      const res = await getProUserDependencies(undefined, row.id);
+      setSingleDeleteDeps(res.deps);
+    } catch {
+      // Si l'API échoue, on affiche quand même le dialog sans détails
+      setSingleDeleteDeps(null);
+    } finally {
+      setDepsLoading(false);
+    }
+  }, []);
+
+  const confirmSingleDelete = useCallback(async () => {
+    if (!singleDeleteUser) return;
+
+    setDeleteLoading(true);
+    try {
+      const res = await bulkDeleteProUsers(undefined, [singleDeleteUser.id]);
+
+      if (res.deleted > 0) {
+        toast({
+          title: "Compte supprimé",
+          description: `Le compte ${singleDeleteUser.email} a été supprimé définitivement.`,
+        });
+      } else {
+        toast({
+          title: "Erreur",
+          description: "Le compte n'a pas pu être supprimé.",
+          variant: "destructive",
+        });
+      }
+
+      setSingleDeleteOpen(false);
+      setSingleDeleteUser(null);
+      await refresh();
+    } catch (e) {
+      const msg = e instanceof AdminApiError ? e.message : "Erreur inattendue";
+      toast({
+        title: "Erreur",
+        description: msg,
+        variant: "destructive",
+      });
+    } finally {
+      setDeleteLoading(false);
+    }
+  }, [singleDeleteUser, refresh, toast]);
+
   const columns = useMemo<ColumnDef<ProRow>[]>(() => {
     const allSelected = filteredItems.length > 0 && selectedIds.length === filteredItems.length;
     const someSelected = selectedIds.length > 0 && selectedIds.length < filteredItems.length;
 
     return [
-      {
-        id: "select",
-        header: () => (
-          <Checkbox
-            checked={allSelected}
-            ref={(el) => {
-              if (el) (el as any).indeterminate = someSelected;
-            }}
-            onCheckedChange={(checked) => toggleSelectAll(!!checked)}
-            aria-label="Sélectionner tout"
-          />
-        ),
-        cell: ({ row }) => (
-          <Checkbox
-            checked={selectedIds.includes(row.original.id)}
-            onCheckedChange={() => toggleSelectOne(row.original.id)}
-            aria-label={`Sélectionner ${row.original.email}`}
-            onClick={(e) => e.stopPropagation()}
-          />
-        ),
-        enableSorting: false,
-        enableHiding: false,
-      },
+      ...(isSuperadmin
+        ? [
+            {
+              id: "select",
+              header: () => (
+                <Checkbox
+                  checked={allSelected}
+                  ref={(el: HTMLButtonElement | null) => {
+                    if (el) (el as any).indeterminate = someSelected;
+                  }}
+                  onCheckedChange={(checked: boolean) => toggleSelectAll(!!checked)}
+                  aria-label="Sélectionner tout"
+                />
+              ),
+              cell: ({ row }: { row: { original: ProRow } }) => (
+                <Checkbox
+                  checked={selectedIds.includes(row.original.id)}
+                  onCheckedChange={() => toggleSelectOne(row.original.id)}
+                  aria-label={`Sélectionner ${row.original.email}`}
+                  onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                />
+              ),
+              enableSorting: false,
+              enableHiding: false,
+            } satisfies ColumnDef<ProRow>,
+          ]
+        : []),
       {
         accessorKey: "id",
         header: "ID",
@@ -507,23 +572,25 @@ export function AdminProsPage() {
                   Profil
                 </Button>
                 <Button size="sm" variant="outline" className="w-full justify-center text-xs" onClick={() => openEdit(row.original)}>
-                  Établ.
+                  Attribuer
                 </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="w-full justify-center text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
-                  onClick={() => openSuspendDialog(row.original)}
-                >
-                  Suspendre
-                </Button>
+                {isSuperadmin && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full justify-center text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                    onClick={() => openSingleDeleteDialog(row.original)}
+                  >
+                    Supprimer
+                  </Button>
+                )}
               </div>
             </div>
           );
         },
       },
     ];
-  }, [openEdit, openEditProfile, openSuspendDialog, filteredItems, selectedIds, toggleSelectAll, toggleSelectOne]);
+  }, [isSuperadmin, openEdit, openEditProfile, openSingleDeleteDialog, filteredItems, selectedIds, toggleSelectAll, toggleSelectOne]);
 
   const filteredCreateEstablishments = useMemo(() => {
     const q = createSearch.trim().toLowerCase();
@@ -756,7 +823,7 @@ export function AdminProsPage() {
         </div>
 
         {/* Barre d'actions de sélection */}
-        {selectedIds.length > 0 && (
+        {isSuperadmin && selectedIds.length > 0 && (
           <div className="flex items-center justify-between rounded-md border border-red-200 bg-red-50 p-3">
             <div className="text-sm text-red-800">
               <span className="font-semibold">{selectedIds.length}</span> compte(s) sélectionné(s)
@@ -1239,6 +1306,100 @@ export function AdminProsPage() {
                 </>
               ) : (
                 "Confirmer la suspension"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog pour supprimer un compte Pro individuel */}
+      <Dialog
+        open={singleDeleteOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSingleDeleteOpen(false);
+            setSingleDeleteUser(null);
+            setSingleDeleteDeps(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Supprimer le compte Pro</DialogTitle>
+            <DialogDescription>
+              {singleDeleteUser ? (
+                <>
+                  Vous êtes sur le point de supprimer définitivement le compte{" "}
+                  <span className="font-semibold">{singleDeleteUser.email}</span>.
+                </>
+              ) : (
+                "Confirmer la suppression du compte."
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          {depsLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Vérification des données rattachées...
+            </div>
+          ) : singleDeleteDeps && (singleDeleteDeps.media_quotes > 0 || singleDeleteDeps.media_invoices > 0 || singleDeleteDeps.establishment_memberships > 0) ? (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 space-y-2">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
+                <div>
+                  <strong>Des données sont rattachées à ce compte :</strong>
+                  <ul className="list-disc list-inside mt-1 space-y-0.5">
+                    {singleDeleteDeps.media_quotes > 0 && (
+                      <li>{singleDeleteDeps.media_quotes} devis</li>
+                    )}
+                    {singleDeleteDeps.media_invoices > 0 && (
+                      <li>{singleDeleteDeps.media_invoices} facture{singleDeleteDeps.media_invoices > 1 ? "s" : ""}</li>
+                    )}
+                    {singleDeleteDeps.establishment_memberships > 0 && (
+                      <li>{singleDeleteDeps.establishment_memberships} accès établissement{singleDeleteDeps.establishment_memberships > 1 ? "s" : ""}</li>
+                    )}
+                  </ul>
+                  <p className="mt-2 font-medium">
+                    Toutes ces données seront supprimées définitivement.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            <strong>Attention :</strong> Cette action est irréversible. Le compte, son profil et
+            tous ses accès seront supprimés définitivement.
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSingleDeleteOpen(false);
+                setSingleDeleteUser(null);
+                setSingleDeleteDeps(null);
+              }}
+              disabled={deleteLoading}
+            >
+              Annuler
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => void confirmSingleDelete()}
+              disabled={deleteLoading || depsLoading}
+            >
+              {deleteLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Suppression...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Supprimer définitivement
+                </>
               )}
             </Button>
           </DialogFooter>

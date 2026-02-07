@@ -1,0 +1,91 @@
+{
+  "formatVersion": 1,
+  "passTypeIdentifier": "{{PASS_TYPE_ID}}",
+  "teamIdentifier": "{{TEAM_ID}}",
+  "organizationName": "Sortir Au Maroc",
+  "description": "Carte Membre Sortir Au Maroc",
+  "serialNumber": "{{SERIAL_NUMBER}}",
+  "backgroundColor": "rgb(163, 0, 29)",
+  "foregroundColor": "rgb(255, 255, 255)",
+  "labelColor": "rgb(255, 200, 200)",
+  "logoText": "Sortir Au Maroc",
+  "generic": {
+    "primaryFields": [
+      {
+        "key": "member",
+        "label": "MEMBRE",
+        "value": "{{USER_NAME}}"
+      }
+    ],
+    "secondaryFields": [
+      {
+        "key": "since",
+        "label": "MEMBRE DEPUIS",
+        "value": "{{MEMBER_SINCE}}"
+      },
+      {
+        "key": "level",
+        "label": "STATUT",
+        "value": "{{RELIABILITY_LEVEL}}"
+      }
+    ],
+    "auxiliaryFields": [
+      {
+        "key": "reservations",
+        "label": "RÉSERVATIONS",
+        "value": "{{RESERVATIONS_COUNT}}"
+      },
+      {
+        "key": "userId",
+        "label": "ID",
+        "value": "{{USER_ID_SHORT}}"
+      }
+    ],
+    "backFields": [
+      {
+        "key": "email",
+        "label": "Email",
+        "value": "{{USER_EMAIL}}"
+      },
+      {
+        "key": "phone",
+        "label": "Téléphone",
+        "value": "{{USER_PHONE}}"
+      },
+      {
+        "key": "qrInfo",
+        "label": "QR Code Dynamique",
+        "value": "Votre QR code change toutes les 30 secondes pour votre sécurité. Scannez le code ci-dessous pour afficher votre QR code actuel."
+      },
+      {
+        "key": "howTo",
+        "label": "Comment ça marche",
+        "value": "1. Ouvrez cette carte\n2. Scannez le QR code ou cliquez dessus\n3. Présentez le QR dynamique au personnel"
+      },
+      {
+        "key": "website",
+        "label": "Site web",
+        "value": "https://sortiraumaroc.ma"
+      },
+      {
+        "key": "support",
+        "label": "Support",
+        "value": "contact@sortiraumaroc.ma"
+      }
+    ]
+  },
+  "barcode": {
+    "format": "PKBarcodeFormatQR",
+    "message": "{{QR_URL}}",
+    "messageEncoding": "iso-8859-1",
+    "altText": "Scannez pour ouvrir"
+  },
+  "barcodes": [
+    {
+      "format": "PKBarcodeFormatQR",
+      "message": "{{QR_URL}}",
+      "messageEncoding": "iso-8859-1",
+      "altText": "Scannez pour ouvrir"
+    }
+  ]
+}

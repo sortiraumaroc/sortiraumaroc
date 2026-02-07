@@ -89,19 +89,17 @@ type ExportRow = {
   pro_entreprise: string;
 };
 
-// Helper: Parse CSV string
+// Helper: Parse CSV string (supports multi-line quoted fields)
 function parseCSV(content: string): Record<string, string>[] {
-  const lines = content.split(/\r?\n/).filter((line) => line.trim());
-  if (lines.length < 2) return [];
+  // Parse all records in one pass, respecting quoted fields that span multiple lines
+  const records = parseCSVRecords(content);
+  if (records.length < 2) return [];
 
-  // Parse header
-  const headerLine = lines[0];
-  const headers = parseCSVLine(headerLine);
-
-  // Parse data rows
+  const headers = records[0];
   const rows: Record<string, string>[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    const values = parseCSVLine(lines[i]);
+
+  for (let i = 1; i < records.length; i++) {
+    const values = records[i];
     const row: Record<string, string> = {};
     for (let j = 0; j < headers.length; j++) {
       row[headers[j].trim().toLowerCase()] = values[j]?.trim() || "";
@@ -112,35 +110,80 @@ function parseCSV(content: string): Record<string, string>[] {
   return rows;
 }
 
-// Helper: Parse a single CSV line (handles quoted fields)
-function parseCSVLine(line: string): string[] {
-  const result: string[] = [];
+/**
+ * Parse CSV content into an array of records (each record is an array of field values).
+ * Handles:
+ * - Quoted fields with embedded newlines, commas, semicolons
+ * - Escaped quotes ("" inside quoted fields)
+ * - Both , and ; as delimiters (auto-detected from header line)
+ * - BOM character at start
+ */
+function parseCSVRecords(content: string): string[][] {
+  // Strip BOM
+  const text = content.startsWith("\ufeff") ? content.slice(1) : content;
+
+  // Auto-detect delimiter from the first line
+  const firstLineEnd = text.indexOf("\n");
+  const firstLine = firstLineEnd === -1 ? text : text.slice(0, firstLineEnd);
+  const semicolonCount = (firstLine.match(/;/g) || []).length;
+  const commaCount = (firstLine.match(/,/g) || []).length;
+  const delimiter = semicolonCount > commaCount ? ";" : ",";
+
+  const records: string[][] = [];
   let current = "";
   let inQuotes = false;
+  let fields: string[] = [];
 
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-    const nextChar = line[i + 1];
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
 
-    if (char === '"' && !inQuotes) {
-      inQuotes = true;
-    } else if (char === '"' && inQuotes) {
-      if (nextChar === '"') {
-        current += '"';
-        i++; // Skip next quote
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') {
+          current += '"';
+          i++; // Skip escaped quote
+        } else {
+          inQuotes = false;
+        }
       } else {
-        inQuotes = false;
+        current += ch;
       }
-    } else if ((char === "," || char === ";") && !inQuotes) {
-      result.push(current);
-      current = "";
     } else {
-      current += char;
+      if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === delimiter) {
+        fields.push(current);
+        current = "";
+      } else if (ch === "\r") {
+        // Skip carriage return
+        continue;
+      } else if (ch === "\n") {
+        fields.push(current);
+        current = "";
+        // Only add non-empty records (skip blank lines)
+        if (fields.some((f) => f.trim())) {
+          records.push(fields);
+        }
+        fields = [];
+      } else {
+        current += ch;
+      }
     }
   }
-  result.push(current);
 
-  return result;
+  // Handle last record (no trailing newline)
+  fields.push(current);
+  if (fields.some((f) => f.trim())) {
+    records.push(fields);
+  }
+
+  return records;
+}
+
+// Helper: Parse a single CSV line (handles quoted fields) — kept for toCSV compatibility
+function parseCSVLine(line: string): string[] {
+  const records = parseCSVRecords(line);
+  return records[0] || [];
 }
 
 // Helper: Convert to CSV
@@ -227,7 +270,7 @@ function normalizeRow(raw: Record<string, string>): ImportRow {
 // Helper: Validate row
 function validateRow(row: ImportRow): string | null {
   if (!row.nom?.trim()) return "Nom de l'établissement manquant";
-  if (!row.ville?.trim()) return "Ville manquante";
+  // Ville is recommended but not blocking — some phpMyAdmin exports use city_id instead
 
   // Validate email format only if pro_email is provided and looks like an email (contains @)
   if (row.pro_email?.trim()) {

@@ -14,6 +14,15 @@ import { ChevronLeft, ChevronRight, Download, FileText, Search } from "lucide-re
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 export function AdminDataTable<TData>(props: {
   data: TData[];
@@ -21,6 +30,7 @@ export function AdminDataTable<TData>(props: {
   isLoading?: boolean;
   searchPlaceholder?: string;
   initialSearch?: string;
+  defaultPageSize?: number;
   onExportCsv?: (rows: TData[]) => void;
   onExportPdf?: (rows: TData[]) => void;
   onRowClick?: (row: TData) => void;
@@ -41,6 +51,9 @@ export function AdminDataTable<TData>(props: {
     state: {
       sorting,
       globalFilter,
+    },
+    initialState: {
+      pagination: { pageSize: props.defaultPageSize ?? 25 },
     },
     onSortingChange: setSorting,
     onGlobalFilterChange: setGlobalFilter,
@@ -173,15 +186,40 @@ export function AdminDataTable<TData>(props: {
         </Table>
       </div>
 
-      <div className="p-3 border-t border-slate-200 flex items-center justify-between">
-        <div className="text-xs text-slate-600">
-          Page {table.getState().pagination.pageIndex + 1} / {table.getPageCount() || 1}
+      <div className="p-3 border-t border-slate-200 flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-600 whitespace-nowrap">Afficher</span>
+          <Select
+            value={String(table.getState().pagination.pageSize)}
+            onValueChange={(v) => {
+              table.setPageSize(Number(v));
+              table.setPageIndex(0);
+            }}
+          >
+            <SelectTrigger className="h-8 w-[70px] text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PAGE_SIZE_OPTIONS.map((s) => (
+                <SelectItem key={s} value={String(s)}>
+                  {s}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span className="text-xs text-slate-600 whitespace-nowrap">
+            sur {table.getFilteredRowModel().rows.length}
+          </span>
         </div>
 
         <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-600 whitespace-nowrap">
+            Page {table.getState().pagination.pageIndex + 1} / {table.getPageCount() || 1}
+          </span>
           <Button
             variant="outline"
             size="icon"
+            className="h-8 w-8"
             onClick={() => table.previousPage()}
             disabled={!table.getCanPreviousPage()}
             aria-label="Page précédente"
@@ -191,6 +229,7 @@ export function AdminDataTable<TData>(props: {
           <Button
             variant="outline"
             size="icon"
+            className="h-8 w-8"
             onClick={() => table.nextPage()}
             disabled={!table.getCanNextPage()}
             aria-label="Page suivante"

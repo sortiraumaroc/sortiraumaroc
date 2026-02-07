@@ -21,7 +21,7 @@ import {
 
 import { Header } from "@/components/Header";
 import { ReservationBanner } from "@/components/booking/ReservationBanner";
-import { AuthModal } from "@/components/AuthModal";
+import { AuthModalV2 } from "@/components/AuthModalV2";
 import { Button } from "@/components/ui/button";
 import { isAuthed, openAuthModal } from "@/lib/auth";
 import { HotelGallery } from "@/components/hotel/HotelGallery";
@@ -859,7 +859,7 @@ export default function Hotel() {
       </main>
 
 
-      <AuthModal
+      <AuthModalV2
         isOpen={authOpen}
         onClose={() => {
           setAuthOpen(false);

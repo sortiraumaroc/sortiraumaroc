@@ -30,7 +30,7 @@ import {
 import { DirectBookingHeader } from "@/components/directBooking/DirectBookingHeader";
 import { DirectBookingFooter } from "@/components/directBooking/DirectBookingFooter";
 import { DirectBookingEstablishmentCard } from "@/components/directBooking/DirectBookingEstablishmentCard";
-import { AuthModal } from "@/components/AuthModal";
+import { AuthModalV2 } from "@/components/AuthModalV2";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -733,7 +733,7 @@ export default function DirectBooking() {
       <DirectBookingFooter />
 
       {/* Auth Modal */}
-      <AuthModal
+      <AuthModalV2
         isOpen={showAuthModal}
         onClose={() => setShowAuthModal(false)}
         onAuthed={handleAuthSuccess}

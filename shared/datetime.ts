@@ -170,7 +170,7 @@ function toValidDate(input: DateInput): Date | null {
 }
 
 /**
- * Date courte, format fixe: JJ/MM/AA (ex: 04/01/26)
+ * Date courte, format fixe: JJ/MM/AAAA (ex: 04/01/2026)
  * - Affichée en timezone Africa/Casablanca par défaut.
  */
 export function formatDateJjMmAa(input: DateInput, args?: { timeZone?: string }): string {
@@ -183,8 +183,7 @@ export function formatDateJjMmAa(input: DateInput, args?: { timeZone?: string })
     locale: "en-US",
   });
 
-  const yy = parts.year % 100;
-  return `${pad2(parts.day)}/${pad2(parts.month)}/${pad2(yy)}`;
+  return `${pad2(parts.day)}/${pad2(parts.month)}/${parts.year}`;
 }
 
 /**
@@ -205,7 +204,7 @@ export function formatHeureHhHMM(input: DateInput, args?: { timeZone?: string })
 }
 
 /**
- * Format complet: "le JJ/MM/AA à HHhMM" (ex: le 04/01/26 à 22h00)
+ * Format complet: "le JJ/MM/AAAA à HHhMM" (ex: le 04/01/2026 à 22h00)
  */
 export function formatLeJjMmAaAHeure(input: DateInput, args?: { timeZone?: string }): string {
   const date = formatDateJjMmAa(input, args);

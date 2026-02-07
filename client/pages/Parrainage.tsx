@@ -4,7 +4,7 @@ import { Gift, Users } from "lucide-react";
 
 import { useI18n } from "@/lib/i18n";
 import { Header } from "@/components/Header";
-import { AuthModal } from "@/components/AuthModal";
+import { AuthModalV2 } from "@/components/AuthModalV2";
 import { AUTH_CHANGED_EVENT, isAuthed } from "@/lib/auth";
 
 import { ReferralDashboard } from "@/components/referral/ReferralDashboard";
@@ -177,10 +177,10 @@ export default function Parrainage() {
       </main>
 
       {/* Auth modal */}
-      <AuthModal
+      <AuthModalV2
         isOpen={authOpen}
         onClose={() => setAuthOpen(false)}
-        onSuccess={() => {
+        onAuthed={() => {
           setAuthOpen(false);
           setAuthed(true);
         }}

@@ -559,12 +559,15 @@ export async function updateConsumerMe(req: Request, res: Response) {
   const firstName = asString(body.first_name) ?? asString(body.firstName);
   const lastName = asString(body.last_name) ?? asString(body.lastName);
   const phone = asString(body.phone);
+  const dateOfBirth = asString(body.date_of_birth) ?? asString(body.dateOfBirth);
+  const city = asString(body.city);
 
   const nextMeta: Record<string, unknown> = {
     ...(asRecord(userResult.user?.user_metadata) ?? {}),
     ...(firstName != null ? { first_name: firstName } : {}),
     ...(lastName != null ? { last_name: lastName } : {}),
     ...(phone != null ? { phone } : {}),
+    ...(dateOfBirth != null ? { date_of_birth: dateOfBirth } : {}),
   };
 
   const { error: updateErr } = await supabase.auth.admin.updateUserById(
@@ -572,6 +575,19 @@ export async function updateConsumerMe(req: Request, res: Response) {
     { user_metadata: nextMeta },
   );
   if (updateErr) return res.status(500).json({ error: updateErr.message });
+
+  // Update consumer_users table for city and full_name
+  const consumerUpdate: Record<string, unknown> = {};
+  if (city != null) consumerUpdate.city = city;
+  if (firstName != null || lastName != null) {
+    consumerUpdate.full_name = [firstName, lastName].filter(Boolean).join(" ");
+  }
+  if (Object.keys(consumerUpdate).length > 0) {
+    await supabase
+      .from("consumer_users")
+      .update(consumerUpdate)
+      .eq("id", userResult.userId);
+  }
 
   const reliability = await loadConsumerReliabilitySnapshot({
     userId: userResult.userId,
@@ -1337,6 +1353,148 @@ export async function completePasswordReset(req: Request, res: Response) {
 }
 
 /**
+ * PUBLIC: Request a password reset link - no auth required.
+ * User provides email, server finds user, generates token, sends email.
+ * Always returns 200 (even if email not found) to prevent enumeration.
+ */
+export async function requestPublicPasswordResetLink(req: Request, res: Response) {
+  const body = asRecord(req.body) ?? {};
+  const emailRaw = asString(body.email) ?? "";
+  const email = emailRaw.toLowerCase().trim();
+
+  if (!email || !/.+@.+\..+/.test(email)) {
+    // Still return 200 to prevent email enumeration
+    return res.status(200).json({ ok: true });
+  }
+
+  const ip = getRequestIp(req);
+  const userAgent = String(req.get("user-agent") ?? "").trim() || null;
+  const supabase = getAdminSupabase();
+
+  try {
+    // Find user by email via Supabase Auth admin API
+    const { data: userList } = await supabase.auth.admin.listUsers({ perPage: 1 });
+    // listUsers doesn't support email filter directly, use RPC or iterate
+    // Instead, use signInWithPassword attempt or list from users table
+    const { data: usersData } = await supabase
+      .from("users")
+      .select("id, email, display_name, first_name, last_name")
+      .ilike("email", email)
+      .limit(1)
+      .maybeSingle();
+
+    if (!usersData?.id) {
+      // User not found - return 200 to prevent enumeration
+      console.log(`[PublicPasswordReset] No user found for ${email}`);
+      return res.status(200).json({ ok: true });
+    }
+
+    const userId = usersData.id;
+
+    // Check if phone-only user
+    if (email.endsWith("@phone.sortiraumaroc.ma")) {
+      return res.status(200).json({ ok: true });
+    }
+
+    // Generate secure token
+    const resetToken = randomBytes(32).toString("base64url");
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    // Store token in database
+    const { error: insertErr } = await supabase
+      .from("consumer_password_reset_tokens")
+      .insert({
+        user_id: userId,
+        token: resetToken,
+        expires_at: expiresAt.toISOString(),
+        ip_address: ip,
+        user_agent: userAgent,
+      });
+
+    if (insertErr) {
+      console.error("[PublicPasswordReset] insert failed", insertErr);
+      return res.status(200).json({ ok: true });
+    }
+
+    const userName = (() => {
+      const dn = usersData.display_name;
+      if (dn && typeof dn === "string" && dn.trim()) return dn.trim();
+      const first = typeof usersData.first_name === "string" ? usersData.first_name.trim() : "";
+      const last = typeof usersData.last_name === "string" ? usersData.last_name.trim() : "";
+      const full = `${first} ${last}`.trim();
+      return full || "Utilisateur";
+    })();
+
+    // Build reset URL
+    const baseUrl = process.env.PUBLIC_BASE_URL || process.env.FRONTEND_URL || "https://sortiraumaroc.ma";
+    const resetUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(resetToken)}`;
+
+    // Send email with reset link
+    void sendTemplateEmail({
+      templateKey: "user_password_reset_link",
+      lang: getRequestLang(req),
+      fromKey: "noreply",
+      to: [email],
+      variables: {
+        user_name: userName,
+        reset_url: resetUrl,
+      },
+      meta: {
+        user_id: userId,
+        action: "password.reset_link_requested_public",
+      },
+    });
+
+    console.log(`[PublicPasswordReset] Reset link sent to ${email}`);
+  } catch (err) {
+    console.error("[PublicPasswordReset] Error:", err);
+  }
+
+  // Always return 200 to prevent enumeration
+  return res.status(200).json({ ok: true });
+}
+
+/**
+ * PUBLIC: Send welcome email after successful signup.
+ * Called by the client after Supabase auth.signUp() succeeds.
+ */
+export async function sendWelcomeEmail(req: Request, res: Response) {
+  const body = asRecord(req.body) ?? {};
+  const userId = asString(body.user_id) ?? "";
+  const email = asString(body.email) ?? "";
+
+  if (!email || !/.+@.+\..+/.test(email.trim())) {
+    return res.status(400).json({ error: "email_required" });
+  }
+
+  try {
+    const userName = (() => {
+      const name = asString(body.name) ?? "";
+      return name || email.split("@")[0] || "Utilisateur";
+    })();
+
+    void sendTemplateEmail({
+      templateKey: "user_welcome",
+      lang: getRequestLang(req),
+      fromKey: "hello",
+      to: [email.trim().toLowerCase()],
+      variables: {
+        user_name: userName,
+      },
+      meta: {
+        user_id: userId || null,
+        action: "user.welcome",
+      },
+    });
+
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    console.error("[WelcomeEmail] Error:", err);
+    return res.status(500).json({ error: "email_send_failed" });
+  }
+}
+
+/**
  * Helper to mask email for display (e.g., s***@gmail.com)
  */
 function maskEmail(email: string): string {
@@ -1746,6 +1904,8 @@ export async function getPublicEstablishment(req: Request, res: Response) {
     { data: slots, error: slotsError },
     { data: packs, error: packsError },
     { data: bookingPolicy, error: bookingPolicyError },
+    { data: inventoryCategories, error: inventoryCategoriesError },
+    { data: inventoryItems, error: inventoryItemsError },
   ] = await Promise.all([
     supabase
       .from("pro_slots")
@@ -1771,12 +1931,31 @@ export async function getPublicEstablishment(req: Request, res: Response) {
       .select("*")
       .eq("establishment_id", establishmentId)
       .maybeSingle(),
+    // Fetch inventory categories
+    supabase
+      .from("pro_inventory_categories")
+      .select("id,title,description,parent_id,sort_order,is_active")
+      .eq("establishment_id", establishmentId)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .limit(100),
+    // Fetch inventory items
+    supabase
+      .from("pro_inventory_items")
+      .select("id,category_id,title,description,base_price,currency,labels,photos,sort_order,is_active")
+      .eq("establishment_id", establishmentId)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .limit(500),
   ]);
 
   if (slotsError) return res.status(500).json({ error: slotsError.message });
   if (packsError) return res.status(500).json({ error: packsError.message });
   if (bookingPolicyError)
     return res.status(500).json({ error: bookingPolicyError.message });
+  // Note: inventory errors are non-fatal - we just won't show menu if it fails
+  if (inventoryCategoriesError) console.error("[Public] Inventory categories error:", inventoryCategoriesError.message);
+  if (inventoryItemsError) console.error("[Public] Inventory items error:", inventoryItemsError.message);
 
   // Group slots to a DateSlots format for the public booking widgets.
   const slotsArr = (slots ?? []) as Array<{
@@ -1956,6 +2135,12 @@ export async function getPublicEstablishment(req: Request, res: Response) {
     menu_digital_url: menuDigitalUrl,
   };
 
+  // Transform inventory into MenuCategory format for the frontend
+  const menuCategories = transformInventoryToMenuCategories(
+    inventoryCategories ?? [],
+    inventoryItems ?? []
+  );
+
   return res.json({
     establishment: establishmentWithSlug,
     booking_policy: bookingPolicy ?? null,
@@ -1964,7 +2149,136 @@ export async function getPublicEstablishment(req: Request, res: Response) {
       packs: normalizedPacks,
       availableSlots,
     },
+    menu: menuCategories,
   });
+}
+
+// Helper function to transform pro_inventory data to MenuCategory format
+function transformInventoryToMenuCategories(
+  categories: Array<{
+    id: string;
+    title: string;
+    description?: string | null;
+    parent_id?: string | null;
+    sort_order?: number;
+  }>,
+  items: Array<{
+    id: string;
+    category_id?: string | null;
+    title: string;
+    description?: string | null;
+    base_price?: number | null;
+    currency?: string | null;
+    labels?: string[] | null;
+    photos?: string[] | null;
+    sort_order?: number;
+  }>
+): Array<{
+  id: string;
+  name: string;
+  items: Array<{
+    id: number;
+    name: string;
+    description: string;
+    price: string;
+    badges?: string[];
+  }>;
+}> {
+  // Build category map
+  const categoryMap = new Map(categories.map((c) => [c.id, c]));
+
+  // Group items by category
+  const itemsByCategory = new Map<string, typeof items>();
+  const uncategorizedItems: typeof items = [];
+
+  for (const item of items) {
+    if (item.category_id && categoryMap.has(item.category_id)) {
+      const existing = itemsByCategory.get(item.category_id) ?? [];
+      existing.push(item);
+      itemsByCategory.set(item.category_id, existing);
+    } else {
+      uncategorizedItems.push(item);
+    }
+  }
+
+  // Map labels to badge format
+  const labelToBadge = (label: string): string | null => {
+    const l = label.toLowerCase().trim();
+    if (l === "best_seller" || l === "populaire") return "Best seller";
+    if (l === "vegetarien" || l === "végétarien") return "Végétarien";
+    if (l === "nouveau" || l === "new") return "Nouveau";
+    if (l === "specialite" || l === "spécialité") return "Spécialité";
+    if (l === "healthy" || l === "sain") return "Healthy";
+    if (l === "rapide") return "Rapide";
+    return null;
+  };
+
+  // Format price
+  const formatPrice = (price: number | null | undefined, currency: string | null | undefined): string => {
+    if (price == null || !Number.isFinite(price)) return "";
+    const curr = currency || "MAD";
+    return `${price.toFixed(0)} ${curr}`;
+  };
+
+  // Transform item to MenuSection format
+  const transformItem = (item: typeof items[0], index: number) => {
+    const badges = (item.labels ?? [])
+      .map(labelToBadge)
+      .filter((b): b is string => b !== null);
+
+    return {
+      id: index + 1,
+      name: item.title,
+      description: item.description ?? "",
+      price: formatPrice(item.base_price, item.currency),
+      badges: badges.length > 0 ? badges : undefined,
+    };
+  };
+
+  // Build result - only include root categories (no parent_id)
+  // For now, flatten subcategories into their parents
+  const rootCategories = categories.filter((c) => !c.parent_id);
+  const result: Array<{
+    id: string;
+    name: string;
+    items: Array<{
+      id: number;
+      name: string;
+      description: string;
+      price: string;
+      badges?: string[];
+    }>;
+  }> = [];
+
+  for (const cat of rootCategories) {
+    const catItems = itemsByCategory.get(cat.id) ?? [];
+
+    // Also include items from subcategories
+    const subcategories = categories.filter((c) => c.parent_id === cat.id);
+    for (const sub of subcategories) {
+      const subItems = itemsByCategory.get(sub.id) ?? [];
+      catItems.push(...subItems);
+    }
+
+    if (catItems.length === 0) continue;
+
+    result.push({
+      id: cat.id,
+      name: cat.title,
+      items: catItems.map((item, i) => transformItem(item, i)),
+    });
+  }
+
+  // Add uncategorized items if any
+  if (uncategorizedItems.length > 0) {
+    result.push({
+      id: "uncategorized",
+      name: "Autres",
+      items: uncategorizedItems.map((item, i) => transformItem(item, i)),
+    });
+  }
+
+  return result;
 }
 
 type PublicEstablishmentListItem = {
@@ -1993,6 +2307,9 @@ type PublicEstablishmentListItem = {
   slug?: string | null;
   relevance_score?: number;
   total_score?: number;
+  // Activity/assiduity fields
+  is_online?: boolean;
+  activity_score?: number;
 };
 
 type PublicEstablishmentsListResponse = {
@@ -2108,12 +2425,14 @@ export async function listPublicEstablishments(req: Request, res: Response) {
 
   const supabase = getAdminSupabase();
 
-  // Note: verified, premium, curated columns may not exist yet - handle gracefully
-  // These will be added by migration 20260201_search_engine_enhancement.sql
+  // Note: verified, premium, curated, is_online, activity_score columns may not exist yet - handle gracefully
+  // These will be added by migrations:
+  // - 20260201_search_engine_enhancement.sql (verified, premium, curated)
+  // - 20260204_pro_activity_score.sql (is_online, activity_score)
   let estQuery = supabase
     .from("establishments")
     .select(
-      "id,slug,name,universe,subcategory,city,address,region,country,lat,lng,cover_url,booking_enabled,updated_at,tags,amenities",
+      "id,slug,name,universe,subcategory,city,address,region,country,lat,lng,cover_url,booking_enabled,updated_at,tags,amenities,is_online,activity_score",
     )
     .eq("status", "active");
 
@@ -2189,9 +2508,31 @@ export async function listPublicEstablishments(req: Request, res: Response) {
         if (estId) reservationCountByEst.set(estId, (reservationCountByEst.get(estId) ?? 0) + 1);
       }
 
+      // Fetch activity data for scored results
+      const { data: activityData } = ids.length
+        ? await supabase
+            .from("establishments")
+            .select("id,is_online,activity_score")
+            .in("id", ids)
+        : { data: [] };
+
+      const activityByEst = new Map<string, { isOnline: boolean; activityScore: number | null }>();
+      for (const a of (activityData ?? []) as Array<Record<string, unknown>>) {
+        const estId = typeof a.id === "string" ? a.id : "";
+        if (!estId) continue;
+        activityByEst.set(estId, {
+          isOnline: typeof a.is_online === "boolean" ? a.is_online : false,
+          activityScore: typeof a.activity_score === "number" && Number.isFinite(a.activity_score) ? a.activity_score : null,
+        });
+      }
+
       const items: PublicEstablishmentListItem[] = scoredResults.map((e: any) => {
         const promo = promoByEst.get(e.id) ?? null;
         if (promoOnly && (!promo || promo <= 0)) return null;
+
+        const activity = activityByEst.get(e.id);
+        const isOnline = activity?.isOnline ?? false;
+        const activityScore = activity?.activityScore ?? null;
 
         return {
           id: e.id,
@@ -2218,6 +2559,9 @@ export async function listPublicEstablishments(req: Request, res: Response) {
           slug: generateEstablishmentSlug(e.name, e.city),
           relevance_score: e.relevance_score,
           total_score: e.total_score,
+          // Activity/assiduity fields
+          is_online: isOnline,
+          activity_score: activityScore ?? undefined,
         };
       }).filter(Boolean);
 
@@ -2321,17 +2665,22 @@ export async function listPublicEstablishments(req: Request, res: Response) {
     );
   }
 
-  // Best results scoring function: rating × sqrt(review_count) × velocity_multiplier
+  // Best results scoring function: rating × sqrt(review_count) × velocity_multiplier × assiduity_factor
+  // Activity/assiduity score is weighted at 30% to reward engaged establishments
   const computeBestScore = (args: {
     avgRating: number | null;
     reviewCount: number;
     reviewsLast30d: number;
     reservations30d: number;
+    activityScore: number | null;
+    isOnline: boolean;
   }): number => {
     const rating = args.avgRating ?? 3.0; // Default to neutral rating
     const reviewCount = Math.max(1, args.reviewCount); // Avoid division by zero
     const reviewsLast30d = args.reviewsLast30d;
     const reservations30d = args.reservations30d;
+    const activityScore = args.activityScore ?? 0; // 0-100 scale
+    const isOnline = args.isOnline;
 
     // Velocity multiplier: boost for recent activity
     // If reviewsLast30d is high relative to total reviews, it means momentum
@@ -2342,9 +2691,18 @@ export async function listPublicEstablishments(req: Request, res: Response) {
     const baseScore = rating * Math.sqrt(reviewCount);
 
     // Add reservation activity as a bonus
-    const activityBonus = Math.sqrt(reservations30d) * 0.5;
+    const reservationBonus = Math.sqrt(reservations30d) * 0.5;
 
-    return baseScore * velocityMultiplier + activityBonus;
+    // Assiduity factor: 0.7 to 1.3 range based on activity_score (0-100)
+    // Score of 0 → factor of 0.7 (30% penalty)
+    // Score of 50 → factor of 1.0 (neutral)
+    // Score of 100 → factor of 1.3 (30% boost)
+    const assiduityFactor = 0.7 + (activityScore / 100) * 0.6;
+
+    // Online bonus: currently online establishments get a small visibility boost
+    const onlineBonus = isOnline ? 2.0 : 0;
+
+    return (baseScore * velocityMultiplier + reservationBonus) * assiduityFactor + onlineBonus;
   };
 
   const items: PublicEstablishmentListItem[] = estArr
@@ -2359,6 +2717,9 @@ export async function listPublicEstablishments(req: Request, res: Response) {
       const reviewCount = typeof e.review_count === "number" && Number.isFinite(e.review_count) ? e.review_count : 0;
       const reviewsLast30d = typeof e.reviews_last_30d === "number" && Number.isFinite(e.reviews_last_30d) ? e.reviews_last_30d : 0;
       const reservations30d = reservationCountByEst.get(id) ?? 0;
+      // Activity/assiduity fields - may not exist until migration 20260204_pro_activity_score.sql is run
+      const isOnline = typeof e.is_online === "boolean" ? e.is_online : false;
+      const activityScore = typeof e.activity_score === "number" && Number.isFinite(e.activity_score) ? e.activity_score : null;
 
       const item: PublicEstablishmentListItem = {
         id,
@@ -2384,6 +2745,9 @@ export async function listPublicEstablishments(req: Request, res: Response) {
         verified: typeof e.verified === "boolean" ? e.verified : false,
         premium: typeof e.premium === "boolean" ? e.premium : false,
         curated: typeof e.curated === "boolean" ? e.curated : false,
+        // Activity/assiduity fields
+        is_online: isOnline,
+        activity_score: activityScore ?? undefined,
       };
 
       // Compute best score if sorting by best
@@ -2393,6 +2757,8 @@ export async function listPublicEstablishments(req: Request, res: Response) {
           reviewCount,
           reviewsLast30d,
           reservations30d,
+          activityScore,
+          isOnline,
         });
       }
 
@@ -8717,4 +9083,100 @@ export async function getPublicEstablishmentByUsername(
     bookingPolicy: bookingPolicy ?? null,
     attributionSet: true, // Indicates the attribution cookie was set
   });
+}
+
+/**
+ * Validate a promo code for a booking/reservation.
+ * POST /api/public/booking/promo/validate
+ *
+ * Body: { code: string, establishmentId?: string }
+ * Response: { valid: boolean, discount_bps?: number, message?: string }
+ */
+export async function validateBookingPromoCode(req: Request, res: Response) {
+  try {
+    const code = String(req.body?.code ?? "").trim().toUpperCase();
+    const establishmentId = req.body?.establishmentId
+      ? String(req.body.establishmentId).trim()
+      : null;
+
+    if (!code) {
+      return res.status(400).json({ valid: false, message: "Code requis" });
+    }
+
+    const { data: promo, error: promoErr } = await supabase
+      .from("consumer_promo_codes")
+      .select(
+        "id,code,discount_bps,applies_to_establishment_ids,active,starts_at,ends_at,max_uses_total,max_uses_per_user,deleted_at"
+      )
+      .eq("code", code)
+      .is("deleted_at", null)
+      .maybeSingle();
+
+    if (promoErr) {
+      console.error("[validateBookingPromoCode] DB error:", promoErr);
+      return res.status(500).json({ valid: false, message: "Erreur serveur" });
+    }
+
+    if (!promo) {
+      return res.json({ valid: false, message: "Code promo invalide" });
+    }
+
+    // Check if active
+    if (!promo.active) {
+      return res.json({ valid: false, message: "Ce code promo n'est plus actif" });
+    }
+
+    // Check date validity
+    const now = new Date();
+    if (promo.starts_at && new Date(promo.starts_at) > now) {
+      return res.json({ valid: false, message: "Ce code promo n'est pas encore valide" });
+    }
+    if (promo.ends_at && new Date(promo.ends_at) < now) {
+      return res.json({ valid: false, message: "Ce code promo a expiré" });
+    }
+
+    // Check establishment scope if specified
+    if (
+      establishmentId &&
+      promo.applies_to_establishment_ids &&
+      Array.isArray(promo.applies_to_establishment_ids) &&
+      promo.applies_to_establishment_ids.length > 0
+    ) {
+      if (!promo.applies_to_establishment_ids.includes(establishmentId)) {
+        return res.json({
+          valid: false,
+          message: "Ce code promo n'est pas valide pour cet établissement",
+        });
+      }
+    }
+
+    // Check max total uses
+    if (promo.max_uses_total != null && promo.max_uses_total > 0) {
+      const { count, error: countErr } = await supabase
+        .from("consumer_promo_code_redemptions")
+        .select("id", { count: "exact", head: true })
+        .eq("promo_code_id", promo.id);
+
+      if (!countErr && count != null && count >= promo.max_uses_total) {
+        return res.json({
+          valid: false,
+          message: "Ce code promo a atteint son nombre maximum d'utilisations",
+        });
+      }
+    }
+
+    // Calculate discount percentage for display
+    const discountPercent = Math.round(promo.discount_bps / 100);
+
+    return res.json({
+      valid: true,
+      discount_bps: promo.discount_bps,
+      discount_percent: discountPercent,
+      message: `Code valide ! -${discountPercent}% sur votre réservation`,
+      promo_id: promo.id,
+    });
+  } catch (err: any) {
+    console.error("[validateBookingPromoCode] Error:", err);
+    return res.status(500).json({ valid: false, message: "Erreur serveur" });
+  }
 }

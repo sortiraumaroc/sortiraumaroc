@@ -1483,6 +1483,7 @@ export const listConsumerUsers: RequestHandler = async (req, res) => {
   const { data, error } = await supabase
     .from("admin_consumer_users")
     .select("*")
+    .neq("account_status", "deleted")
     .order("created_at", { ascending: false })
     .limit(500);
 
@@ -1642,6 +1643,93 @@ export const updateConsumerUserStatus: RequestHandler = async (req, res) => {
   });
 
   res.json({ ok: true });
+};
+
+// ───────────────────── Delete consumer users (soft-delete + auth removal) ─────
+export const deleteConsumerUsers: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const body = req.body ?? {};
+  const ids: string[] = Array.isArray(body.ids) ? body.ids.filter((v: unknown) => typeof v === "string" && v.trim()) : [];
+
+  if (ids.length === 0) {
+    return res.status(400).json({ error: "Aucun utilisateur sélectionné" });
+  }
+
+  if (ids.length > 50) {
+    return res.status(400).json({ error: "Maximum 50 utilisateurs à la fois" });
+  }
+
+  const supabase = getAdminSupabase();
+
+  // Fetch accounts to delete
+  const { data: accounts } = await supabase
+    .from("consumer_users")
+    .select("id, email, full_name")
+    .in("id", ids);
+
+  if (!accounts || accounts.length === 0) {
+    return res.status(404).json({ error: "Utilisateurs non trouvés" });
+  }
+
+  const deleted: { id: string; email: string }[] = [];
+  const errors: { id: string; error: string }[] = [];
+
+  for (const account of accounts) {
+    try {
+      // Soft delete: anonymize + mark as deleted
+      // Note: status check constraint only allows "active" | "suspended"
+      const anonEmail = `deleted+${account.id}@example.invalid`;
+      const { error: updateErr } = await supabase
+        .from("consumer_users")
+        .update({
+          email: anonEmail,
+          full_name: "[Compte supprimé]",
+          status: "suspended",
+          account_status: "deleted",
+          deleted_at: new Date().toISOString(),
+        })
+        .eq("id", account.id);
+
+      if (updateErr) {
+        errors.push({ id: account.id, error: updateErr.message });
+        continue;
+      }
+
+      // Delete from auth.users
+      const { error: authErr } = await supabase.auth.admin.deleteUser(account.id);
+      if (authErr) {
+        console.error(`[DeleteUser] Auth deletion failed for ${account.id}:`, authErr.message);
+      }
+
+      deleted.push({ id: account.id, email: account.email ?? "" });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erreur inconnue";
+      errors.push({ id: account.id, error: msg });
+    }
+  }
+
+  // Audit log
+  await supabase.from("admin_audit_log").insert({
+    action: "consumer_users.delete",
+    entity_type: "consumer_users",
+    entity_id: "batch",
+    metadata: {
+      deleted_count: deleted.length,
+      error_count: errors.length,
+      deleted_ids: deleted.map((d) => d.id),
+    },
+  });
+
+  console.log(`[DeleteUser] Deleted ${deleted.length} users, ${errors.length} errors`);
+
+  res.json({
+    ok: true,
+    deleted_count: deleted.length,
+    error_count: errors.length,
+    deleted,
+    errors,
+  });
 };
 
 export const updateConsumerUserEvent: RequestHandler = async (req, res) => {
@@ -1978,6 +2066,20 @@ export const listProUsers: RequestHandler = async (req, res) => {
     .map((log: any) => (typeof log.entity_id === "string" ? log.entity_id : ""))
     .filter(Boolean);
 
+  // 4. Récupérer les PROs supprimés pour les exclure de la liste
+  const { data: deletedLogs } = await supabase
+    .from("admin_audit_log")
+    .select("entity_id")
+    .eq("action", "pro.user.deleted")
+    .eq("entity_type", "pro_user")
+    .limit(5000);
+
+  const deletedProUserIds = new Set(
+    (deletedLogs ?? [])
+      .map((log: any) => (typeof log.entity_id === "string" ? log.entity_id : ""))
+      .filter(Boolean)
+  );
+
   // Ajouter les PROs sans établissement à la map
   const allProUserIds = new Set([...proUserIdsFromProfiles, ...proUserIdsFromAudit]);
   for (const userId of allProUserIds) {
@@ -1987,6 +2089,11 @@ export const listProUsers: RequestHandler = async (req, res) => {
         roles: {},
       });
     }
+  }
+
+  // Exclure les PROs déjà supprimés de la map
+  for (const deletedId of deletedProUserIds) {
+    byUser.delete(deletedId);
   }
 
   const userIds = Array.from(byUser.keys());
@@ -2356,6 +2463,43 @@ export const suspendProUser: RequestHandler = async (req, res) => {
 };
 
 /**
+ * Check dependencies for a Pro user before deletion.
+ * Returns counts of linked data (quotes, invoices, memberships, etc.)
+ */
+export const getProUserDependencies: RequestHandler = async (req, res) => {
+  if (!requireSuperadmin(req, res)) return;
+
+  const userId = req.params.id;
+  if (!userId) {
+    res.status(400).json({ error: "ID utilisateur requis" });
+    return;
+  }
+
+  try {
+    const supabase = getAdminSupabase();
+
+    const [quotesRes, invoicesRes, membershipsRes] = await Promise.all([
+      supabase.from("media_quotes").select("id", { count: "exact", head: true }).eq("pro_user_id", userId),
+      supabase.from("media_invoices").select("id", { count: "exact", head: true }).eq("pro_user_id", userId),
+      supabase.from("pro_establishment_memberships").select("id", { count: "exact", head: true }).eq("user_id", userId),
+    ]);
+
+    const deps = {
+      media_quotes: quotesRes.count ?? 0,
+      media_invoices: invoicesRes.count ?? 0,
+      establishment_memberships: membershipsRes.count ?? 0,
+    };
+
+    const total = deps.media_quotes + deps.media_invoices + deps.establishment_memberships;
+
+    res.json({ ok: true, userId, deps, total });
+  } catch (e) {
+    console.error("[getProUserDependencies] Error:", e);
+    res.status(500).json({ error: "Erreur lors de la vérification des dépendances" });
+  }
+};
+
+/**
  * Bulk delete Pro users permanently
  * - Deletes from pro_establishment_memberships
  * - Deletes from pro_profiles
@@ -2363,7 +2507,7 @@ export const suspendProUser: RequestHandler = async (req, res) => {
  * - Logs to audit trail
  */
 export const bulkDeleteProUsers: RequestHandler = async (req, res) => {
-  if (!requireAdminKey(req, res)) return;
+  if (!requireSuperadmin(req, res)) return;
 
   const payload = isRecord(req.body) ? req.body : {};
   const ids = Array.isArray(payload.ids) ? payload.ids.filter((id): id is string => typeof id === "string") : [];
@@ -2382,14 +2526,10 @@ export const bulkDeleteProUsers: RequestHandler = async (req, res) => {
 
   for (const userId of ids) {
     try {
-      // Get user info first
+      // Get user info first (may not exist in auth.users for orphaned pro_profiles)
       const { data: authData, error: authError } = await supabase.auth.admin.getUserById(userId);
       const email = authData?.user?.email ?? null;
-
-      if (authError) {
-        results.push({ id: userId, email: null, success: false, error: "Utilisateur non trouvé" });
-        continue;
-      }
+      const authUserExists = !authError && !!authData?.user;
 
       // 1. Delete from pro_establishment_memberships
       const { error: membershipError } = await supabase
@@ -2399,6 +2539,18 @@ export const bulkDeleteProUsers: RequestHandler = async (req, res) => {
 
       if (membershipError) {
         console.error(`[bulkDeleteProUsers] Membership delete error for ${userId}:`, membershipError);
+      }
+
+      // 1b. Delete from tables with FK to pro_profiles (SET NULL + NOT NULL = conflict)
+      for (const proDepTable of ["media_quotes", "media_invoices"]) {
+        const { error: proDepErr } = await supabase
+          .from(proDepTable)
+          .delete()
+          .eq("pro_user_id", userId);
+
+        if (proDepErr) {
+          console.warn(`[bulkDeleteProUsers] ${proDepTable} delete for ${userId}:`, proDepErr.message);
+        }
       }
 
       // 2. Delete from pro_profiles
@@ -2411,13 +2563,79 @@ export const bulkDeleteProUsers: RequestHandler = async (req, res) => {
         console.error(`[bulkDeleteProUsers] Profile delete error for ${userId}:`, profileError);
       }
 
-      // 3. Delete from Supabase Auth
-      const { error: authDeleteError } = await supabase.auth.admin.deleteUser(userId);
+      // 3. Clean up all public tables that may have FK constraints to auth.users
+      //    to prevent "Database error deleting user" from Supabase Auth
 
-      if (authDeleteError) {
-        console.error(`[bulkDeleteProUsers] Auth delete error for ${userId}:`, authDeleteError);
-        results.push({ id: userId, email, success: false, error: authDeleteError.message });
-        continue;
+      // 3a. Tables with NO ACTION FK to auth.users — nullify the FK column
+      const nullifyTables: { table: string; column: string }[] = [
+        { table: "editor_users", column: "created_by_superadmin" },
+        { table: "establishment_profile_change_log", column: "actor_id" },
+        { table: "establishment_profile_draft_changes", column: "decided_by" },
+        { table: "media_threads", column: "closed_by" },
+      ];
+
+      for (const dep of nullifyTables) {
+        const { error: nullErr } = await supabase
+          .from(dep.table)
+          .update({ [dep.column]: null } as any)
+          .eq(dep.column, userId);
+
+        if (nullErr && !nullErr.message.includes("schema cache")) {
+          console.warn(`[bulkDeleteProUsers] Nullify ${dep.table}.${dep.column} for ${userId}:`, nullErr.message);
+        }
+      }
+
+      // 3b. Tables where the entire row should be deleted
+      const dependentTables: { table: string; column: string }[] = [
+        { table: "consumer_user_stats", column: "user_id" },
+        { table: "consumer_password_reset_tokens", column: "user_id" },
+        { table: "consumer_user_totp_secrets", column: "user_id" },
+        { table: "consumer_users", column: "id" },
+        { table: "fcm_tokens", column: "user_id" },
+        { table: "reservations", column: "user_id" },
+      ];
+
+      for (const dep of dependentTables) {
+        const { error: depError } = await supabase
+          .from(dep.table)
+          .delete()
+          .eq(dep.column, userId);
+
+        if (depError && !depError.message.includes("schema cache")) {
+          console.warn(`[bulkDeleteProUsers] Cleanup ${dep.table} for ${userId}:`, depError.message);
+        }
+      }
+
+      // 4. Delete from Supabase Auth (only if the user exists there)
+      if (authUserExists) {
+        // First attempt: standard delete
+        let authDeleteError: Error | null = null;
+        const result1 = await supabase.auth.admin.deleteUser(userId);
+        authDeleteError = result1.error;
+
+        // If still failing due to FK constraints, try with SQL RPC to force-clean remaining deps
+        if (authDeleteError?.message?.includes("Database error")) {
+          console.warn(`[bulkDeleteProUsers] Standard delete failed for ${userId}, trying force cleanup via SQL...`);
+
+          // Use rpc to run a cleanup function - delete from all remaining dependent tables
+          const { error: rpcError } = await supabase.rpc("admin_force_delete_user_deps", {
+            target_user_id: userId,
+          });
+
+          if (rpcError) {
+            console.warn(`[bulkDeleteProUsers] RPC cleanup not available, proceeding with direct auth delete`);
+          }
+
+          // Retry the auth delete
+          const result2 = await supabase.auth.admin.deleteUser(userId);
+          authDeleteError = result2.error;
+        }
+
+        if (authDeleteError) {
+          console.error(`[bulkDeleteProUsers] Auth delete error for ${userId}:`, authDeleteError);
+          results.push({ id: userId, email, success: false, error: authDeleteError.message });
+          continue;
+        }
       }
 
       // 4. Audit log
@@ -2429,6 +2647,7 @@ export const bulkDeleteProUsers: RequestHandler = async (req, res) => {
           email,
           by: adminUserId,
           permanent: true,
+          auth_user_existed: authUserExists,
         },
       });
 
@@ -2562,6 +2781,70 @@ export const regenerateProUserPassword: RequestHandler = async (req, res) => {
       email,
       password: newPassword,
     },
+  });
+};
+
+/**
+ * Remove a Pro user from an establishment
+ * - Only removes the membership link (does NOT delete the Pro user)
+ * - Requires admin/superadmin permission
+ * - Logs the action to audit trail
+ */
+export const removeProFromEstablishment: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const establishmentId = typeof req.params.establishmentId === "string" ? req.params.establishmentId : "";
+  const proUserId = typeof req.params.proUserId === "string" ? req.params.proUserId : "";
+
+  if (!establishmentId) return res.status(400).json({ error: "Identifiant établissement requis" });
+  if (!proUserId) return res.status(400).json({ error: "Identifiant Pro requis" });
+
+  const supabase = getAdminSupabase();
+
+  // Get Pro user info for audit
+  const { data: authData } = await supabase.auth.admin.getUserById(proUserId);
+  const proEmail = authData?.user?.email ?? null;
+
+  // Get establishment info for audit
+  const { data: estData } = await supabase
+    .from("establishments")
+    .select("name")
+    .eq("id", establishmentId)
+    .single();
+  const establishmentName = estData?.name ?? null;
+
+  // Delete the membership
+  const { error: deleteErr, count } = await supabase
+    .from("pro_establishment_memberships")
+    .delete({ count: "exact" })
+    .eq("user_id", proUserId)
+    .eq("establishment_id", establishmentId);
+
+  if (deleteErr) {
+    return res.status(500).json({ error: `Erreur lors de la suppression: ${deleteErr.message}` });
+  }
+
+  if (!count || count === 0) {
+    return res.status(404).json({ error: "Ce Pro n'est pas rattaché à cet établissement" });
+  }
+
+  // Audit log
+  await supabase.from("admin_audit_log").insert({
+    action: "pro.membership.removed",
+    entity_type: "establishment",
+    entity_id: establishmentId,
+    metadata: {
+      pro_user_id: proUserId,
+      pro_email: proEmail,
+      establishment_name: establishmentName,
+    },
+  });
+
+  res.json({
+    ok: true,
+    message: "Pro détaché de l'établissement avec succès",
+    pro_email: proEmail,
+    establishment_name: establishmentName,
   });
 };
 
@@ -10822,6 +11105,63 @@ export const createEstablishment: RequestHandler = async (req, res) => {
   });
 };
 
+/**
+ * DELETE /api/admin/establishments/:id
+ * Supprime un établissement (admin ou superadmin uniquement)
+ */
+export const deleteEstablishment: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const id = req.params.id;
+  if (!id) return res.status(400).json({ error: "ID établissement requis" });
+
+  const supabase = getAdminSupabase();
+
+  // Vérifier que l'établissement existe
+  const { data: existing, error: fetchErr } = await supabase
+    .from("establishments")
+    .select("id, name, status")
+    .eq("id", id)
+    .single();
+
+  if (fetchErr || !existing) {
+    return res.status(404).json({ error: "Établissement non trouvé" });
+  }
+
+  // Supprimer les données liées (en cascade ou manuellement si pas de CASCADE)
+  // Note: Si les FK ont ON DELETE CASCADE, cela sera automatique
+
+  // Supprimer les memberships
+  await supabase
+    .from("pro_establishment_memberships")
+    .delete()
+    .eq("establishment_id", id);
+
+  // Supprimer l'établissement
+  const { error: deleteErr } = await supabase
+    .from("establishments")
+    .delete()
+    .eq("id", id);
+
+  if (deleteErr) {
+    return res.status(500).json({ error: deleteErr.message });
+  }
+
+  // Audit log
+  await supabase.from("admin_audit_log").insert({
+    action: "establishment.delete",
+    entity_type: "establishment",
+    entity_id: id,
+    metadata: {
+      name: existing.name,
+      status: existing.status,
+      deleted_at: new Date().toISOString(),
+    },
+  });
+
+  res.json({ ok: true });
+};
+
 export const updateEstablishmentStatus: RequestHandler = async (req, res) => {
   if (!requireAdminKey(req, res)) return;
 
@@ -12233,7 +12573,7 @@ type ProBankDocumentRow = {
   uploaded_at: string;
 };
 
-const Pro_BANK_DOCS_BUCKET = "pro-bank-documents";
+const PRO_BANK_DOCS_BUCKET = "pro-bank-documents";
 const MAX_PRO_BANK_DOC_PDF_BYTES = 10 * 1024 * 1024; // 10MB
 
 function looksLikePdf(buffer: Buffer): boolean {
@@ -12646,6 +12986,247 @@ export const listAdminEstablishmentBankDocuments: RequestHandler = async (
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Establishment Contracts (PDF documents — Superadmin only)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CONTRACTS_BUCKET = "establishment-contracts";
+const MAX_CONTRACT_PDF_BYTES = 10 * 1024 * 1024; // 10MB
+
+type ContractRow = {
+  id: string;
+  establishment_id: string;
+  contract_type: string;
+  contract_reference: string | null;
+  file_path: string;
+  file_name: string | null;
+  mime_type: string;
+  size_bytes: number | null;
+  signed_at: string | null;
+  starts_at: string | null;
+  expires_at: string | null;
+  status: string;
+  notes: string | null;
+  uploaded_by: string | null;
+  uploaded_at: string;
+  updated_at: string;
+};
+
+export const listAdminEstablishmentContracts: RequestHandler = async (
+  req,
+  res,
+) => {
+  if (!requireSuperadmin(req, res)) return;
+
+  const establishmentId =
+    typeof req.params.id === "string" ? req.params.id : "";
+  if (!establishmentId)
+    return res.status(400).json({ error: "Identifiant requis" });
+
+  const supabase = getAdminSupabase();
+
+  const { data, error } = await supabase
+    .from("establishment_contracts")
+    .select("*")
+    .eq("establishment_id", establishmentId)
+    .order("uploaded_at", { ascending: false })
+    .limit(50);
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  // Provide short-lived signed URLs (10 minutes)
+  const items = await Promise.all(
+    (data ?? []).map(async (d: any) => {
+      const path = String(d.file_path ?? "");
+      const signed = path
+        ? await supabase.storage
+            .from(CONTRACTS_BUCKET)
+            .createSignedUrl(path, 60 * 10)
+        : null;
+
+      return {
+        ...(d as ContractRow),
+        signed_url: signed?.data?.signedUrl ?? null,
+      };
+    }),
+  );
+
+  res.json({ ok: true, items });
+};
+
+export const uploadAdminEstablishmentContract: RequestHandler = async (
+  req,
+  res,
+) => {
+  if (!requireSuperadmin(req, res)) return;
+
+  const establishmentId =
+    typeof req.params.id === "string" ? req.params.id : "";
+  if (!establishmentId)
+    return res.status(400).json({ error: "Identifiant requis" });
+
+  const contentType = (req.header("content-type") ?? "").toLowerCase();
+  if (!contentType.includes("application/pdf")) {
+    return res
+      .status(400)
+      .json({ error: "content_type_must_be_application_pdf" });
+  }
+
+  const body = req.body as unknown;
+  if (!Buffer.isBuffer(body) || body.length === 0) {
+    return res.status(400).json({ error: "pdf_body_required" });
+  }
+
+  if (body.length > MAX_CONTRACT_PDF_BYTES) {
+    return res
+      .status(413)
+      .json({ error: "pdf_too_large", max_bytes: MAX_CONTRACT_PDF_BYTES });
+  }
+
+  if (!looksLikePdf(body)) {
+    return res.status(400).json({ error: "invalid_pdf_signature" });
+  }
+
+  const actor = getAdminSessionSubAny(req);
+  const supabase = getAdminSupabase();
+
+  // Parse optional metadata from headers
+  const fileNameHeader = req.header("x-file-name") ?? "";
+  const fileName = sanitizeFileName(fileNameHeader);
+  const contractType = req.header("x-contract-type") || "partnership";
+  const contractReference = req.header("x-contract-reference") || null;
+  const signedAt = req.header("x-signed-at") || null;
+  const startsAt = req.header("x-starts-at") || null;
+  const expiresAt = req.header("x-expires-at") || null;
+  const notes = req.header("x-notes") || null;
+
+  const docId = randomBytes(12).toString("hex");
+  const storagePath = `${establishmentId}/${docId}.pdf`;
+
+  const up = await supabase.storage
+    .from(CONTRACTS_BUCKET)
+    .upload(storagePath, body, {
+      contentType: "application/pdf",
+      upsert: false,
+    });
+
+  if (up.error) return res.status(500).json({ error: up.error.message });
+
+  const { data: created, error: insErr } = await supabase
+    .from("establishment_contracts")
+    .insert({
+      establishment_id: establishmentId,
+      contract_type: contractType,
+      contract_reference: contractReference,
+      file_path: storagePath,
+      file_name: fileName,
+      mime_type: "application/pdf",
+      size_bytes: body.length,
+      signed_at: signedAt,
+      starts_at: startsAt,
+      expires_at: expiresAt,
+      status: "active",
+      notes: notes,
+      uploaded_by: actor,
+      uploaded_at: new Date().toISOString(),
+    })
+    .select("*")
+    .single();
+
+  if (insErr) return res.status(500).json({ error: insErr.message });
+
+  res.json({ ok: true, item: created as ContractRow });
+};
+
+export const updateAdminEstablishmentContract: RequestHandler = async (
+  req,
+  res,
+) => {
+  if (!requireSuperadmin(req, res)) return;
+
+  const establishmentId =
+    typeof req.params.id === "string" ? req.params.id : "";
+  const contractId =
+    typeof req.params.contractId === "string" ? req.params.contractId : "";
+
+  if (!establishmentId || !contractId)
+    return res.status(400).json({ error: "Identifiants requis" });
+
+  const supabase = getAdminSupabase();
+  const body = req.body as Record<string, unknown>;
+
+  const updates: Record<string, unknown> = {};
+
+  if (typeof body.contract_type === "string") updates.contract_type = body.contract_type;
+  if (typeof body.contract_reference === "string" || body.contract_reference === null) updates.contract_reference = body.contract_reference;
+  if (typeof body.signed_at === "string" || body.signed_at === null) updates.signed_at = body.signed_at;
+  if (typeof body.starts_at === "string" || body.starts_at === null) updates.starts_at = body.starts_at;
+  if (typeof body.expires_at === "string" || body.expires_at === null) updates.expires_at = body.expires_at;
+  if (typeof body.status === "string") updates.status = body.status;
+  if (typeof body.notes === "string" || body.notes === null) updates.notes = body.notes;
+
+  if (Object.keys(updates).length === 0) {
+    return res.status(400).json({ error: "Aucune modification" });
+  }
+
+  const { data, error } = await supabase
+    .from("establishment_contracts")
+    .update(updates)
+    .eq("id", contractId)
+    .eq("establishment_id", establishmentId)
+    .select("*")
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  res.json({ ok: true, item: data as ContractRow });
+};
+
+export const deleteAdminEstablishmentContract: RequestHandler = async (
+  req,
+  res,
+) => {
+  if (!requireSuperadmin(req, res)) return;
+
+  const establishmentId =
+    typeof req.params.id === "string" ? req.params.id : "";
+  const contractId =
+    typeof req.params.contractId === "string" ? req.params.contractId : "";
+
+  if (!establishmentId || !contractId)
+    return res.status(400).json({ error: "Identifiants requis" });
+
+  const supabase = getAdminSupabase();
+
+  // Get contract to find file_path
+  const { data: contract, error: fetchErr } = await supabase
+    .from("establishment_contracts")
+    .select("file_path")
+    .eq("id", contractId)
+    .eq("establishment_id", establishmentId)
+    .single();
+
+  if (fetchErr) return res.status(500).json({ error: fetchErr.message });
+  if (!contract) return res.status(404).json({ error: "Contrat non trouvé" });
+
+  // Delete from storage
+  const filePath = String((contract as any).file_path ?? "");
+  if (filePath) {
+    await supabase.storage.from(CONTRACTS_BUCKET).remove([filePath]);
+  }
+
+  // Delete from database
+  const { error: delErr } = await supabase
+    .from("establishment_contracts")
+    .delete()
+    .eq("id", contractId)
+    .eq("establishment_id", establishmentId);
+
+  if (delErr) return res.status(500).json({ error: delErr.message });
+
+  res.json({ ok: true });
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Booking Policy (per-establishment)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -12791,6 +13372,12 @@ export const updateAdminEstablishmentBookingPolicy: RequestHandler = async (
     patch.modification_text_fr = req.body.modification_text_fr;
   if (typeof req.body.modification_text_en === "string")
     patch.modification_text_en = req.body.modification_text_en;
+
+  // Protection window: hours before reservation during which free reservations
+  // cannot be cancelled/refused by the PRO (protects customers already on their way)
+  const protection_window_hours = asBookingPolicyNumber(req.body.protection_window_hours);
+  if (protection_window_hours !== undefined)
+    patch.protection_window_hours = Math.max(0, Math.round(protection_window_hours));
 
   if (!Object.keys(patch).length)
     return res.status(400).json({ error: "Aucune modification fournie" });
@@ -14906,4 +15493,271 @@ export const cancelAdminUsernameSubscription: RequestHandler = async (req, res) 
   } catch (e) {
     res.status(500).json({ error: e instanceof Error ? e.message : "Erreur" });
   }
+};
+
+// ---------------------------------------------------------------------------
+// Claim Requests (Demandes de revendication)
+// ---------------------------------------------------------------------------
+
+export const listAdminClaimRequests: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const status = typeof req.query.status === "string" ? req.query.status : undefined;
+  const limit = typeof req.query.limit === "string" ? parseInt(req.query.limit) || 50 : 50;
+
+  const supabase = getAdminSupabase();
+
+  let query = supabase
+    .from("claim_requests")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (status && status !== "all") {
+    query = query.eq("status", status);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  res.json({ items: data ?? [] });
+};
+
+export const getAdminClaimRequest: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const id = typeof req.params.id === "string" ? req.params.id : "";
+  if (!id) return res.status(400).json({ error: "Identifiant requis" });
+
+  const supabase = getAdminSupabase();
+
+  const { data, error } = await supabase
+    .from("claim_requests")
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (error) {
+    return res.status(404).json({ error: "Demande non trouvée" });
+  }
+
+  res.json({ item: data });
+};
+
+export const updateAdminClaimRequest: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const id = typeof req.params.id === "string" ? req.params.id : "";
+  if (!id) return res.status(400).json({ error: "Identifiant requis" });
+
+  const payload = isRecord(req.body) ? req.body : {};
+  const status = asString(payload.status);
+  const notes = asString(payload.notes);
+
+  if (!status) {
+    return res.status(400).json({ error: "Statut requis" });
+  }
+
+  if (!["pending", "approved", "rejected", "contacted"].includes(status)) {
+    return res.status(400).json({ error: "Statut invalide" });
+  }
+
+  const supabase = getAdminSupabase();
+  const adminSession = getAdminSessionSubAny(req);
+
+  const updateData: Record<string, unknown> = {
+    status,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (notes !== null) {
+    updateData.notes = notes;
+  }
+
+  if (status === "approved" || status === "rejected") {
+    updateData.decided_at = new Date().toISOString();
+    updateData.decided_by = adminSession?.email ?? adminSession?.id ?? "admin";
+  }
+
+  const { data, error } = await supabase
+    .from("claim_requests")
+    .update(updateData)
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  // Audit log
+  await supabase.from("admin_audit_log").insert({
+    action: `claim_request.${status}`,
+    entity_type: "claim_request",
+    entity_id: id,
+    metadata: {
+      status,
+      notes,
+      actor: adminSession,
+    },
+  });
+
+  res.json({ ok: true, item: data });
+};
+
+// ─── Duplicate detection ────────────────────────────────────────────────
+
+/**
+ * Compute a data-completeness score (0–100) for an establishment row.
+ * Each filled field adds weight; richer profiles score higher.
+ */
+export function computeCompletenessScore(row: Record<string, unknown>): number {
+  const fields: Array<{ key: string; weight: number }> = [
+    { key: "name", weight: 8 },
+    { key: "description_short", weight: 6 },
+    { key: "description_long", weight: 8 },
+    { key: "address", weight: 6 },
+    { key: "city", weight: 4 },
+    { key: "postal_code", weight: 3 },
+    { key: "region", weight: 3 },
+    { key: "phone", weight: 5 },
+    { key: "whatsapp", weight: 3 },
+    { key: "email", weight: 5 },
+    { key: "website", weight: 4 },
+    { key: "cover_url", weight: 8 },
+    { key: "gallery_urls", weight: 7 },
+    { key: "hours", weight: 5 },
+    { key: "universe", weight: 3 },
+    { key: "subcategory", weight: 3 },
+    { key: "lat", weight: 3 },
+    { key: "lng", weight: 3 },
+    { key: "tags", weight: 3 },
+    { key: "amenities", weight: 3 },
+    { key: "social_links", weight: 3 },
+    { key: "specialties", weight: 3 },
+    { key: "ambiance_tags", weight: 2 },
+  ];
+
+  const totalWeight = fields.reduce((s, f) => s + f.weight, 0);
+  let earned = 0;
+
+  for (const f of fields) {
+    const v = row[f.key];
+    if (v === null || v === undefined || v === "") continue;
+    if (Array.isArray(v) && v.length === 0) continue;
+    if (typeof v === "object" && !Array.isArray(v) && Object.keys(v as object).length === 0) continue;
+    earned += f.weight;
+  }
+
+  return Math.round((earned / totalWeight) * 100);
+}
+
+/**
+ * Normalise a string for fuzzy comparison:
+ * lowercase, trim, remove accents, collapse whitespace, strip common suffixes.
+ */
+export function normalizeEstName(raw: string | null | undefined): string {
+  if (!raw) return "";
+  return raw
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")          // remove accents
+    .toLowerCase()
+    .replace(/[-_]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export const detectDuplicateEstablishments: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const supabase = getAdminSupabase();
+
+  const { data, error } = await supabase
+    .from("establishments")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data || data.length === 0) return res.json({ groups: [] });
+
+  // Build groups: same normalised name + same normalised city
+  type Row = Record<string, unknown> & { id: string; name: string | null; city: string | null; created_at: string | null; status: string | null };
+  const rows = data as Row[];
+
+  const buckets = new Map<string, Row[]>();
+
+  for (const row of rows) {
+    const nName = normalizeEstName(row.name as string | null);
+    const nCity = normalizeEstName(row.city as string | null);
+    if (!nName) continue; // skip unnamed establishments
+    const key = `${nName}||${nCity}`;
+    const bucket = buckets.get(key) ?? [];
+    bucket.push(row);
+    buckets.set(key, bucket);
+  }
+
+  const groups: Array<{
+    name: string;
+    city: string;
+    items: Array<{
+      id: string;
+      name: string | null;
+      city: string | null;
+      status: string | null;
+      created_at: string | null;
+      completeness: number;
+      filledFields: number;
+      totalFields: number;
+    }>;
+  }> = [];
+
+  const totalFields = 23; // number of scored fields
+
+  for (const [, bucket] of buckets) {
+    if (bucket.length < 2) continue;
+
+    const first = bucket[0];
+    groups.push({
+      name: (first.name as string) ?? "",
+      city: (first.city as string) ?? "",
+      items: bucket.map((row) => {
+        const score = computeCompletenessScore(row);
+        // Count filled fields for display
+        const fieldKeys = [
+          "name", "description_short", "description_long", "address", "city",
+          "postal_code", "region", "phone", "whatsapp", "email", "website",
+          "cover_url", "gallery_urls", "hours", "universe", "subcategory",
+          "lat", "lng", "tags", "amenities", "social_links", "specialties",
+          "ambiance_tags",
+        ];
+        let filled = 0;
+        for (const k of fieldKeys) {
+          const v = row[k];
+          if (v === null || v === undefined || v === "") continue;
+          if (Array.isArray(v) && v.length === 0) continue;
+          if (typeof v === "object" && !Array.isArray(v) && Object.keys(v as object).length === 0) continue;
+          filled++;
+        }
+        return {
+          id: row.id,
+          name: row.name as string | null,
+          city: row.city as string | null,
+          status: row.status as string | null,
+          created_at: row.created_at as string | null,
+          completeness: score,
+          filledFields: filled,
+          totalFields,
+        };
+      }).sort((a, b) => b.completeness - a.completeness), // richest first
+    });
+  }
+
+  // Sort groups by number of duplicates (biggest groups first)
+  groups.sort((a, b) => b.items.length - a.items.length);
+
+  res.json({ groups });
 };

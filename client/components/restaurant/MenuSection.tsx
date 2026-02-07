@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { isAuthed } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
 import { scrollElementIntoCenterX } from "@/lib/scroll";
-import { AuthModal } from "@/components/AuthModal";
+import { AuthModalV2 } from "@/components/AuthModalV2";
 import { DatePickerInput } from "@/components/DatePickerInput";
 import { TimePickerInput } from "@/components/TimePickerInput";
 import { Button } from "@/components/ui/button";
@@ -277,13 +277,15 @@ function PackCard({ pack, onReserve }: { pack: Pack; onReserve: () => void }) {
         </div>
       </div>
 
-      <Button
-        type="button"
-        onClick={onReserve}
-        className="mt-4 w-full h-11 bg-[#a3001d] hover:bg-[#a3001d]/90 text-white font-semibold"
-      >
-        {t("pack.book_cta")}
-      </Button>
+      <div className="mt-4 flex justify-end">
+        <Button
+          type="button"
+          onClick={onReserve}
+          className="w-full sm:w-auto sm:px-8 h-10 text-sm bg-[#a3001d] hover:bg-[#a3001d]/90 text-white font-semibold rounded-xl"
+        >
+          {t("pack.book_cta")}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -864,7 +866,7 @@ export function MenuSection({ establishmentId, categories, packs, legacyHours, c
         </div>
       )}
 
-      <AuthModal
+      <AuthModalV2
         isOpen={authOpen}
         onClose={() => {
           setAuthOpen(false);

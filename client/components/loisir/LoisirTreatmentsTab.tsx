@@ -164,9 +164,11 @@ function PackCard({ pack, onReserve }: { pack: LoisirTreatment; onReserve?: () =
       </div>
 
       {onReserve ? (
-        <Button type="button" onClick={onReserve} className="mt-4 w-full h-11 bg-primary hover:bg-primary/90 text-white font-semibold rounded-xl">
-          {t("pack.book_cta")}
-        </Button>
+        <div className="mt-4 flex justify-end">
+          <Button type="button" onClick={onReserve} className="w-full sm:w-auto sm:px-8 h-10 text-sm bg-primary hover:bg-primary/90 text-white font-semibold rounded-xl">
+            {t("pack.book_cta")}
+          </Button>
+        </div>
       ) : null}
     </div>
   );

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Play, X, MapPin } from "lucide-react";
+import { ChevronLeft, ChevronRight, Play, X, MapPin, CalendarPlus } from "lucide-react";
 import { createPortal } from "react-dom";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { getPublicHomeVideos, type PublicHomeVideo } from "@/lib/publicApi";
 import { buildEstablishmentUrl } from "@/lib/establishmentUrl";
 import { IconButton } from "@/components/ui/icon-button";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 type HomeVideosSectionProps = {
@@ -126,9 +127,10 @@ function VideoPlayerModal({ videoId, title, onClose, isFullscreen = false }: Vid
 type VideoCardProps = {
   video: PublicHomeVideo;
   onClick: () => void;
+  onReserve?: (video: PublicHomeVideo) => void;
 };
 
-function VideoCard({ video, onClick }: VideoCardProps) {
+function VideoCard({ video, onClick, onReserve }: VideoCardProps) {
   const videoId = getYoutubeVideoId(video.youtube_url);
   const [isHovering, setIsHovering] = useState(false);
 
@@ -146,6 +148,9 @@ function VideoCard({ video, onClick }: VideoCardProps) {
         universe: video.establishment_universe,
       })
     : null;
+
+  // Build booking URL - goes directly to reservation page
+  const bookingUrl = establishmentUrl ? `${establishmentUrl}?action=book` : null;
 
   return (
     <div className="flex-shrink-0 w-64 sm:w-72 md:w-80">
@@ -194,16 +199,37 @@ function VideoCard({ video, onClick }: VideoCardProps) {
         </div>
       </button>
 
-      {/* Establishment link - shown below the video card */}
+      {/* Establishment link and Reserve button - shown below the video card */}
       {establishmentUrl && video.establishment_name && (
-        <Link
-          to={establishmentUrl}
-          className="flex items-center gap-2 mt-2 px-1 py-1.5 text-sm text-primary hover:text-primary/80 transition-colors group/link"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <MapPin className="w-4 h-4 flex-shrink-0" />
-          <span className="truncate group-hover/link:underline">{video.establishment_name}</span>
-        </Link>
+        <div className="flex items-center justify-between mt-2 gap-2">
+          <Link
+            to={establishmentUrl}
+            className="flex items-center gap-2 px-1 py-1.5 text-sm text-primary hover:text-primary/80 transition-colors group/link min-w-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <MapPin className="w-4 h-4 flex-shrink-0" />
+            <span className="truncate group-hover/link:underline">{video.establishment_name}</span>
+          </Link>
+
+          {bookingUrl && (
+            <Link
+              to={bookingUrl}
+              onClick={(e) => {
+                e.stopPropagation();
+                onReserve?.(video);
+              }}
+              className="flex-shrink-0"
+            >
+              <Button
+                size="sm"
+                className="gap-1.5 bg-primary hover:bg-primary/90 text-white text-xs h-8 px-3"
+              >
+                <CalendarPlus className="w-3.5 h-3.5" />
+                Réserver
+              </Button>
+            </Link>
+          )}
+        </div>
       )}
     </div>
   );

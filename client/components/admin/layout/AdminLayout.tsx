@@ -14,7 +14,7 @@ export function AdminLayout(props: { children: ReactNode; onSignOut: () => void 
     <div className="min-h-screen bg-slate-50">
       <div className="mx-auto w-full max-w-screen-2xl">
         <div className="grid grid-cols-1 md:grid-cols-[240px_1fr] min-h-screen">
-          <div className="hidden md:block p-4">
+          <div className="hidden md:block p-4 sticky top-0 h-screen overflow-y-auto">
             <AdminSidebar />
           </div>
 

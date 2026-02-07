@@ -281,49 +281,17 @@ export async function verifyPhoneCode(req: Request, res: Response): Promise<void
     ) || null;
 
     if (existingAuthUser) {
-      // User already exists in auth — reuse
-      userId = existingAuthUser.id;
-      isNewUser = false;
-      console.log("[TwilioAuth] Existing auth user found:", userId);
-
-      // Update metadata to reflect Twilio verification
-      await supabase.auth.admin.updateUser(userId, {
-        phone: verifiedPhoneNumber,
-        phone_confirm: true,
-        user_metadata: {
-          auth_method: "phone",
-          phone_verified: true,
-          phone_verified_at: new Date().toISOString(),
-          verification_provider: "twilio",
-        },
+      // User already exists — refuse signup, they should login instead
+      console.log("[TwilioAuth] Phone already registered:", cleanPhone, "userId:", existingAuthUser.id);
+      res.status(409).json({
+        error: "Un compte existe déjà avec ce numéro de téléphone",
+        code: "PHONE_ALREADY_EXISTS",
       });
-
-      // Ensure consumer_users profile exists
-      const { data: existingProfile } = await supabase
-        .from("consumer_users")
-        .select("id")
-        .eq("id", userId)
-        .single();
-
-      if (!existingProfile) {
-        const { error: profileError } = await supabase
-          .from("consumer_users")
-          .insert({
-            id: userId,
-            email: phoneEmail,
-            full_name: "",
-            status: "active",
-          });
-
-        if (profileError) {
-          console.warn("[TwilioAuth] Error creating consumer profile for existing auth user:", profileError);
-        }
-      }
+      return;
     } else {
       // New user — create in Supabase Auth
-      const randomPassword =
-        crypto.randomBytes(32).toString("hex") +
-        crypto.randomBytes(32).toString("hex");
+      // bcrypt has a 72-byte limit — keep password ≤ 64 hex chars
+      const randomPassword = crypto.randomBytes(32).toString("hex");
 
       const { data: authData, error: authError } =
         await supabase.auth.admin.createUser({
@@ -357,6 +325,8 @@ export async function verifyPhoneCode(req: Request, res: Response): Promise<void
           email: phoneEmail,
           full_name: "",
           status: "active",
+          city: "",
+          country: "MA",
         })
         .select("id")
         .single();
@@ -414,23 +384,24 @@ export async function verifyPhoneCode(req: Request, res: Response): Promise<void
       return;
     }
 
-    // Log successful authentication
-    await supabase
-      .from("system_logs")
-      .insert({
-        actor_user_id: userId,
-        actor_role: "consumer",
-        action: "auth.phone_login",
-        entity_type: "consumer_user",
-        entity_id: userId,
-        payload: {
-          method: "twilio_phone",
-          is_new_user: isNewUser,
-        },
-      })
-      .catch(() => {
-        /* ignore logging errors */
-      });
+    // Log successful authentication (ignore errors)
+    try {
+      await supabase
+        .from("system_logs")
+        .insert({
+          actor_user_id: userId,
+          actor_role: "consumer",
+          action: "auth.phone_login",
+          entity_type: "consumer_user",
+          entity_id: userId,
+          payload: {
+            method: "twilio_phone",
+            is_new_user: isNewUser,
+          },
+        });
+    } catch {
+      /* ignore logging errors */
+    }
 
     res.json({
       success: true,
@@ -445,7 +416,175 @@ export async function verifyPhoneCode(req: Request, res: Response): Promise<void
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Endpoint 3: Check Twilio auth availability
+// Endpoint 3: Verify code and login existing user
+// POST /api/consumer/auth/phone/verify-login
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function verifyPhoneLogin(req: Request, res: Response): Promise<void> {
+  try {
+    const { phoneNumber, code } = req.body;
+
+    if (!phoneNumber || typeof phoneNumber !== "string") {
+      res.status(400).json({ error: "Numéro de téléphone requis" });
+      return;
+    }
+
+    if (!code || typeof code !== "string" || code.length < 4 || code.length > 8) {
+      res.status(400).json({ error: "Code de vérification invalide" });
+      return;
+    }
+
+    const cleanPhone = phoneNumber.replace(/\s/g, "");
+    if (!/^\+\d{10,15}$/.test(cleanPhone)) {
+      res.status(400).json({ error: "Format de numéro invalide" });
+      return;
+    }
+
+    // Verify OTP locally
+    const otpRecord = otpStore.get(cleanPhone);
+
+    if (!otpRecord) {
+      res.status(401).json({ error: "Aucun code envoyé pour ce numéro. Demandez un nouveau code." });
+      return;
+    }
+
+    if (Date.now() > otpRecord.expiresAt) {
+      otpStore.delete(cleanPhone);
+      res.status(401).json({ error: "Code expiré. Demandez un nouveau code." });
+      return;
+    }
+
+    if (otpRecord.attempts >= MAX_OTP_VERIFY_ATTEMPTS) {
+      otpStore.delete(cleanPhone);
+      res.status(429).json({ error: "Trop de tentatives. Demandez un nouveau code." });
+      return;
+    }
+
+    otpRecord.attempts++;
+
+    if (otpRecord.code !== code.trim()) {
+      res.status(401).json({ error: "Code invalide" });
+      return;
+    }
+
+    // Code is valid — delete it
+    otpStore.delete(cleanPhone);
+
+    console.log("[TwilioAuth] Login OTP verified for:", cleanPhone);
+
+    const supabase = getAdminSupabase();
+    const phoneEmail = `${cleanPhone.replace(/\+/g, "")}@phone.sortiraumaroc.ma`;
+
+    // Find the existing user
+    const { data: authUsersList } = await supabase.auth.admin.listUsers({
+      page: 1,
+      perPage: 200,
+    });
+
+    const existingUser = authUsersList?.users?.find(
+      (u) => u.phone === cleanPhone || u.email === phoneEmail
+    ) || null;
+
+    if (!existingUser) {
+      res.status(404).json({ error: "Aucun compte trouvé avec ce numéro" });
+      return;
+    }
+
+    // Generate session magic link
+    const userEmail = existingUser.email || phoneEmail;
+    const { data: sessionData, error: sessionError } =
+      await supabase.auth.admin.generateLink({
+        type: "magiclink",
+        email: userEmail,
+        options: {
+          redirectTo: process.env.PUBLIC_BASE_URL || process.env.VITE_APP_URL || "https://sortiraumaroc.ma",
+        },
+      });
+
+    if (sessionError) {
+      console.error("[TwilioAuth] Error generating login session:", sessionError);
+      res.status(500).json({ error: "Échec de la création de la session" });
+      return;
+    }
+
+    // Log authentication
+    try {
+      await supabase
+        .from("system_logs")
+        .insert({
+          actor_user_id: existingUser.id,
+          actor_role: "consumer",
+          action: "auth.phone_login",
+          entity_type: "consumer_user",
+          entity_id: existingUser.id,
+          payload: {
+            method: "twilio_phone_login",
+            is_new_user: false,
+          },
+        });
+    } catch {
+      /* ignore logging errors */
+    }
+
+    res.json({
+      success: true,
+      isNewUser: false,
+      userId: existingUser.id,
+      actionLink: sessionData?.properties?.action_link,
+    });
+  } catch (error: unknown) {
+    console.error("[TwilioAuth] Phone login verify error:", error);
+    res.status(500).json({ error: "Erreur de vérification" });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Endpoint 4: Lookup phone number (silent check for login)
+// POST /api/consumer/auth/phone/lookup
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function lookupPhone(req: Request, res: Response): Promise<void> {
+  try {
+    const { phoneNumber } = req.body;
+
+    if (!phoneNumber || typeof phoneNumber !== "string") {
+      res.status(400).json({ exists: false });
+      return;
+    }
+
+    const cleanPhone = phoneNumber.replace(/\s/g, "");
+    if (!/^\+\d{10,15}$/.test(cleanPhone)) {
+      res.status(400).json({ exists: false });
+      return;
+    }
+
+    const supabase = getAdminSupabase();
+    const phoneEmail = `${cleanPhone.replace(/\+/g, "")}@phone.sortiraumaroc.ma`;
+
+    // Check auth.users for this phone or synthetic email
+    const { data: authUsersList } = await supabase.auth.admin.listUsers({
+      page: 1,
+      perPage: 200,
+    });
+
+    const existingUser = authUsersList?.users?.find(
+      (u) => u.phone === cleanPhone || u.email === phoneEmail
+    ) || null;
+
+    if (existingUser) {
+      // Return the synthetic email so the client can use signInWithPassword
+      res.json({ exists: true, email: phoneEmail });
+    } else {
+      res.json({ exists: false });
+    }
+  } catch (error) {
+    console.error("[TwilioAuth] Phone lookup error:", error);
+    res.json({ exists: false });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Endpoint 4: Check Twilio auth availability
 // GET /api/consumer/auth/phone/status
 // ─────────────────────────────────────────────────────────────────────────────
 

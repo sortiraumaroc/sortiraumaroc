@@ -6,7 +6,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isAuthed } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
-import { AuthModal } from "@/components/AuthModal";
+import { AuthModalV2 } from "@/components/AuthModalV2";
 import { DatePickerInput } from "@/components/DatePickerInput";
 import { TimePickerInput } from "@/components/TimePickerInput";
 import { Button } from "@/components/ui/button";
@@ -255,7 +255,7 @@ export function RestaurantQuickBookingAccordion(props: {
         </CollapsibleContent>
       </Collapsible>
 
-      <AuthModal
+      <AuthModalV2
         isOpen={authOpen}
         onClose={() => {
           setAuthOpen(false);

@@ -4,7 +4,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { ArrowLeft, CheckCircle2, XCircle } from "lucide-react";
 import { useState } from "react";
-import { PhoneInput, toE164, isValidMoroccanMobile } from "./PhoneInput";
+import { PhoneInput, toE164, isValidPhone } from "./PhoneInput";
 import { VerifyCodeInput, CountdownTimer } from "./VerifyCodeInput";
 
 type Step = "phone" | "code" | "linking";
@@ -12,6 +12,7 @@ type Step = "phone" | "code" | "linking";
 interface SignupPhoneScreenProps {
   onBack: () => void;
   onSuccess: (data: { actionLink?: string; isNewUser?: boolean; userId?: string }, referralCode?: string) => Promise<void>;
+  onLoginClick?: () => void;
   loading?: boolean;
   error?: string | null;
   validateReferralCode?: (code: string) => Promise<{ valid: boolean; partnerName?: string }>;
@@ -29,6 +30,7 @@ interface SignupPhoneScreenProps {
 export function SignupPhoneScreen({
   onBack,
   onSuccess,
+  onLoginClick,
   loading = false,
   error = null,
   validateReferralCode,
@@ -36,6 +38,7 @@ export function SignupPhoneScreen({
 
   const [step, setStep] = useState<Step>("phone");
   const [phone, setPhone] = useState("");
+  const [countryCode, setCountryCode] = useState("MA");
   const [code, setCode] = useState("");
   const [referralCode, setReferralCode] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
@@ -76,16 +79,16 @@ export function SignupPhoneScreen({
     }
   };
 
-  // ─── Step 1: Send code via Twilio (WhatsApp or SMS) ───
+  // ─── Step 1: Check if phone exists, then send code via Twilio ───
   const handleSendCode = async () => {
     setLocalError(null);
 
-    if (!isValidMoroccanMobile(phone)) {
+    if (!isValidPhone(phone, countryCode)) {
       setLocalError("Numéro de téléphone invalide");
       return;
     }
 
-    const e164Phone = toE164(phone);
+    const e164Phone = toE164(phone, countryCode);
     if (!e164Phone) {
       setLocalError("Numéro de téléphone invalide");
       return;
@@ -93,6 +96,22 @@ export function SignupPhoneScreen({
 
     setLocalLoading(true);
     try {
+      // First, check if the phone number already exists in the database
+      const lookupRes = await fetch("/api/consumer/auth/phone/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phoneNumber: e164Phone }),
+      });
+      const lookupData = await lookupRes.json();
+
+      if (lookupData.exists) {
+        // Phone already registered — show the "already exists" error
+        setLocalError("PHONE_ALREADY_EXISTS");
+        setLocalLoading(false);
+        return;
+      }
+
+      // Phone is new — proceed to send the verification code
       const res = await fetch("/api/consumer/auth/phone/send-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -123,7 +142,7 @@ export function SignupPhoneScreen({
     setLocalLoading(true);
     setStep("linking");
 
-    const e164Phone = toE164(phone);
+    const e164Phone = toE164(phone, countryCode);
     if (!e164Phone) {
       setLocalError("Numéro de téléphone invalide");
       setStep("code");
@@ -145,6 +164,14 @@ export function SignupPhoneScreen({
       const result = await res.json();
 
       if (!res.ok) {
+        // If phone already exists, show specific error with login redirect
+        if (res.status === 409 || result.code === "PHONE_ALREADY_EXISTS") {
+          setStep("phone");
+          setLocalError("PHONE_ALREADY_EXISTS");
+          setCode("");
+          setLocalLoading(false);
+          return;
+        }
         throw new Error(result.error || "Échec de la vérification");
       }
 
@@ -176,28 +203,28 @@ export function SignupPhoneScreen({
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {/* Header with back button */}
       <div className="flex items-center gap-3">
         <button
           type="button"
           onClick={step === "phone" ? onBack : () => setStep("phone")}
-          className="p-2 -ml-2 rounded-full hover:bg-slate-100 transition-colors"
+          className="p-1.5 -ml-1.5 rounded-full hover:bg-slate-100 transition-colors"
           aria-label="Retour"
           disabled={isLoading}
         >
-          <ArrowLeft className="w-5 h-5 text-slate-600" />
+          <ArrowLeft className="w-4 h-4 text-slate-600" />
         </button>
         <div>
           <h2
-            className="text-xl sm:text-2xl font-bold text-slate-900"
+            className="text-lg sm:text-xl font-bold text-slate-900"
             style={{ fontFamily: "Circular Std, sans-serif" }}
           >
             {step === "phone" && "Inscription par téléphone"}
             {step === "code" && "Vérification"}
             {step === "linking" && "Création du compte"}
           </h2>
-          <p className="text-sm text-slate-600">
+          <p className="text-xs text-slate-600">
             {step === "phone" && "Recevez un code par SMS"}
             {step === "code" && "Entrez le code reçu par SMS"}
             {step === "linking" && "Veuillez patienter..."}
@@ -206,26 +233,47 @@ export function SignupPhoneScreen({
       </div>
 
       {/* Error message */}
-      {displayError && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+      {displayError && displayError !== "PHONE_ALREADY_EXISTS" && (
+        <div className="p-2.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
           {displayError}
+        </div>
+      )}
+
+      {/* Phone already exists — redirect to login */}
+      {displayError === "PHONE_ALREADY_EXISTS" && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 text-center">
+          <p className="font-medium">Ce numéro est déjà associé à un compte.</p>
+          <p className="mt-1 text-xs">
+            Connectez-vous avec votre compte existant.
+          </p>
+          {onLoginClick && (
+            <button
+              type="button"
+              onClick={onLoginClick}
+              className="mt-2 w-full text-center text-sm font-semibold text-primary hover:underline"
+            >
+              J'ai déjà un compte →
+            </button>
+          )}
         </div>
       )}
 
       {/* Step: Phone input */}
       {step === "phone" && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {/* Phone number input */}
           <PhoneInput
             value={phone}
             onChange={setPhone}
+            countryCode={countryCode}
+            onCountryChange={setCountryCode}
             disabled={isLoading}
             label="Numéro de téléphone"
           />
 
           {/* Referral code (optional) */}
-          <div className="space-y-2">
-            <Label htmlFor="signup-phone-referral" className="text-sm font-medium text-slate-700">
+          <div className="space-y-1.5">
+            <Label htmlFor="signup-phone-referral" className="text-sm font-medium text-slate-900">
               Code parrain
               <span className="text-slate-400 font-normal ml-1">
                 (optionnel)
@@ -240,7 +288,7 @@ export function SignupPhoneScreen({
                 placeholder="SAMXXX"
                 disabled={isLoading}
                 className={cn(
-                  "h-12 rounded-xl text-base uppercase",
+                  "h-10 rounded-lg text-sm uppercase",
                   referralStatus.valid === true && "border-green-500 pr-10",
                   referralStatus.valid === false && "border-red-500 pr-10"
                 )}
@@ -250,14 +298,14 @@ export function SignupPhoneScreen({
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 animate-spin">⏳</span>
               )}
               {!referralStatus.checking && referralStatus.valid === true && (
-                <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-green-500" />
+                <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
               )}
               {!referralStatus.checking && referralStatus.valid === false && (
-                <XCircle className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-red-500" />
+                <XCircle className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-red-500" />
               )}
             </div>
             {referralStatus.valid && referralStatus.partnerName && (
-              <p className="text-sm text-green-600">
+              <p className="text-xs text-green-600">
                 Parrainé par {referralStatus.partnerName}
               </p>
             )}
@@ -267,8 +315,8 @@ export function SignupPhoneScreen({
           <Button
             type="button"
             onClick={handleSendCode}
-            disabled={isLoading || !isValidMoroccanMobile(phone)}
-            className="w-full h-12 text-base font-semibold bg-primary hover:bg-primary/90 rounded-xl"
+            disabled={isLoading || !isValidPhone(phone, countryCode)}
+            className="w-full h-10 text-sm font-semibold bg-primary hover:bg-primary/90 rounded-lg"
           >
             {isLoading ? (
               <span className="flex items-center gap-2">
@@ -284,13 +332,13 @@ export function SignupPhoneScreen({
 
       {/* Step: Code verification */}
       {step === "code" && (
-        <div className="space-y-6">
+        <div className="space-y-4">
           {/* Display phone number */}
           <div className="text-center">
-            <p className="text-sm text-slate-600">
+            <p className="text-xs text-slate-600">
               Code envoyé au
             </p>
-            <p className="text-lg font-semibold text-slate-900">+212 {phone.slice(0, 3)} {phone.slice(3, 6)} {phone.slice(6)}</p>
+            <p className="text-sm font-semibold text-slate-900">{toE164(phone, countryCode)}</p>
           </div>
 
           {/* Code input */}
@@ -319,7 +367,7 @@ export function SignupPhoneScreen({
             type="button"
             onClick={() => handleVerifyCode(code)}
             disabled={isLoading || code.length !== 6}
-            className="w-full h-12 text-base font-semibold bg-primary hover:bg-primary/90 rounded-xl"
+            className="w-full h-10 text-sm font-semibold bg-primary hover:bg-primary/90 rounded-lg"
           >
             {isLoading ? (
               <span className="flex items-center gap-2">
@@ -335,9 +383,9 @@ export function SignupPhoneScreen({
 
       {/* Step: Linking (loading state) */}
       {step === "linking" && (
-        <div className="text-center py-8">
-          <div className="animate-spin text-4xl mb-4">⏳</div>
-          <p className="text-slate-600">
+        <div className="text-center py-6">
+          <div className="animate-spin text-3xl mb-3">⏳</div>
+          <p className="text-xs text-slate-600">
             Création de votre compte...
           </p>
         </div>

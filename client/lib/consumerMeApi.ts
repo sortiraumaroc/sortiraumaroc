@@ -71,11 +71,15 @@ export async function updateMyConsumerMe(args: {
   first_name?: string | null;
   last_name?: string | null;
   phone?: string | null;
+  date_of_birth?: string | null;
+  city?: string | null;
 }): Promise<ConsumerMe> {
   const body = {
     ...(args.first_name != null ? { first_name: args.first_name } : {}),
     ...(args.last_name != null ? { last_name: args.last_name } : {}),
     ...(args.phone != null ? { phone: args.phone } : {}),
+    ...(args.date_of_birth != null ? { date_of_birth: args.date_of_birth } : {}),
+    ...(args.city != null ? { city: args.city } : {}),
   };
 
   return requestAuthedJson<ConsumerMe>("/api/consumer/me/update", {

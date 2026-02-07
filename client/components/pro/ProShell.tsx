@@ -5,6 +5,7 @@ import { ToastAction } from "@/components/ui/toast";
 import { toast } from "@/hooks/use-toast";
 import { NotificationBody } from "@/components/NotificationBody";
 import {
+  Award,
   BarChart3,
   Bell,
   Briefcase,
@@ -103,13 +104,15 @@ import { ProMediaFactoryTab } from "@/components/pro/tabs/ProMediaFactoryTab";
 import { ProNotificationsTab } from "@/components/pro/tabs/ProNotificationsTab";
 import { ProTeamTab } from "@/components/pro/tabs/ProTeamTab";
 import { ProAssistanceTab } from "@/components/pro/tabs/ProAssistanceTab";
-import { ProQrScanTab } from "@/components/pro/tabs/ProQrScanTab";
+import { ProUnifiedScannerTab } from "@/components/pro/tabs/ProUnifiedScannerTab";
 import { ProMessagesTab } from "@/components/pro/tabs/ProMessagesTab";
 import { ProPrestatairesTab } from "@/components/pro/tabs/ProPrestatairesTab";
 import { ProReviewsTab } from "@/components/pro/tabs/ProReviewsTab";
 import { ProAdsTab } from "@/components/pro/ads/ProAdsTab";
+import { ProLoyaltyTab } from "@/components/pro/tabs/ProLoyaltyTab";
 import { ProLiveNotifications } from "@/components/pro/ProLiveNotifications";
 import { ProNotificationsSheet } from "@/components/pro/ProNotificationsSheet";
+import { ProOnlineToggle } from "@/components/pro/ProOnlineToggle";
 import { useProUnreadCount } from "@/lib/mediaFactory/unreadHook";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { buildEstablishmentUrl } from "@/lib/establishmentUrl";
@@ -172,6 +175,7 @@ export function ProShell({ user, onSignOut }: Props) {
         "reviews",
         "waitlist",
         "qr",
+        "member-scan",
         "slots",
         "settings",
         "billing",
@@ -179,6 +183,7 @@ export function ProShell({ user, onSignOut }: Props) {
         "ads",
         "media",
         "prestataires",
+        "loyalty",
         "notifications",
         "team",
         "messages",
@@ -600,10 +605,13 @@ export function ProShell({ user, onSignOut }: Props) {
             </div>
 
             <div className="flex items-center gap-3 justify-between md:justify-end">
+              {/* Toggle En ligne / Hors ligne */}
+              <ProOnlineToggle establishmentId={selected?.id ?? null} />
+
               <Link
                 to="/"
                 className="h-10 w-10 rounded-full border border-white/30 bg-white/10 hover:bg-white/20 transition overflow-hidden flex items-center justify-center"
-                aria-label="Aller à l’accueil Sortir Au Maroc"
+                aria-label="Aller à l'accueil Sortir Au Maroc"
                 title="Accueil"
               >
                 <img
@@ -887,11 +895,18 @@ export function ProShell({ user, onSignOut }: Props) {
                           Liste d’attente
                         </TabsTrigger>
                         <TabsTrigger
-                          value="qr"
+                          value="scanner"
                           className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
                         >
                           <QrCode className="w-4 h-4" />
-                          Scan QR
+                          Scanner QR
+                        </TabsTrigger>
+                        <TabsTrigger
+                          value="loyalty"
+                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                        >
+                          <Award className="w-4 h-4" />
+                          Fidélité
                         </TabsTrigger>
                         <TabsTrigger
                           value="slots"
@@ -1040,8 +1055,12 @@ export function ProShell({ user, onSignOut }: Props) {
                     <ProWaitlistTab establishment={selected} role={role} />
                   </TabsContent>
 
-                  <TabsContent value="qr" className="mt-0">
-                    <ProQrScanTab establishment={selected} role={role} />
+                  <TabsContent value="scanner" className="mt-0">
+                    <ProUnifiedScannerTab establishment={selected} role={role} />
+                  </TabsContent>
+
+                  <TabsContent value="loyalty" className="mt-0">
+                    <ProLoyaltyTab establishment={selected} role={role} />
                   </TabsContent>
 
                   <TabsContent value="slots" className="mt-0">

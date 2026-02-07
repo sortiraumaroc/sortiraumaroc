@@ -378,3 +378,13 @@
 .sam-calendar .rdp-hidden {
   visibility: hidden;
 }
+
+/* ============================================
+   reCAPTCHA challenge overlay fix
+   Google injects the challenge iframe wrapper directly into <body>.
+   The z-index is boosted via JS (MutationObserver in ReCaptchaV2).
+   This CSS is a safety net for the challenge iframe itself.
+   ============================================ */
+iframe[src*="recaptcha/api2/bframe"] {
+  z-index: 2147483647 !important;
+}

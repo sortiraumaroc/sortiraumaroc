@@ -14,6 +14,7 @@ import {
   Save,
   Store,
   Ticket,
+  Trash2,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -49,6 +50,7 @@ import { AdminContactInfoCard } from "@/components/admin/establishment/AdminCont
 import { AdminTagsServicesCard } from "@/components/admin/establishment/AdminTagsServicesCard";
 import { AdminEstablishmentEditDialog } from "@/components/admin/establishment/AdminEstablishmentEditDialog";
 import { AdminEstablishmentBankDetailsCard } from "@/components/admin/establishment/AdminEstablishmentBankDetailsCard";
+import { AdminEstablishmentContractsCard } from "@/components/admin/establishment/AdminEstablishmentContractsCard";
 import { AdminEstablishmentFinanceRulesCard } from "@/components/admin/establishment/AdminEstablishmentFinanceRulesCard";
 import { AdminEstablishmentBookingPolicyCard } from "@/components/admin/establishment/AdminEstablishmentBookingPolicyCard";
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
@@ -64,6 +66,7 @@ import {
   listAdminEstablishmentQrLogs,
   listAdminEstablishmentReservations,
   listProUsers,
+  removeProFromEstablishment,
   updateAdminEstablishmentReservation,
   updateEstablishmentStatus,
   type ProConversationAdmin,
@@ -192,7 +195,7 @@ function statusBadge(status: string): JSX.Element {
       ? "bg-emerald-50 text-emerald-700 border-emerald-200"
       : s === "pending"
         ? "bg-amber-50 text-amber-700 border-amber-200"
-        : s === "rejected" || s === "disabled"
+        : s === "rejected" || s === "suspended"
           ? "bg-red-50 text-red-700 border-red-200"
           : "bg-slate-50 text-slate-700 border-slate-200";
   return <Badge className={cls}>{status || "—"}</Badge>;
@@ -288,6 +291,11 @@ export function AdminEstablishmentDetailsPage() {
 
   // Edit establishment dialog
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+
+  // Remove Pro from establishment dialog
+  const [removeProDialogOpen, setRemoveProDialogOpen] = useState(false);
+  const [proToRemove, setProToRemove] = useState<{ id: string; email: string } | null>(null);
+  const [removingPro, setRemovingPro] = useState(false);
 
   const fetchMessages = useCallback(async () => {
     if (!establishmentId || !selectedConversationId) return;
@@ -464,6 +472,29 @@ export function AdminEstablishmentDetailsPage() {
       setLoading(false);
     }
   }, [establishmentId]);
+
+  const handleRemovePro = useCallback(async () => {
+    if (!establishmentId || !proToRemove) return;
+    setRemovingPro(true);
+    try {
+      await removeProFromEstablishment(undefined, establishmentId, proToRemove.id);
+      toast({
+        title: "Pro supprimé",
+        description: `${proToRemove.email} a été détaché de l'établissement.`,
+      });
+      setRemoveProDialogOpen(false);
+      setProToRemove(null);
+      void refresh();
+    } catch (e) {
+      toast({
+        title: "Erreur",
+        description: e instanceof AdminApiError ? e.message : "Une erreur est survenue",
+        variant: "destructive",
+      });
+    } finally {
+      setRemovingPro(false);
+    }
+  }, [establishmentId, proToRemove, toast, refresh]);
 
   useEffect(() => {
     void refresh();
@@ -851,7 +882,7 @@ export function AdminEstablishmentDetailsPage() {
                   <SelectContent>
                     <SelectItem value="pending">pending</SelectItem>
                     <SelectItem value="active">active</SelectItem>
-                    <SelectItem value="disabled">disabled</SelectItem>
+                    <SelectItem value="suspended">suspended</SelectItem>
                     <SelectItem value="rejected">rejected</SelectItem>
                   </SelectContent>
                 </Select>
@@ -888,7 +919,7 @@ export function AdminEstablishmentDetailsPage() {
             </CardHeader>
             <CardContent className="p-4 pt-0">
               {!linkedPros.length ? (
-                <div className="text-sm text-slate-600">Aucun compte Pro n’est rattaché à cet établissement.</div>
+                <div className="text-sm text-slate-600">Aucun compte Pro n'est rattaché à cet établissement.</div>
               ) : (
                 <div className="space-y-2">
                   {linkedPros.map((p) => (
@@ -897,9 +928,22 @@ export function AdminEstablishmentDetailsPage() {
                         <div className="text-sm font-semibold text-slate-900 truncate">{p.email}</div>
                         <div className="text-xs text-slate-500 font-mono break-all">{p.id}</div>
                       </div>
-                      <Button variant="outline" size="sm" asChild>
-                        <Link to={`/admin/pros/${encodeURIComponent(p.id)}`}>Voir le Pro</Link>
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" asChild>
+                          <Link to={`/admin/pros/${encodeURIComponent(p.id)}`}>Voir le Pro</Link>
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => {
+                            setProToRemove(p);
+                            setRemoveProDialogOpen(true);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -908,6 +952,8 @@ export function AdminEstablishmentDetailsPage() {
           </Card>
 
           <AdminEstablishmentBankDetailsCard establishmentId={est.id} />
+
+          <AdminEstablishmentContractsCard establishmentId={est.id} />
 
           <AdminEstablishmentFinanceRulesCard establishmentId={est.id} />
 
@@ -1364,6 +1410,41 @@ export function AdminEstablishmentDetailsPage() {
         establishment={est}
         onSaved={() => void refresh()}
       />
+
+      {/* Remove Pro from Establishment Confirmation Dialog */}
+      <Dialog open={removeProDialogOpen} onOpenChange={setRemoveProDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmer la suppression</DialogTitle>
+            <DialogDescription>
+              Voulez-vous vraiment détacher <strong>{proToRemove?.email}</strong> de cet établissement ?
+              <br />
+              <span className="text-slate-500 text-sm">
+                Cette action ne supprimera pas le compte Pro, elle retirera uniquement son accès à cet établissement.
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRemoveProDialogOpen(false);
+                setProToRemove(null);
+              }}
+              disabled={removingPro}
+            >
+              Annuler
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => void handleRemovePro()}
+              disabled={removingPro}
+            >
+              {removingPro ? "Suppression..." : "Confirmer la suppression"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );

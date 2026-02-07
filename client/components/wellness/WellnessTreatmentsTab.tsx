@@ -155,9 +155,11 @@ function PackCard({ pack, onReserve }: { pack: WellnessTreatment; onReserve?: ()
       </div>
 
       {onReserve ? (
-        <Button type="button" variant="brand" onClick={onReserve} className="mt-4 w-full h-11 font-semibold rounded-xl">
-          Réserver ce pack
-        </Button>
+        <div className="mt-4 flex justify-end">
+          <Button type="button" variant="brand" onClick={onReserve} className="w-full sm:w-auto sm:px-8 h-10 text-sm font-semibold rounded-xl">
+            Réserver ce pack
+          </Button>
+        </div>
       ) : null}
     </div>
   );

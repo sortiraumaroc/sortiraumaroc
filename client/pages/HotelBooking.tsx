@@ -36,6 +36,11 @@ export default function HotelBooking() {
     setEstablishmentId(hotelId ?? null);
   }, [hotelId, setBookingType, setEstablishmentId]);
 
+  // Scroll to top when step changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [currentStep]);
+
   const handleBack = () => {
     if (currentStep > 1) {
       setCurrentStep(currentStep - 1);

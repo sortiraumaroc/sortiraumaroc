@@ -18,6 +18,7 @@ import {
   VerifyEmailScreen,
   ForgotPasswordScreen,
   SuccessScreen,
+  OnboardingScreen,
 } from "./auth";
 
 // Demo mode config
@@ -33,6 +34,7 @@ type AuthStep =
   | "signup_email" // Email signup form
   | "signup_phone" // Phone signup form
   | "verify_email" // Email verification code
+  | "onboarding" // Profile completion (new users only)
   | "success"; // Success screen
 
 interface AuthModalV2Props {
@@ -233,6 +235,14 @@ export function AuthModalV2({
 
       if (!res.ok) {
         const result = await res.json().catch(() => ({}));
+
+        // If email already exists, redirect to login with a friendly message
+        if (res.status === 409 || result.code === "EMAIL_ALREADY_EXISTS") {
+          setError("Un compte existe déjà avec cet email.");
+          setStep("login");
+          return;
+        }
+
         throw new Error(result.error || "Failed to send verification code");
       }
 
@@ -263,70 +273,83 @@ export function AuthModalV2({
     setError(null);
 
     try {
-      // Verify code matches
+      // Verify code matches (client-side check)
       if (code !== signupData.expectedCode) {
         setError("Code incorrect");
         setLoading(false);
         throw new Error("Invalid code");
       }
 
-      // Create Supabase account
-      const { data: authData, error: signUpError } = await consumerSupabase.auth.signUp({
-        email: signupData.email,
-        password: signupData.password,
-        options: {
-          emailRedirectTo: getOAuthRedirectTo(),
-        },
+      // Step 1: Verify code on the server
+      const verifyRes = await fetch("/api/consumer/verify-email/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: signupData.email, code }),
       });
 
-      if (signUpError) {
-        if (signUpError.message.includes("already registered")) {
-          setError("Un compte existe déjà avec cet email");
-        } else {
-          setError("Échec de l'inscription");
-        }
-        throw signUpError;
+      if (!verifyRes.ok) {
+        const verifyData = await verifyRes.json().catch(() => ({}));
+        setError(verifyData.error || "Code incorrect");
+        throw new Error(verifyData.error || "Code verification failed");
       }
 
-      // Mark email as verified (since we verified via code)
-      if (authData.user) {
-        markEmailAsVerified(signupData.email);
+      // Step 2: Create account via server endpoint (bypasses Supabase confirmation email)
+      const signupRes = await fetch("/api/consumer/auth/email/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: signupData.email,
+          password: signupData.password,
+          referralCode: signupData.referralCode || undefined,
+        }),
+      });
+
+      const signupResult = await signupRes.json().catch(() => ({}));
+
+      if (!signupRes.ok) {
+        if (signupResult.error?.includes("existe déjà")) {
+          setError("Un compte existe déjà avec cet email");
+        } else {
+          setError(signupResult.error || "Échec de l'inscription");
+        }
+        throw new Error(signupResult.error || "Signup failed");
+      }
+
+      // Mark email as verified
+      markEmailAsVerified(signupData.email);
+
+      // Step 3: Sign in with the newly created credentials
+      const { error: signInError } = await consumerSupabase.auth.signInWithPassword({
+        email: signupData.email,
+        password: signupData.password,
+      });
+
+      if (signInError) {
+        console.warn("[AuthModalV2] Auto sign-in failed:", signInError.message);
+        // Fallback: use actionLink
+        if (signupResult.actionLink) {
+          window.location.assign(signupResult.actionLink);
+          return;
+        }
       }
 
       // Send welcome email (non-blocking)
-      if (authData.user) {
+      if (signupResult.userId) {
         fetch("/api/public/welcome-email", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            user_id: authData.user.id,
+            user_id: signupResult.userId,
             email: signupData.email,
-            name: authData.user.user_metadata?.display_name || signupData.email.split("@")[0],
+            name: signupData.email.split("@")[0],
           }),
         }).catch(() => {
           console.warn("[AuthModalV2] Failed to send welcome email");
         });
       }
 
-      // Create referral link if applicable
-      if (signupData.referralCode && authData.user) {
-        try {
-          await fetch("/api/consumer/referral/link", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              userId: authData.user.id,
-              referralCode: signupData.referralCode,
-            }),
-          });
-        } catch {
-          // Non-blocking error
-          console.warn("[AuthModalV2] Failed to create referral link");
-        }
-      }
-
-      // Show success screen
-      setStep("success");
+      // Show onboarding for new users
+      setStep("onboarding");
     } catch (err) {
       if (!error) {
         setError("Échec de la vérification");
@@ -386,8 +409,12 @@ export function AuthModalV2({
         return;
       }
 
-      // Otherwise show success
-      setStep("success");
+      // Show onboarding for new users, success for existing
+      if (result.isNewUser) {
+        setStep("onboarding");
+      } else {
+        setStep("success");
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Échec de l'authentification";
       setError(msg);
@@ -395,6 +422,17 @@ export function AuthModalV2({
     } finally {
       setLoading(false);
     }
+  };
+
+  // Phone login success (existing user verified via OTP)
+  const handlePhoneLoginSuccess = (
+    result: { actionLink?: string; isNewUser?: boolean; userId?: string }
+  ) => {
+    if (result.actionLink) {
+      window.location.assign(result.actionLink);
+      return;
+    }
+    finishAuth();
   };
 
   // Render current step
@@ -422,6 +460,7 @@ export function AuthModalV2({
           <LoginScreen
             onBack={() => setStep("choice")}
             onLogin={handleLogin}
+            onPhoneLoginSuccess={handlePhoneLoginSuccess}
             onForgotPassword={() => {
               setError(null);
               setStep("forgot");
@@ -496,6 +535,10 @@ export function AuthModalV2({
               setStep("signup_choice");
             }}
             onSuccess={handlePhoneSignupSuccess}
+            onLoginClick={() => {
+              setError(null);
+              setStep("login");
+            }}
             loading={loading}
             error={error}
             validateReferralCode={handleValidateReferralCode}
@@ -512,10 +555,21 @@ export function AuthModalV2({
             }}
             onVerify={handleVerifyEmailCode}
             onResend={handleResendVerificationCode}
+            onLoginClick={() => {
+              setError(null);
+              setStep("login");
+            }}
             loading={loading}
             error={error}
           />
         ) : null;
+
+      case "onboarding":
+        return (
+          <OnboardingScreen
+            onComplete={() => setStep("success")}
+          />
+        );
 
       case "success":
         return (
@@ -553,10 +607,14 @@ export function AuthModalV2({
         />
       )}
 
-      <Dialog open={isOpen && !showConflictDialog} onOpenChange={(open) => !open && handleClose()}>
+      <Dialog open={isOpen && !showConflictDialog} onOpenChange={(open) => {
+        if (!open && step === "onboarding") return; // Block closing during onboarding
+        if (!open) handleClose();
+      }}>
         <DialogContent
-          className="sm:max-w-md max-h-[90vh] overflow-y-auto p-6"
+          className={`sm:max-w-sm max-h-[90vh] !overflow-visible p-5 ${step === "onboarding" ? "[&>button]:hidden" : ""}`}
           onPointerDownOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => { if (step === "onboarding") e.preventDefault(); }}
         >
           {renderStep()}
 
