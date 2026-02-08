@@ -1098,14 +1098,15 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
         <CardContent className="p-4">
           {/* Camera viewport */}
           <div className="relative aspect-square max-w-md mx-auto bg-slate-900 rounded-lg overflow-hidden">
+            {/* Video element is ALWAYS in the DOM so videoRef is available when startCamera runs */}
+            <video
+              ref={videoRef}
+              className={cn("absolute inset-0 w-full h-full object-cover", scanning ? "block" : "hidden")}
+              playsInline
+              muted
+            />
             {scanning ? (
               <>
-                <video
-                  ref={videoRef}
-                  className="absolute inset-0 w-full h-full object-cover"
-                  playsInline
-                  muted
-                />
                 {/* Scan overlay */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                   <div className="w-64 h-64 border-2 border-white/50 rounded-lg relative">

@@ -334,9 +334,19 @@ export function ProShell({ user, onSignOut }: Props) {
   const lastNotificationsPollIsoRef = useRef<string>(new Date().toISOString());
   const lastNotificationsErrorAtRef = useRef<number>(0);
 
+  // Sync tab with URL param only when establishment changes or on initial load.
+  // navigateToTab already handles setActiveTab + setSearchParams together,
+  // so we do NOT need to react to tabParam changes (doing so causes a race
+  // condition where a click triggers navigateToTab → setSearchParams → tabParam
+  // change → this effect re-fires, sometimes resetting to "dashboard" and
+  // requiring a double-click).
+  const prevSelectedId = useRef(selected?.id);
   useEffect(() => {
-    const next = tabParam && allowedTabs.has(tabParam) ? tabParam : "dashboard";
-    setActiveTab(next);
+    if (prevSelectedId.current !== selected?.id) {
+      prevSelectedId.current = selected?.id;
+      const next = tabParam && allowedTabs.has(tabParam) ? tabParam : "dashboard";
+      setActiveTab(next);
+    }
   }, [allowedTabs, selected?.id, tabParam]);
 
   useEffect(() => {

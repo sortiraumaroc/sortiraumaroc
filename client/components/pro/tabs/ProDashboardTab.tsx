@@ -610,13 +610,23 @@ export function ProDashboardTab({ establishment, user, onNavigateToTab }: Props)
 
   const statusBadge = useMemo(() => {
     const s = establishment.status ?? "";
-    const label = s === "active" ? "Actif" : s === "pending" ? "En modération" : s || "Inconnu";
+    const statusLabels: Record<string, string> = {
+      active: "Actif",
+      pending: "En modération",
+      suspended: "Suspendu",
+      rejected: "Refusé",
+      draft: "Brouillon",
+      inactive: "Inactif",
+    };
+    const label = statusLabels[s] ?? (s || "Inconnu");
     const cls =
       s === "active"
         ? "bg-emerald-100 text-emerald-700 border-emerald-200"
         : s === "pending"
           ? "bg-amber-100 text-amber-700 border-amber-200"
-          : "bg-slate-100 text-slate-700 border-slate-200";
+          : s === "suspended"
+            ? "bg-rose-100 text-rose-700 border-rose-200"
+            : "bg-slate-100 text-slate-700 border-slate-200";
     return { label, cls };
   }, [establishment.status]);
 
@@ -729,14 +739,17 @@ export function ProDashboardTab({ establishment, user, onNavigateToTab }: Props)
           title="Statut établissement"
           value={statusBadge.label}
           icon={BadgeCheck}
-          tone={establishment.status === "active" ? "emerald" : establishment.status === "pending" ? "amber" : "slate"}
-          valueClassName={
+          tone={establishment.status === "active" ? "emerald" : establishment.status === "pending" ? "amber" : establishment.status === "suspended" ? "rose" : "slate"}
+          valueClassName={cn(
+            "!text-base sm:!text-lg md:!text-xl",
             establishment.status === "active"
               ? "text-emerald-800"
               : establishment.status === "pending"
                 ? "text-amber-800"
-                : "text-slate-800"
-          }
+                : establishment.status === "suspended"
+                  ? "text-rose-700"
+                  : "text-slate-800"
+          )}
           meta={!loadingMetrics ? <TrendPillFromTrend trend={statusTrend} /> : null}
           metaPosition="inline"
           footnote={periodLabel}
