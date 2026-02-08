@@ -43,6 +43,7 @@ import { isAuthed, openAuthModal } from "@/lib/auth";
 import { useScrollContext } from "@/lib/scrollContext";
 import { saveNavigationState, buildNavigationDescription } from "@/lib/navigationState";
 import { useDebounce } from "@/hooks/useDebounce";
+import { useDetectedCity } from "@/hooks/useDetectedCity";
 import { getFavorites, addFavorite, removeFavorite, type FavoriteItem } from "@/lib/userData";
 
 const parseSlotLabel = (
@@ -731,7 +732,7 @@ export default function Results() {
   }, []);
 
   const [filters, setFilters] = useState({
-    city: "Marrakech",
+    city: "",
     date: "",
     time: "",
     guests: "2",
@@ -753,7 +754,21 @@ export default function Results() {
     navigate(`/results?${next.toString()}`);
   };
 
-  const [selectedCity, setSelectedCity] = useState(() => readSearchState(universeKey).city ?? "Marrakech");
+  const [selectedCity, setSelectedCity] = useState(() => readSearchState(universeKey).city ?? "");
+  const [cityManuallySet, setCityManuallySet] = useState(() => {
+    // If there's already a city stored, consider it as manually set
+    return !!readSearchState(universeKey).city;
+  });
+
+  // Auto-detect city via geolocation
+  const { status: detectedCityStatus, city: detectedCity } = useDetectedCity(true);
+
+  useEffect(() => {
+    if (detectedCityStatus === "detected" && detectedCity && !cityManuallySet) {
+      setSelectedCity(detectedCity);
+    }
+  }, [detectedCityStatus, detectedCity, cityManuallySet]);
+
   const [selectedDate, setSelectedDate] = useState(() => readSearchState(universeKey).date ?? "");
   const [selectedTime, setSelectedTime] = useState(() => readSearchState(universeKey).time ?? "");
 
@@ -773,7 +788,7 @@ export default function Results() {
 
   useEffect(() => {
     const stored = readSearchState(universeKey);
-    setSelectedCity(stored.city ?? "Marrakech");
+    setSelectedCity(stored.city ?? "");
     setSelectedDate(stored.date ?? "");
     setSelectedTime(stored.time ?? "");
     setSelectedPrestation(stored.typeValue ?? "");
@@ -833,6 +848,12 @@ export default function Results() {
       },
     });
   }, [searchParams, universe, selectedCity, promotionsOnly, sortMode, selectedDate, selectedTime, filterPersonsValue, t]);
+
+  const handleCityChange = useCallback((city: string) => {
+    setSelectedCity(city);
+    setCityManuallySet(true);
+    setFilters((prev) => ({ ...prev, city }));
+  }, []);
 
   const requestUserLocation = useCallback(() => {
     if (!navigator.geolocation) {
@@ -1287,10 +1308,7 @@ export default function Results() {
           <>
             <CityInput
               value={selectedCity}
-              onChange={(value) => {
-                setSelectedCity(value);
-                setFilters({ ...filters, city: value });
-              }}
+              onChange={handleCityChange}
               className={cityClass}
             />
             <DatePickerInput
@@ -1318,10 +1336,7 @@ export default function Results() {
           <>
             <CityInput
               value={selectedCity}
-              onChange={(value) => {
-                setSelectedCity(value);
-                setFilters({ ...filters, city: value });
-              }}
+              onChange={handleCityChange}
               className={cityClass}
             />
             <DatePickerInput
@@ -1349,10 +1364,7 @@ export default function Results() {
           <>
             <CityInput
               value={selectedCity}
-              onChange={(value) => {
-                setSelectedCity(value);
-                setFilters({ ...filters, city: value });
-              }}
+              onChange={handleCityChange}
               className={cityClass}
             />
             <DatePickerInput
@@ -1380,10 +1392,7 @@ export default function Results() {
           <>
             <CityInput
               value={selectedCity}
-              onChange={(value) => {
-                setSelectedCity(value);
-                setFilters({ ...filters, city: value });
-              }}
+              onChange={handleCityChange}
               className={cityClass}
             />
             <DatePickerInput value={selectedCheckInDate} onChange={setSelectedCheckInDate} className={dateClass} />
@@ -1407,10 +1416,7 @@ export default function Results() {
           <>
             <CityInput
               value={selectedCity}
-              onChange={(value) => {
-                setSelectedCity(value);
-                setFilters({ ...filters, city: value });
-              }}
+              onChange={handleCityChange}
               className={cityClass}
             />
             <DatePickerInput
@@ -2320,10 +2326,7 @@ export default function Results() {
         isOpen={showCityBottomSheet}
         onClose={() => setShowCityBottomSheet(false)}
         selectedCity={selectedCity}
-        onSelectCity={(city, cityId) => {
-          setSelectedCity(city);
-          setFilters((prev) => ({ ...prev, city }));
-        }}
+        onSelectCity={(city) => handleCityChange(city)}
       />
     </div>
   );

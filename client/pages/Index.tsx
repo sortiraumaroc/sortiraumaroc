@@ -835,17 +835,19 @@ export default function Home() {
   // Détection automatique de la ville de l'utilisateur
   const { city: detectedCity, coordinates: detectedCoordinates, status: detectedCityStatus } = useDetectedCity(true);
 
-  // Unified search state - utilise la ville sauvegardée, ou la ville détectée si disponible
+  // Unified search state - utilise la ville sauvegardée en attendant la géolocalisation
   const [searchCity, setSearchCity] = useState(() => selectedCity ?? "");
   const [searchQuery, setSearchQuery] = useState("");
+  // Track whether city was manually changed by user (not by geolocation)
+  const [cityManuallySet, setCityManuallySet] = useState(false);
 
   // Mettre à jour la ville de recherche quand la détection est terminée
-  // (seulement si aucune ville n'est déjà sélectionnée)
+  // La géolocalisation prime toujours sauf si l'utilisateur a manuellement changé la ville
   useEffect(() => {
-    if (detectedCityStatus === "detected" && detectedCity && !searchCity) {
+    if (detectedCityStatus === "detected" && detectedCity && !cityManuallySet) {
       setSearchCity(detectedCity);
     }
-  }, [detectedCityStatus, detectedCity, searchCity]);
+  }, [detectedCityStatus, detectedCity, cityManuallySet]);
 
   // Mettre à jour userLocation quand on détecte les coordonnées
   useEffect(() => {
@@ -853,6 +855,12 @@ export default function Home() {
       setUserLocation(detectedCoordinates);
     }
   }, [detectedCoordinates, userLocation]);
+
+  // Quand l'utilisateur change manuellement la ville
+  const handleCityChange = useCallback((city: string) => {
+    setSearchCity(city);
+    setCityManuallySet(true);
+  }, []);
 
   const handleUnifiedSearch = useCallback(
     (params: { city: string; query: string; category?: string }) => {
@@ -1193,7 +1201,7 @@ export default function Home() {
         <div ref={mobileSearchFormRef} className="px-4 pb-8">
           <UnifiedSearchInput
             city={searchCity}
-            onCityChange={setSearchCity}
+            onCityChange={handleCityChange}
             query={searchQuery}
             onQueryChange={setSearchQuery}
             universe={selectedUniverse}
@@ -1256,7 +1264,7 @@ export default function Home() {
           <div ref={desktopSearchFormRef} className="mx-auto max-w-5xl">
             <UnifiedSearchInput
               city={searchCity}
-              onCityChange={setSearchCity}
+              onCityChange={handleCityChange}
               query={searchQuery}
               onQueryChange={setSearchQuery}
               universe={selectedUniverse}

@@ -152,22 +152,25 @@ export function useDetectedCity(autoDetect: boolean = true): UseDetectedCityResu
       return;
     }
 
-    // Vérifier si la permission est déjà accordée
+    // Vérifier si la permission est déjà accordée ou demandable
     if (navigator.permissions) {
       navigator.permissions
         .query({ name: "geolocation" as PermissionName })
         .then((result) => {
-          if (result.state === "granted") {
-            // Permission déjà accordée, détecter automatiquement
+          if (result.state === "granted" || result.state === "prompt") {
+            // Permission accordée ou demandable → détecter automatiquement
             detect();
           } else if (result.state === "denied") {
             setStatus("denied");
           }
-          // Si "prompt", on attend que l'utilisateur clique sur "Autour de moi"
         })
         .catch(() => {
-          // API permissions non supportée, ne rien faire
+          // API permissions non supportée, tenter quand même la détection
+          detect();
         });
+    } else {
+      // Pas d'API permissions → tenter directement
+      detect();
     }
   }, [autoDetect, detect]);
 
