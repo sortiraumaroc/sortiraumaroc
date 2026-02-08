@@ -4964,12 +4964,18 @@ export async function requestProPasswordReset(): Promise<{ ok: true }> {
 /**
  * Change the password for the currently authenticated Pro user.
  * Requires the current password for verification.
+ * After a successful password change, re-authenticates with the new password
+ * to keep the session valid (since Supabase invalidates sessions on password change).
  */
 export async function changeProPassword(args: {
   currentPassword: string;
   newPassword: string;
 }): Promise<{ ok: true }> {
   const token = await requireProAccessToken();
+
+  // Get current user email for re-authentication after password change
+  const { data: { user } } = await proSupabase.auth.getUser();
+  const email = user?.email;
 
   const res = await fetch(apiUrl("/api/pro/me/change-password"), {
     method: "POST",
@@ -4994,6 +5000,19 @@ export async function changeProPassword(args: {
       throw new Error("Session Pro expirée. Veuillez vous reconnecter.");
     }
     throw new Error(msg);
+  }
+
+  // Re-authenticate with the new password to refresh the session.
+  // admin.updateUserById invalidates existing sessions, so we need a fresh one.
+  if (email) {
+    try {
+      await proSupabase.auth.signInWithPassword({
+        email,
+        password: args.newPassword,
+      });
+    } catch {
+      // If re-auth fails, the user will just be redirected to login which is fine
+    }
   }
 
   return { ok: true };

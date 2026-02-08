@@ -544,11 +544,23 @@ export const changePassword: RequestHandler = async (req, res) => {
     return res.status(400).json({ error: "Le nouveau mot de passe doit contenir au moins 6 caractères" });
   }
 
-  const supabase = getAdminSupabase();
+  const adminSupabase = getAdminSupabase();
 
   try {
-    // Verify current password by attempting to sign in
-    const { error: signInError } = await supabase.auth.signInWithPassword({
+    // Verify current password by attempting to sign in using a SEPARATE
+    // Supabase client so we don't pollute the admin singleton's auth state.
+    // Using signInWithPassword on the shared admin client changes its internal
+    // auth context from service_role to the user session, which causes
+    // subsequent .from() calls to run under RLS as the user instead of admin,
+    // potentially blocking the must_change_password update.
+    const { createClient } = await import("@supabase/supabase-js");
+    const tempClient = createClient(
+      process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "",
+      process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "",
+      { auth: { persistSession: false, autoRefreshToken: false } }
+    );
+
+    const { error: signInError } = await tempClient.auth.signInWithPassword({
       email,
       password: currentPassword,
     });
@@ -557,8 +569,11 @@ export const changePassword: RequestHandler = async (req, res) => {
       return res.status(400).json({ error: "Le mot de passe actuel est incorrect" });
     }
 
+    // Sign out the temp client immediately to clean up
+    await tempClient.auth.signOut().catch(() => {});
+
     // Update password using admin API
-    const { error: updateError } = await supabase.auth.admin.updateUserById(
+    const { error: updateError } = await adminSupabase.auth.admin.updateUserById(
       user.id,
       { password: newPassword }
     );
@@ -574,11 +589,16 @@ export const changePassword: RequestHandler = async (req, res) => {
       return res.status(500).json({ error: "Impossible de changer le mot de passe" });
     }
 
-    // Clear the must_change_password flag if it exists
-    await supabase
+    // Clear the must_change_password flag using the admin client (service_role)
+    const { error: flagError } = await adminSupabase
       .from("pro_profiles")
       .update({ must_change_password: false, updated_at: new Date().toISOString() })
       .eq("user_id", user.id);
+
+    if (flagError) {
+      // Log but don't fail — password was already changed successfully
+      console.error("[changePassword] Failed to clear must_change_password flag:", flagError);
+    }
 
     res.json({ ok: true });
   } catch (e) {
