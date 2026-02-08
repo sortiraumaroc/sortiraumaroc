@@ -276,13 +276,14 @@ export function AuthModalV2({
 
     setLoading(true);
     setError(null);
+    let hasSpecificError = false;
 
     try {
       // Verify code matches (client-side check)
       if (code !== signupData.expectedCode) {
         setError("Code incorrect");
-        setLoading(false);
-        throw new Error("Invalid code");
+        hasSpecificError = true;
+        return; // Exit early, finally will set loading to false
       }
 
       // Step 1: Verify code on the server
@@ -295,7 +296,8 @@ export function AuthModalV2({
       if (!verifyRes.ok) {
         const verifyData = await verifyRes.json().catch(() => ({}));
         setError(verifyData.error || "Code incorrect");
-        throw new Error(verifyData.error || "Code verification failed");
+        hasSpecificError = true;
+        return;
       }
 
       // Step 2: Create account via server endpoint (bypasses Supabase confirmation email)
@@ -317,7 +319,8 @@ export function AuthModalV2({
         } else {
           setError(signupResult.error || "Échec de l'inscription");
         }
-        throw new Error(signupResult.error || "Signup failed");
+        hasSpecificError = true;
+        return;
       }
 
       // Mark email as verified
@@ -357,10 +360,11 @@ export function AuthModalV2({
       setSignupAuthMethod("email");
       setStep("onboarding");
     } catch (err) {
-      if (!error) {
+      // Only set generic error if no specific error was already set
+      if (!hasSpecificError) {
         setError("Échec de la vérification");
       }
-      throw err;
+      console.error("[AuthModalV2] Verification error:", err);
     } finally {
       setLoading(false);
     }
