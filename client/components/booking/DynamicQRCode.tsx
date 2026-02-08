@@ -1,8 +1,7 @@
 /**
- * Dynamic QR Code Component
- * Displays a QR code that changes every 30 seconds using TOTP
- *
- * Used for secure check-in at establishments
+ * @deprecated This component is no longer used.
+ * The personal TOTP QR code is now displayed via /mon-qr (MyQRCodePage).
+ * Kept for backward compatibility but should not be used in new code.
  */
 
 import { useCallback, useEffect, useState, useRef } from "react";

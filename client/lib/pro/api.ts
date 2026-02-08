@@ -2916,6 +2916,59 @@ export async function scanProQrCode(args: {
   return payload as unknown;
 }
 
+/**
+ * Check in a reservation using userId (from personal QR scan)
+ */
+export async function checkinByUserId(args: {
+  establishmentId: string;
+  userId: string;
+  reservationId: string;
+}): Promise<{
+  ok: boolean;
+  result: "accepted" | "rejected";
+  reason: string;
+  message: string;
+  reservation?: Record<string, unknown>;
+}> {
+  const token = await requireProAccessToken();
+
+  const res = await fetch(
+    `/api/pro/establishments/${encodeURIComponent(args.establishmentId)}/checkin-by-user`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        userId: args.userId,
+        reservationId: args.reservationId,
+      }),
+    },
+  );
+
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg =
+      isRecord(payload) && typeof payload.error === "string"
+        ? payload.error
+        : `HTTP ${res.status}`;
+    if (res.status === 401 && isStaleProAuthError(msg)) {
+      await resetProAuth();
+      throw new Error("Session Pro expirée. Veuillez vous reconnecter.");
+    }
+    throw new Error(msg);
+  }
+
+  return payload as {
+    ok: boolean;
+    result: "accepted" | "rejected";
+    reason: string;
+    message: string;
+    reservation?: Record<string, unknown>;
+  };
+}
+
 export async function listProPackBilling(
   establishmentId: string,
 ): Promise<{ ok: true; purchases: unknown[]; redemptions: unknown[] }> {

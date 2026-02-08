@@ -11,7 +11,8 @@ export interface ReservationPdfData {
   guestPhone: string;
   guestEmail?: string;
   reservationMode: "guaranteed" | "non-guaranteed";
-  qrCodeUrl: string;
+  /** @deprecated QR code is no longer embedded in the PDF. Kept for backward compatibility. */
+  qrCodeUrl?: string;
   unitPrepayMad?: number;
   totalPrepayMad?: number;
   message?: string;
@@ -65,11 +66,8 @@ export const generateReservationPDF = async (data: ReservationPdfData): Promise<
         <!-- Main content card -->
         <div style="background: white; border: 1px solid #e5e5e5; border-top: none; padding: 20px;">
 
-          <!-- Two column layout: Info + QR -->
-          <div style="display: flex; gap: 16px; margin-bottom: 16px;">
-
-            <!-- Left: Restaurant & Details -->
-            <div style="flex: 1;">
+          <!-- Restaurant & Details -->
+          <div style="margin-bottom: 16px;">
               <div style="margin-bottom: 14px;">
                 <p style="font-size: 10px; color: #888; margin: 0 0 2px 0; text-transform: uppercase; letter-spacing: 0.5px;">Restaurant</p>
                 <p style="font-size: 14px; font-weight: 600; color: #1a1a1a; margin: 0;">${data.restaurantName}</p>
@@ -94,15 +92,13 @@ export const generateReservationPDF = async (data: ReservationPdfData): Promise<
                   <p style="font-size: 12px; font-weight: 600; color: #1a1a1a; margin: 2px 0 0 0;">${data.service}</p>
                 </div>
               </div>
-            </div>
 
-            <!-- Right: QR Code -->
-            <div style="text-align: center; flex-shrink: 0;">
-              <div style="background: white; border: 2px solid #e5e5e5; border-radius: 8px; padding: 8px;">
-                <img src="${data.qrCodeUrl}" alt="QR Code" style="width: 100px; height: 100px; display: block;">
+              <!-- QR notice -->
+              <div style="margin-top: 12px; background: #fff7f8; border: 1px solid #ffd6dc; border-radius: 8px; padding: 10px 14px; text-align: center;">
+                <p style="margin: 0; font-size: 12px; color: #a3001d; font-weight: 600; line-height: 1.5;">
+                  \u{1F4F1} Pr\u00e9sentez votre QR code personnel dans l\u2019application Sortir Au Maroc pour valider votre r\u00e9servation.
+                </p>
               </div>
-              <p style="font-size: 8px; color: #888; margin: 4px 0 0 0;">Scanner à l'arrivée</p>
-            </div>
           </div>
 
           <!-- Reference badge -->

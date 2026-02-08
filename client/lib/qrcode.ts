@@ -27,6 +27,9 @@ export type PackQrMeta = {
   totalMad?: number;
 };
 
+/**
+ * @deprecated Use personal TOTP QR code instead
+ */
 export const generateBookingQRPayload = (bookingReference: string, meta?: BookingQrMeta): string => {
   const ref = String(bookingReference ?? "").trim();
   const parts: string[] = [`ref=${ref}`];
@@ -44,12 +47,16 @@ export const generateBookingQRPayload = (bookingReference: string, meta?: Bookin
 
 /**
  * Get complete QR code image URL for a booking
+ * @deprecated Use personal TOTP QR code via /mon-qr instead
  */
 export const getBookingQRCodeUrl = (bookingReference: string, meta?: BookingQrMeta): string => {
   const payload = generateBookingQRPayload(bookingReference, meta);
   return generateQRCode(payload);
 };
 
+/**
+ * @deprecated Use personal TOTP QR code instead
+ */
 export const generatePackQRPayload = (purchaseId: string, meta?: PackQrMeta): string => {
   const ref = String(purchaseId ?? "").trim();
   const parts: string[] = [`ref=${ref}`];
@@ -70,6 +77,9 @@ export const generatePackQRPayload = (purchaseId: string, meta?: PackQrMeta): st
   return `SAMPACK:${parts.join("|")}`;
 };
 
+/**
+ * @deprecated Use personal TOTP QR code via /mon-qr instead
+ */
 export const getPackQRCodeUrl = (purchaseId: string, meta?: PackQrMeta): string => {
   const payload = generatePackQRPayload(purchaseId, meta);
   return generateQRCode(payload);

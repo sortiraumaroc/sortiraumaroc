@@ -1,11 +1,10 @@
 import { useEffect } from "react";
-import { Calendar, ChevronRight, Clock, Download, MapPin, Users } from "lucide-react";
+import { Calendar, ChevronRight, Clock, Download, MapPin, QrCode, Users } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { useBooking } from "@/hooks/useBooking";
 import { getHotelById } from "@/lib/hotels";
-import { getBookingQRCodeUrl } from "@/lib/qrcode";
 import { getBookingRecordById, upsertBookingRecord } from "@/lib/userData";
 
 function formatRange(checkIn: Date | null, checkOut: Date | null): string {
@@ -46,8 +45,6 @@ export default function Step4HotelConfirmation() {
   useEffect(() => {
     if (!bookingReference) setBookingReference(generateBookingReference());
   }, [bookingReference, generateBookingReference, setBookingReference]);
-
-  const qrCodeUrl = bookingReference ? getBookingQRCodeUrl(bookingReference) : "";
 
   useEffect(() => {
     if (!bookingReference) return;
@@ -144,15 +141,17 @@ export default function Step4HotelConfirmation() {
         ) : null}
       </div>
 
-      {qrCodeUrl ? (
-        <div className="bg-primary/5 border-2 border-primary/20 rounded-lg p-4 text-center">
-          <p className="text-xs text-slate-600 mb-3 font-semibold">Code QR</p>
-          <div className="flex justify-center mb-3">
-            <img src={qrCodeUrl} alt="Booking QR Code" className="w-40 h-40 border-2 border-white rounded" />
-          </div>
-          <p className="text-xs text-slate-600">À présenter à l’arrivée si nécessaire</p>
-        </div>
-      ) : null}
+      <div className="bg-primary/5 border-2 border-primary/20 rounded-lg p-4 text-center">
+        <p className="text-xs text-slate-600 mb-3 font-semibold">Code QR</p>
+        <a
+          href="/mon-qr"
+          className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-lg font-semibold hover:bg-primary/90 transition-colors"
+        >
+          <QrCode className="w-5 h-5" />
+          Voir mon QR code
+        </a>
+        <p className="text-xs text-slate-600 mt-2">Présentez votre QR code personnel à l'arrivée</p>
+      </div>
 
       <div className="space-y-3">
         <Button

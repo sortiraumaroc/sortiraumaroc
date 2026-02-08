@@ -5097,6 +5097,143 @@ export const scanProQrCode: RequestHandler = async (req, res) => {
   return finalize({ result: "accepted", reason: "ok", message: "Validation acceptée" });
 };
 
+// ============================================================================
+// POST /api/pro/establishments/:establishmentId/checkin-by-user
+// Check in a reservation using userId (from personal QR scan)
+// ============================================================================
+export const checkinByUserId: RequestHandler = async (req, res) => {
+  const establishmentId = typeof req.params.establishmentId === "string" ? req.params.establishmentId : "";
+  if (!establishmentId) return res.status(400).json({ error: "establishmentId is required" });
+
+  const token = parseBearerToken(req.header("authorization") ?? undefined);
+  if (!token) return res.status(401).json({ error: "Missing bearer token" });
+
+  const userResult = await getUserFromBearerToken(token);
+  if (userResult.ok === false) return res.status(userResult.status).json({ error: userResult.error });
+
+  const permission = await ensureCanManageReservations({ establishmentId, userId: userResult.user.id });
+  if (permission.ok === false) return res.status(permission.status).json({ error: permission.error });
+
+  if (!isRecord(req.body)) return res.status(400).json({ error: "Invalid body" });
+
+  const targetUserId = asString(req.body.userId);
+  const reservationId = asString(req.body.reservationId);
+  if (!targetUserId) return res.status(400).json({ error: "userId is required" });
+  if (!reservationId) return res.status(400).json({ error: "reservationId is required" });
+
+  const supabase = getAdminSupabase();
+
+  // Look up the specific reservation
+  const { data: reservation, error: resErr } = await supabase
+    .from("reservations")
+    .select("id, booking_reference, status, payment_status, amount_deposit, checked_in_at, starts_at, party_size, user_id")
+    .eq("id", reservationId)
+    .eq("user_id", targetUserId)
+    .eq("establishment_id", establishmentId)
+    .maybeSingle();
+
+  if (resErr) return res.status(500).json({ error: resErr.message });
+
+  const r = reservation as {
+    id: string;
+    booking_reference: string | null;
+    status: string | null;
+    payment_status: string | null;
+    amount_deposit: number | null;
+    checked_in_at: string | null;
+    starts_at: string | null;
+    party_size: number | null;
+    user_id: string;
+  } | null;
+
+  if (!r?.id) return res.status(404).json({ error: "Réservation introuvable pour cet utilisateur" });
+
+  // Already checked in?
+  if (r.checked_in_at) {
+    return res.json({
+      ok: true,
+      result: "rejected",
+      reason: "already_checked_in",
+      message: "Déjà validé",
+      reservation: r,
+    });
+  }
+
+  // Must be confirmed
+  if ((r.status ?? "") !== "confirmed") {
+    return res.json({
+      ok: true,
+      result: "rejected",
+      reason: "not_confirmed",
+      message: "Réservation non confirmée",
+      reservation: r,
+    });
+  }
+
+  // If guaranteed, must be paid
+  const deposit = typeof r.amount_deposit === "number" && Number.isFinite(r.amount_deposit) ? r.amount_deposit : 0;
+  if (deposit > 0 && (r.payment_status ?? "") !== "paid") {
+    return res.json({
+      ok: true,
+      result: "rejected",
+      reason: "unpaid",
+      message: "Réservation garantie non payée",
+      reservation: r,
+    });
+  }
+
+  const nowIso = new Date().toISOString();
+
+  // Insert scan log
+  await supabase
+    .from("qr_scan_logs")
+    .insert({
+      establishment_id: establishmentId,
+      reservation_id: r.id,
+      booking_reference: r.booking_reference,
+      payload: JSON.stringify({ source: "checkin_by_user", userId: targetUserId }),
+      scanned_by_user_id: userResult.user.id,
+      scanned_at: nowIso,
+      holder_name: null,
+      result: "accepted",
+    });
+
+  // Check in the reservation
+  await supabase
+    .from("reservations")
+    .update({ checked_in_at: nowIso })
+    .eq("id", r.id)
+    .eq("establishment_id", establishmentId);
+
+  // Reliability stats: check-in improves reliability
+  try {
+    if (targetUserId) {
+      await recomputeConsumerUserStatsV1({ supabase, userId: targetUserId });
+    }
+  } catch {
+    // ignore
+  }
+
+  // Finance pipeline: check-in triggers settlement
+  try {
+    const actor = { userId: userResult.user.id, role: `pro:${permission.role}` };
+    await settleEscrowForReservation({ reservationId: r.id, actor, reason: "checkin" });
+  } catch (e) {
+    console.error("finance pipeline failed (pro.checkinByUser)", e);
+  }
+
+  return res.json({
+    ok: true,
+    result: "accepted",
+    reason: "ok",
+    message: "Entrée validée ✓",
+    reservation: {
+      ...r,
+      checked_in_at: nowIso,
+    },
+  });
+};
+
 export const listProPackBilling: RequestHandler = async (req, res) => {
   const establishmentId = typeof req.params.establishmentId === "string" ? req.params.establishmentId : "";
   if (!establishmentId) return res.status(400).json({ error: "establishmentId is required" });

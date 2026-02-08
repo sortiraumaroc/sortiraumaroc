@@ -695,6 +695,7 @@ import {
   listProReservations,
   listProWaitlist,
   scanProQrCode,
+  checkinByUserId,
   sendProWaitlistOffer,
   seedDemoProInventory,
   seedFakeReservations,
@@ -2165,6 +2166,7 @@ export function createServer() {
   );
 
   app.post("/api/pro/establishments/:establishmentId/qr/scan", scanProQrCode);
+  app.post("/api/pro/establishments/:establishmentId/checkin-by-user", checkinByUserId);
   app.get(
     "/api/pro/establishments/:establishmentId/qr/logs",
     listProQrScanLogs,

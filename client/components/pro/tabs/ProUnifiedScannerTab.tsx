@@ -47,7 +47,7 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
-import { listProQrScanLogs, scanProQrCode } from "@/lib/pro/api";
+import { listProQrScanLogs, scanProQrCode, checkinByUserId } from "@/lib/pro/api";
 import { ScannerLoyaltyPanel } from "@/components/loyalty/ScannerLoyaltyPanel";
 import { downloadQrScanLogsCsv, downloadQrScanLogsPdf } from "@/lib/pro/qrScansExport";
 import type { Establishment, ProRole } from "@/lib/pro/types";
@@ -100,6 +100,29 @@ interface ConsumerUserInfo {
   memberSince: string;
 }
 
+interface MemberReservationInfo {
+  id: string;
+  bookingReference: string | null;
+  status: string | null;
+  paymentStatus: string | null;
+  startsAt: string | null;
+  partySize: number | null;
+  checkedInAt: string | null;
+  kind: string | null;
+}
+
+interface MemberPackInfo {
+  id: string;
+  packId: string | null;
+  title: string | null;
+  quantity: number;
+  totalPrice: number | null;
+  currency: string | null;
+  status: string | null;
+  validFrom: string | null;
+  validUntil: string | null;
+}
+
 interface MemberValidationResult {
   ok: boolean;
   valid: boolean;
@@ -107,6 +130,8 @@ interface MemberValidationResult {
   message: string;
   userId?: string;
   userInfo?: ConsumerUserInfo | null;
+  reservations?: MemberReservationInfo[];
+  packs?: MemberPackInfo[];
 }
 
 // ============================================================================
@@ -305,7 +330,7 @@ async function validateMemberQRCode(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       establishmentId,
-      qrPayload,
+      qrString: qrPayload,
     }),
   });
 
@@ -314,19 +339,109 @@ async function validateMemberQRCode(
     throw new Error(errorData.error || "Erreur de validation");
   }
 
-  return response.json();
+  const data = await response.json();
+
+  // Map server response to MemberValidationResult
+  return {
+    ok: data.ok,
+    valid: data.result === "accepted",
+    reason: data.reason,
+    message: data.message,
+    userId: data.user?.id,
+    userInfo: data.user
+      ? {
+          userId: data.user.id,
+          userName: data.user.name ?? "Utilisateur",
+          reliabilityLevel: data.user.reliabilityLevel ?? "standard",
+          reliabilityScore: data.user.reliabilityScore ?? 100,
+          totalReservations: data.user.reservationsCount ?? 0,
+          noShowCount: data.user.noShowsCount ?? 0,
+          lastActivityAt: data.user.lastActivity ?? null,
+          memberSince: data.user.memberSince ?? "",
+        }
+      : null,
+    reservations: data.reservations ?? [],
+    packs: data.packs ?? [],
+  };
 }
 
 // ============================================================================
 // User Info Card Component
 // ============================================================================
 
-function UserInfoCard({ userInfo, onClose }: { userInfo: ConsumerUserInfo; onClose: () => void }) {
+function formatTime(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return "";
+  return d.toLocaleTimeString("fr-MA", { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatShortDate(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return "";
+  return d.toLocaleDateString("fr-MA", { day: "numeric", month: "short" });
+}
+
+function ReservationStatusBadge({ reservation }: { reservation: MemberReservationInfo }) {
+  if (reservation.checkedInAt) {
+    return <Badge className="bg-slate-100 text-slate-600">Déjà validé</Badge>;
+  }
+  if (reservation.status === "confirmed") {
+    return <Badge className="bg-emerald-100 text-emerald-700">Réservation valide</Badge>;
+  }
+  if (reservation.status === "cancelled") {
+    return <Badge className="bg-red-100 text-red-700">Annulée</Badge>;
+  }
+  return <Badge className="bg-amber-100 text-amber-700">{reservation.status ?? "En attente"}</Badge>;
+}
+
+function UserInfoCard({
+  userInfo,
+  reservations,
+  packs,
+  establishmentId,
+  onClose,
+  onCheckinDone,
+}: {
+  userInfo: ConsumerUserInfo;
+  reservations: MemberReservationInfo[];
+  packs: MemberPackInfo[];
+  establishmentId: string;
+  onClose: () => void;
+  onCheckinDone?: () => void;
+}) {
   const reliability = getReliabilityBadge(userInfo.reliabilityLevel);
+  const [checkingIn, setCheckingIn] = useState<string | null>(null);
+  const [checkinError, setCheckinError] = useState<string | null>(null);
+  const [checkedInIds, setCheckedInIds] = useState<Set<string>>(new Set());
+
+  const handleCheckin = async (reservationId: string) => {
+    setCheckingIn(reservationId);
+    setCheckinError(null);
+    try {
+      const result = await checkinByUserId({
+        establishmentId,
+        userId: userInfo.userId,
+        reservationId,
+      });
+      if (result.result === "accepted") {
+        setCheckedInIds((prev) => new Set(prev).add(reservationId));
+        onCheckinDone?.();
+      } else {
+        setCheckinError(result.message);
+      }
+    } catch (err) {
+      setCheckinError(err instanceof Error ? err.message : "Erreur de check-in");
+    } finally {
+      setCheckingIn(null);
+    }
+  };
 
   return (
     <Card className="border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 to-white">
       <CardContent className="p-4 space-y-4">
+        {/* User identity */}
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
             <div className="h-14 w-14 rounded-full bg-emerald-100 flex items-center justify-center">
@@ -345,6 +460,7 @@ function UserInfoCard({ userInfo, onClose }: { userInfo: ConsumerUserInfo; onClo
           </Button>
         </div>
 
+        {/* Stats grid */}
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-white rounded-lg p-3 border">
             <div className="flex items-center gap-2 text-slate-500 text-xs mb-1">
@@ -370,6 +486,105 @@ function UserInfoCard({ userInfo, onClose }: { userInfo: ConsumerUserInfo; onClo
           </div>
         </div>
 
+        {/* ── Reservations section ── */}
+        <div className="space-y-2">
+          <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+            <Ticket className="h-4 w-4" />
+            Réservation du jour
+          </h4>
+          {reservations.length === 0 ? (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700 flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              Pas de réservation aujourd'hui
+            </div>
+          ) : (
+            reservations.map((r) => {
+              const isCheckedIn = r.checkedInAt || checkedInIds.has(r.id);
+              const canCheckIn = r.status === "confirmed" && !isCheckedIn;
+              return (
+                <div key={r.id} className="bg-white border rounded-lg p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-slate-400" />
+                      <span className="font-semibold">{formatTime(r.startsAt)}</span>
+                      {r.startsAt && <span className="text-xs text-slate-400">{formatShortDate(r.startsAt)}</span>}
+                    </div>
+                    <ReservationStatusBadge reservation={isCheckedIn ? { ...r, checkedInAt: "done" } : r} />
+                  </div>
+                  <div className="flex items-center gap-4 text-sm text-slate-600">
+                    {r.partySize && (
+                      <span className="flex items-center gap-1">
+                        <User className="h-3.5 w-3.5" />
+                        {r.partySize} pers.
+                      </span>
+                    )}
+                    {r.bookingReference && (
+                      <span className="font-mono text-xs text-slate-400">
+                        Réf: {r.bookingReference}
+                      </span>
+                    )}
+                  </div>
+                  {canCheckIn && (
+                    <Button
+                      size="sm"
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
+                      disabled={checkingIn === r.id}
+                      onClick={() => handleCheckin(r.id)}
+                    >
+                      {checkingIn === r.id ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Validation...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="h-4 w-4" />
+                          Valider l'entrée
+                        </>
+                      )}
+                    </Button>
+                  )}
+                  {isCheckedIn && !r.checkedInAt && (
+                    <div className="flex items-center gap-2 text-emerald-600 text-sm font-medium">
+                      <CheckCircle2 className="h-4 w-4" />
+                      Entrée validée
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+          {checkinError && (
+            <div className="text-sm text-red-600 bg-red-50 rounded-lg p-2">
+              {checkinError}
+            </div>
+          )}
+        </div>
+
+        {/* ── Packs section ── */}
+        {packs.length > 0 && (
+          <div className="space-y-2">
+            <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+              <Package className="h-4 w-4" />
+              Packs actifs
+            </h4>
+            {packs.map((p) => (
+              <div key={p.id} className="bg-white border rounded-lg p-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-sm">{p.title ?? "Pack"}</span>
+                  <Badge className="bg-purple-100 text-purple-700">Actif</Badge>
+                </div>
+                <div className="flex items-center gap-4 text-xs text-slate-500 mt-1">
+                  <span>Qté: {p.quantity}</span>
+                  {p.totalPrice != null && <span>{p.totalPrice} {p.currency ?? "MAD"}</span>}
+                  {p.validUntil && <span>Expire: {formatShortDate(p.validUntil)}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Meta info */}
         <div className="space-y-2 text-sm">
           <div className="flex items-center justify-between py-2 border-b">
             <span className="text-slate-500 flex items-center gap-2">
@@ -409,28 +624,36 @@ function ScanResultOverlay({
   qrType,
   userInfo,
   reservationInfo,
+  memberReservations,
+  memberPacks,
+  establishmentId,
   onDismiss,
 }: {
   result: { success: boolean; message: string };
   qrType: QRCodeType;
   userInfo: ConsumerUserInfo | null;
   reservationInfo: ScanResultPayload["reservation"] | null;
+  memberReservations: MemberReservationInfo[];
+  memberPacks: MemberPackInfo[];
+  establishmentId: string;
   onDismiss: () => void;
 }) {
   const typeInfo = getQRTypeLabel(qrType);
 
+  // Don't auto-dismiss for member scans (they have actionable content)
   useEffect(() => {
+    if (qrType === "member" && result.success) return; // Manual dismiss only
     const timer = setTimeout(onDismiss, 4000);
     return () => clearTimeout(timer);
-  }, [onDismiss]);
+  }, [onDismiss, qrType, result.success]);
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 cursor-pointer"
+      className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto"
       style={{ backgroundColor: result.success ? "rgb(16, 185, 129)" : "rgb(239, 68, 68)" }}
-      onClick={onDismiss}
+      onClick={(e) => { if (e.target === e.currentTarget) onDismiss(); }}
     >
-      <div className="w-full max-w-md animate-in fade-in zoom-in duration-200">
+      <div className="w-full max-w-md animate-in fade-in zoom-in duration-200 my-8">
         {result.success ? (
           <div className="space-y-4">
             {/* Success header */}
@@ -443,15 +666,21 @@ function ScanResultOverlay({
                 <span className="font-medium">{typeInfo.label}</span>
               </div>
               <div className="flex justify-center mb-4">
-                <CheckCircle2 className="h-32 w-32 text-white drop-shadow-lg" strokeWidth={1.5} />
+                <CheckCircle2 className="h-24 w-24 text-white drop-shadow-lg" strokeWidth={1.5} />
               </div>
-              <h2 className="text-5xl font-black text-white mb-4 drop-shadow-lg">ACCEPTÉ</h2>
-              <p className="text-xl text-white/90">{result.message}</p>
+              <h2 className="text-4xl font-black text-white mb-2 drop-shadow-lg">ACCEPTÉ</h2>
+              <p className="text-lg text-white/90">{result.message}</p>
             </div>
 
             {/* Info card based on type */}
             {qrType === "member" && userInfo && (
-              <UserInfoCard userInfo={userInfo} onClose={onDismiss} />
+              <UserInfoCard
+                userInfo={userInfo}
+                reservations={memberReservations}
+                packs={memberPacks}
+                establishmentId={establishmentId}
+                onClose={onDismiss}
+              />
             )}
             {qrType === "reservation" && reservationInfo?.booking_reference && (
               <div className="text-center">
@@ -502,6 +731,8 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
     qrType: QRCodeType;
     userInfo: ConsumerUserInfo | null;
     reservationInfo: ScanResultPayload["reservation"] | null;
+    memberReservations: MemberReservationInfo[];
+    memberPacks: MemberPackInfo[];
   } | null>(null);
   const [showResultOverlay, setShowResultOverlay] = useState(false);
 
@@ -582,6 +813,8 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
       let message = "";
       let userInfo: ConsumerUserInfo | null = null;
       let reservationInfo: ScanResultPayload["reservation"] | null = null;
+      let memberReservations: MemberReservationInfo[] = [];
+      let memberPacks: MemberPackInfo[] = [];
 
       if (qrType === "member") {
         // Validate member QR code
@@ -590,6 +823,8 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
         message = res.message;
         if (res.valid && res.userInfo) {
           userInfo = res.userInfo;
+          memberReservations = res.reservations ?? [];
+          memberPacks = res.packs ?? [];
           // Store scanned member for loyalty panel
           setScannedMember({
             userId: res.userInfo.userId,
@@ -597,7 +832,7 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
           });
         }
       } else if (qrType === "reservation" || qrType === "pack") {
-        // Validate reservation/pack QR code
+        // Validate reservation/pack QR code (backward compat for old QR codes)
         const res = (await scanProQrCode({
           establishmentId: establishment.id,
           code: trimmed,
@@ -627,14 +862,16 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
         qrType,
         userInfo,
         reservationInfo,
+        memberReservations,
+        memberPacks,
       });
       setShowResultOverlay(true);
 
       // Refresh history
       loadHistory();
 
-      // Continue scanning in continuous mode
-      if (keepScanning && continuousMode && success) {
+      // Continue scanning in continuous mode (skip for member scans — they need manual dismiss)
+      if (keepScanning && continuousMode && success && qrType !== "member") {
         setTimeout(() => {
           setShowResultOverlay(false);
           void startCamera();
@@ -650,6 +887,8 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
         qrType,
         userInfo: null,
         reservationInfo: null,
+        memberReservations: [],
+        memberPacks: [],
       });
       setShowResultOverlay(true);
     } finally {
@@ -820,6 +1059,9 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
           qrType={lastScanResult.qrType}
           userInfo={lastScanResult.userInfo}
           reservationInfo={lastScanResult.reservationInfo}
+          memberReservations={lastScanResult.memberReservations}
+          memberPacks={lastScanResult.memberPacks}
+          establishmentId={establishment.id}
           onDismiss={() => setShowResultOverlay(false)}
         />
       )}

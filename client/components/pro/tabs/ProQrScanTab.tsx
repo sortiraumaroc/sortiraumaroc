@@ -36,7 +36,6 @@ import { listProQrScanLogs, listProReservations, scanProQrCode, seedFakeReservat
 import { downloadQrScanLogsCsv, downloadQrScanLogsPdf } from "@/lib/pro/qrScansExport";
 import { formatLocalYmd } from "@/lib/pro/reservationsExport";
 import { generateReservationPDF } from "@/lib/pdfGenerator";
-import { getBookingQRCodeUrl } from "@/lib/qrcode";
 import type { Establishment, ProRole, Reservation } from "@/lib/pro/types";
 import { isReservationInPast } from "@/components/pro/reservations/reservationHelpers";
 
@@ -566,9 +565,6 @@ export function ProQrScanTab({ establishment, role }: Props) {
       if (!r) throw new Error("Aucune réservation disponible");
 
       const bookingReference = r.booking_reference ?? r.id;
-      const qrCodeUrl = getBookingQRCodeUrl(bookingReference, {
-        partySize: r.party_size ?? undefined,
-      });
 
       const startsAt = new Date(r.starts_at);
       const validStart = Number.isFinite(startsAt.getTime());
@@ -593,7 +589,6 @@ export function ProQrScanTab({ establishment, role }: Props) {
         guestName: "Client Démo",
         guestPhone: "+212 6 00 00 00 00",
         reservationMode: depositTotalCents > 0 ? "guaranteed" : "non-guaranteed",
-        qrCodeUrl,
         unitPrepayMad: depositTotalCents > 0 ? depositTotalMad / party : undefined,
         totalPrepayMad: depositTotalCents > 0 ? depositTotalMad : undefined,
         message: "PDF démo pour tester le scan QR.",

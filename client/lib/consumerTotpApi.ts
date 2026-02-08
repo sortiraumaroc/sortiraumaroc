@@ -30,6 +30,29 @@ export interface TOTPCodeResponse {
   period: number;
 }
 
+export interface TOTPReservationInfo {
+  id: string;
+  bookingReference: string | null;
+  status: string | null;
+  paymentStatus: string | null;
+  startsAt: string | null;
+  partySize: number | null;
+  checkedInAt: string | null;
+  kind: string | null;
+}
+
+export interface TOTPPackInfo {
+  id: string;
+  packId: string | null;
+  title: string | null;
+  quantity: number;
+  totalPrice: number | null;
+  currency: string | null;
+  status: string | null;
+  validFrom: string | null;
+  validUntil: string | null;
+}
+
 export interface TOTPValidationResult {
   ok: boolean;
   result: "accepted" | "rejected";
@@ -46,6 +69,10 @@ export interface TOTPValidationResult {
     noShowsCount: number;
     lastActivity: string | null;
   };
+  /** Today's/upcoming reservations for this user at the scanned establishment */
+  reservations?: TOTPReservationInfo[];
+  /** Active pack purchases for this user at the scanned establishment */
+  packs?: TOTPPackInfo[];
 }
 
 export interface ConsumerUserInfo {

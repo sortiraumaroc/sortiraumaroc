@@ -1,9 +1,8 @@
 import { useMemo } from "react";
-import { useNavigate } from "react-router-dom";
-import { Download, ExternalLink, Gift, Trash2 } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { Download, ExternalLink, Gift, QrCode, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { getPackQRCodeUrl } from "@/lib/qrcode";
 import { generatePackVoucherPDF } from "@/lib/packVoucherPdf";
 import type { PackPurchase } from "@/lib/userData";
 import { cn } from "@/lib/utils";
@@ -78,8 +77,6 @@ export function ProfilePacks({ packs, onRemove }: { packs: PackPurchase[]; onRem
     const unit = Math.round(Number(p.unitMad) || 0);
     const totalMad = Math.round(Number(p.payment?.totalAmount) || unit * qty);
 
-    const qrCodeUrl = getPackQRCodeUrl(p.id, { packId: p.packId, validUntilIso: p.validUntilIso, totalMad });
-
     return (
       <div key={p.id} className="rounded-lg border-2 border-slate-200 bg-white overflow-hidden">
         <div className="flex items-start justify-between gap-4 p-4 border-b border-slate-200 bg-primary/5">
@@ -122,9 +119,17 @@ export function ProfilePacks({ packs, onRemove }: { packs: PackPurchase[]; onRem
           </div>
 
           <div className="flex flex-col sm:flex-row gap-2">
+            <Button type="button" asChild className="bg-primary hover:bg-primary/90 text-white gap-2">
+              <Link to="/mon-qr">
+                <QrCode className="w-4 h-4" />
+                Mon QR Code
+              </Link>
+            </Button>
+
             <Button
               type="button"
-              className="bg-primary hover:bg-primary/90 text-white gap-2"
+              variant="outline"
+              className="gap-2"
               onClick={() =>
                 generatePackVoucherPDF({
                   purchaseId: p.id,
@@ -137,12 +142,11 @@ export function ProfilePacks({ packs, onRemove }: { packs: PackPurchase[]; onRem
                   purchasedAtIso: p.payment?.paidAtIso ?? p.createdAtIso,
                   validFromIso: p.validFromIso,
                   validUntilIso: p.validUntilIso,
-                  qrCodeUrl,
                 })
               }
             >
               <Download className="w-4 h-4" />
-              Bon PDF + QR
+              Bon PDF
             </Button>
 
             {p.detailsUrl ? (

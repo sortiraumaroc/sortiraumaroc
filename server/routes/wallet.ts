@@ -25,6 +25,7 @@ interface WalletPassRequest {
   qrCodeUrl?: string;
   establishmentId?: string;
   address?: string;
+  userId?: string;
 }
 
 // Cache for Apple WWDR certificate
@@ -238,10 +239,13 @@ export async function createAppleWalletPass(
         }
       );
 
-      // Add QR code barcode
+      // Add QR code barcode — points to personal QR page
+      const qrUrl = data.userId
+        ? `https://sam.ma/mon-qr?u=${encodeURIComponent(data.userId)}`
+        : `https://sam.ma/mon-qr`;
       pass.setBarcodes({
         format: "PKBarcodeFormatQR",
-        message: data.bookingReference,
+        message: qrUrl,
         messageEncoding: "iso-8859-1",
         altText: data.bookingReference,
       });
@@ -423,7 +427,9 @@ export async function createGoogleWalletPass(
       ],
       barcode: {
         type: "QR_CODE",
-        value: data.bookingReference,
+        value: data.userId
+          ? `https://sam.ma/mon-qr?u=${encodeURIComponent(data.userId)}`
+          : `https://sam.ma/mon-qr`,
         alternateText: data.bookingReference,
       },
     };

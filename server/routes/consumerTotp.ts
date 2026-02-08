@@ -555,6 +555,70 @@ export async function validateConsumerTOTPCode(
     const reliabilityScore = stats?.reliability_score ?? 100;
     const reliabilityLevel = scoreToReliabilityLevel(reliabilityScore);
 
+    // ── Enrich: fetch today's reservations + active packs for this establishment ──
+    let todayReservations: Array<{
+      id: string;
+      booking_reference: string | null;
+      status: string | null;
+      payment_status: string | null;
+      starts_at: string | null;
+      party_size: number | null;
+      checked_in_at: string | null;
+      kind: string | null;
+    }> = [];
+
+    let activePacks: Array<{
+      id: string;
+      pack_id: string | null;
+      quantity: number;
+      total_price: number | null;
+      currency: string | null;
+      status: string | null;
+      valid_from: string | null;
+      valid_until: string | null;
+      meta: Record<string, unknown> | null;
+    }> = [];
+
+    if (establishmentId) {
+      // Today's and tomorrow's reservations for this user at this establishment
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+      const endOfTomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2).toISOString();
+
+      const { data: reservations } = await supabase
+        .from("reservations")
+        .select("id, booking_reference, status, payment_status, starts_at, party_size, checked_in_at, kind")
+        .eq("user_id", userIdToValidate)
+        .eq("establishment_id", establishmentId)
+        .gte("starts_at", startOfToday)
+        .lt("starts_at", endOfTomorrow)
+        .order("starts_at", { ascending: true })
+        .limit(10);
+
+      if (reservations) {
+        todayReservations = reservations as typeof todayReservations;
+      }
+
+      // Active pack purchases for this user at this establishment
+      // Note: buyer_user_id is inside meta jsonb column
+      const { data: packs } = await supabase
+        .from("pack_purchases")
+        .select("id, pack_id, quantity, total_price, currency, status, valid_from, valid_until, meta")
+        .eq("establishment_id", establishmentId)
+        .eq("payment_status", "paid")
+        .contains("meta", { buyer_user_id: userIdToValidate });
+
+      if (packs) {
+        const nowIso = now.toISOString();
+        activePacks = (packs as typeof activePacks).filter((p) => {
+          // Keep only active and non-expired packs
+          if (p.status !== "active") return false;
+          if (p.valid_until && p.valid_until < nowIso) return false;
+          return true;
+        });
+      }
+    }
+
     res.json({
       ok: true,
       result: "accepted",
@@ -571,6 +635,27 @@ export async function validateConsumerTOTPCode(
         noShowsCount: stats?.no_shows_count ?? 0,
         lastActivity: stats?.last_activity_at,
       },
+      reservations: todayReservations.map((r) => ({
+        id: r.id,
+        bookingReference: r.booking_reference,
+        status: r.status,
+        paymentStatus: r.payment_status,
+        startsAt: r.starts_at,
+        partySize: r.party_size,
+        checkedInAt: r.checked_in_at,
+        kind: r.kind,
+      })),
+      packs: activePacks.map((p) => ({
+        id: p.id,
+        packId: p.pack_id,
+        title: (p.meta as Record<string, unknown> | null)?.pack_title as string | null ?? null,
+        quantity: p.quantity,
+        totalPrice: p.total_price,
+        currency: p.currency,
+        status: p.status,
+        validFrom: p.valid_from,
+        validUntil: p.valid_until,
+      })),
     });
   } catch (error) {
     console.error("[consumerTotp] Error in validateConsumerTOTPCode:", error);

@@ -11,7 +11,8 @@ export type PackVoucherPdfData = {
   purchasedAtIso: string;
   validFromIso: string;
   validUntilIso: string;
-  qrCodeUrl: string;
+  /** @deprecated QR code is no longer embedded in the PDF. Kept for backward compatibility. */
+  qrCodeUrl?: string;
 };
 
 function formatDateTime(iso: string): string {
@@ -72,16 +73,10 @@ export async function generatePackVoucherPDF(data: PackVoucherPdfData): Promise<
       <div style="color:#a3001d;font-family:'Courier New',monospace;font-weight:800;font-size:18px;">${data.purchaseId}</div>
     </div>
 
-    <div style="display:flex;gap:16px;align-items:center;background:#fff;border:1px solid #eee;border-radius:12px;padding:14px;margin-bottom:16px;">
-      <div style="flex:1;min-width:0;">
-        <div style="color:#333;font-weight:800;font-size:18px;">${title}</div>
-        <div style="margin-top:6px;color:#666;font-size:13px;">Catégorie: <strong>${data.universeLabel}</strong></div>
-        <div style="margin-top:6px;color:#666;font-size:13px;">Acheté le: <strong>${formatDateTime(data.purchasedAtIso)}</strong></div>
-      </div>
-      <div style="text-align:center;">
-        <div style="color:#666;font-size:12px;text-transform:uppercase;font-weight:700;margin-bottom:8px;">QR Code</div>
-        <img src="${data.qrCodeUrl}" alt="QR Code" style="width:140px;height:140px;border:2px solid #ddd;border-radius:6px;" />
-      </div>
+    <div style="background:#fff;border:1px solid #eee;border-radius:12px;padding:14px;margin-bottom:16px;">
+      <div style="color:#333;font-weight:800;font-size:18px;">${title}</div>
+      <div style="margin-top:6px;color:#666;font-size:13px;">Cat\u00e9gorie: <strong>${data.universeLabel}</strong></div>
+      <div style="margin-top:6px;color:#666;font-size:13px;">Achet\u00e9 le: <strong>${formatDateTime(data.purchasedAtIso)}</strong></div>
     </div>
 
     <div style="border:1px solid #eee;border-radius:12px;padding:14px;margin-bottom:16px;">
@@ -111,9 +106,9 @@ export async function generatePackVoucherPDF(data: PackVoucherPdfData): Promise<
     </div>
 
     <div style="background:#fff7f8;border:1px solid #ffd6dc;border-radius:12px;padding:14px;">
-      <div style="font-weight:800;color:#a3001d;margin-bottom:8px;">À présenter sur place</div>
+      <div style="font-weight:800;color:#a3001d;margin-bottom:8px;">\u00c0 pr\u00e9senter sur place</div>
       <div style="color:#333;font-size:13px;line-height:1.5;">
-        Présentez ce QR code à l’arrivée. Il contient la référence du pack et sa période de validité.
+        \u{1F4F1} Pr\u00e9sentez votre QR code personnel dans l\u2019application Sortir Au Maroc pour valider votre r\u00e9servation.
       </div>
     </div>
 

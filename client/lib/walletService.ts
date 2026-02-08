@@ -11,9 +11,12 @@ export interface PassGenerationRequest {
   partySize: number;
   guestName: string;
   guestPhone: string;
-  qrCodeUrl: string;
+  /** @deprecated QR code URL is no longer used — wallet barcodes now point to /mon-qr */
+  qrCodeUrl?: string;
   establishmentId?: string;
   address?: string;
+  /** User ID to encode in the wallet pass barcode (points to personal QR page) */
+  userId?: string;
 }
 
 interface AppleWalletResponse {

@@ -1,17 +1,16 @@
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
-import { MapPin, Calendar, Trash2, ChevronRight, Wallet, Download, Edit2 } from "lucide-react";
+import { MapPin, Calendar, Trash2, ChevronRight, Wallet, Download, Edit2, QrCode } from "lucide-react";
 
 import { BookingRecapCard } from "@/components/booking/BookingRecapCard";
 import { BookingStepHeader } from "@/components/booking/BookingStepHeader";
 import { useBooking } from "@/hooks/useBooking";
-import { getBookingQRCodeUrl } from "@/lib/qrcode";
 import { getBookingPreReservationBreakdown } from "@/lib/billing";
 import { handleAddToAppleWallet, handleAddToGoogleWallet } from "@/lib/walletService";
 import { generateReservationPDF } from "@/lib/pdfGenerator";
 import { isAppleWalletSupported, isGoogleWalletSupported } from "@/lib/platformDetection";
 import { getBookingRecordById, upsertBookingRecord } from "@/lib/userData";
-import { getConsumerAccessToken } from "@/lib/auth";
+import { getConsumerAccessToken, getConsumerUserId } from "@/lib/auth";
 import { createMyConsumerWaitlist } from "@/lib/consumerWaitlistApi";
 import { useI18n } from "@/lib/i18n";
 
@@ -68,7 +67,6 @@ export default function Step4Confirmation() {
     return t("booking.establishment.fallback");
   })();
 
-  const [qrCodeUrl, setQrCodeUrl] = useState<string>("");
   const [isLoadingWallet, setIsLoadingWallet] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [showAppleWallet, setShowAppleWallet] = useState(false);
@@ -95,18 +93,7 @@ export default function Step4Confirmation() {
   useEffect(() => {
     const ref = bookingReference ? bookingReference : generateBookingReference();
     if (!bookingReference) setBookingReference(ref);
-
-    const existing = getBookingRecordById(ref);
-    const breakdown = existing ? getBookingPreReservationBreakdown(existing) : null;
-
-    setQrCodeUrl(
-      getBookingQRCodeUrl(ref, {
-        partySize: breakdown?.partySize ?? (partySize || 1),
-        unitMad: breakdown?.unitMad ?? undefined,
-        totalMad: breakdown?.totalMad ?? undefined,
-      }),
-    );
-  }, [bookingReference, setBookingReference, generateBookingReference, partySize]);
+  }, [bookingReference, setBookingReference, generateBookingReference]);
 
   // Detect platform and set wallet button visibility
   useEffect(() => {
@@ -333,6 +320,7 @@ export default function Step4Confirmation() {
     if (!bookingReference) return;
     setIsLoadingWallet(true);
     try {
+      const uid = await getConsumerUserId();
       await handleAddToAppleWallet({
         bookingReference,
         restaurantName: establishmentName,
@@ -341,7 +329,7 @@ export default function Step4Confirmation() {
         partySize: partySize || 1,
         guestName: `${firstName} ${lastName}`,
         guestPhone: '',
-        qrCodeUrl: qrCodeUrl,
+        userId: uid || undefined,
       });
     } finally {
       setIsLoadingWallet(false);
@@ -352,6 +340,7 @@ export default function Step4Confirmation() {
     if (!bookingReference) return;
     setIsLoadingWallet(true);
     try {
+      const uid = await getConsumerUserId();
       await handleAddToGoogleWallet({
         bookingReference,
         restaurantName: establishmentName,
@@ -360,7 +349,7 @@ export default function Step4Confirmation() {
         partySize: partySize || 1,
         guestName: `${firstName} ${lastName}`,
         guestPhone: '',
-        qrCodeUrl: qrCodeUrl,
+        userId: uid || undefined,
       });
     } finally {
       setIsLoadingWallet(false);
@@ -387,7 +376,7 @@ export default function Step4Confirmation() {
         guestPhone: '',
         guestEmail: undefined,
         reservationMode,
-        qrCodeUrl,
+        qrCodeUrl: `${window.location.origin}/mon-qr`,
         unitPrepayMad: breakdown?.unitMad ?? undefined,
         totalPrepayMad: breakdown?.totalMad ?? undefined,
         message: undefined,
@@ -460,6 +449,22 @@ export default function Step4Confirmation() {
           </div>
         )}
       </div>
+
+      {/* QR Code Link */}
+      {effectiveStatus !== "waitlist" && (
+        <div className="rounded-lg border-2 border-primary/30 bg-primary/5 p-4">
+          <Link
+            to="/mon-qr"
+            className="flex items-center gap-3 w-full px-4 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors font-semibold active:scale-95"
+          >
+            <QrCode className="w-6 h-6 shrink-0" />
+            <span>Mon QR Code &mdash; a presenter sur place</span>
+          </Link>
+          <p className="mt-2 text-sm text-slate-600">
+            Presentez votre QR code personnel a l'etablissement pour valider votre reservation.
+          </p>
+        </div>
+      )}
 
       {/* Wallet & Action Buttons */}
       <div className="space-y-3">

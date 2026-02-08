@@ -27,7 +27,6 @@ import {
 import { requestLacaissePayCheckoutUrl } from "@/lib/lacaissepay";
 import { generateInvoicePDF } from "@/lib/invoicePdf";
 import { generateReservationPDF } from "@/lib/pdfGenerator";
-import { getBookingQRCodeUrl } from "@/lib/qrcode";
 import {
   getBookingReviewOverallRating,
   getUserProfile,
@@ -368,15 +367,6 @@ export default function BookingDetails() {
     if (!booking) return { unitMad: null, partySize: null, totalMad: null };
     return getBookingPreReservationBreakdown(booking);
   }, [booking]);
-  const qrCodeUrl = useMemo(() => {
-    if (!booking) return "";
-    return getBookingQRCodeUrl(booking.id, {
-      partySize: breakdown.partySize ?? undefined,
-      unitMad: breakdown.unitMad ?? undefined,
-      totalMad: breakdown.totalMad ?? undefined,
-    });
-  }, [booking, breakdown.partySize, breakdown.totalMad, breakdown.unitMad]);
-
   const cancellationPolicy = useMemo(() => {
     if (!booking) {
       return {
@@ -538,7 +528,7 @@ export default function BookingDetails() {
       guestEmail: undefined,
       reservationMode:
         booking.payment?.status === "paid" ? "guaranteed" : "non-guaranteed",
-      qrCodeUrl,
+      qrCodeUrl: `${window.location.origin}/mon-qr`,
       unitPrepayMad: breakdown.unitMad ?? undefined,
       totalPrepayMad: breakdown.totalMad ?? undefined,
       message: booking.notes || undefined,
@@ -1112,27 +1102,24 @@ export default function BookingDetails() {
                   </div>
                 </div>
 
-                <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-center">
-                  <div className="flex justify-center sm:justify-start sm:shrink-0">
-                    <img
-                      src={qrCodeUrl}
-                      alt={t("booking_details.qr.alt")}
-                      className="w-40 h-40 border-2 border-slate-200 rounded-lg bg-white"
-                    />
-                  </div>
-                  <div className="text-sm text-slate-700">
-                    <div className="font-bold text-foreground">
-                      {t("booking_details.qr.present_on_arrival")}
-                    </div>
-                    <div className="mt-1 text-slate-600">
-                      {t("booking_details.qr.contains")}
-                    </div>
-                    {booking.kind !== "restaurant" ? (
-                      <div className="mt-2 text-xs text-slate-500">
-                        {t("booking_details.qr.pdf_restaurant_only")}
-                      </div>
-                    ) : null}
-                  </div>
+                <div className="mt-3 flex flex-col gap-3">
+                  <Link to="/mon-qr">
+                    <Button
+                      type="button"
+                      className="w-full gap-2 bg-primary hover:bg-primary/90 text-white"
+                    >
+                      <QrCode className="w-5 h-5" />
+                      Voir mon QR code
+                    </Button>
+                  </Link>
+                  <p className="text-sm text-slate-600">
+                    Presentez votre QR code personnel a l'arrivee.
+                  </p>
+                  {booking.kind !== "restaurant" ? (
+                    <p className="text-xs text-slate-500">
+                      {t("booking_details.qr.pdf_restaurant_only")}
+                    </p>
+                  ) : null}
                 </div>
               </div>
 
