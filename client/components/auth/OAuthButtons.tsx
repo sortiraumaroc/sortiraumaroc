@@ -3,15 +3,13 @@ import { Button } from "@/components/ui/button";
 interface OAuthButtonsProps {
   onGoogleClick: () => void;
   onAppleClick: () => void;
-  onFacebookClick: () => void;
   loading?: boolean;
-  loadingProvider?: "google" | "apple" | "facebook" | null;
+  loadingProvider?: "google" | "apple" | null;
 }
 
 export function OAuthButtons({
   onGoogleClick,
   onAppleClick,
-  onFacebookClick,
   loading = false,
   loadingProvider = null,
 }: OAuthButtonsProps) {
@@ -52,24 +50,6 @@ export function OAuthButtons({
           )}
         </span>
         Continuer avec Apple
-      </Button>
-
-      {/* Facebook */}
-      <Button
-        type="button"
-        variant="outline"
-        className="w-full h-12 text-base font-medium flex items-center justify-start px-4"
-        onClick={onFacebookClick}
-        disabled={loading}
-      >
-        <span className="w-8 flex items-center justify-center mr-3">
-          {loadingProvider === "facebook" ? (
-            <span className="animate-spin">⏳</span>
-          ) : (
-            <img src="/facebook.png" alt="Facebook" className="w-6 h-6" />
-          )}
-        </span>
-        Continuer avec Facebook
       </Button>
     </div>
   );

@@ -4,9 +4,9 @@ import { OAuthDivider } from "./OAuthButtons";
 interface AuthChoiceScreenProps {
   onLoginClick: () => void;
   onSignupClick: () => void;
-  onOAuthClick: (provider: "google" | "apple" | "facebook") => void;
+  onOAuthClick: (provider: "google" | "apple") => void;
   oauthLoading?: boolean;
-  oauthLoadingProvider?: "google" | "apple" | "facebook" | null;
+  oauthLoadingProvider?: "google" | "apple" | null;
 }
 
 export function AuthChoiceScreen({
@@ -90,19 +90,6 @@ export function AuthChoiceScreen({
             <span className="animate-spin text-sm">⏳</span>
           ) : (
             <img src="/logo-apple.png" alt="Apple" className="w-5 h-5" />
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={() => onOAuthClick("facebook")}
-          disabled={oauthLoading}
-          className="w-12 h-12 flex items-center justify-center rounded-full border border-slate-200 hover:bg-slate-50 transition-colors disabled:opacity-50"
-          aria-label="Facebook"
-        >
-          {oauthLoadingProvider === "facebook" ? (
-            <span className="animate-spin text-sm">⏳</span>
-          ) : (
-            <img src="/facebook.png" alt="Facebook" className="w-5 h-5" />
           )}
         </button>
       </div>

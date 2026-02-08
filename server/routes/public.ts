@@ -1372,29 +1372,26 @@ export async function requestPublicPasswordResetLink(req: Request, res: Response
   const supabase = getAdminSupabase();
 
   try {
-    // Find user by email via Supabase Auth admin API
-    const { data: userList } = await supabase.auth.admin.listUsers({ perPage: 1 });
-    // listUsers doesn't support email filter directly, use RPC or iterate
-    // Instead, use signInWithPassword attempt or list from users table
-    const { data: usersData } = await supabase
-      .from("users")
-      .select("id, email, display_name, first_name, last_name")
+    // Check if phone-only user
+    if (email.endsWith("@phone.sortiraumaroc.ma")) {
+      return res.status(200).json({ ok: true });
+    }
+
+    // Find user by email in consumer_users table
+    const { data: consumerData } = await supabase
+      .from("consumer_users")
+      .select("id, email, full_name")
       .ilike("email", email)
       .limit(1)
       .maybeSingle();
 
-    if (!usersData?.id) {
+    if (!consumerData?.id) {
       // User not found - return 200 to prevent enumeration
       console.log(`[PublicPasswordReset] No user found for ${email}`);
       return res.status(200).json({ ok: true });
     }
 
-    const userId = usersData.id;
-
-    // Check if phone-only user
-    if (email.endsWith("@phone.sortiraumaroc.ma")) {
-      return res.status(200).json({ ok: true });
-    }
+    const userId = consumerData.id;
 
     // Generate secure token
     const resetToken = randomBytes(32).toString("base64url");
@@ -1416,21 +1413,19 @@ export async function requestPublicPasswordResetLink(req: Request, res: Response
       return res.status(200).json({ ok: true });
     }
 
+    // Get user display name from auth metadata or consumer_users
     const userName = (() => {
-      const dn = usersData.display_name;
-      if (dn && typeof dn === "string" && dn.trim()) return dn.trim();
-      const first = typeof usersData.first_name === "string" ? usersData.first_name.trim() : "";
-      const last = typeof usersData.last_name === "string" ? usersData.last_name.trim() : "";
-      const full = `${first} ${last}`.trim();
-      return full || "Utilisateur";
+      const fn = consumerData.full_name;
+      if (fn && typeof fn === "string" && fn.trim()) return fn.trim();
+      return "Utilisateur";
     })();
 
     // Build reset URL
     const baseUrl = process.env.PUBLIC_BASE_URL || process.env.FRONTEND_URL || "https://sortiraumaroc.ma";
     const resetUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(resetToken)}`;
 
-    // Send email with reset link
-    void sendTemplateEmail({
+    // Send email with reset link (awaited so errors are caught)
+    const emailResult = await sendTemplateEmail({
       templateKey: "user_password_reset_link",
       lang: getRequestLang(req),
       fromKey: "noreply",
@@ -1445,7 +1440,11 @@ export async function requestPublicPasswordResetLink(req: Request, res: Response
       },
     });
 
-    console.log(`[PublicPasswordReset] Reset link sent to ${email}`);
+    if (emailResult.ok === true) {
+      console.log(`[PublicPasswordReset] Reset link sent to ${email}`);
+    } else {
+      console.error(`[PublicPasswordReset] Email send failed for ${email}:`, "error" in emailResult ? emailResult.error : "unknown");
+    }
   } catch (err) {
     console.error("[PublicPasswordReset] Error:", err);
   }

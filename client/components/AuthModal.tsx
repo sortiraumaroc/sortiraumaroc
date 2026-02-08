@@ -112,17 +112,6 @@ function AppleIcon() {
   );
 }
 
-function FacebookIcon() {
-  return (
-    <svg className="w-5 h-5 scale-110" viewBox="0 0 24 24" aria-hidden>
-      <path
-        fill="#1877F2"
-        d="M12 2C6.477 2 2 6.477 2 12c0 4.991 3.657 9.128 8.438 9.88v-6.99H7.898V12h2.54V9.797c0-2.506 1.492-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.243 0-1.63.771-1.63 1.562V12h2.773l-.443 2.89h-2.33v6.99C18.343 21.128 22 16.99 22 12c0-5.523-4.477-10-10-10z"
-      />
-    </svg>
-  );
-}
-
 function SocialButton({
   icon,
   label,
@@ -284,7 +273,7 @@ export function AuthModal({ isOpen, onClose, onAuthed, contextTitle, contextSubt
     return `${window.location.origin}${window.location.pathname}${window.location.search}`;
   };
 
-  const doOAuthSignIn = async (provider: "google" | "apple" | "facebook") => {
+  const doOAuthSignIn = async (provider: "google" | "apple") => {
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -785,12 +774,6 @@ export function AuthModal({ isOpen, onClose, onAuthed, contextTitle, contextSubt
                   onClick={() => void doOAuthSignIn("apple")}
                   disabled={busy}
                   icon={<AppleIcon />}
-                />
-                <SocialButton
-                  label={t("auth.button.continue_with_facebook")}
-                  onClick={() => void doOAuthSignIn("facebook")}
-                  disabled={busy}
-                  icon={<FacebookIcon />}
                 />
 
                 {/* Phone Auth Button - Mobile only (uses Twilio) */}

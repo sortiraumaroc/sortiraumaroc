@@ -73,7 +73,7 @@ export function AuthModalV2({
   // Loading and error states
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [oauthLoadingProvider, setOauthLoadingProvider] = useState<"google" | "apple" | "facebook" | null>(null);
+  const [oauthLoadingProvider, setOauthLoadingProvider] = useState<"google" | "apple" | null>(null);
 
   // Signup data (persisted across steps)
   const [signupData, setSignupData] = useState<{
@@ -117,7 +117,7 @@ export function AuthModalV2({
   };
 
   // OAuth sign in
-  const handleOAuthSignIn = async (provider: "google" | "apple" | "facebook") => {
+  const handleOAuthSignIn = async (provider: "google" | "apple") => {
     setOauthLoadingProvider(provider);
     setError(null);
 
