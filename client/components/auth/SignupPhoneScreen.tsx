@@ -11,7 +11,7 @@ type Step = "phone" | "code" | "linking";
 
 interface SignupPhoneScreenProps {
   onBack: () => void;
-  onSuccess: (data: { actionLink?: string; isNewUser?: boolean; userId?: string }, referralCode?: string) => Promise<void>;
+  onSuccess: (data: { actionLink?: string; isNewUser?: boolean; userId?: string; phoneE164?: string }, referralCode?: string) => Promise<void>;
   onLoginClick?: () => void;
   loading?: boolean;
   error?: string | null;
@@ -177,8 +177,8 @@ export function SignupPhoneScreen({
 
       console.log("[SignupPhoneScreen] Verification successful:", result);
 
-      // Call parent success handler with the result
-      await onSuccess(result, referralCode || undefined);
+      // Call parent success handler with the result + phone number
+      await onSuccess({ ...result, phoneE164: e164Phone }, referralCode || undefined);
     } catch (err: unknown) {
       console.error("[SignupPhoneScreen] Verify code error:", err);
       const errorMessage = err instanceof Error ? err.message : "";

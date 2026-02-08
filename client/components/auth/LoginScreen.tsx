@@ -317,9 +317,19 @@ export function LoginScreen({
       </div>
 
       {/* Error message */}
-      {displayError && (
+      {displayError && !displayError.includes("existe déjà") && (
         <div className="p-2.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
           {displayError}
+        </div>
+      )}
+
+      {/* Email already exists — friendly amber banner */}
+      {displayError && displayError.includes("existe déjà") && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 text-center">
+          <p className="font-medium">Cet email est déjà associé à un compte.</p>
+          <p className="mt-1 text-xs">
+            Connectez-vous avec votre compte existant.
+          </p>
         </div>
       )}
 

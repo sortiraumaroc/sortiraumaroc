@@ -83,7 +83,8 @@ export function SessionConflictDialog({
                 )}.
               </p>
               <p className="text-foreground">
-                Pour accéder à l'<span className="font-semibold">{targetLabel}</span>, vous devez d'abord vous déconnecter.
+                Pour accéder à votre{" "}
+                <span className="font-semibold">{targetLabel}</span>, vous devez d'abord vous déconnecter.
               </p>
             </div>
           </AlertDialogDescription>

@@ -1,4 +1,6 @@
 import { CONSUMER_AUTH_STORAGE_KEY, consumerSupabase } from "@/lib/supabase";
+import { clearProAuthStorage, proSupabase } from "@/lib/pro/supabase";
+import { clearUserLocalData } from "@/lib/userData";
 
 export const AUTH_STORAGE_KEY = "sam_auth";
 export const AUTH_CHANGED_EVENT = "sam-auth-changed";
@@ -151,6 +153,9 @@ export function initConsumerAuth(): void {
 
   const { data } = consumerSupabase.auth.onAuthStateChange((_event, session) => {
     setAuthedFlag(Boolean(session));
+    if (session) {
+      clearOtherSessionsForConsumer();
+    }
     void bestEffortReactivateConsumerAccount(session?.access_token);
   });
 
@@ -176,16 +181,41 @@ export function isAuthed(): boolean {
 }
 
 /**
+ * Clear any leftover Pro / Admin sessions.
+ * Called when a Consumer successfully authenticates so that only one
+ * account type is active at a time.
+ */
+function clearOtherSessionsForConsumer(): void {
+  // Clear Pro tokens
+  clearProAuthStorage();
+  try {
+    void proSupabase.auth.signOut({ scope: "local" });
+  } catch {
+    // ignore
+  }
+
+  // Clear Admin tokens
+  try {
+    sessionStorage.removeItem("sam_admin_session_token");
+    sessionStorage.removeItem("sam_admin_api_key");
+  } catch {
+    // ignore
+  }
+}
+
+/**
  * Legacy helper used by some UI flows (e.g. after a successful AuthModal submit).
  * Prefer relying on initConsumerAuth + onAuthStateChange.
  */
 export function markAuthed(): void {
+  clearOtherSessionsForConsumer();
   setAuthedFlag(true);
 }
 
 export function clearAuthed(): void {
   if (typeof window === "undefined") return;
   setAuthedFlag(false);
+  clearUserLocalData(); // Clear profile/bookings/favorites from localStorage so next user starts fresh
   void resetConsumerAuth();
 }
 

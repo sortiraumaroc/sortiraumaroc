@@ -87,8 +87,25 @@ export async function sendEmailVerificationCode(req: Request, res: Response) {
       return res.status(429).json({ error: "Trop de tentatives. Réessayez dans une heure." });
     }
 
-    // Verify reCAPTCHA token if configured
-    if (isRecaptchaConfigured()) {
+    // Skip reCAPTCHA for authenticated phone users (they're already verified)
+    let isAuthenticatedPhoneUser = false;
+    const authHeader = String(req.headers.authorization ?? "");
+    const bearerToken = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7) : "";
+    if (bearerToken) {
+      try {
+        const supabaseCheck = getAdminSupabase();
+        const { data: userData } = await supabaseCheck.auth.getUser(bearerToken);
+        const meta = userData?.user?.user_metadata as Record<string, unknown> | undefined;
+        if (meta?.auth_method === "phone") {
+          isAuthenticatedPhoneUser = true;
+        }
+      } catch {
+        // ignore — will fall through to reCAPTCHA check
+      }
+    }
+
+    // Verify reCAPTCHA token if configured (skip for authenticated phone users)
+    if (!isAuthenticatedPhoneUser && isRecaptchaConfigured()) {
       if (!recaptchaToken) {
         return res.status(400).json({ error: "Vérification reCAPTCHA requise" });
       }
@@ -366,5 +383,153 @@ export async function signupWithEmail(req: Request, res: Response) {
   } catch (error) {
     console.error("[EmailSignup] Unexpected error:", error);
     return res.status(500).json({ error: "Erreur lors de la création du compte" });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Endpoint 4: Set real email + password for phone-registered users
+// POST /api/consumer/account/set-email-password
+// ─────────────────────────────────────────────────────────────────────────────
+
+function asRecord(v: unknown): Record<string, unknown> | null {
+  if (v && typeof v === "object" && !Array.isArray(v)) return v as Record<string, unknown>;
+  return null;
+}
+
+export async function setPhoneUserEmailPassword(req: Request, res: Response) {
+  try {
+    // 1. Extract userId from Bearer token
+    const auth = String(req.headers.authorization ?? "");
+    const token = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7) : "";
+
+    if (!token) {
+      return res.status(401).json({ error: "Token manquant" });
+    }
+
+    const supabase = getAdminSupabase();
+    const { data: userData, error: userError } = await supabase.auth.getUser(token);
+
+    if (userError || !userData?.user) {
+      return res.status(401).json({ error: "Non authentifié" });
+    }
+
+    const userId = userData.user.id;
+    const currentEmail = userData.user.email ?? "";
+    const meta = asRecord(userData.user.user_metadata) ?? {};
+
+    // 2. Validate request body
+    const { email, password } = req.body;
+
+    if (!email || typeof email !== "string" || !/.+@.+\..+/.test(email.trim())) {
+      return res.status(400).json({ error: "Email invalide" });
+    }
+
+    if (!password || typeof password !== "string" || password.length < 8) {
+      return res.status(400).json({ error: "Mot de passe requis (8 caractères minimum)" });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // 3. Reject synthetic emails
+    if (normalizedEmail.endsWith("@phone.sortiraumaroc.ma")) {
+      return res.status(400).json({ error: "Veuillez utiliser une adresse email réelle" });
+    }
+
+    // 4. Check that the user is a phone-registered user (has synthetic email)
+    if (!currentEmail.endsWith("@phone.sortiraumaroc.ma")) {
+      return res.status(400).json({
+        error: "Votre compte a déjà un email enregistré",
+        code: "ALREADY_HAS_EMAIL",
+      });
+    }
+
+    // 5. Check that the email was recently verified via 6-digit code
+    const verified = verifiedEmails.get(normalizedEmail);
+    if (!verified || verified.expiresAt < Date.now()) {
+      verifiedEmails.delete(normalizedEmail);
+      return res.status(403).json({
+        error: "Email non vérifié ou vérification expirée. Veuillez re-vérifier votre email.",
+        code: "EMAIL_NOT_VERIFIED",
+      });
+    }
+
+    // 6. Consume the verification (one-time use)
+    verifiedEmails.delete(normalizedEmail);
+
+    // 7. Re-check that the email is not taken by another account
+    const { data: authUsersList } = await supabase.auth.admin.listUsers({
+      page: 1,
+      perPage: 200,
+    });
+
+    const existingUser = authUsersList?.users?.find(
+      (u) => u.email === normalizedEmail && u.id !== userId
+    );
+
+    if (existingUser) {
+      return res.status(409).json({
+        error: "Cet email est déjà associé à un autre compte",
+        code: "EMAIL_ALREADY_EXISTS",
+      });
+    }
+
+    // 8. Update Supabase auth user: email + password + metadata
+    const { error: updateErr } = await supabase.auth.admin.updateUserById(userId, {
+      email: normalizedEmail,
+      email_confirm: true,
+      password,
+      user_metadata: {
+        ...meta,
+        email_verified: true,
+        email_verified_at: new Date().toISOString(),
+        real_email: normalizedEmail,
+      },
+    });
+
+    if (updateErr) {
+      console.error("[SetEmailPassword] Error updating auth user:", updateErr);
+
+      // Handle weak password error from Supabase
+      if (updateErr.message?.includes("weak") || updateErr.message?.includes("password")) {
+        return res.status(422).json({ error: "Mot de passe trop faible. Choisissez un mot de passe plus complexe." });
+      }
+
+      return res.status(500).json({ error: "Échec de la mise à jour du compte" });
+    }
+
+    // 9. Update consumer_users table email
+    const { error: profileErr } = await supabase
+      .from("consumer_users")
+      .update({ email: normalizedEmail })
+      .eq("id", userId);
+
+    if (profileErr) {
+      console.error("[SetEmailPassword] Error updating consumer_users email:", profileErr);
+      // Non-blocking — auth user is already updated
+    }
+
+    // 10. Log the action
+    try {
+      await supabase.from("system_logs").insert({
+        actor_user_id: userId,
+        actor_role: "consumer",
+        action: "auth.set_email_password",
+        entity_type: "consumer_user",
+        entity_id: userId,
+        payload: {
+          new_email: normalizedEmail,
+          previous_email: currentEmail,
+        },
+      });
+    } catch {
+      /* ignore logging errors */
+    }
+
+    console.log(`[SetEmailPassword] Email updated for user ${userId}: ${currentEmail} → ${normalizedEmail}`);
+
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error("[SetEmailPassword] Unexpected error:", error);
+    return res.status(500).json({ error: "Erreur serveur" });
   }
 }

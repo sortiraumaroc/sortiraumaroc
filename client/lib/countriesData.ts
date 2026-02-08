@@ -1428,13 +1428,18 @@ export function parsePhoneNumber(phone: string): { dialCode: string; number: str
 
   for (const country of sortedCountries) {
     if (phone.startsWith(country.dialCode)) {
+      let num = phone.slice(country.dialCode.length).trim();
+      // Strip leading 0 (e.g. +2120623... → 623...)
+      if (num.startsWith("0") && num.length > 1) num = num.slice(1);
       return {
         dialCode: country.dialCode,
-        number: phone.slice(country.dialCode.length).trim(),
+        number: num,
       };
     }
   }
 
   // Par défaut, Maroc
-  return { dialCode: "+212", number: phone.replace(/^\+/, "") };
+  let fallbackNum = phone.replace(/^\+/, "");
+  if (fallbackNum.startsWith("0") && fallbackNum.length > 1) fallbackNum = fallbackNum.slice(1);
+  return { dialCode: "+212", number: fallbackNum };
 }

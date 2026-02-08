@@ -1,4 +1,6 @@
 import { clearProAuthStorage, proSupabase } from "./supabase";
+import { clearConsumerAuthStorage } from "@/lib/auth";
+import { consumerSupabase } from "@/lib/supabase";
 import type {
   Establishment,
   EstablishmentProfileDraft,
@@ -148,14 +150,49 @@ export async function getProSession() {
   }
 }
 
+/**
+ * Clear Consumer & Admin sessions so only one account type is active.
+ */
+function clearOtherSessionsForPro(): void {
+  // Clear Consumer tokens
+  clearConsumerAuthStorage();
+  try {
+    void consumerSupabase.auth.signOut({ scope: "local" });
+  } catch {
+    // ignore
+  }
+
+  // Clear the consumer "authed" flag
+  try {
+    window.localStorage.removeItem("sam_auth");
+  } catch {
+    // ignore
+  }
+
+  // Clear Admin tokens
+  try {
+    sessionStorage.removeItem("sam_admin_session_token");
+    sessionStorage.removeItem("sam_admin_api_key");
+  } catch {
+    // ignore
+  }
+}
+
 export async function proSignInWithPassword(args: {
   email: string;
   password: string;
 }) {
-  return proSupabase.auth.signInWithPassword({
+  const result = await proSupabase.auth.signInWithPassword({
     email: args.email,
     password: args.password,
   });
+
+  // On successful sign-in, clear other session types
+  if (!result.error && result.data.session) {
+    clearOtherSessionsForPro();
+  }
+
+  return result;
 }
 
 export async function proSignUpWithPassword(args: {

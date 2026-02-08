@@ -103,8 +103,8 @@ export function VerifyEmailScreen({
 
       {/* Email already exists — redirect to login */}
       {displayError && displayError.includes("existe déjà") && (
-        <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
-          <p className="font-medium">Un compte existe déjà avec cet email.</p>
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 text-center">
+          <p className="font-medium">Cet email est déjà associé à un compte.</p>
           <p className="mt-1 text-xs">
             Connectez-vous avec votre compte existant.
           </p>

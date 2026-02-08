@@ -1,9 +1,10 @@
 import { useState, useCallback, useEffect } from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { markAuthed } from "@/lib/auth";
-import { markEmailAsVerified } from "@/lib/userData";
+import { markEmailAsVerified, markPhoneAsVerified } from "@/lib/userData";
 import { consumerSupabase } from "@/lib/supabase";
 import { isFirebaseConfigured } from "@/lib/firebase";
+import { completeAuthentication } from "@/lib/twilioAuth";
 import { validateReferralCode as apiValidateReferralCode } from "@/lib/referral/api";
 import { getDemoConsumerCredentials, isDemoModeEnabled } from "@/lib/demoMode";
 import { useSessionConflict } from "@/hooks/useSessionConflict";
@@ -82,6 +83,9 @@ export function AuthModalV2({
     expectedCode: string;
   } | null>(null);
 
+  // Track which auth method was used for signup (to show email/password steps in onboarding)
+  const [signupAuthMethod, setSignupAuthMethod] = useState<"phone" | "email" | null>(null);
+
   // Check for session conflicts when modal opens
   useEffect(() => {
     if (isOpen && hasConflict) {
@@ -96,6 +100,7 @@ export function AuthModalV2({
     setError(null);
     setOauthLoadingProvider(null);
     setSignupData(null);
+    setSignupAuthMethod(null);
     onClose();
   }, [onClose, initialStep]);
 
@@ -349,6 +354,7 @@ export function AuthModalV2({
       }
 
       // Show onboarding for new users
+      setSignupAuthMethod("email");
       setStep("onboarding");
     } catch (err) {
       if (!error) {
@@ -395,7 +401,7 @@ export function AuthModalV2({
 
   // Phone signup success (Twilio verification completed, server returned result)
   const handlePhoneSignupSuccess = async (
-    result: { actionLink?: string; isNewUser?: boolean; userId?: string },
+    result: { actionLink?: string; isNewUser?: boolean; userId?: string; phoneE164?: string },
     _referralCode?: string
   ) => {
     setLoading(true);
@@ -405,12 +411,33 @@ export function AuthModalV2({
       // The server already verified the code and created the account via Twilio.
       // The result contains the actionLink to set the Supabase session.
       if (result.actionLink) {
+        // For NEW users: establish session client-side so we can show onboarding in-modal
+        if (result.isNewUser) {
+          const sessionOk = await completeAuthentication(result.actionLink);
+
+          if (sessionOk) {
+            markAuthed();
+            // Store verified phone number in local profile so Profile page shows it
+            if (result.phoneE164) {
+              markPhoneAsVerified(result.phoneE164);
+            }
+            setSignupAuthMethod("phone");
+            setStep("onboarding");
+            return;
+          }
+
+          // Fallback: if client-side session setup fails, redirect as before
+          console.warn("[AuthModalV2] completeAuthentication failed, falling back to redirect");
+        }
+
+        // Existing users (or fallback): redirect via magic link
         window.location.assign(result.actionLink);
         return;
       }
 
-      // Show onboarding for new users, success for existing
+      // No actionLink — show onboarding for new users, success for existing
       if (result.isNewUser) {
+        setSignupAuthMethod("phone");
         setStep("onboarding");
       } else {
         setStep("success");
@@ -568,6 +595,7 @@ export function AuthModalV2({
         return (
           <OnboardingScreen
             onComplete={() => setStep("success")}
+            authMethod={signupAuthMethod}
           />
         );
 

@@ -455,9 +455,16 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
             <Input
               id="profile-contact"
               value={phoneNumber}
-              onChange={(e) => setPhoneNumber(e.target.value)}
+              onChange={(e) => {
+                let digits = e.target.value.replace(/\D/g, "");
+                // Auto-strip leading 0 (users often type 06... instead of 6...)
+                if (digits.startsWith("0") && digits.length > 1) {
+                  digits = digits.slice(1);
+                }
+                setPhoneNumber(digits);
+              }}
               inputMode="tel"
-              placeholder="6 12 34 56 78"
+              placeholder="6XXXXXXXX (sans le 0)"
               disabled={isPhoneVerified || !isEditing}
               className={`flex-1 ${isPhoneVerified || !isEditing ? disabledInputClass : ""}`}
             />

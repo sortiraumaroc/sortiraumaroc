@@ -89,6 +89,7 @@ import {
   sendEmailVerificationCode,
   verifyEmailCode,
   signupWithEmail,
+  setPhoneUserEmailPassword,
 } from "./routes/emailVerification";
 import {
   createAdminEmailCampaign,
@@ -1170,10 +1171,11 @@ export function createServer() {
   app.post("/api/consumer/auth/phone/lookup", lookupPhone);
   app.get("/api/consumer/auth/phone/status", checkPhoneAuthStatus);
 
-  // Email verification (for signup)
+  // Email verification (for signup + onboarding)
   app.post("/api/consumer/verify-email/send", sendEmailVerificationCode);
   app.post("/api/consumer/verify-email/verify", verifyEmailCode);
   app.post("/api/consumer/auth/email/signup", signupWithEmail);
+  app.post("/api/consumer/account/set-email-password", setPhoneUserEmailPassword);
 
   app.get("/api/consumer/me", getConsumerMe);
   app.post("/api/consumer/me/update", updateConsumerMe);

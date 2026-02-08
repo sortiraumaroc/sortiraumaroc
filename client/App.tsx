@@ -401,6 +401,9 @@ function LocaleLayout({ locale }: { locale: AppLocale }) {
         <Route path="aide" element={<Help />} />
         <Route path="reset-password" element={<ResetPassword />} />
         <Route path="content/:slug" element={<ContentPage />} />
+        {/* Short URLs for Google Auth Platform branding verification */}
+        <Route path="privacy" element={<Navigate to={`${prefix}/content/politique-confidentialite`} replace />} />
+        <Route path="terms" element={<Navigate to={`${prefix}/content/conditions-utilisation`} replace />} />
         <Route path="blog" element={<Blog />} />
         <Route path="blog/auteur/:slug" element={<BlogAuthor />} />
         <Route path="blog/:slug" element={<BlogArticle />} />

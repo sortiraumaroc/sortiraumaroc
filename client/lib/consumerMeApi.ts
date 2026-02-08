@@ -67,6 +67,20 @@ export async function getMyConsumerMe(): Promise<ConsumerMe> {
   return requestAuthedJson<ConsumerMe>("/api/consumer/me", { method: "GET" });
 }
 
+/**
+ * Set real email + password for phone-registered users.
+ * Called during onboarding after the email has been verified via 6-digit code.
+ */
+export async function setPhoneUserEmailPassword(args: {
+  email: string;
+  password: string;
+}): Promise<{ ok: true }> {
+  return requestAuthedJson<{ ok: true }>("/api/consumer/account/set-email-password", {
+    method: "POST",
+    body: JSON.stringify(args),
+  });
+}
+
 export async function updateMyConsumerMe(args: {
   first_name?: string | null;
   last_name?: string | null;

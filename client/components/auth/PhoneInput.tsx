@@ -85,7 +85,12 @@ export const PhoneInput = forwardRef<HTMLInputElement, PhoneInputProps>(
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const inputValue = e.target.value;
-      const digits = inputValue.replace(/\D/g, "").slice(0, country.maxDigits);
+      let digits = inputValue.replace(/\D/g, "");
+      // Auto-strip leading 0 (users often type 06... instead of 6...)
+      if (digits.startsWith("0") && digits.length > 1) {
+        digits = digits.slice(1);
+      }
+      digits = digits.slice(0, country.maxDigits);
       onChange(digits);
     };
 
