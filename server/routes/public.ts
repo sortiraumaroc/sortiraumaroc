@@ -4,6 +4,13 @@ import { createHash, randomBytes } from "crypto";
 
 import { getAdminSupabase } from "../supabaseAdmin";
 import {
+  revokeAllTrustedDevices,
+  listTrustedDevices,
+  revokeTrustedDevice,
+  revokeCurrentDevice,
+  cleanupExpiredDevices,
+} from "../trustedDeviceLogic";
+import {
   setBookingAttributionCookie,
   determineBookingSource,
   type BookingSource,
@@ -20,6 +27,7 @@ import { notifyProMembers } from "../proNotifications";
 import { emitConsumerUserEvent } from "../consumerNotifications";
 import { triggerWaitlistPromotionForSlot } from "../waitlist";
 import { formatLeJjMmAaAHeure, formatDateLongFr } from "../../shared/datetime";
+import { transformWizardHoursToOpeningHours } from "../lib/transformHours";
 import { NotificationEventType } from "../../shared/notifications";
 import {
   ACTIVE_WAITLIST_ENTRY_STATUS_SET,
@@ -36,6 +44,10 @@ import {
 } from "./lacaissepay";
 import { sendTemplateEmail } from "../emailService";
 import { scoreToReliabilityLevel } from "../consumerReliability";
+import { loadOrComputePreferences, applyPersonalizationBonus } from "../lib/userPreferences";
+import { getRamadanConfig } from "../platformSettings";
+import { generateSearchFallback, type SearchFallbackResult } from "../lib/searchFallback";
+import { getContextualBoostsForNow, applyContextualBoosting } from "../lib/search/contextualBoosting";
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -372,18 +384,18 @@ async function getUserFromBearerToken(
       (uid ? `unknown+${uid}@example.invalid` : "unknown@example.invalid");
 
     // Best-effort: ensure the shadow consumer_users record exists so consumer_user_events FK inserts succeed.
+    // Uses INSERT ... ON CONFLICT DO NOTHING to avoid overwriting existing full_name/city/country.
     try {
       if (uid) {
-        await supabase.from("consumer_users").upsert(
-          {
-            id: uid,
-            email: safeEmail,
-            full_name: "",
-            city: "",
-            country: "",
-          },
-          { onConflict: "id" },
-        );
+        const { error: insErr } = await supabase
+          .from("consumer_users")
+          .insert(
+            { id: uid, email: safeEmail, full_name: "", city: "", country: "" },
+          );
+        // If already exists (conflict on id), that's fine — don't overwrite.
+        if (insErr && insErr.code !== "23505") {
+          console.error("[getUserFromBearerToken] consumer_users insert failed:", insErr.message);
+        }
 
         await supabase
           .from("consumer_user_stats")
@@ -466,6 +478,10 @@ type ConsumerMePayload = {
   last_name: string | null;
   phone: string | null;
   email: string | null;
+  date_of_birth: string | null;
+  city: string | null;
+  country: string | null;
+  socio_professional_status: string | null;
   reliability_score: number;
   reliability_level: "excellent" | "good" | "medium" | "fragile";
 };
@@ -531,12 +547,44 @@ export async function getConsumerMe(req: Request, res: Response) {
     userId: userResult.userId,
   });
 
+  // Fetch city, country, socio_professional_status from consumer_users table
+  const supabase = getAdminSupabase();
+  let consumerRow: Record<string, unknown> | null = null;
+  {
+    const { data, error: selErr } = await supabase
+      .from("consumer_users")
+      .select("city, country, socio_professional_status")
+      .eq("id", userResult.userId)
+      .maybeSingle();
+
+    if (!selErr) {
+      consumerRow = data as Record<string, unknown> | null;
+    } else {
+      // Fallback: column might not exist yet, try without socio_professional_status
+      const { data: fallback } = await supabase
+        .from("consumer_users")
+        .select("city, country")
+        .eq("id", userResult.userId)
+        .maybeSingle();
+      consumerRow = fallback as Record<string, unknown> | null;
+    }
+  }
+
+  // Read city/country/socio from consumer_users first, fallback to user_metadata
+  const cityValue = (typeof consumerRow?.city === "string" && consumerRow.city) ? consumerRow.city : normalizeUserMetaString(meta, "city");
+  const countryValue = (typeof consumerRow?.country === "string" && consumerRow.country) ? consumerRow.country : normalizeUserMetaString(meta, "country");
+  const socioValue = (typeof consumerRow?.socio_professional_status === "string" && consumerRow.socio_professional_status) ? consumerRow.socio_professional_status : normalizeUserMetaString(meta, "socio_professional_status");
+
   const payload: ConsumerMePayload = {
     id: userResult.userId,
     first_name: normalizeUserMetaString(meta, "first_name"),
     last_name: normalizeUserMetaString(meta, "last_name"),
     phone: normalizeUserMetaString(meta, "phone"),
     email: userResult.email,
+    date_of_birth: normalizeUserMetaString(meta, "date_of_birth"),
+    city: cityValue,
+    country: countryValue,
+    socio_professional_status: socioValue,
     reliability_score: reliability.score,
     reliability_level: reliability.level,
   };
@@ -559,8 +607,67 @@ export async function updateConsumerMe(req: Request, res: Response) {
   const firstName = asString(body.first_name) ?? asString(body.firstName);
   const lastName = asString(body.last_name) ?? asString(body.lastName);
   const phone = asString(body.phone);
+  const emailInput = asString(body.email);
   const dateOfBirth = asString(body.date_of_birth) ?? asString(body.dateOfBirth);
   const city = asString(body.city);
+  const country = asString(body.country);
+  const socioProfessionalStatus = asString(body.socio_professional_status);
+
+  // Normaliser l'email
+  const email = emailInput?.trim().toLowerCase() || null;
+
+  // ── Vérification unicité email ──
+  if (email) {
+    // Ignorer les emails synthétiques phone.sortiraumaroc.ma
+    if (!email.endsWith("@phone.sortiraumaroc.ma")) {
+      // Vérifier que cet email n'est pas déjà utilisé par un autre compte (paginated)
+      let emailTaken = false;
+      for (let page = 1; page <= 50; page++) {
+        const { data: authUsers, error: listErr } = await supabase.auth.admin.listUsers({ page, perPage: 1000 });
+        if (listErr || !authUsers?.users?.length) break;
+        if (authUsers.users.some((u: any) => u.email?.toLowerCase() === email && u.id !== userResult.userId)) {
+          emailTaken = true;
+          break;
+        }
+        if (authUsers.users.length < 1000) break;
+      }
+      if (emailTaken) {
+        return res.status(409).json({
+          error: "Cette adresse email est déjà utilisée par un autre compte.",
+        });
+      }
+    }
+  }
+
+  // ── Vérification unicité téléphone (paginated) ──
+  if (phone && phone.trim()) {
+    const normalizedPhone = phone.trim();
+    // Vérifier que ce numéro n'est pas déjà utilisé par un autre compte
+    let phoneTaken = false;
+    for (let page = 1; page <= 50; page++) {
+      const { data: authUsers, error: listErr } = await supabase.auth.admin.listUsers({ page, perPage: 1000 });
+      if (listErr || !authUsers?.users?.length) break;
+      const match = authUsers.users.find((u: any) => {
+        if (u.id === userResult.userId) return false;
+        // Vérifier dans auth.users.phone
+        if (u.phone === normalizedPhone) return true;
+        // Vérifier dans les métadonnées
+        const meta = u.user_metadata as Record<string, unknown> | undefined;
+        if (meta && String(meta.phone ?? "") === normalizedPhone) return true;
+        return false;
+      });
+      if (match) {
+        phoneTaken = true;
+        break;
+      }
+      if (authUsers.users.length < 1000) break;
+    }
+    if (phoneTaken) {
+      return res.status(409).json({
+        error: "Ce numéro de téléphone est déjà utilisé par un autre compte.",
+      });
+    }
+  }
 
   const nextMeta: Record<string, unknown> = {
     ...(asRecord(userResult.user?.user_metadata) ?? {}),
@@ -568,37 +675,115 @@ export async function updateConsumerMe(req: Request, res: Response) {
     ...(lastName != null ? { last_name: lastName } : {}),
     ...(phone != null ? { phone } : {}),
     ...(dateOfBirth != null ? { date_of_birth: dateOfBirth } : {}),
+    ...(city != null ? { city } : {}),
+    ...(country != null ? { country } : {}),
+    ...(socioProfessionalStatus != null ? { socio_professional_status: socioProfessionalStatus } : {}),
   };
+
+  // Préparer les champs de mise à jour auth (metadata + éventuellement email)
+  const authUpdate: Record<string, unknown> = { user_metadata: nextMeta };
+  if (email && !email.endsWith("@phone.sortiraumaroc.ma")) {
+    // Mettre à jour l'email dans auth.users
+    authUpdate.email = email;
+  }
 
   const { error: updateErr } = await supabase.auth.admin.updateUserById(
     userResult.userId,
-    { user_metadata: nextMeta },
+    authUpdate,
   );
   if (updateErr) return res.status(500).json({ error: updateErr.message });
 
-  // Update consumer_users table for city and full_name
+  // Update consumer_users table for city, country, socio_professional_status, full_name, and email
   const consumerUpdate: Record<string, unknown> = {};
   if (city != null) consumerUpdate.city = city;
+  if (country != null) consumerUpdate.country = country;
+  if (socioProfessionalStatus != null) consumerUpdate.socio_professional_status = socioProfessionalStatus;
   if (firstName != null || lastName != null) {
     consumerUpdate.full_name = [firstName, lastName].filter(Boolean).join(" ");
   }
+  if (email && !email.endsWith("@phone.sortiraumaroc.ma")) {
+    consumerUpdate.email = email;
+  }
   if (Object.keys(consumerUpdate).length > 0) {
-    await supabase
+    // Use upsert so the row is created if it doesn't exist yet
+    // (users who signed up via OAuth/Apple/Google may not have a consumer_users row)
+    const upsertPayload = {
+      id: userResult.userId,
+      email: email || userResult.email || `unknown+${userResult.userId}@example.invalid`,
+      ...consumerUpdate,
+    };
+    console.log("[updateConsumerMe] Upserting consumer_users for user:", userResult.userId, "with:", JSON.stringify(consumerUpdate));
+    const { error: cuErr } = await supabase
       .from("consumer_users")
-      .update(consumerUpdate)
-      .eq("id", userResult.userId);
+      .upsert(upsertPayload, { onConflict: "id" });
+
+    if (cuErr) {
+      console.error("[updateConsumerMe] consumer_users upsert error:", cuErr.message, cuErr.code, cuErr.details);
+
+      // If socio_professional_status column doesn't exist yet, retry without it
+      if (socioProfessionalStatus != null) {
+        delete consumerUpdate.socio_professional_status;
+        if (Object.keys(consumerUpdate).length > 0) {
+          const retryPayload = {
+            id: userResult.userId,
+            email: email || userResult.email || `unknown+${userResult.userId}@example.invalid`,
+            ...consumerUpdate,
+          };
+          console.log("[updateConsumerMe] Retrying without socio_professional_status:", JSON.stringify(consumerUpdate));
+          const { error: retryErr } = await supabase
+            .from("consumer_users")
+            .upsert(retryPayload, { onConflict: "id" });
+          if (retryErr) {
+            console.error("[updateConsumerMe] Retry also failed:", retryErr.message, retryErr.code);
+          }
+        }
+      }
+    } else {
+      console.log("[updateConsumerMe] consumer_users upsert success");
+    }
+
+    // Also ensure consumer_user_stats row exists
+    await supabase
+      .from("consumer_user_stats")
+      .upsert({ user_id: userResult.userId }, { onConflict: "user_id" })
+      .then(() => {});
   }
 
   const reliability = await loadConsumerReliabilitySnapshot({
     userId: userResult.userId,
   });
 
+  // Read back consumer_users data (may have been updated above or earlier)
+  let consumerRow: Record<string, unknown> | null = null;
+  {
+    const { data, error: selErr } = await supabase
+      .from("consumer_users")
+      .select("city, country, socio_professional_status")
+      .eq("id", userResult.userId)
+      .maybeSingle();
+
+    if (!selErr) {
+      consumerRow = data as Record<string, unknown> | null;
+    } else {
+      const { data: fallback } = await supabase
+        .from("consumer_users")
+        .select("city, country")
+        .eq("id", userResult.userId)
+        .maybeSingle();
+      consumerRow = fallback as Record<string, unknown> | null;
+    }
+  }
+
   const payload: ConsumerMePayload = {
     id: userResult.userId,
     first_name: firstName ?? normalizeUserMetaString(nextMeta, "first_name"),
     last_name: lastName ?? normalizeUserMetaString(nextMeta, "last_name"),
     phone: phone ?? normalizeUserMetaString(nextMeta, "phone"),
-    email: userResult.email,
+    email: email ?? userResult.email,
+    date_of_birth: dateOfBirth ?? normalizeUserMetaString(nextMeta, "date_of_birth"),
+    city: city ?? (typeof consumerRow?.city === "string" && consumerRow.city ? consumerRow.city : null) ?? normalizeUserMetaString(nextMeta, "city"),
+    country: country ?? (typeof consumerRow?.country === "string" && consumerRow.country ? consumerRow.country : null) ?? normalizeUserMetaString(nextMeta, "country"),
+    socio_professional_status: socioProfessionalStatus ?? (typeof consumerRow?.socio_professional_status === "string" && consumerRow.socio_professional_status ? consumerRow.socio_professional_status : null) ?? normalizeUserMetaString(nextMeta, "socio_professional_status"),
     reliability_score: reliability.score,
     reliability_level: reliability.level,
   };
@@ -614,6 +799,18 @@ function getRequestLang(req: Request): "fr" | "en" {
   if (first.startsWith("en")) return "en";
   if (first.startsWith("fr")) return "fr";
   return raw.includes("en") && !raw.includes("fr") ? "en" : "fr";
+}
+
+/**
+ * Map app locale (query param) to PostgreSQL search language.
+ * fr → 'fr', en → 'en', es/it → 'en', ar → 'both' (test FR+EN, take best)
+ */
+function getSearchLang(req: Request): "fr" | "en" | "both" {
+  const locale = String(req.query.lang ?? "").trim();
+  if (locale === "en") return "en";
+  if (locale === "es" || locale === "it") return "en";
+  if (locale === "ar") return "both";
+  return "fr";
 }
 
 function getRequestBaseUrl(req: Request): string {
@@ -1112,6 +1309,11 @@ export async function changeConsumerPassword(req: Request, res: Response) {
     metadata: { ip, user_agent: userAgent },
   });
 
+  // Revoke all trusted devices on password change (security measure)
+  try {
+    await revokeAllTrustedDevices(userResult.userId);
+  } catch { /* ignore */ }
+
   const userName = (() => {
     const meta = asRecord(userResult.user?.user_metadata) ?? {};
     const first =
@@ -1136,6 +1338,74 @@ export async function changeConsumerPassword(req: Request, res: Response) {
   });
 
   return res.status(200).json({ ok: true });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Trusted Devices Management
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * List trusted devices for the current consumer user.
+ * GET /api/consumer/account/trusted-devices
+ */
+export async function listConsumerTrustedDevices(req: Request, res: Response) {
+  const auth = String(req.headers.authorization ?? "");
+  const token = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7) : "";
+  if (!token) return res.status(401).json({ error: "missing_token" });
+
+  const userResult = await getUserFromBearerToken(token, { allowDeactivated: false });
+  if (userResult.ok === false)
+    return res.status(userResult.status).json({ error: userResult.error });
+
+  const devices = await listTrustedDevices(req, userResult.userId);
+  return res.json({ devices });
+}
+
+/**
+ * Revoke a specific trusted device by ID.
+ * POST /api/consumer/account/trusted-devices/:deviceId/revoke
+ */
+export async function revokeConsumerTrustedDevice(req: Request, res: Response) {
+  const auth = String(req.headers.authorization ?? "");
+  const token = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7) : "";
+  if (!token) return res.status(401).json({ error: "missing_token" });
+
+  const userResult = await getUserFromBearerToken(token, { allowDeactivated: false });
+  if (userResult.ok === false)
+    return res.status(userResult.status).json({ error: userResult.error });
+
+  const deviceId = req.params.deviceId;
+  if (!deviceId || typeof deviceId !== "string") {
+    return res.status(400).json({ error: "missing_device_id" });
+  }
+
+  const success = await revokeTrustedDevice(userResult.userId, deviceId);
+  if (!success) {
+    return res.status(404).json({ error: "device_not_found" });
+  }
+
+  return res.json({ ok: true });
+}
+
+/**
+ * Revoke ALL trusted devices for the current user.
+ * POST /api/consumer/account/trusted-devices/revoke-all
+ */
+export async function revokeAllConsumerTrustedDevices(req: Request, res: Response) {
+  const auth = String(req.headers.authorization ?? "");
+  const token = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7) : "";
+  if (!token) return res.status(401).json({ error: "missing_token" });
+
+  const userResult = await getUserFromBearerToken(token, { allowDeactivated: false });
+  if (userResult.ok === false)
+    return res.status(userResult.status).json({ error: userResult.error });
+
+  const count = await revokeAllTrustedDevices(userResult.userId);
+
+  // Also clear the current device cookie
+  revokeCurrentDevice(req, res);
+
+  return res.json({ ok: true, revoked: count });
 }
 
 /**
@@ -1202,7 +1472,7 @@ export async function requestConsumerPasswordResetLink(req: Request, res: Respon
   })();
 
   // Build reset URL
-  const baseUrl = process.env.FRONTEND_URL || "https://sortiraumaroc.ma";
+  const baseUrl = process.env.PUBLIC_BASE_URL || process.env.FRONTEND_URL || "https://sam.ma";
   const resetUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(resetToken)}`;
 
   // Send email with reset link
@@ -1325,6 +1595,11 @@ export async function completePasswordReset(req: Request, res: Response) {
     metadata: { ip, user_agent: userAgent },
   });
 
+  // Revoke all trusted devices on password reset (security measure)
+  try {
+    await revokeAllTrustedDevices(tokenRow.user_id);
+  } catch { /* ignore */ }
+
   // Get user info for confirmation email
   const { data: user } = await supabase.auth.admin.getUserById(tokenRow.user_id);
   const email = user?.user?.email ?? "";
@@ -1421,7 +1696,7 @@ export async function requestPublicPasswordResetLink(req: Request, res: Response
     })();
 
     // Build reset URL
-    const baseUrl = process.env.PUBLIC_BASE_URL || process.env.FRONTEND_URL || "https://sortiraumaroc.ma";
+    const baseUrl = process.env.PUBLIC_BASE_URL || process.env.FRONTEND_URL || "https://sam.ma";
     const resetUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(resetToken)}`;
 
     // Send email with reset link (awaited so errors are caught)
@@ -1676,7 +1951,7 @@ type SitemapUrl = {
   lastmod?: string;
   changefreq?: string;
   priority?: number;
-  alternates?: { fr: string; en: string; xDefault: string };
+  alternates?: { fr: string; en: string; es: string; it: string; ar: string; xDefault: string };
 };
 
 export async function getPublicSitemapXml(req: Request, res: Response) {
@@ -1686,6 +1961,7 @@ export async function getPublicSitemapXml(req: Request, res: Response) {
     { data: establishments, error: estError },
     { data: contentPagesRaw, error: contentError },
     { data: blogArticlesRaw, error: blogError },
+    { data: landingPagesRaw, error: landingError },
   ] = await Promise.all([
     supabase
       .from("establishments")
@@ -1703,10 +1979,17 @@ export async function getPublicSitemapXml(req: Request, res: Response) {
       .select("slug,updated_at")
       .eq("is_published", true)
       .limit(500),
+    supabase
+      .from("landing_pages")
+      .select("slug,priority,updated_at")
+      .eq("is_active", true)
+      .limit(1000),
   ]);
 
   const contentPages = contentError ? [] : (contentPagesRaw ?? []);
   const blogArticles = blogError ? [] : (blogArticlesRaw ?? []);
+  const landingPages = landingError ? [] : (landingPagesRaw ?? []);
+  if (landingError) console.error("sitemap: failed to load landing_pages", landingError);
   if (contentError)
     console.error("sitemap: failed to load content_pages", contentError);
   if (blogError)
@@ -1772,11 +2055,18 @@ export async function getPublicSitemapXml(req: Request, res: Response) {
       String(row.canonical_url_en ?? "").trim() ||
       (baseUrl ? `${baseUrl}${enPath}` : enPath);
 
+    const esUrl = baseUrl ? `${baseUrl}/es/content/${slugFr}` : `/es/content/${slugFr}`;
+    const itUrl = baseUrl ? `${baseUrl}/it/content/${slugFr}` : `/it/content/${slugFr}`;
+    const arUrl = baseUrl ? `${baseUrl}/ar/content/${slugFr}` : `/ar/content/${slugFr}`;
+
     urls.push({
       loc: frUrl,
       alternates: {
         fr: frUrl,
         en: enUrl,
+        es: esUrl,
+        it: itUrl,
+        ar: arUrl,
         xDefault: frUrl,
       },
       lastmod: row.updated_at ? String(row.updated_at) : undefined,
@@ -1797,6 +2087,18 @@ export async function getPublicSitemapXml(req: Request, res: Response) {
       lastmod: row.updated_at ? String(row.updated_at) : undefined,
       changefreq: "weekly",
       priority: 0.7,
+    });
+  }
+
+  // Landing pages (SEO)
+  for (const lp of landingPages as Array<{ slug?: string | null; priority?: number | null; updated_at?: string | null }>) {
+    const lpSlug = lp.slug ? String(lp.slug) : null;
+    if (!lpSlug) continue;
+    urls.push({
+      loc: baseUrl ? `${baseUrl}/${lpSlug}` : `/${lpSlug}`,
+      lastmod: lp.updated_at ? String(lp.updated_at) : undefined,
+      changefreq: "weekly",
+      priority: typeof lp.priority === "number" ? lp.priority : 0.8,
     });
   }
 
@@ -1854,15 +2156,27 @@ export async function getPublicSitemapXml(req: Request, res: Response) {
       const defaultFrUrl = `${baseUrl}${pathname}`;
       const defaultEnUrl =
         pathname === "/" ? `${baseUrl}/en/` : `${baseUrl}/en${pathname}`;
+      const defaultEsUrl =
+        pathname === "/" ? `${baseUrl}/es/` : `${baseUrl}/es${pathname}`;
+      const defaultItUrl =
+        pathname === "/" ? `${baseUrl}/it/` : `${baseUrl}/it${pathname}`;
+      const defaultArUrl =
+        pathname === "/" ? `${baseUrl}/ar/` : `${baseUrl}/ar${pathname}`;
       const defaultXDefaultUrl = defaultFrUrl;
 
       const frUrl = u.alternates?.fr ?? defaultFrUrl;
       const enUrl = u.alternates?.en ?? defaultEnUrl;
+      const esUrl = u.alternates?.es ?? defaultEsUrl;
+      const itUrl = u.alternates?.it ?? defaultItUrl;
+      const arUrl = u.alternates?.ar ?? defaultArUrl;
       const xDefaultUrl = u.alternates?.xDefault ?? defaultXDefaultUrl;
 
       const alternates = [
         `<xhtml:link rel="alternate" hreflang="fr" href="${escapeXml(frUrl)}" />`,
         `<xhtml:link rel="alternate" hreflang="en" href="${escapeXml(enUrl)}" />`,
+        `<xhtml:link rel="alternate" hreflang="es" href="${escapeXml(esUrl)}" />`,
+        `<xhtml:link rel="alternate" hreflang="it" href="${escapeXml(itUrl)}" />`,
+        `<xhtml:link rel="alternate" hreflang="ar" href="${escapeXml(arUrl)}" />`,
         `<xhtml:link rel="alternate" hreflang="x-default" href="${escapeXml(xDefaultUrl)}" />`,
       ].join("");
 
@@ -1888,7 +2202,7 @@ export async function getPublicEstablishment(req: Request, res: Response) {
   const { data: establishment, error: estError } = await supabase
     .from("establishments")
     .select(
-      "id,slug,name,universe,subcategory,city,address,postal_code,region,country,lat,lng,description_short,description_long,phone,whatsapp,website,social_links,cover_url,gallery_urls,hours,tags,amenities,extra,booking_enabled,status,menu_digital_enabled,email",
+      "id,slug,name,universe,subcategory,category,city,address,postal_code,region,country,neighborhood,lat,lng,description_short,description_long,phone,whatsapp,website,social_links,cover_url,gallery_urls,hours,tags,highlights,amenities,extra,booking_enabled,status,menu_digital_enabled,email,google_maps_url,google_rating,google_review_count,specialties,cuisine_types,ambiance_tags",
     )
     .eq("id", establishmentId)
     .maybeSingle();
@@ -2287,6 +2601,7 @@ type PublicEstablishmentListItem = {
   subcategory: string | null;
   city: string | null;
   address: string | null;
+  neighborhood: string | null;
   region: string | null;
   country: string | null;
   lat: number | null;
@@ -2306,9 +2621,13 @@ type PublicEstablishmentListItem = {
   slug?: string | null;
   relevance_score?: number;
   total_score?: number;
+  tags?: string[] | null;
   // Activity/assiduity fields
   is_online?: boolean;
   activity_score?: number;
+  // Google rating fields
+  google_rating?: number | null;
+  google_review_count?: number | null;
 };
 
 type PublicEstablishmentsListResponse = {
@@ -2347,6 +2666,8 @@ function normalizePublicUniverseAliases(raw: unknown): string[] {
 
     culture: ["culture"],
 
+    rentacar: ["rentacar"],
+
     // NOTE: "shopping" exists as a UI universe, but may not exist in the DB enum.
     // Returning [] means "no filter" to avoid a backend 500.
     shopping: [],
@@ -2358,6 +2679,7 @@ function normalizePublicUniverseAliases(raw: unknown): string[] {
     "hebergement",
     "wellness",
     "culture",
+    "rentacar",
   ]);
   const candidates = aliases[u] ?? [u];
   const safe = candidates.filter((value) => allowed.has(value));
@@ -2399,10 +2721,10 @@ export async function getPublicBillingCompanyProfile(
 
 export async function listPublicEstablishments(req: Request, res: Response) {
   const limitRaw =
-    typeof req.query.limit === "string" ? Number(req.query.limit) : 24;
+    typeof req.query.limit === "string" ? Number(req.query.limit) : 12;
   const limit = Number.isFinite(limitRaw)
-    ? Math.min(60, Math.max(1, Math.floor(limitRaw)))
-    : 24;
+    ? Math.min(50, Math.max(1, Math.floor(limitRaw)))
+    : 12;
 
   const offsetRaw =
     typeof req.query.offset === "string" ? Number(req.query.offset) : 0;
@@ -2410,17 +2732,64 @@ export async function listPublicEstablishments(req: Request, res: Response) {
     ? Math.max(0, Math.floor(offsetRaw))
     : 0;
 
+  // Cursor-based pagination params
+  const cursor = asString(req.query.cursor) || null;
+  const cursorScoreRaw = typeof req.query.cs === "string" ? Number(req.query.cs) : NaN;
+  const cursorScore = Number.isFinite(cursorScoreRaw) ? cursorScoreRaw : null;
+  const cursorDate = asString(req.query.cd) || null; // ISO date for fallback path
+
+  // Backward compatibility: warn if offset is used without cursor
+  if (offset > 0 && !cursor) {
+    console.warn("[search] DEPRECATED: offset-based pagination used without cursor. Migrate to cursor-based pagination.");
+  }
+
   const q = asString(req.query.q);
   const city = asString(req.query.city);
   const category = asString(req.query.category); // Filter by subcategory/activity type
   const sortMode = asString(req.query.sort); // "best" for best results scoring
 
+  // Bounding box params for map-based "search this area" feature
+  const swLat = typeof req.query.swLat === "string" ? Number(req.query.swLat) : NaN;
+  const swLng = typeof req.query.swLng === "string" ? Number(req.query.swLng) : NaN;
+  const neLat = typeof req.query.neLat === "string" ? Number(req.query.neLat) : NaN;
+  const neLng = typeof req.query.neLng === "string" ? Number(req.query.neLng) : NaN;
+  const hasBounds = Number.isFinite(swLat) && Number.isFinite(swLng) && Number.isFinite(neLat) && Number.isFinite(neLng);
+
   const promoOnly =
     String(req.query.promo ?? "").trim() === "1" ||
     String(req.query.promoOnly ?? "").trim() === "1";
 
+  // Prompt 11 — practical filters
+  const openNowOnly = String(req.query.open_now ?? "").trim() === "1";
+  const instantBookingOnly = String(req.query.instant_booking ?? "").trim() === "1";
+  const amenitiesFilter = asString(req.query.amenities)?.split(",").filter(Boolean) || [];
+  const priceRangeFilter = asString(req.query.price_range)?.split(",").map(Number).filter((n: number) => n >= 1 && n <= 4) || [];
+
   const universeAliases = normalizePublicUniverseAliases(req.query.universe);
   const universeMeta = asString(req.query.universe) ?? undefined;
+
+  // Prompt 12 — Optional auth for personalization
+  const personalizedParam = String(req.query.personalized ?? "1");
+  let personalizeUserId: string | null = null;
+  if (personalizedParam !== "0") {
+    const authHeader = String(req.headers.authorization ?? "");
+    const token = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7) : "";
+    if (token) {
+      try {
+        const { data: authData } = await getAdminSupabase().auth.getUser(token);
+        if (authData?.user) personalizeUserId = authData.user.id;
+      } catch { /* ignore auth errors for optional personalization */ }
+    }
+  }
+
+  // Load preferences if authenticated (lazy computation)
+  type UserPrefs = Awaited<ReturnType<typeof loadOrComputePreferences>>;
+  let userPrefs: UserPrefs = null;
+  if (personalizeUserId) {
+    try {
+      userPrefs = await loadOrComputePreferences(personalizeUserId);
+    } catch { /* personalization failure is non-fatal */ }
+  }
 
   const supabase = getAdminSupabase();
 
@@ -2431,9 +2800,24 @@ export async function listPublicEstablishments(req: Request, res: Response) {
   let estQuery = supabase
     .from("establishments")
     .select(
-      "id,slug,name,universe,subcategory,city,address,region,country,lat,lng,cover_url,booking_enabled,updated_at,tags,amenities,is_online,activity_score",
+      "id,slug,name,universe,subcategory,city,address,neighborhood,region,country,lat,lng,phone,cover_url,booking_enabled,updated_at,tags,amenities,hours,price_range,is_online,activity_score,verified,premium,curated,google_rating,google_review_count",
     )
-    .eq("status", "active");
+    .eq("status", "active")
+    .not("cover_url", "is", null)
+    .neq("cover_url", "");
+  // Note: We do NOT filter by is_online here — many establishments haven't set up activity tracking yet.
+
+  // Prompt 11 — SQL-level filters (applied to fallback path query)
+  if (amenitiesFilter.length > 0) {
+    estQuery = estQuery.contains("amenities", amenitiesFilter);
+  }
+  if (priceRangeFilter.length > 0) {
+    estQuery = estQuery.in("price_range", priceRangeFilter);
+  }
+  if (instantBookingOnly) {
+    estQuery = estQuery.eq("booking_enabled", true);
+  }
+  // Instead, is_online is used as a RANKING boost (online establishments appear higher in results).
 
   if (universeAliases.length === 1) {
     estQuery = estQuery.eq("universe", universeAliases[0]);
@@ -2441,9 +2825,19 @@ export async function listPublicEstablishments(req: Request, res: Response) {
     estQuery = estQuery.in("universe", universeAliases);
   }
 
-  if (city) {
+  if (city && !hasBounds) {
     // City values are usually normalized (e.g. "Marrakech"), but we keep it case-insensitive for resilience.
+    // Skip city filter when bounding box is provided (map area search)
     estQuery = estQuery.ilike("city", city);
+  }
+
+  // Apply bounding box filter for map-based "search this area"
+  if (hasBounds) {
+    estQuery = estQuery
+      .gte("lat", swLat)
+      .lte("lat", neLat)
+      .gte("lng", swLng)
+      .lte("lng", neLng);
   }
 
   // If there's a search query, use the scored search function for better results
@@ -2451,18 +2845,59 @@ export async function listPublicEstablishments(req: Request, res: Response) {
     // Use the PostgreSQL search function with scoring
     const universeFilter = universeAliases.length === 1 ? universeAliases[0] : null;
 
-    const { data: scoredResults, error: searchErr } = await supabase.rpc(
-      'search_establishments_scored',
-      {
-        search_query: q,
-        filter_universe: universeFilter,
-        filter_city: city || null,
-        result_limit: limit,
-        result_offset: offset,
-      }
-    );
+    // Build RPC params with cursor support
+    const searchLang = getSearchLang(req);
+    const rpcParams: Record<string, unknown> = {
+      search_query: q,
+      filter_universe: universeFilter,
+      filter_city: city || null,
+      result_limit: limit + 1, // fetch one extra to determine has_more
+      result_offset: 0,
+      search_lang: searchLang,
+    };
 
-    if (!searchErr && scoredResults && scoredResults.length > 0) {
+    // If cursor is provided, use cursor-based pagination
+    if (cursor && cursorScore !== null) {
+      rpcParams.cursor_score = cursorScore;
+      rpcParams.cursor_id = cursor;
+    } else if (offset > 0) {
+      // Backward compat: use offset if no cursor
+      rpcParams.result_offset = offset;
+    }
+
+    // Run scored search and (on first page) count in parallel
+    const isFirstPage = !cursor && offset === 0;
+    const [{ data: scoredResultsRaw, error: searchErr }, countResult] = await Promise.all([
+      supabase.rpc('search_establishments_scored', rpcParams),
+      isFirstPage
+        ? supabase.rpc('count_establishments_scored', {
+            search_query: q,
+            filter_universe: universeFilter,
+            filter_city: city || null,
+            search_lang: searchLang,
+          })
+        : Promise.resolve({ data: null, error: null }),
+    ]);
+
+    const totalCountScored: number | null = typeof countResult?.data === "number" ? countResult.data : null;
+
+    // Log RPC result for debugging
+    if (searchErr) {
+      console.warn(`[search] RPC search_establishments_scored FAILED for q="${q}", universe="${universeFilter}", city="${city || null}":`, searchErr.message || searchErr);
+    } else {
+      console.log(`[search] RPC search_establishments_scored OK for q="${q}": ${scoredResultsRaw?.length ?? 0} results (cursor=${cursor ?? 'none'})`);
+    }
+
+    if (!searchErr && scoredResultsRaw && scoredResultsRaw.length > 0) {
+      // Filter out establishments without cover photo
+      const scoredResultsFiltered = scoredResultsRaw.filter((r: any) => r.cover_url && r.cover_url !== "");
+      // Determine has_more from the extra item we fetched
+      const hasMore = scoredResultsFiltered.length > limit;
+      const scoredResults = hasMore ? scoredResultsFiltered.slice(0, limit) : scoredResultsFiltered;
+      // Fire-and-forget: track search suggestion popularity
+      const universeForTracking = universeAliases.length === 1 ? universeAliases[0] : null;
+      void trackSearchSuggestion(q, universeForTracking, scoredResults.length);
+
       // Return scored results directly
       const ids = scoredResults.map((r: any) => r.id);
       const nowIso = new Date().toISOString();
@@ -2507,15 +2942,29 @@ export async function listPublicEstablishments(req: Request, res: Response) {
         if (estId) reservationCountByEst.set(estId, (reservationCountByEst.get(estId) ?? 0) + 1);
       }
 
-      // Fetch activity data for scored results
+      // Fetch activity data + filter data + geo/review data for scored results
+      // (RPC doesn't return lat, lng, address, neighborhood, region, country, google_rating, google_review_count, subcategory)
+      const needsFilterData = openNowOnly || priceRangeFilter.length > 0 || amenitiesFilter.length > 0 || instantBookingOnly;
+      // Prompt 14 — always fetch price_range,amenities for contextual boosting
+      // Also fetch geo/review/subcategory data (not returned by scored RPC)
+      const enrichSelectBase = "id,is_online,activity_score,price_range,amenities,lat,lng,address,neighborhood,region,country,google_rating,google_review_count,subcategory";
+      const enrichSelect = needsFilterData
+        ? enrichSelectBase + ",hours,booking_enabled"
+        : enrichSelectBase;
       const { data: activityData } = ids.length
         ? await supabase
             .from("establishments")
-            .select("id,is_online,activity_score")
+            .select(enrichSelect)
             .in("id", ids)
         : { data: [] };
 
       const activityByEst = new Map<string, { isOnline: boolean; activityScore: number | null }>();
+      const filterDataByEst = new Map<string, { hours: unknown; priceRange: number | null; amenities: string[]; bookingEnabled: boolean }>();
+      const enrichByEst = new Map<string, {
+        lat: number | null; lng: number | null; address: string | null; neighborhood: string | null;
+        region: string | null; country: string | null; google_rating: number | null; google_review_count: number | null;
+        subcategory: string | null;
+      }>();
       for (const a of (activityData ?? []) as Array<Record<string, unknown>>) {
         const estId = typeof a.id === "string" ? a.id : "";
         if (!estId) continue;
@@ -2523,60 +2972,229 @@ export async function listPublicEstablishments(req: Request, res: Response) {
           isOnline: typeof a.is_online === "boolean" ? a.is_online : false,
           activityScore: typeof a.activity_score === "number" && Number.isFinite(a.activity_score) ? a.activity_score : null,
         });
+        enrichByEst.set(estId, {
+          lat: typeof a.lat === "number" && Number.isFinite(a.lat) ? a.lat : null,
+          lng: typeof a.lng === "number" && Number.isFinite(a.lng) ? a.lng : null,
+          address: typeof a.address === "string" ? a.address : null,
+          neighborhood: typeof a.neighborhood === "string" ? a.neighborhood : null,
+          region: typeof a.region === "string" ? a.region : null,
+          country: typeof a.country === "string" ? a.country : null,
+          google_rating: typeof a.google_rating === "number" ? a.google_rating : null,
+          google_review_count: typeof a.google_review_count === "number" ? a.google_review_count : null,
+          subcategory: typeof a.subcategory === "string" ? a.subcategory : null,
+        });
+        if (needsFilterData) {
+          filterDataByEst.set(estId, {
+            hours: a.hours ?? null,
+            priceRange: typeof a.price_range === "number" ? a.price_range : null,
+            amenities: Array.isArray(a.amenities) ? (a.amenities as string[]) : [],
+            bookingEnabled: typeof a.booking_enabled === "boolean" ? a.booking_enabled : false,
+          });
+        }
       }
 
+      // Prompt 14 — build boost data map (price_range + amenities always available now)
+      const boostDataByEst = new Map<string, { priceRange: number | null; amenities: string[] }>();
+      for (const a of (activityData ?? []) as Array<Record<string, unknown>>) {
+        const estId = typeof a.id === "string" ? a.id : "";
+        if (!estId) continue;
+        boostDataByEst.set(estId, {
+          priceRange: typeof a.price_range === "number" ? a.price_range : null,
+          amenities: Array.isArray(a.amenities) ? (a.amenities as string[]) : [],
+        });
+      }
+
+      const nowForOpenCheck = new Date();
       const items: PublicEstablishmentListItem[] = scoredResults.map((e: any) => {
         const promo = promoByEst.get(e.id) ?? null;
         if (promoOnly && (!promo || promo <= 0)) return null;
+
+        // Enrichment data from establishments table (RPC doesn't return these)
+        const enrich = enrichByEst.get(e.id);
+
+        // Note: `category` param (e.g. "cuisine", "tag") is the autocomplete suggestion TYPE,
+        // not a filter value. The actual filtering is done by the search query (q param).
+        // The scored RPC already handles text matching, so no post-filter needed here.
+
+        // Prompt 11 — post-fetch filters for scored path
+        if (needsFilterData) {
+          const fd = filterDataByEst.get(e.id);
+          if (openNowOnly && (!fd?.hours || !isCurrentlyOpen(fd.hours, nowForOpenCheck))) return null;
+          if (instantBookingOnly && !fd?.bookingEnabled) return null;
+          if (priceRangeFilter.length > 0 && (fd?.priceRange == null || !priceRangeFilter.includes(fd.priceRange))) return null;
+          if (amenitiesFilter.length > 0) {
+            const estAmenities = (fd?.amenities ?? []).map((a: string) => a.toLowerCase());
+            if (!amenitiesFilter.every((f: string) => estAmenities.some((a: string) => a.includes(f.toLowerCase())))) return null;
+          }
+        }
 
         const activity = activityByEst.get(e.id);
         const isOnline = activity?.isOnline ?? false;
         const activityScore = activity?.activityScore ?? null;
 
+        // Note: We do NOT exclude offline establishments — is_online is used for ranking only.
+        // Many establishments haven't set up activity tracking yet.
+
+        // Use enrichment data for fields not returned by RPC
+        const lat = enrich?.lat ?? null;
+        const lng = enrich?.lng ?? null;
+        const googleRating = enrich?.google_rating ?? null;
+        const googleReviewCount = enrich?.google_review_count ?? null;
+
         return {
           id: e.id,
           name: e.name,
           universe: e.universe,
-          subcategory: e.subcategory,
+          subcategory: enrich?.subcategory ?? e.subcategory ?? null,
           city: e.city,
-          address: null,
-          region: null,
-          country: null,
-          lat: null,
-          lng: null,
+          address: enrich?.address ?? null,
+          neighborhood: enrich?.neighborhood ?? null,
+          region: enrich?.region ?? null,
+          country: enrich?.country ?? null,
+          lat,
+          lng,
           cover_url: e.cover_url,
-          booking_enabled: null,
+          booking_enabled: e.booking_enabled ?? null,
           promo_percent: promo ?? e.promo_percent ?? null,
           next_slot_at: nextSlotByEst.get(e.id) ?? null,
           reservations_30d: reservationCountByEst.get(e.id) ?? e.reservations_30d ?? 0,
-          avg_rating: e.rating_avg ?? null,
-          review_count: 0,
+          avg_rating: e.rating_avg ?? googleRating ?? null,
+          review_count: googleReviewCount ?? 0,
           reviews_last_30d: 0,
-          verified: false,
-          premium: false,
-          curated: false,
-          slug: generateEstablishmentSlug(e.name, e.city),
+          verified: typeof e.verified === "boolean" ? e.verified : false,
+          premium: typeof e.premium === "boolean" ? e.premium : false,
+          curated: typeof e.curated === "boolean" ? e.curated : false,
+          tags: Array.isArray(e.tags) ? e.tags : null,
+          slug: e.slug ?? generateEstablishmentSlug(e.name, e.city),
           relevance_score: e.relevance_score,
           total_score: e.total_score,
           // Activity/assiduity fields
           is_online: isOnline,
           activity_score: activityScore ?? undefined,
+          // Google rating fields
+          google_rating: googleRating,
+          google_review_count: googleReviewCount,
         };
       }).filter(Boolean);
 
+      // ── Minimum relevance threshold: remove noise results that barely match the query ──
+      // Establishments with very low relevance_score (< 0.1) have no meaningful text match —
+      // their score comes from trigram similarity or activity bonuses only.
+      if (q && items.length > 0) {
+        const MIN_RELEVANCE = 0.1;
+        const before = items.length;
+        const filtered = items.filter((item: any) => {
+          const rel = typeof item.relevance_score === "number" ? item.relevance_score : 0;
+          return rel >= MIN_RELEVANCE;
+        });
+        // Only apply filter if we'd still have results; never show 0 results
+        if (filtered.length > 0) {
+          items.length = 0;
+          items.push(...filtered);
+        }
+      }
+
+      // ── Subcategory boost: prioritize establishments whose primary specialty matches the query ──
+      // When searching "italien", restaurants with subcategory="italien" should rank higher
+      // than those that merely have "italien" in their name or tags.
+      if (q && items.length > 1) {
+        const qLower = q.toLowerCase().trim();
+        for (const item of items as any[]) {
+          const sub = typeof item.subcategory === "string" ? item.subcategory.toLowerCase() : "";
+          if (sub && sub.includes(qLower)) {
+            // Primary specialty match → significant boost (1.5x)
+            item.total_score = (item.total_score ?? 0) * 1.5;
+          }
+        }
+        // Re-sort by boosted total_score (descending)
+        (items as any[]).sort((a: any, b: any) => (b.total_score ?? 0) - (a.total_score ?? 0));
+      }
+
+      // Prompt 12 — Apply personalization bonus (re-ranks by multiplied score)
+      if (userPrefs && items.length > 1) {
+        applyPersonalizationBonus(items as any[], userPrefs);
+      }
+
+      // Prompt 14 — Apply contextual boosting (time-of-day, day-of-week, seasonal)
+      try {
+        const ctxBoosts = await getContextualBoostsForNow();
+        if (ctxBoosts.active_rules.length > 0) {
+          for (const item of items as any[]) {
+            const bd = boostDataByEst.get(item.id);
+            if (bd) {
+              item._price_range = bd.priceRange;
+              item._amenities = bd.amenities;
+            }
+          }
+          applyContextualBoosting(items as any[], ctxBoosts);
+        }
+      } catch { /* contextual boosting failure is non-fatal */ }
+
+      // Build cursor info for next page
+      const lastItem = items.length > 0 ? scoredResults[scoredResults.length - 1] : null;
+      const nextCursor = hasMore && lastItem ? lastItem.id : null;
+      const nextCursorScore = hasMore && lastItem ? lastItem.total_score : null;
+
+      // Prompt 13 — fallback suggestions when results are sparse
+      let fallbackScored: SearchFallbackResult | undefined;
+      if (items.length < 3 && q && !cursor) {
+        try {
+          fallbackScored = (await generateSearchFallback({
+            query: q,
+            universe: universeAliases.length === 1 ? universeAliases[0] : null,
+            city: city || null,
+            filters: {
+              amenities: amenitiesFilter,
+              price_range: priceRangeFilter,
+              open_now: openNowOnly,
+              instant_booking: instantBookingOnly,
+              promo_only: promoOnly,
+            },
+          })) ?? undefined;
+        } catch { /* fallback failure is non-fatal */ }
+      }
+
       return res.json({
+        ok: true,
         items,
-        count: items.length,
-        universe: universeMeta,
-        search_mode: 'scored',
+        meta: {
+          limit,
+          offset,
+          ...(universeMeta ? { universe: universeMeta } : {}),
+          ...(city ? { city } : {}),
+          ...(q ? { q } : {}),
+          ...(promoOnly ? { promoOnly: true } : {}),
+          search_mode: 'scored',
+          personalized: !!userPrefs,
+        },
+        pagination: {
+          next_cursor: nextCursor,
+          next_cursor_score: nextCursorScore,
+          next_cursor_date: null,
+          has_more: hasMore,
+          total_count: totalCountScored,
+        },
+        ...(fallbackScored ? { fallback: fallbackScored } : {}),
       });
     }
 
     // Fallback to basic search if scored search fails or returns no results
-    const searchTerm = `%${q}%`;
-    estQuery = estQuery.or(
-      `name.ilike.${searchTerm},subcategory.ilike.${searchTerm},tags.cs.{${q}}`
-    );
+    const words = q.split(/\s+/).filter((w: string) => w.length >= 2);
+    if (words.length > 1) {
+      // Multi-word: each word must match at least one field (AND logic)
+      // This ensures "restaurant français" only returns French restaurants
+      for (const word of words) {
+        const term = `%${word}%`;
+        estQuery = estQuery.or(
+          `name.ilike.${term},subcategory.ilike.${term},tags.cs.{${word}}`
+        );
+      }
+    } else {
+      const searchTerm = `%${q}%`;
+      estQuery = estQuery.or(
+        `name.ilike.${searchTerm},subcategory.ilike.${searchTerm},tags.cs.{${q}}`
+      );
+    }
   } else if (q) {
     // Short query (< 2 chars): use basic ilike search
     const searchTerm = `%${q}%`;
@@ -2594,12 +3212,71 @@ export async function listPublicEstablishments(req: Request, res: Response) {
   // Note: avg_rating/review_count columns not yet created - use updated_at for now
   estQuery = estQuery
     .order("updated_at", { ascending: false })
-    .range(offset, offset + limit - 1);
+    .order("id", { ascending: false }); // deterministic tie-breaker
+
+  // Cursor-based pagination for fallback path
+  if (cursor && cursorDate) {
+    // Keyset pagination: fetch items after the cursor position
+    estQuery = estQuery.or(
+      `updated_at.lt.${cursorDate},and(updated_at.eq.${cursorDate},id.lt.${cursor})`
+    );
+    estQuery = estQuery.limit(limit + 1); // +1 to detect has_more
+  } else if (offset > 0) {
+    // Backward compat: offset-based
+    estQuery = estQuery.range(offset, offset + limit);
+  } else {
+    estQuery = estQuery.limit(limit + 1); // first page, +1 to detect has_more
+  }
+
+  // Count query for first page only (no cursor, no offset)
+  const isFirstPageFallback = !cursor && offset === 0;
+  let totalCountFallback: number | null = null;
+  if (isFirstPageFallback) {
+    // Build a count query with same filters
+    let countQuery = supabase
+      .from("establishments")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "active")
+      .not("cover_url", "is", null)
+      .neq("cover_url", "");
+
+    if (universeAliases.length === 1) {
+      countQuery = countQuery.eq("universe", universeAliases[0]);
+    } else if (universeAliases.length > 1) {
+      countQuery = countQuery.in("universe", universeAliases);
+    }
+    if (city && !hasBounds) {
+      countQuery = countQuery.ilike("city", city);
+    }
+    if (hasBounds) {
+      countQuery = countQuery.gte("lat", swLat).lte("lat", neLat).gte("lng", swLng).lte("lng", neLng);
+    }
+    if (category) {
+      countQuery = countQuery.ilike("subcategory", `%${category}%`);
+    }
+    // Note: search term filters (ilike OR conditions) are harder to replicate in count query.
+    // For simplicity, if there's a search query, we skip precise count (will be null).
+    if (!q) {
+      const { count } = await countQuery;
+      totalCountFallback = typeof count === "number" ? count : null;
+    }
+  }
 
   const { data: establishments, error: estErr } = await estQuery;
   if (estErr) return res.status(500).json({ error: estErr.message });
 
-  const estArr = (establishments ?? []) as Array<Record<string, unknown>>;
+  const estArrRaw = (establishments ?? []) as Array<Record<string, unknown>>;
+
+  // Detect has_more from the extra item and slice to actual limit
+  const hasMoreFallback = estArrRaw.length > limit;
+  const estArr = hasMoreFallback ? estArrRaw.slice(0, limit) : estArrRaw;
+
+  // Fire-and-forget: track search suggestion popularity (fallback search path)
+  if (q && q.length >= 2) {
+    const universeForTracking = universeAliases.length === 1 ? universeAliases[0] : null;
+    void trackSearchSuggestion(q, universeForTracking, estArr.length);
+  }
+
   const ids = estArr
     .map((e) => (typeof e.id === "string" ? e.id : ""))
     .filter(Boolean);
@@ -2704,6 +3381,7 @@ export async function listPublicEstablishments(req: Request, res: Response) {
     return (baseScore * velocityMultiplier + reservationBonus) * assiduityFactor + onlineBonus;
   };
 
+  const nowForOpenCheckFallback = new Date();
   const items: PublicEstablishmentListItem[] = estArr
     .map((e) => {
       const id = typeof e.id === "string" ? e.id : "";
@@ -2711,6 +3389,9 @@ export async function listPublicEstablishments(req: Request, res: Response) {
 
       const promo = promoByEst.get(id) ?? null;
       if (promoOnly && (!promo || promo <= 0)) return null;
+
+      // Prompt 11 — open_now post-fetch filter (fallback path)
+      if (openNowOnly && (!e.hours || !isCurrentlyOpen(e.hours, nowForOpenCheckFallback))) return null;
 
       const avgRating = typeof e.avg_rating === "number" && Number.isFinite(e.avg_rating) ? e.avg_rating : null;
       const reviewCount = typeof e.review_count === "number" && Number.isFinite(e.review_count) ? e.review_count : 0;
@@ -2727,6 +3408,7 @@ export async function listPublicEstablishments(req: Request, res: Response) {
         subcategory: typeof e.subcategory === "string" ? e.subcategory : null,
         city: typeof e.city === "string" ? e.city : null,
         address: typeof e.address === "string" ? e.address : null,
+        neighborhood: typeof e.neighborhood === "string" ? e.neighborhood : null,
         region: typeof e.region === "string" ? e.region : null,
         country: typeof e.country === "string" ? e.country : null,
         lat: typeof e.lat === "number" && Number.isFinite(e.lat) ? e.lat : null,
@@ -2744,9 +3426,13 @@ export async function listPublicEstablishments(req: Request, res: Response) {
         verified: typeof e.verified === "boolean" ? e.verified : false,
         premium: typeof e.premium === "boolean" ? e.premium : false,
         curated: typeof e.curated === "boolean" ? e.curated : false,
+        tags: Array.isArray(e.tags) ? (e.tags as string[]) : null,
         // Activity/assiduity fields
         is_online: isOnline,
         activity_score: activityScore ?? undefined,
+        // Google rating
+        google_rating: typeof e.google_rating === "number" ? e.google_rating : null,
+        google_review_count: typeof e.google_review_count === "number" ? e.google_review_count : null,
       };
 
       // Compute best score if sorting by best
@@ -2770,8 +3456,72 @@ export async function listPublicEstablishments(req: Request, res: Response) {
     items.sort((a, b) => (b.best_score ?? 0) - (a.best_score ?? 0));
   }
 
-  const payload: PublicEstablishmentsListResponse = {
-    ok: true,
+  // ── Subcategory boost (fallback path): prioritize primary specialty matches ──
+  if (q && items.length > 1) {
+    const qLower = q.toLowerCase().trim();
+    // Stable sort: subcategory matches first, then keep original order within each group
+    items.sort((a, b) => {
+      const aSub = typeof a.subcategory === "string" && a.subcategory.toLowerCase().includes(qLower);
+      const bSub = typeof b.subcategory === "string" && b.subcategory.toLowerCase().includes(qLower);
+      if (aSub && !bSub) return -1;
+      if (!aSub && bSub) return 1;
+      return 0; // keep original order within same group
+    });
+  }
+
+  // Prompt 12 — Apply personalization bonus (re-ranks by multiplied score)
+  if (userPrefs && items.length > 1) {
+    applyPersonalizationBonus(items as any[], userPrefs);
+  }
+
+  // Prompt 14 — Apply contextual boosting (fallback path)
+  try {
+    const ctxBoostsFallback = await getContextualBoostsForNow();
+    if (ctxBoostsFallback.active_rules.length > 0) {
+      const estByIdFb = new Map<string, Record<string, unknown>>();
+      for (const e of estArr) {
+        const eid = typeof e.id === "string" ? e.id : "";
+        if (eid) estByIdFb.set(eid, e);
+      }
+      for (const item of items as any[]) {
+        const raw = estByIdFb.get(item.id);
+        if (raw) {
+          item._price_range = typeof raw.price_range === "number" ? raw.price_range : null;
+          item._amenities = Array.isArray(raw.amenities) ? (raw.amenities as string[]) : null;
+        }
+      }
+      applyContextualBoosting(items as any[], ctxBoostsFallback);
+    }
+  } catch { /* contextual boosting failure is non-fatal */ }
+
+  // Build cursor info for next page (fallback path uses updated_at + id)
+  const lastEstItem = estArr.length > 0 ? estArr[estArr.length - 1] : null;
+  const nextCursorFallback = hasMoreFallback && lastEstItem && typeof lastEstItem.id === "string"
+    ? lastEstItem.id : null;
+  const nextCursorDateFallback = hasMoreFallback && lastEstItem && typeof lastEstItem.updated_at === "string"
+    ? lastEstItem.updated_at : null;
+
+  // Prompt 13 — fallback suggestions when results are sparse (basic fallback path)
+  let fallbackBasic: SearchFallbackResult | undefined;
+  if (items.length < 3 && q && !cursor) {
+    try {
+      fallbackBasic = (await generateSearchFallback({
+        query: q,
+        universe: universeAliases.length === 1 ? universeAliases[0] : null,
+        city: city || null,
+        filters: {
+          amenities: amenitiesFilter,
+          price_range: priceRangeFilter,
+          open_now: openNowOnly,
+          instant_booking: instantBookingOnly,
+          promo_only: promoOnly,
+        },
+      })) ?? undefined;
+    } catch { /* fallback failure is non-fatal */ }
+  }
+
+  const payload = {
+    ok: true as const,
     items,
     meta: {
       limit,
@@ -2780,7 +3530,16 @@ export async function listPublicEstablishments(req: Request, res: Response) {
       ...(city ? { city } : {}),
       ...(q ? { q } : {}),
       ...(promoOnly ? { promoOnly: true } : {}),
+      personalized: !!userPrefs,
     },
+    pagination: {
+      next_cursor: nextCursorFallback,
+      next_cursor_score: null as number | null,
+      next_cursor_date: nextCursorDateFallback,
+      has_more: hasMoreFallback,
+      total_count: totalCountFallback,
+    },
+    ...(fallbackBasic ? { fallback: fallbackBasic } : {}),
   };
 
   return res.json(payload);
@@ -2793,7 +3552,7 @@ export async function listPublicEstablishments(req: Request, res: Response) {
 type AutocompleteSuggestion = {
   id: string;
   term: string;
-  category: "establishment" | "cuisine" | "dish" | "tag" | "city" | "activity" | "accommodation" | "hashtag";
+  category: "establishment" | "cuisine" | "specialty" | "dish" | "tag" | "city" | "activity" | "accommodation" | "hashtag";
   displayLabel: string;
   iconName: string | null;
   universe: string | null;
@@ -2802,6 +3561,7 @@ type AutocompleteSuggestion = {
     coverUrl?: string;
     city?: string;
     usageCount?: number;
+    resultCount?: number;
   };
 };
 
@@ -2814,6 +3574,7 @@ type AutocompleteResponse = {
 export async function searchAutocomplete(req: Request, res: Response) {
   const q = asString(req.query.q);
   const rawUniverse = asString(req.query.universe);
+  const cityParam = asString(req.query.city) || null; // City filter from the city selector
   const limitParam = asInt(req.query.limit);
   const limit = Math.min(Math.max(limitParam ?? 10, 1), 20);
 
@@ -2836,14 +3597,24 @@ export async function searchAutocomplete(req: Request, res: Response) {
   const suggestions: AutocompleteSuggestion[] = [];
   const searchTerm = q.toLowerCase().trim();
 
-  // 1. Search establishments by name (highest priority)
-  const { data: establishments } = await supabase
+  // ── 1. Search establishments by name (highest priority) ──
+  // When a city is selected, ONLY return establishments from that city
+  let estQuery = supabase
     .from("establishments")
     .select("id,name,universe,city,cover_url")
     .eq("status", "active")
-    .ilike("name", `%${searchTerm}%`)
-    .limit(5);
+    .eq("is_online", true)
+    .not("cover_url", "is", null)
+    .neq("cover_url", "")
+    .ilike("name", `%${searchTerm}%`);
 
+  if (cityParam) {
+    estQuery = estQuery.ilike("city", cityParam);
+  }
+
+  const { data: establishments } = await estQuery.limit(5);
+
+  let establishmentCount = 0;
   if (establishments) {
     for (const est of establishments as Array<Record<string, unknown>>) {
       if (!universe || est.universe === universe) {
@@ -2860,17 +3631,20 @@ export async function searchAutocomplete(req: Request, res: Response) {
             city: typeof est.city === "string" ? est.city : undefined,
           },
         });
+        establishmentCount++;
       }
     }
   }
 
   // 2. Search in search_suggestions table (if it exists)
+  // Generic suggestions (cuisine types, categories) are always shown regardless of city
   try {
     let suggQuery = supabase
       .from("search_suggestions")
       .select("id,term,category,display_label,icon_name,universe")
       .eq("is_active", true)
       .ilike("term", `%${searchTerm}%`)
+      .order("search_count", { ascending: false })
       .limit(10);
 
     if (universe) {
@@ -2897,8 +3671,9 @@ export async function searchAutocomplete(req: Request, res: Response) {
     // search_suggestions table may not exist yet - continue without it
   }
 
-  // 3. Search cities (from establishments or home_cities)
-  if (suggestions.filter((s) => s.category === "city").length === 0) {
+  // 3. Search cities — ONLY if no city is already selected
+  // If user already chose a city, showing city suggestions is useless
+  if (!cityParam && suggestions.filter((s) => s.category === "city").length === 0) {
     const { data: cities } = await supabase
       .from("home_cities")
       .select("id,name,slug")
@@ -2920,7 +3695,55 @@ export async function searchAutocomplete(req: Request, res: Response) {
     }
   }
 
-  // 4. Fallback: search distinct tags from establishments
+  // 4. Search distinct specialties from establishments
+  // Dynamically suggest specialties that match the query (e.g. "Marocain" → "Spécialité Marocain")
+  if (suggestions.length < limit) {
+    try {
+      let specQuery = supabase
+        .from("establishments")
+        .select("specialties")
+        .eq("status", "active")
+        .not("cover_url", "is", null)
+        .neq("cover_url", "")
+        .not("specialties", "is", null);
+      if (universe) specQuery = specQuery.eq("universe", universe);
+      if (cityParam) specQuery = specQuery.ilike("city", cityParam);
+      const { data: specData } = await specQuery.limit(500);
+      if (specData) {
+        // Collect distinct specialties matching the search term + count establishments
+        const specCounts = new Map<string, number>();
+        for (const row of specData as Array<{ specialties: string[] | null }>) {
+          if (!Array.isArray(row.specialties)) continue;
+          for (const sp of row.specialties) {
+            if (typeof sp === "string" && sp.toLowerCase().includes(searchTerm)) {
+              const key = sp.trim();
+              specCounts.set(key, (specCounts.get(key) ?? 0) + 1);
+            }
+          }
+        }
+        // Sort by count descending and add as suggestions
+        const sortedSpecs = [...specCounts.entries()].sort((a, b) => b[1] - a[1]);
+        for (const [specName, count] of sortedSpecs) {
+          // Only skip if there's already a "specialty" suggestion with the same term
+          // (allow coexistence with "cuisine" — they represent different concepts)
+          if (suggestions.some((s) => s.category === "specialty" && s.term.toLowerCase() === specName.toLowerCase())) continue;
+          suggestions.push({
+            id: `specialty-${specName}`,
+            term: specName,
+            category: "specialty",
+            displayLabel: `Tag ${specName}`,
+            iconName: "star",
+            universe: universe ?? null,
+            extra: { resultCount: count },
+          });
+        }
+      }
+    } catch {
+      // Non-fatal — continue without specialty suggestions
+    }
+  }
+
+  // 4b. Fallback: search distinct tags from establishments
   if (suggestions.length < limit) {
     try {
       const { data: tagResults } = await supabase
@@ -2947,11 +3770,11 @@ export async function searchAutocomplete(req: Request, res: Response) {
   }
 
   // 5. Search hashtags from video descriptions (with usage count)
-  // Only search if query starts with # or looks like a hashtag term
+  // Only search if query explicitly starts with # (hashtag intent)
   const isHashtagSearch = searchTerm.startsWith("#") || searchTerm.startsWith("%23");
   const hashtagSearchTerm = searchTerm.replace(/^#/, "").replace(/^%23/, "");
 
-  if (hashtagSearchTerm.length >= 1) {
+  if (isHashtagSearch && hashtagSearchTerm.length >= 1) {
     try {
       const { data: hashtagResults } = await supabase
         .rpc("search_hashtags", { search_term: hashtagSearchTerm })
@@ -2981,25 +3804,38 @@ export async function searchAutocomplete(req: Request, res: Response) {
   }
 
   // Remove duplicates and limit results
+  // Group similar categories together for dedup:
+  //   - "establishment" always unique (keyed by establishmentId)
+  //   - "cuisine", "dish" share the same dedup bucket (e.g. "brunch" cuisine = "brunch" dish)
+  //   - "specialty" is its own bucket (can coexist with "cuisine" for same term)
+  //   - "tag" is its own bucket
+  //   - "city", "hashtag" etc. are their own buckets
   const seen = new Set<string>();
   const uniqueSuggestions = suggestions.filter((s) => {
-    const key = `${s.category}-${s.term.toLowerCase()}`;
+    let key: string;
+    if (s.category === "establishment") {
+      key = `est-${s.extra?.establishmentId ?? s.term.toLowerCase()}`;
+    } else if (s.category === "cuisine" || s.category === "dish") {
+      key = `cuisine-${s.term.toLowerCase()}`;
+    } else {
+      key = `${s.category}-${s.term.toLowerCase()}`;
+    }
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 
-  // Sort: establishments first, then by category
-  // Hashtags are sorted by usage count (higher = more relevant)
+  // Sort: establishments first, then cuisines/categories, then tags
   const categoryOrder: Record<string, number> = {
     establishment: 0,
     cuisine: 1,
-    dish: 2,
-    activity: 3,
-    hashtag: 4,
-    tag: 5,
-    city: 6,
-    accommodation: 7,
+    specialty: 2,
+    dish: 3,
+    activity: 4,
+    hashtag: 5,
+    tag: 6,
+    city: 7,
+    accommodation: 8,
   };
 
   uniqueSuggestions.sort((a, b) => {
@@ -3008,11 +3844,161 @@ export async function searchAutocomplete(req: Request, res: Response) {
     return orderA - orderB;
   });
 
+  // ── Enrich non-establishment suggestions with result counts ──
+  // For cuisine/tag/activity suggestions, count how many establishments match
+  const finalSuggestions = uniqueSuggestions.slice(0, limit);
+  const countableSuggestions = finalSuggestions.filter(
+    (s) => s.category !== "establishment" && s.category !== "city" && s.category !== "hashtag"
+  );
+
+  if (countableSuggestions.length > 0) {
+    // Batch count: for each suggestion term, count matching establishments
+    // Skip suggestions that already have a resultCount (e.g. specialties from step 4)
+    const needsCounting = countableSuggestions.filter(
+      (s) => typeof s.extra?.resultCount !== "number"
+    );
+    const countPromises = needsCounting.map(async (s) => {
+      try {
+        const term = s.term.toLowerCase();
+        // Use the scored RPC to count — it uses full-text search and matches the same
+        // results the user will see when they click the suggestion
+        const { data: countData } = await supabase.rpc("search_establishments_scored", {
+          search_query: term,
+          filter_universe: universe || null,
+          filter_city: cityParam || null,
+          result_limit: 100,
+          result_offset: 0,
+          cursor_score: null,
+          cursor_id: null,
+          search_lang: "fr",
+        });
+        // Apply same minimum relevance threshold as search results (0.1)
+        const relevantCount = Array.isArray(countData)
+          ? countData.filter((r: any) => typeof r.relevance_score === "number" && r.relevance_score >= 0.1).length
+          : 0;
+        s.extra = { ...s.extra, resultCount: relevantCount };
+      } catch {
+        // Non-fatal — leave without count
+      }
+    });
+    await Promise.all(countPromises);
+  }
+
+  // No longer show "Aucun établissement" message — suggestions with counts are more useful
   return res.json({
     ok: true,
-    suggestions: uniqueSuggestions.slice(0, limit),
+    suggestions: finalSuggestions,
     query: q,
-  } as AutocompleteResponse);
+    noEstablishmentsMessage: null,
+  });
+}
+
+// ============================================
+// SEARCH SUGGESTION TRACKING (auto-increment search_count)
+// ============================================
+
+/** Normalize a search query for comparison: lowercase, remove accents, trim, remove punctuation */
+function normalizeSearchTerm(term: string): string {
+  return term
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")  // Remove diacritics
+    .replace(/[^\w\s]/g, "")          // Remove punctuation
+    .replace(/\s+/g, " ")             // Collapse whitespace
+    .trim();
+}
+
+/**
+ * Increment search_count for a search term in search_suggestions.
+ * If the term doesn't exist and results were found, create it.
+ * MUST be called fire-and-forget (don't await in request handler).
+ */
+async function trackSearchSuggestion(
+  query: string,
+  universe: string | null,
+  resultsCount: number,
+): Promise<void> {
+  if (!query || query.length < 2) return;
+
+  const normalized = normalizeSearchTerm(query);
+  if (!normalized || normalized.length < 2) return;
+
+  const supabase = getAdminSupabase();
+
+  try {
+    // Try to find an existing suggestion matching this term
+    // Check with universe first, then without
+    let matchId: string | null = null;
+
+    if (universe) {
+      const { data: withUniverse } = await supabase
+        .from("search_suggestions")
+        .select("id")
+        .eq("term", normalized)
+        .eq("universe", universe)
+        .eq("is_active", true)
+        .limit(1)
+        .maybeSingle();
+
+      if (withUniverse) matchId = withUniverse.id;
+    }
+
+    if (!matchId) {
+      const { data: withoutUniverse } = await supabase
+        .from("search_suggestions")
+        .select("id")
+        .eq("term", normalized)
+        .is("universe", null)
+        .eq("is_active", true)
+        .limit(1)
+        .maybeSingle();
+
+      if (withoutUniverse) matchId = withoutUniverse.id;
+    }
+
+    if (matchId) {
+      // Existing suggestion found — increment search_count via read-modify-write
+      const { data: row } = await supabase
+        .from("search_suggestions")
+        .select("search_count")
+        .eq("id", matchId)
+        .single();
+
+      if (row) {
+        await supabase
+          .from("search_suggestions")
+          .update({
+            search_count: (row.search_count ?? 0) + 1,
+            last_searched_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", matchId);
+      }
+    } else if (resultsCount > 0) {
+      // No existing suggestion AND results found → create a new one
+      // Use the original query (not normalized) for display
+      const displayLabel = query.trim().charAt(0).toUpperCase() + query.trim().slice(1);
+
+      await supabase
+        .from("search_suggestions")
+        .upsert(
+          {
+            term: normalized,
+            category: "tag", // Default category for user-generated suggestions
+            universe: universe ?? null,
+            display_label: displayLabel,
+            search_count: 1,
+            last_searched_at: new Date().toISOString(),
+            is_active: true,
+          },
+          { onConflict: "term,category,universe" }
+        );
+    }
+    // If resultsCount === 0 and no match, do nothing (don't pollute with zero-result queries)
+  } catch (err) {
+    // Best-effort — never fail the main request
+    console.warn("[trackSearchSuggestion] Failed:", err);
+  }
 }
 
 // ============================================
@@ -3038,8 +4024,46 @@ export async function getPopularSearches(req: Request, res: Response) {
 
   const supabase = getAdminSupabase();
 
-  // Try to get from search_suggestions - prioritize universe-specific suggestions
+  // Helper to format a DB row into the response shape
+  function formatSuggestion(s: Record<string, unknown>) {
+    const count = typeof s.search_count === "number" ? s.search_count : 0;
+    return {
+      term: String(s.term ?? ""),
+      category: String(s.category ?? "tag"),
+      displayLabel: String(s.display_label ?? s.term ?? ""),
+      iconName: typeof s.icon_name === "string" ? s.icon_name : null,
+      searchCount: count,
+    };
+  }
+
+  // Try to get from search_suggestions with popularity+freshness scoring
+  const searchLang = getSearchLang(req);
+  const langForPopular = searchLang === "both" ? "fr" : searchLang;
   try {
+    // Try the SQL RPC function first (uses popularity * freshness formula)
+    const { data: rpcData, error: rpcError } = await supabase.rpc("get_popular_suggestions", {
+      filter_universe: universe,
+      max_results: limit * 2, // Over-fetch to allow filtering
+      filter_lang: langForPopular,
+    });
+
+    if (!rpcError && rpcData && rpcData.length >= 5) {
+      // RPC worked and has enough results — use them
+      const results = (rpcData as Array<Record<string, unknown>>).map(formatSuggestion);
+
+      // If universe is specified, prioritize universe-specific results
+      if (universe) {
+        const universeResults = results.filter((r) => {
+          const row = rpcData.find((d: any) => String(d.term) === r.term);
+          return row && (row.universe === universe || row.universe === null);
+        });
+        return res.json({ ok: true, searches: universeResults.slice(0, limit) });
+      }
+
+      return res.json({ ok: true, searches: results.slice(0, limit) });
+    }
+
+    // Fallback: use Supabase client queries with simple search_count ordering
     if (universe) {
       // First, get suggestions specific to this universe
       const { data: universeSpecific } = await supabase
@@ -3047,6 +4071,7 @@ export async function getPopularSearches(req: Request, res: Response) {
         .select("term,category,display_label,icon_name,universe,search_count")
         .eq("is_active", true)
         .eq("universe", universe)
+        .eq("lang", langForPopular)
         .order("search_count", { ascending: false })
         .limit(limit);
 
@@ -3054,12 +4079,7 @@ export async function getPopularSearches(req: Request, res: Response) {
       if (universeSpecific && universeSpecific.length >= limit) {
         return res.json({
           ok: true,
-          searches: (universeSpecific as Array<Record<string, unknown>>).map((s) => ({
-            term: String(s.term ?? ""),
-            category: String(s.category ?? "tag"),
-            displayLabel: String(s.display_label ?? s.term ?? ""),
-            iconName: typeof s.icon_name === "string" ? s.icon_name : null,
-          })),
+          searches: (universeSpecific as Array<Record<string, unknown>>).map(formatSuggestion),
         });
       }
 
@@ -3073,6 +4093,7 @@ export async function getPopularSearches(req: Request, res: Response) {
           .select("term,category,display_label,icon_name,universe,search_count")
           .eq("is_active", true)
           .is("universe", null)
+          .eq("lang", langForPopular)
           .not("term", "in", `(${existingTerms.map(t => `"${t}"`).join(",")})`)
           .order("search_count", { ascending: false })
           .limit(remaining);
@@ -3080,17 +4101,11 @@ export async function getPopularSearches(req: Request, res: Response) {
         const combined = [...universeSpecific, ...(genericSuggestions || [])];
         return res.json({
           ok: true,
-          searches: (combined as Array<Record<string, unknown>>).map((s) => ({
-            term: String(s.term ?? ""),
-            category: String(s.category ?? "tag"),
-            displayLabel: String(s.display_label ?? s.term ?? ""),
-            iconName: typeof s.icon_name === "string" ? s.icon_name : null,
-          })),
+          searches: (combined as Array<Record<string, unknown>>).map(formatSuggestion),
         });
       }
 
       // If universe is specified but no universe-specific suggestions found, skip DB and use hardcoded fallbacks
-      // This ensures each universe gets relevant suggestions
     }
 
     // Only use generic DB suggestions when NO universe is specified
@@ -3099,23 +4114,19 @@ export async function getPopularSearches(req: Request, res: Response) {
         .from("search_suggestions")
         .select("term,category,display_label,icon_name,universe,search_count")
         .eq("is_active", true)
+        .eq("lang", langForPopular)
         .order("search_count", { ascending: false })
         .limit(limit);
 
-      if (data && data.length > 0) {
+      if (data && data.length >= 5) {
         return res.json({
           ok: true,
-          searches: (data as Array<Record<string, unknown>>).map((s) => ({
-            term: String(s.term ?? ""),
-            category: String(s.category ?? "tag"),
-            displayLabel: String(s.display_label ?? s.term ?? ""),
-            iconName: typeof s.icon_name === "string" ? s.icon_name : null,
-          })),
+          searches: (data as Array<Record<string, unknown>>).map(formatSuggestion),
         });
       }
     }
   } catch {
-    // Table may not exist
+    // Table or RPC may not exist yet
   }
 
   // Fallback: return hardcoded popular searches per universe
@@ -3239,6 +4250,8 @@ type PublicHomeFeedItem = PublicEstablishmentListItem & {
   distance_km?: number | null;
   curated?: boolean;
   score?: number;
+  google_rating?: number | null;
+  google_review_count?: number | null;
 };
 
 type PublicHomeFeedResponse = {
@@ -3248,6 +4261,12 @@ type PublicHomeFeedResponse = {
     selected_for_you: PublicHomeFeedItem[];
     near_you: PublicHomeFeedItem[];
     most_booked: PublicHomeFeedItem[];
+    open_now: PublicHomeFeedItem[];
+    trending: PublicHomeFeedItem[];
+    new_establishments: PublicHomeFeedItem[];
+    top_rated: PublicHomeFeedItem[];
+    deals: PublicHomeFeedItem[];
+    themed: PublicHomeFeedItem[];
   };
   meta: {
     universe?: string;
@@ -3256,6 +4275,7 @@ type PublicHomeFeedResponse = {
     lng?: number;
     sessionId?: string;
     favoriteCount?: number;
+    theme?: string | null;
   };
 };
 
@@ -3375,6 +4395,104 @@ function haversineKm(
   return 2 * R * Math.atan2(Math.sqrt(q), Math.sqrt(1 - q));
 }
 
+// ── Homepage "open now" / themed helpers ──
+
+const FRENCH_TO_ENGLISH_DAY: Record<string, string> = {
+  lundi: "monday", mardi: "tuesday", mercredi: "wednesday",
+  jeudi: "thursday", vendredi: "friday", samedi: "saturday", dimanche: "sunday",
+};
+
+const WEEKDAY_KEYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+function isCurrentlyOpen(hoursRaw: unknown, now: Date): boolean {
+  if (!hoursRaw || typeof hoursRaw !== "object") return false;
+
+  // Normalize: handle French keys, DaySchedule v1/v2, and OpeningHours array format
+  const raw = hoursRaw as Record<string, unknown>;
+  const normalized: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(raw)) {
+    const englishKey = FRENCH_TO_ENGLISH_DAY[key.toLowerCase()] || key.toLowerCase();
+    normalized[englishKey] = val;
+  }
+
+  let intervals: Record<string, Array<{ from: string; to: string }>>;
+  try {
+    intervals = transformWizardHoursToOpeningHours(normalized);
+  } catch {
+    return false;
+  }
+
+  const dayKey = WEEKDAY_KEYS[now.getDay()];
+  const todayIntervals = intervals[dayKey];
+  if (!todayIntervals || todayIntervals.length === 0) return false;
+
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+  for (const interval of todayIntervals) {
+    const [fH, fM] = interval.from.split(":").map(Number);
+    const [tH, tM] = interval.to.split(":").map(Number);
+    if (isNaN(fH) || isNaN(fM) || isNaN(tH) || isNaN(tM)) continue;
+
+    const fromMin = fH * 60 + fM;
+    const toMin = tH * 60 + tM;
+
+    if (toMin > fromMin) {
+      // Normal range (e.g., 12:00 - 15:00)
+      if (currentMinutes >= fromMin && currentMinutes < toMin) return true;
+    } else if (toMin < fromMin) {
+      // Overnight range (e.g., 22:00 - 02:00)
+      if (currentMinutes >= fromMin || currentMinutes < toMin) return true;
+    }
+  }
+  return false;
+}
+
+type ThemeKey = "romantic" | "brunch" | "lunch" | "ftour_shour" | null;
+
+function getCurrentTheme(
+  now: Date,
+  ramadanConfig?: { enabled: boolean; start_date: string; end_date: string },
+): { key: ThemeKey; tags: string[]; subcategories: string[] } {
+  // Check Ramadan via platform_settings (DB-backed, admin-configurable)
+  if (ramadanConfig?.enabled && ramadanConfig.start_date && ramadanConfig.end_date) {
+    const start = new Date(ramadanConfig.start_date + "T00:00:00");
+    const end = new Date(ramadanConfig.end_date + "T23:59:59");
+    if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && now >= start && now <= end) {
+      return { key: "ftour_shour", tags: ["ftour", "shour", "iftar", "ramadan"], subcategories: [] };
+    }
+  }
+  // Fallback: check legacy env vars for backwards compatibility
+  const ramadanStart = process.env.RAMADAN_START;
+  const ramadanEnd = process.env.RAMADAN_END;
+  if (ramadanStart && ramadanEnd) {
+    const start = new Date(ramadanStart + "T00:00:00");
+    const end = new Date(ramadanEnd + "T23:59:59");
+    if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && now >= start && now <= end) {
+      return { key: "ftour_shour", tags: ["ftour", "shour", "iftar", "ramadan"], subcategories: [] };
+    }
+  }
+
+  const day = now.getDay(); // 0=Sun, 5=Fri, 6=Sat
+  const hour = now.getHours();
+
+  // Friday or Saturday evening (>= 18h)
+  if ((day === 5 || day === 6) && hour >= 18) {
+    return { key: "romantic", tags: ["romantique", "cosy", "en amoureux", "romantic", "date night", "cozy"], subcategories: [] };
+  }
+
+  // Saturday or Sunday morning/brunch (7h-14h)
+  if ((day === 6 || day === 0) && hour >= 7 && hour < 14) {
+    return { key: "brunch", tags: ["brunch", "petit-dejeuner", "breakfast", "petit déjeuner"], subcategories: ["brunch"] };
+  }
+
+  // Weekday lunch (Mon-Fri, 11h-15h)
+  if (day >= 1 && day <= 5 && hour >= 11 && hour < 15) {
+    return { key: "lunch", tags: ["dejeuner", "lunch", "midi", "déjeuner", "business lunch"], subcategories: [] };
+  }
+
+  return { key: null, tags: [], subcategories: [] };
+}
+
 function normalizeKind(
   raw: unknown,
 ): "best_deals" | "selected_for_you" | "near_you" | "most_booked" | null {
@@ -3426,9 +4544,12 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
   let estQuery = supabase
     .from("establishments")
     .select(
-      "id,slug,name,universe,subcategory,city,address,region,country,lat,lng,cover_url,booking_enabled,updated_at",
+      "id,slug,name,universe,subcategory,city,address,neighborhood,region,country,lat,lng,cover_url,booking_enabled,updated_at,google_rating,google_review_count,hours,tags,highlights,created_at",
     )
-    .eq("status", "active");
+    .eq("status", "active")
+    .eq("is_online", true)
+    .not("cover_url", "is", null)
+    .neq("cover_url", "");
 
   if (universeAliases.length === 1) {
     estQuery = estQuery.eq("universe", universeAliases[0]);
@@ -3436,11 +4557,13 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
     estQuery = estQuery.in("universe", universeAliases);
   }
 
-  if (city) {
+  // "Autour de moi" is a UI-only label — skip city filter when geolocation is provided
+  const isNearMe = city && /autour\s*de\s*moi/i.test(city);
+  if (city && !isNearMe) {
     estQuery = estQuery.ilike("city", city);
   }
 
-  estQuery = estQuery.order("updated_at", { ascending: false }).range(0, 199);
+  estQuery = estQuery.order("updated_at", { ascending: false }).range(0, 299);
 
   const { data: establishments, error: estErr } = await estQuery;
   if (estErr) return res.status(500).json({ error: estErr.message });
@@ -3534,6 +4657,7 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
         subcategory: typeof e.subcategory === "string" ? e.subcategory : null,
         city: typeof e.city === "string" ? e.city : null,
         address: typeof e.address === "string" ? e.address : null,
+        neighborhood: typeof e.neighborhood === "string" ? e.neighborhood : null,
         region: typeof e.region === "string" ? e.region : null,
         country: typeof e.country === "string" ? e.country : null,
         lat: latVal,
@@ -3548,9 +4672,27 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
           distance != null && Number.isFinite(distance)
             ? Math.max(0, distance)
             : null,
+        // Google rating
+        google_rating: typeof e.google_rating === "number" ? e.google_rating : null,
+        google_review_count: typeof e.google_review_count === "number" ? e.google_review_count : null,
       };
     })
     .filter(Boolean) as PublicHomeFeedItem[];
+
+  // Metadata for new homepage sections (hours, tags, created_at)
+  const estMeta = new Map<string, { hours: unknown; tags: string[]; highlights: string[]; created_at: string | null }>();
+  for (const e of estArr) {
+    const id = typeof e.id === "string" ? e.id : "";
+    if (!id) continue;
+    const tags = Array.isArray(e.tags) ? (e.tags as unknown[]).filter((t): t is string => typeof t === "string") : [];
+    const highlights = Array.isArray(e.highlights) ? (e.highlights as unknown[]).filter((h): h is string => typeof h === "string") : [];
+    estMeta.set(id, {
+      hours: e.hours ?? null,
+      tags,
+      highlights,
+      created_at: typeof e.created_at === "string" ? e.created_at : null,
+    });
+  }
 
   const candidateById = new Map(candidateItems.map((i) => [i.id, i] as const));
 
@@ -3625,6 +4767,13 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
       score += 18;
     if (favoriteIds.has(item.id)) score += 50;
 
+    // In near-me mode, strongly boost nearby establishments
+    if (isNearMe && typeof item.distance_km === "number" && Number.isFinite(item.distance_km)) {
+      if (item.distance_km <= 5) score += 40;
+      else if (item.distance_km <= 15) score += 25;
+      else if (item.distance_km <= 30) score += 10;
+    }
+
     return score;
   };
 
@@ -3648,10 +4797,10 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
       if (!kind) return false;
 
       const rowCity = typeof row.city === "string" ? row.city : null;
-      if (city) {
+      if (city && !isNearMe) {
         if (rowCity && !sameText(rowCity, city)) return false;
       } else {
-        // If no city filter, only keep global curations.
+        // If no city filter (or near-me mode), only keep global curations.
         if (rowCity) return false;
       }
 
@@ -3762,6 +4911,77 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
   const nearYou = withCuratedFirst("near_you", nearBase);
   const mostBooked = withCuratedFirst("most_booked", mostBookedBase);
 
+  // ── New smart sections ──
+  const now = new Date();
+  const currentHour = now.getHours();
+
+  const bestScoreSort = (a: PublicHomeFeedItem, b: PublicHomeFeedItem) => {
+    const sa = (a.google_rating ?? 3) * Math.sqrt(Math.max(1, a.google_review_count ?? 1));
+    const sb = (b.google_rating ?? 3) * Math.sqrt(Math.max(1, b.google_review_count ?? 1));
+    return sb - sa;
+  };
+
+  // Open now: only during 7h-23h, filter by opening hours, optionally by 20km radius
+  const openNowBase = (currentHour >= 7 && currentHour < 23)
+    ? [...candidateItems]
+        .filter((i) => {
+          const meta = estMeta.get(i.id);
+          if (!meta?.hours) return false;
+          if (!isCurrentlyOpen(meta.hours, now)) return false;
+          if (lat != null && lng != null && typeof i.distance_km === "number" && i.distance_km > 20) return false;
+          return true;
+        })
+        .sort(bestScoreSort)
+    : [];
+
+  // Trending: at least 1 reservation in past 30 days
+  const trendingBase = [...candidateItems]
+    .filter((i) => (i.reservations_30d ?? 0) >= 1)
+    .sort((a, b) => (b.reservations_30d ?? 0) - (a.reservations_30d ?? 0));
+
+  // New establishments: created within past 30 days
+  const thirtyDaysAgoMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const newEstBase = [...candidateItems]
+    .filter((i) => {
+      const meta = estMeta.get(i.id);
+      const ts = meta?.created_at ? Date.parse(meta.created_at) : NaN;
+      return Number.isFinite(ts) && ts > thirtyDaysAgoMs;
+    })
+    .sort((a, b) => {
+      const ca = Date.parse(estMeta.get(a.id)?.created_at ?? "") || 0;
+      const cb = Date.parse(estMeta.get(b.id)?.created_at ?? "") || 0;
+      return cb - ca;
+    });
+
+  // Top rated: google_rating >= 4.0 AND google_review_count >= 5
+  const topRatedBase = [...candidateItems]
+    .filter((i) =>
+      typeof i.google_rating === "number" && i.google_rating >= 4.0 &&
+      typeof i.google_review_count === "number" && i.google_review_count >= 5,
+    )
+    .sort(bestScoreSort);
+
+  // Deals: has promotions
+  const dealsNewBase = [...candidateItems]
+    .filter((i) => typeof i.promo_percent === "number" && i.promo_percent > 0)
+    .sort((a, b) => (b.promo_percent ?? 0) - (a.promo_percent ?? 0));
+
+  // Themed: contextual based on time of week (Ramadan config loaded from DB)
+  const ramadanConfig = await getRamadanConfig();
+  const theme = getCurrentTheme(now, ramadanConfig);
+  const themedBase = theme.key
+    ? [...candidateItems]
+        .filter((i) => {
+          const meta = estMeta.get(i.id);
+          const itemTags = [...(meta?.tags ?? []), ...(meta?.highlights ?? [])].map((t) => t.toLowerCase());
+          const tagMatch = theme.tags.some((t) => itemTags.some((it) => it.includes(t)));
+          const subMatch = theme.subcategories.some((s) => (i.subcategory ?? "").toLowerCase().includes(s));
+          return tagMatch || subMatch;
+        })
+        .sort(bestScoreSort)
+    : [];
+
+  // ── Dedup helpers ──
   const used = new Set<string>();
   const takeUnique = (
     items: PublicHomeFeedItem[],
@@ -3777,15 +4997,35 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
     return out;
   };
 
+  // Self-dedup (no cross-section dedup for new sections)
+  const takeSelfUnique = (items: PublicHomeFeedItem[], limit: number): PublicHomeFeedItem[] => {
+    const seen = new Set<string>();
+    const out: PublicHomeFeedItem[] = [];
+    for (const item of items) {
+      if (out.length >= limit) break;
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      out.push(item);
+    }
+    return out;
+  };
+
   const lists = {
     best_deals: takeUnique(bestDeals, 12),
     selected_for_you: takeUnique(selectedForYou, 12),
     near_you: takeUnique(nearYou, 12),
     most_booked: takeUnique(mostBooked, 12),
+    // New smart sections
+    open_now: takeSelfUnique(openNowBase, 10),
+    trending: takeSelfUnique(trendingBase, 10),
+    new_establishments: newEstBase.length >= 3 ? takeSelfUnique(newEstBase, 8) : [],
+    top_rated: takeSelfUnique(topRatedBase, 10),
+    deals: dealsNewBase.length >= 2 ? takeSelfUnique(dealsNewBase, 8) : [],
+    themed: takeSelfUnique(themedBase, 8),
   };
 
-  const payload: PublicHomeFeedResponse = {
-    ok: true,
+  const payload = {
+    ok: true as const,
     lists,
     meta: {
       ...(requestedUniverse ? { universe: requestedUniverse } : {}),
@@ -3794,6 +5034,8 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
       ...(lng != null ? { lng } : {}),
       ...(sessionId ? { sessionId } : {}),
       ...(favoriteIds.size ? { favoriteCount: favoriteIds.size } : {}),
+      ...(theme.key ? { theme: theme.key } : {}),
+      ramadan_active: theme.key === "ftour_shour",
     },
   };
 
@@ -4757,7 +5999,7 @@ export async function createConsumerReservation(req: Request, res: Response) {
           : "";
 
       const baseUrl =
-        asString(process.env.PUBLIC_BASE_URL) || "https://sortiraumaroc.ma";
+        asString(process.env.PUBLIC_BASE_URL) || "https://sam.ma";
       const consumerCtaUrl = `${baseUrl}/profile/bookings/${encodeURIComponent(rid)}`;
 
       if (consumerEmail) {
@@ -6946,7 +8188,7 @@ export async function sendConsumerReservationMessage(
     .insert({
       conversation_id: conversationId,
       establishment_id: establishmentId,
-      from_role: "user",
+      from_role: "client",
       body,
       sender_user_id: userResult.userId,
       meta: {},
@@ -6956,9 +8198,18 @@ export async function sendConsumerReservationMessage(
 
   if (msgErr) return res.status(500).json({ error: msgErr.message });
 
+  // Update conversation: bump updated_at and increment unread_count
+  // We read-then-write because Supabase JS doesn't support SQL increment directly
+  const { data: convRow } = await supabase
+    .from("pro_conversations")
+    .select("unread_count")
+    .eq("id", conversationId)
+    .eq("establishment_id", establishmentId)
+    .maybeSingle();
+  const currentUnread = typeof (convRow as any)?.unread_count === "number" ? (convRow as any).unread_count : 0;
   await supabase
     .from("pro_conversations")
-    .update({ updated_at: new Date().toISOString() })
+    .update({ updated_at: new Date().toISOString(), unread_count: currentUnread + 1 })
     .eq("id", conversationId)
     .eq("establishment_id", establishmentId);
 
@@ -6980,7 +8231,7 @@ export async function sendConsumerReservationMessage(
         bookingReference: br,
         action: "message_received",
         event_type: NotificationEventType.message_received,
-        from_role: "user",
+        from_role: "client",
       },
     });
 
@@ -6994,12 +8245,115 @@ export async function sendConsumerReservationMessage(
         reservationId,
         bookingReference: br,
         event_type: NotificationEventType.message_received,
-        from_role: "user",
+        from_role: "client",
       },
     });
   } catch {
     // ignore
   }
+
+  // ─── Auto-reply logic ───
+  // Check if establishment has auto-reply enabled and conditions match
+  void (async () => {
+    try {
+      const { data: arSettings } = await supabase
+        .from("pro_auto_reply_settings")
+        .select("*")
+        .eq("establishment_id", establishmentId)
+        .maybeSingle();
+
+      if (!arSettings) return;
+      const ar = arSettings as Record<string, unknown>;
+
+      const now = new Date();
+      let shouldAutoReply = false;
+      let autoReplyMessage = "";
+
+      // 1. Vacation mode takes priority
+      if (ar.is_on_vacation === true) {
+        const vacStart = typeof ar.vacation_start === "string" ? new Date(ar.vacation_start) : null;
+        const vacEnd = typeof ar.vacation_end === "string" ? new Date(ar.vacation_end) : null;
+        const inRange = (!vacStart || now >= vacStart) && (!vacEnd || now <= vacEnd);
+        if (inRange) {
+          shouldAutoReply = true;
+          autoReplyMessage = typeof ar.vacation_message === "string" && ar.vacation_message.trim()
+            ? ar.vacation_message.trim()
+            : "Nous sommes actuellement en congés. Nous traiterons votre message à notre retour.";
+        }
+      }
+
+      // 2. Schedule-based auto-reply
+      if (!shouldAutoReply && ar.enabled === true) {
+        const daysOfWeek = Array.isArray(ar.days_of_week) ? ar.days_of_week : [];
+        const startTime = typeof ar.start_time === "string" ? ar.start_time : null;
+        const endTime = typeof ar.end_time === "string" ? ar.end_time : null;
+
+        const currentDay = now.getDay(); // 0=Sunday
+        const currentHHMM = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+
+        // Check if current day is an absence day
+        const isAbsenceDay = daysOfWeek.includes(currentDay);
+
+        // Check time range (supports overnight ranges like 18:00 - 09:00)
+        let inTimeRange = false;
+        if (startTime && endTime) {
+          if (startTime <= endTime) {
+            // Same-day range: e.g., 14:00 - 18:00
+            inTimeRange = currentHHMM >= startTime && currentHHMM <= endTime;
+          } else {
+            // Overnight range: e.g., 18:00 - 09:00
+            inTimeRange = currentHHMM >= startTime || currentHHMM <= endTime;
+          }
+        } else {
+          // If no time range defined but day is absence day, auto-reply all day
+          inTimeRange = isAbsenceDay;
+        }
+
+        if (isAbsenceDay && inTimeRange) {
+          shouldAutoReply = true;
+          autoReplyMessage = typeof ar.message === "string" && ar.message.trim()
+            ? ar.message.trim()
+            : "Bonjour, merci pour votre message. Nous sommes actuellement indisponibles mais nous vous répondrons dès que possible.";
+        }
+      }
+
+      if (!shouldAutoReply || !autoReplyMessage) return;
+
+      // Avoid spamming: check if we already sent an auto-reply in the last 30 minutes
+      const thirtyMinAgo = new Date(now.getTime() - 30 * 60 * 1000).toISOString();
+      const { data: recentAutoReplies } = await supabase
+        .from("pro_messages")
+        .select("id")
+        .eq("conversation_id", conversationId)
+        .eq("establishment_id", establishmentId)
+        .eq("from_role", "auto")
+        .gte("created_at", thirtyMinAgo)
+        .limit(1);
+
+      if (recentAutoReplies && recentAutoReplies.length > 0) return;
+
+      // Insert auto-reply message
+      await supabase
+        .from("pro_messages")
+        .insert({
+          conversation_id: conversationId,
+          establishment_id: establishmentId,
+          from_role: "auto",
+          body: autoReplyMessage,
+          sender_user_id: null,
+          meta: { auto_reply: true },
+        });
+
+      // Update conversation timestamp
+      await supabase
+        .from("pro_conversations")
+        .update({ updated_at: new Date().toISOString() })
+        .eq("id", conversationId)
+        .eq("establishment_id", establishmentId);
+    } catch {
+      // Auto-reply is best-effort, never block the main response
+    }
+  })();
 
   return res.json({ ok: true, conversation_id: conversationId, message: msg });
 }
@@ -7884,7 +9238,7 @@ export const updateConsumerReservation: (
     void (async () => {
       try {
         const baseUrl =
-          asString(process.env.PUBLIC_BASE_URL) || "https://sortiraumaroc.ma";
+          asString(process.env.PUBLIC_BASE_URL) || "https://sam.ma";
 
         const { data: estRow } = establishmentId
           ? await supabase
@@ -9092,6 +10446,7 @@ export async function getPublicEstablishmentByUsername(
  * Response: { valid: boolean, discount_bps?: number, message?: string }
  */
 export async function validateBookingPromoCode(req: Request, res: Response) {
+  const supabase = getAdminSupabase();
   try {
     const code = String(req.body?.code ?? "").trim().toUpperCase();
     const establishmentId = req.body?.establishmentId
@@ -9178,4 +10533,660 @@ export async function validateBookingPromoCode(req: Request, res: Response) {
     console.error("[validateBookingPromoCode] Error:", err);
     return res.status(500).json({ valid: false, message: "Erreur serveur" });
   }
+}
+
+// ============================================
+// SEARCH HISTORY
+// ============================================
+
+/** Extract optional consumer user ID from Bearer token (null if not authed) */
+async function getOptionalSearchUserId(req: Request): Promise<string | null> {
+  const auth = String(req.headers.authorization ?? "");
+  const token = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
+  if (!token) return null;
+
+  const supabase = getAdminSupabase();
+  try {
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data.user) return null;
+    return data.user.id;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * POST /api/public/search/history
+ * Save a search to the search_history table.
+ * - Authenticated users: stored with user_id
+ * - Anonymous users: stored with session_id (generated client-side)
+ * - Deduplicates: same query+universe within 30s is ignored
+ * - Ignores empty queries or queries < 2 chars
+ */
+export async function saveSearchHistory(req: Request, res: Response) {
+  try {
+    const query = String(req.body.query ?? "").trim();
+    const universe = asString(req.body.universe) ?? null;
+    const city = asString(req.body.city) ?? null;
+    const resultsCount = typeof req.body.results_count === "number" ? req.body.results_count : null;
+    const filtersApplied = req.body.filters_applied && typeof req.body.filters_applied === "object"
+      ? req.body.filters_applied
+      : {};
+    const sessionId = asString(req.body.session_id) ?? null;
+
+    // Validate: reject empty or too-short queries
+    if (!query || query.length < 2) {
+      return res.status(400).json({ ok: false, error: "query_too_short" });
+    }
+
+    // Need either auth or session_id
+    const userId = await getOptionalSearchUserId(req);
+    if (!userId && !sessionId) {
+      return res.status(400).json({ ok: false, error: "missing_identity" });
+    }
+
+    const supabase = getAdminSupabase();
+
+    // Deduplication: check if same query+universe was saved within last 30s
+    const thirtySecondsAgo = new Date(Date.now() - 30_000).toISOString();
+    let dedupeQuery = supabase
+      .from("search_history")
+      .select("id", { count: "exact", head: true })
+      .eq("query", query)
+      .gte("created_at", thirtySecondsAgo);
+
+    if (universe) dedupeQuery = dedupeQuery.eq("universe", universe);
+    if (userId) {
+      dedupeQuery = dedupeQuery.eq("user_id", userId);
+    } else {
+      dedupeQuery = dedupeQuery.eq("session_id", sessionId);
+    }
+
+    const { count: dupeCount } = await dedupeQuery;
+    if (dupeCount && dupeCount > 0) {
+      return res.json({ ok: true, deduplicated: true });
+    }
+
+    // Insert into search_history
+    const { data: inserted, error: insertError } = await supabase
+      .from("search_history")
+      .insert({
+        user_id: userId,
+        session_id: userId ? null : sessionId,
+        query,
+        universe,
+        city,
+        results_count: resultsCount,
+        filters: filtersApplied,
+      })
+      .select("id")
+      .single();
+
+    if (insertError) {
+      console.error("[saveSearchHistory] Insert error:", insertError.message);
+      return res.status(500).json({ ok: false, error: "insert_failed" });
+    }
+
+    return res.json({ ok: true, id: inserted?.id });
+  } catch (err: any) {
+    console.error("[saveSearchHistory] Error:", err);
+    return res.status(500).json({ ok: false, error: "server_error" });
+  }
+}
+
+/**
+ * GET /api/public/search/history
+ * Retrieve recent search history for a user or session.
+ * - Deduplicates by query+universe (keeps most recent)
+ * - Returns max 10 entries, default 5
+ */
+export async function getSearchHistoryList(req: Request, res: Response) {
+  try {
+    const limit = Math.min(Math.max(asInt(req.query.limit) ?? 5, 1), 10);
+    const universe = asString(req.query.universe) ?? null;
+    const sessionId = asString(req.query.session_id) ?? null;
+
+    const userId = await getOptionalSearchUserId(req);
+    if (!userId && !sessionId) {
+      return res.json({ ok: true, history: [] });
+    }
+
+    const supabase = getAdminSupabase();
+
+    // Fetch recent searches, ordered by created_at DESC
+    // We fetch more than needed to allow for deduplication
+    let query = supabase
+      .from("search_history")
+      .select("id,query,universe,city,results_count,created_at")
+      .order("created_at", { ascending: false })
+      .limit(limit * 3); // Over-fetch for dedup
+
+    if (userId) {
+      query = query.eq("user_id", userId);
+    } else {
+      query = query.eq("session_id", sessionId);
+    }
+
+    if (universe) {
+      query = query.eq("universe", universe);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      // Gracefully degrade if search_history table doesn't exist yet
+      console.warn("[getSearchHistoryList] Error (table may not exist):", error.message);
+      return res.json({ ok: true, history: [] });
+    }
+
+    // Deduplicate by query+universe (keep most recent)
+    const seen = new Set<string>();
+    const deduplicated: Array<{
+      id: string;
+      query: string;
+      universe: string | null;
+      city: string | null;
+      results_count: number | null;
+      searched_at: string;
+    }> = [];
+
+    for (const row of data ?? []) {
+      const key = `${String(row.query).toLowerCase()}::${row.universe ?? ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduplicated.push({
+        id: row.id,
+        query: row.query,
+        universe: row.universe,
+        city: row.city,
+        results_count: row.results_count,
+        searched_at: row.created_at,
+      });
+      if (deduplicated.length >= limit) break;
+    }
+
+    return res.json({ ok: true, history: deduplicated });
+  } catch (err: any) {
+    console.error("[getSearchHistoryList] Error:", err);
+    return res.status(500).json({ ok: false, error: "server_error" });
+  }
+}
+
+/**
+ * DELETE /api/public/search/history
+ * Delete search history entries.
+ * - Without ?query → delete all history for user/session
+ * - With ?query=xxx → delete specific entry by query text
+ * - With ?id=xxx → delete specific entry by ID
+ */
+export async function deleteSearchHistory(req: Request, res: Response) {
+  try {
+    const queryFilter = asString(req.query.query) ?? null;
+    const idFilter = asString(req.query.id) ?? null;
+    const sessionId = asString(req.query.session_id) ?? null;
+
+    const userId = await getOptionalSearchUserId(req);
+    if (!userId && !sessionId) {
+      return res.status(400).json({ ok: false, error: "missing_identity" });
+    }
+
+    const supabase = getAdminSupabase();
+
+    let deleteQuery = supabase.from("search_history").delete();
+
+    // Scope to user or session
+    if (userId) {
+      deleteQuery = deleteQuery.eq("user_id", userId);
+    } else {
+      deleteQuery = deleteQuery.eq("session_id", sessionId);
+    }
+
+    // Optional filters
+    if (idFilter) {
+      deleteQuery = deleteQuery.eq("id", idFilter);
+    } else if (queryFilter) {
+      deleteQuery = deleteQuery.eq("query", queryFilter);
+    }
+
+    const { error } = await deleteQuery;
+
+    if (error) {
+      console.error("[deleteSearchHistory] Error:", error.message);
+      return res.status(500).json({ ok: false, error: "delete_failed" });
+    }
+
+    return res.json({ ok: true });
+  } catch (err: any) {
+    console.error("[deleteSearchHistory] Error:", err);
+    return res.status(500).json({ ok: false, error: "server_error" });
+  }
+}
+
+/**
+ * PATCH /api/public/search/history/:id/click
+ * Record which establishment was clicked from a search result.
+ * Fire-and-forget analytics endpoint.
+ */
+export async function trackSearchClick(req: Request, res: Response) {
+  try {
+    const historyId = req.params.id;
+    const establishmentId = asString(req.body.establishment_id);
+
+    if (!historyId || !establishmentId) {
+      return res.status(400).json({ ok: false, error: "missing_params" });
+    }
+
+    const supabase = getAdminSupabase();
+
+    const { error } = await supabase
+      .from("search_history")
+      .update({ clicked_establishment_id: establishmentId })
+      .eq("id", historyId);
+
+    if (error) {
+      console.error("[trackSearchClick] Error:", error.message);
+      // Don't fail — this is fire-and-forget analytics
+    }
+
+    return res.json({ ok: true });
+  } catch (err: any) {
+    console.error("[trackSearchClick] Error:", err);
+    return res.json({ ok: true }); // Don't fail
+  }
+}
+
+// TODO: Add a cron job to clean up search_history entries older than 90 days
+// DELETE FROM search_history WHERE created_at < NOW() - INTERVAL '90 days';
+
+// ============================================================================
+// SEO LANDING PAGES API
+// ============================================================================
+
+/**
+ * GET /api/public/landing/:slug
+ * Fetch a landing page by slug + filtered establishments with cursor pagination.
+ */
+export async function getPublicLandingPage(req: Request, res: Response) {
+  const slug = typeof req.params.slug === "string" ? req.params.slug.trim() : "";
+  if (!slug) return res.status(400).json({ error: "missing_slug" });
+
+  const supabase = getAdminSupabase();
+
+  // 1. Fetch landing page metadata
+  const { data: landing, error: landingErr } = await supabase
+    .from("landing_pages")
+    .select("*")
+    .eq("slug", slug)
+    .eq("is_active", true)
+    .single();
+
+  if (landingErr || !landing) {
+    return res.status(404).json({ error: "landing_page_not_found" });
+  }
+
+  // 2. Parse pagination params
+  const limitRaw = typeof req.query.limit === "string" ? Number(req.query.limit) : 12;
+  const limit = Number.isFinite(limitRaw) ? Math.min(50, Math.max(1, Math.floor(limitRaw))) : 12;
+  const cursor = (typeof req.query.cursor === "string" ? req.query.cursor : "") || null;
+  const cursorScoreRaw = typeof req.query.cs === "string" ? Number(req.query.cs) : NaN;
+  const cursorScore = Number.isFinite(cursorScoreRaw) ? cursorScoreRaw : null;
+  const cursorDate = (typeof req.query.cd === "string" ? req.query.cd : "") || null;
+
+  const universe = typeof landing.universe === "string" ? landing.universe : "";
+  const city = typeof landing.city === "string" ? landing.city : null;
+  const cuisineType = typeof landing.cuisine_type === "string" ? landing.cuisine_type : null;
+  const category = typeof landing.category === "string" ? landing.category : null;
+
+  const isFirstPage = !cursor;
+
+  // 3. Determine search strategy
+  // If cuisine_type or category exists, use scored search (full-text matching)
+  // Otherwise (city-only), use direct Supabase query ordered by activity_score
+  const searchQuery = cuisineType || category || null;
+
+  let items: PublicEstablishmentListItem[] = [];
+  let hasMore = false;
+  let totalCount: number | null = null;
+
+  if (searchQuery) {
+    // ---- SCORED SEARCH PATH ----
+    const searchLang = getSearchLang(req);
+    const rpcParams: Record<string, unknown> = {
+      search_query: searchQuery,
+      filter_universe: universe || null,
+      filter_city: city,
+      result_limit: limit + 1,
+      result_offset: 0,
+      search_lang: searchLang,
+    };
+    if (cursor && cursorScore !== null) {
+      rpcParams.cursor_score = cursorScore;
+      rpcParams.cursor_id = cursor;
+    }
+
+    const [{ data: scoredResultsRaw, error: searchErr }, countResult] = await Promise.all([
+      supabase.rpc("search_establishments_scored", rpcParams),
+      isFirstPage
+        ? supabase.rpc("count_establishments_scored", {
+            search_query: searchQuery,
+            filter_universe: universe || null,
+            filter_city: city,
+            search_lang: searchLang,
+          })
+        : Promise.resolve({ data: null, error: null }),
+    ]);
+
+    if (searchErr) {
+      console.error("[landing] scored search failed:", searchErr.message);
+      return res.status(500).json({ error: "search_failed" });
+    }
+
+    const scored = ((scoredResultsRaw ?? []) as Array<Record<string, unknown>>).filter(
+      (r) => r.cover_url && r.cover_url !== ""
+    );
+    hasMore = scored.length > limit;
+    const scoredResults = hasMore ? scored.slice(0, limit) : scored;
+    totalCount = isFirstPage && countResult.data != null ? Number(countResult.data) : null;
+
+    // Fetch slots + reservations + geo data for enrichment
+    const ids = scoredResults.map((e) => String(e.id ?? "")).filter(Boolean);
+    const nowIso = new Date().toISOString();
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    const [{ data: slots }, { data: reservations }, { data: geoRows }] = await Promise.all([
+      ids.length
+        ? supabase.from("pro_slots").select("establishment_id,starts_at,promo_type,promo_value,active")
+            .in("establishment_id", ids).eq("active", true).gte("starts_at", nowIso)
+            .order("starts_at", { ascending: true }).limit(5000)
+        : Promise.resolve({ data: [] as unknown[] }),
+      ids.length
+        ? supabase.from("reservations").select("establishment_id,created_at,status")
+            .in("establishment_id", ids).gte("created_at", thirtyDaysAgo)
+            .in("status", ["confirmed", "pending_pro_validation", "requested"]).limit(5000)
+        : Promise.resolve({ data: [] as unknown[] }),
+      // Fetch lat/lng/address/neighborhood (not returned by scored RPC)
+      ids.length
+        ? supabase.from("establishments").select("id,lat,lng,address,neighborhood,booking_enabled")
+            .in("id", ids)
+        : Promise.resolve({ data: [] as unknown[] }),
+    ]);
+
+    // Build geo lookup map
+    const geoByEst = new Map<string, { lat: number | null; lng: number | null; address: string | null; neighborhood: string | null; booking_enabled: boolean | null }>();
+    for (const g of (geoRows ?? []) as Array<Record<string, unknown>>) {
+      const gid = typeof g.id === "string" ? g.id : "";
+      if (!gid) continue;
+      geoByEst.set(gid, {
+        lat: typeof g.lat === "number" && Number.isFinite(g.lat) ? g.lat : null,
+        lng: typeof g.lng === "number" && Number.isFinite(g.lng) ? g.lng : null,
+        address: typeof g.address === "string" ? g.address : null,
+        neighborhood: typeof g.neighborhood === "string" ? g.neighborhood : null,
+        booking_enabled: typeof g.booking_enabled === "boolean" ? g.booking_enabled : null,
+      });
+    }
+
+    const nextSlotByEst = new Map<string, string>();
+    const promoByEst = new Map<string, number>();
+    for (const s of (slots ?? []) as Array<Record<string, unknown>>) {
+      const eid = typeof s.establishment_id === "string" ? s.establishment_id : "";
+      const startsAt = typeof s.starts_at === "string" ? s.starts_at : "";
+      if (!eid || !startsAt) continue;
+      if (!nextSlotByEst.has(eid)) nextSlotByEst.set(eid, startsAt);
+      const promo = maxPromoPercent(s.promo_type, s.promo_value);
+      if (promo != null) promoByEst.set(eid, Math.max(promoByEst.get(eid) ?? 0, promo));
+    }
+
+    const reservationCountByEst = new Map<string, number>();
+    for (const r of (reservations ?? []) as Array<Record<string, unknown>>) {
+      const eid = typeof r.establishment_id === "string" ? r.establishment_id : "";
+      if (!eid) continue;
+      reservationCountByEst.set(eid, (reservationCountByEst.get(eid) ?? 0) + 1);
+    }
+
+    items = scoredResults.map((e) => {
+      const id = String(e.id ?? "");
+      if (!id) return null as unknown as PublicEstablishmentListItem;
+      const isOnline = typeof e.is_online === "boolean" ? e.is_online : false;
+      const activityScore = typeof e.activity_score === "number" ? e.activity_score : null;
+      const geo = geoByEst.get(id);
+      return {
+        id,
+        name: typeof e.name === "string" ? e.name : null,
+        universe: typeof e.universe === "string" ? e.universe : null,
+        subcategory: typeof e.subcategory === "string" ? e.subcategory : null,
+        city: typeof e.city === "string" ? e.city : null,
+        address: geo?.address ?? null,
+        neighborhood: geo?.neighborhood ?? null,
+        region: null,
+        country: null,
+        lat: geo?.lat ?? null,
+        lng: geo?.lng ?? null,
+        cover_url: typeof e.cover_url === "string" ? e.cover_url : null,
+        booking_enabled: geo?.booking_enabled ?? null,
+        promo_percent: promoByEst.get(id) ?? null,
+        next_slot_at: nextSlotByEst.get(id) ?? null,
+        reservations_30d: reservationCountByEst.get(id) ?? 0,
+        avg_rating: typeof e.rating_avg === "number" ? e.rating_avg : null,
+        review_count: 0,
+        reviews_last_30d: 0,
+        verified: typeof e.verified === "boolean" ? e.verified : false,
+        premium: typeof e.premium === "boolean" ? e.premium : false,
+        curated: typeof e.curated === "boolean" ? e.curated : false,
+        tags: Array.isArray(e.tags) ? e.tags as string[] : null,
+        slug: typeof e.slug === "string" ? e.slug : null,
+        is_online: isOnline,
+        activity_score: activityScore ?? undefined,
+        relevance_score: typeof e.relevance_score === "number" ? e.relevance_score : undefined,
+        total_score: typeof e.total_score === "number" ? e.total_score : undefined,
+        google_rating: typeof e.google_rating === "number" ? e.google_rating : null,
+        google_review_count: typeof e.google_review_count === "number" ? e.google_review_count : null,
+      };
+    }).filter(Boolean) as PublicEstablishmentListItem[];
+
+    const lastItem = scoredResults.length > 0 ? scoredResults[scoredResults.length - 1] : null;
+    const nextCursor = hasMore && lastItem ? String(lastItem.id) : null;
+    const nextCursorScore = hasMore && lastItem ? Number(lastItem.total_score) : null;
+
+    // 4. Fetch related landing pages
+    const { data: relatedRaw } = await supabase
+      .from("landing_pages")
+      .select("slug,title_fr,title_en,h1_fr,h1_en,city,cuisine_type")
+      .eq("is_active", true)
+      .eq("universe", universe)
+      .neq("slug", slug)
+      .limit(20);
+
+    return res.json({
+      ok: true,
+      landing,
+      items,
+      pagination: {
+        next_cursor: nextCursor,
+        next_cursor_score: nextCursorScore,
+        next_cursor_date: null as string | null,
+        has_more: hasMore,
+        total_count: totalCount,
+      },
+      stats: { total_count: totalCount ?? items.length },
+      related_landings: relatedRaw ?? [],
+    });
+  }
+
+  // ---- FALLBACK PATH (city-only, no search query) ----
+  let estQuery = supabase
+    .from("establishments")
+    .select(
+      "id,slug,name,universe,subcategory,city,address,neighborhood,region,country,lat,lng,phone,cover_url,booking_enabled,updated_at,tags,amenities,is_online,activity_score,verified,premium,curated,google_rating,google_review_count,avg_rating,review_count,reviews_last_30d"
+    )
+    .eq("status", "active")
+    .not("cover_url", "is", null)
+    .neq("cover_url", "");
+
+  if (universe) estQuery = estQuery.eq("universe", universe);
+  if (city) estQuery = estQuery.ilike("city", city);
+  if (category) estQuery = estQuery.ilike("subcategory", `%${category}%`);
+
+  // Order by activity_score DESC for city landing pages (most active first)
+  estQuery = estQuery
+    .order("activity_score", { ascending: false, nullsFirst: false })
+    .order("updated_at", { ascending: false })
+    .order("id", { ascending: false });
+
+  // Cursor pagination (using updated_at + id as key)
+  if (cursor && cursorDate) {
+    estQuery = estQuery.or(
+      `updated_at.lt.${cursorDate},and(updated_at.eq.${cursorDate},id.lt.${cursor})`
+    );
+  }
+  estQuery = estQuery.limit(limit + 1);
+
+  // Count on first page
+  if (isFirstPage) {
+    let countQuery = supabase
+      .from("establishments")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "active")
+      .not("cover_url", "is", null)
+      .neq("cover_url", "");
+    if (universe) countQuery = countQuery.eq("universe", universe);
+    if (city) countQuery = countQuery.ilike("city", city);
+    if (category) countQuery = countQuery.ilike("subcategory", `%${category}%`);
+    const { count } = await countQuery;
+    totalCount = typeof count === "number" ? count : null;
+  }
+
+  const { data: establishments, error: estErr } = await estQuery;
+  if (estErr) return res.status(500).json({ error: estErr.message });
+
+  const estArrRaw = (establishments ?? []) as Array<Record<string, unknown>>;
+  hasMore = estArrRaw.length > limit;
+  const estArr = hasMore ? estArrRaw.slice(0, limit) : estArrRaw;
+
+  // Fetch slots + reservations
+  const ids = estArr.map((e) => String(e.id ?? "")).filter(Boolean);
+  const nowIso = new Date().toISOString();
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  const [{ data: slots }, { data: reservations }] = await Promise.all([
+    ids.length
+      ? supabase.from("pro_slots").select("establishment_id,starts_at,promo_type,promo_value,active")
+          .in("establishment_id", ids).eq("active", true).gte("starts_at", nowIso)
+          .order("starts_at", { ascending: true }).limit(5000)
+      : Promise.resolve({ data: [] as unknown[] }),
+    ids.length
+      ? supabase.from("reservations").select("establishment_id,created_at,status")
+          .in("establishment_id", ids).gte("created_at", thirtyDaysAgo)
+          .in("status", ["confirmed", "pending_pro_validation", "requested"]).limit(5000)
+      : Promise.resolve({ data: [] as unknown[] }),
+  ]);
+
+  const nextSlotByEst = new Map<string, string>();
+  const promoByEst = new Map<string, number>();
+  for (const s of (slots ?? []) as Array<Record<string, unknown>>) {
+    const eid = typeof s.establishment_id === "string" ? s.establishment_id : "";
+    const startsAt = typeof s.starts_at === "string" ? s.starts_at : "";
+    if (!eid || !startsAt) continue;
+    if (!nextSlotByEst.has(eid)) nextSlotByEst.set(eid, startsAt);
+    const promo = maxPromoPercent(s.promo_type, s.promo_value);
+    if (promo != null) promoByEst.set(eid, Math.max(promoByEst.get(eid) ?? 0, promo));
+  }
+
+  const reservationCountByEst = new Map<string, number>();
+  for (const r of (reservations ?? []) as Array<Record<string, unknown>>) {
+    const eid = typeof r.establishment_id === "string" ? r.establishment_id : "";
+    if (!eid) continue;
+    reservationCountByEst.set(eid, (reservationCountByEst.get(eid) ?? 0) + 1);
+  }
+
+  items = estArr.map((e) => {
+    const id = typeof e.id === "string" ? e.id : "";
+    if (!id) return null as unknown as PublicEstablishmentListItem;
+    const isOnline = typeof e.is_online === "boolean" ? e.is_online : false;
+    const activityScore = typeof e.activity_score === "number" && Number.isFinite(e.activity_score) ? e.activity_score : null;
+    return {
+      id,
+      name: typeof e.name === "string" ? e.name : null,
+      universe: typeof e.universe === "string" ? e.universe : null,
+      subcategory: typeof e.subcategory === "string" ? e.subcategory : null,
+      city: typeof e.city === "string" ? e.city : null,
+      address: typeof e.address === "string" ? e.address : null,
+      neighborhood: typeof e.neighborhood === "string" ? e.neighborhood : null,
+      region: typeof e.region === "string" ? e.region : null,
+      country: typeof e.country === "string" ? e.country : null,
+      lat: typeof e.lat === "number" && Number.isFinite(e.lat) ? e.lat : null,
+      lng: typeof e.lng === "number" && Number.isFinite(e.lng) ? e.lng : null,
+      cover_url: typeof e.cover_url === "string" ? e.cover_url : null,
+      booking_enabled: typeof e.booking_enabled === "boolean" ? e.booking_enabled : null,
+      promo_percent: promoByEst.get(id) ?? null,
+      next_slot_at: nextSlotByEst.get(id) ?? null,
+      reservations_30d: reservationCountByEst.get(id) ?? 0,
+      avg_rating: typeof e.avg_rating === "number" ? e.avg_rating : null,
+      review_count: typeof e.review_count === "number" ? e.review_count : 0,
+      reviews_last_30d: typeof e.reviews_last_30d === "number" ? e.reviews_last_30d : 0,
+      verified: typeof e.verified === "boolean" ? e.verified : false,
+      premium: typeof e.premium === "boolean" ? e.premium : false,
+      curated: typeof e.curated === "boolean" ? e.curated : false,
+      tags: Array.isArray(e.tags) ? (e.tags as string[]) : null,
+      slug: typeof e.slug === "string" ? e.slug : null,
+      is_online: isOnline,
+      activity_score: activityScore ?? undefined,
+      google_rating: typeof e.google_rating === "number" ? e.google_rating : null,
+      google_review_count: typeof e.google_review_count === "number" ? e.google_review_count : null,
+    };
+  }).filter(Boolean) as PublicEstablishmentListItem[];
+
+  const lastEstItem = estArr.length > 0 ? estArr[estArr.length - 1] : null;
+  const nextCursorFallback = hasMore && lastEstItem && typeof lastEstItem.id === "string" ? lastEstItem.id : null;
+  const nextCursorDateFallback = hasMore && lastEstItem && typeof lastEstItem.updated_at === "string" ? lastEstItem.updated_at : null;
+
+  // Fetch related landing pages
+  const { data: relatedRaw } = await supabase
+    .from("landing_pages")
+    .select("slug,title_fr,title_en,h1_fr,h1_en,city,cuisine_type")
+    .eq("is_active", true)
+    .eq("universe", universe)
+    .neq("slug", slug)
+    .limit(20);
+
+  return res.json({
+    ok: true,
+    landing,
+    items,
+    pagination: {
+      next_cursor: nextCursorFallback,
+      next_cursor_score: null as number | null,
+      next_cursor_date: nextCursorDateFallback,
+      has_more: hasMore,
+      total_count: totalCount,
+    },
+    stats: { total_count: totalCount ?? items.length },
+    related_landings: relatedRaw ?? [],
+  });
+}
+
+// In-memory cache for landing slug map (refresh every 5 min)
+let _landingSlugCache: { data: unknown[]; ts: number } | null = null;
+const LANDING_SLUG_CACHE_TTL = 5 * 60 * 1000;
+
+/**
+ * GET /api/public/landing-slugs
+ * Lightweight list of all active landing pages for redirect lookup.
+ */
+export async function getPublicLandingSlugMap(_req: Request, res: Response) {
+  const now = Date.now();
+  if (_landingSlugCache && now - _landingSlugCache.ts < LANDING_SLUG_CACHE_TTL) {
+    return res.json({ ok: true, slugs: _landingSlugCache.data });
+  }
+
+  const supabase = getAdminSupabase();
+  const { data, error } = await supabase
+    .from("landing_pages")
+    .select("slug,universe,city,cuisine_type,category")
+    .eq("is_active", true)
+    .limit(1000);
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  _landingSlugCache = { data: data ?? [], ts: now };
+  return res.json({ ok: true, slugs: data ?? [] });
 }

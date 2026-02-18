@@ -152,11 +152,26 @@ export function useConsumerQR(): UseConsumerQRReturn {
 
       setSecret(secretData);
       await generateQRFromSecret(secretData);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("[useConsumerQR] Error loading secret:", err);
       if (mountedRef.current) {
-        const message =
-          err instanceof Error ? err.message : "Erreur de chargement";
+        let message = "Erreur de chargement";
+        if (err && typeof err === "object" && "status" in err) {
+          const apiErr = err as { status: number; message: string };
+          if (apiErr.status === 401) {
+            message = "Session expirée. Veuillez vous reconnecter.";
+          } else if (apiErr.status === 404) {
+            message = "Profil utilisateur introuvable. Veuillez compléter votre inscription.";
+          } else if (apiErr.status === 403) {
+            message = "Compte non actif. Contactez le support.";
+          } else if (apiErr.status === 0) {
+            message = "Impossible de contacter le serveur. Vérifiez votre connexion et réessayez.";
+          } else {
+            message = apiErr.message || `Erreur serveur (${apiErr.status})`;
+          }
+        } else if (err instanceof Error) {
+          message = err.message;
+        }
         setError(message);
       }
     } finally {

@@ -71,6 +71,35 @@ export type Establishment = {
   verified?: boolean;
   premium?: boolean;
   curated?: boolean;
+  // Wizard fields
+  admin_created_by_name?: string | null;
+  admin_created_by_id?: string | null;
+  admin_updated_by_name?: string | null;
+  admin_updated_by_id?: string | null;
+  category?: string | null;
+  specialties?: string[] | null;
+  country?: string | null;
+  region?: string | null;
+  postal_code?: string | null;
+  address?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  phone?: string | null;
+  whatsapp?: string | null;
+  email?: string | null;
+  website?: string | null;
+  google_maps_url?: string | null;
+  description_short?: string | null;
+  description_long?: string | null;
+  hours?: unknown | null;
+  tags?: string[] | null;
+  amenities?: string[] | null;
+  ambiance_tags?: string[] | null;
+  social_links?: Record<string, string> | null;
+  cover_url?: string | null;
+  logo_url?: string | null;
+  gallery_urls?: string[] | null;
+  extra?: Record<string, unknown> | null;
 };
 
 export type ProUserAdmin = {
@@ -444,6 +473,9 @@ export type AdminLogEntry = {
   entity_id: string | null;
   actor_user_id?: string | null;
   actor_role?: string | null;
+  actor_id?: string | null;
+  actor_email?: string | null;
+  actor_name?: string | null;
   details: unknown;
 };
 
@@ -1200,6 +1232,14 @@ export type PlatformSettingsSnapshot = {
     short: string;
     domain: string;
   };
+  footer: {
+    social_instagram: string;
+    social_tiktok: string;
+    social_facebook: string;
+    social_youtube: string;
+    social_snapchat: string;
+    social_linkedin: string;
+  };
 };
 
 export async function listPlatformSettings(
@@ -1512,6 +1552,23 @@ export async function rejectModeration(
   );
 }
 
+export type EstablishmentSearchResult = {
+  id: string;
+  name: string;
+  city: string | null;
+  status: string | null;
+  cover_url: string | null;
+};
+
+export async function searchEstablishmentsByName(
+  name: string,
+): Promise<{ items: EstablishmentSearchResult[] }> {
+  const qs = new URLSearchParams({ name });
+  return requestJson<{ items: EstablishmentSearchResult[] }>(
+    `/api/admin/establishments/search?${qs.toString()}`,
+  );
+}
+
 export async function listEstablishments(
   adminKey: string | undefined,
   status?: EstablishmentStatus,
@@ -1563,6 +1620,17 @@ export async function updateEstablishmentStatus(
   );
 }
 
+export async function batchEstablishmentsStatus(
+  adminKey: string | undefined,
+  args: { ids: string[]; status: EstablishmentStatus },
+): Promise<{ ok: true; updated: number }> {
+  return requestJson<{ ok: true; updated: number }>(
+    "/api/admin/establishments/batch-status",
+    adminKey,
+    { method: "POST", body: JSON.stringify(args) },
+  );
+}
+
 export async function updateEstablishmentFlags(
   adminKey: string | undefined,
   id: string,
@@ -1574,6 +1642,21 @@ export async function updateEstablishmentFlags(
     {
       method: "POST",
       body: JSON.stringify(flags),
+    },
+  );
+}
+
+export async function updateEstablishmentCity(
+  adminKey: string | undefined,
+  id: string,
+  city: string,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/establishments/${encodeURIComponent(id)}/profile`,
+    adminKey,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ city }),
     },
   );
 }
@@ -1984,6 +2067,170 @@ export async function updateAdminSupportTicket(
     {
       method: "POST",
       body: JSON.stringify(patch),
+    },
+  );
+}
+
+// ============================================================================
+// SUPPORT — Enhanced admin helpers
+// ============================================================================
+
+export type SupportClientProfile = {
+  user: {
+    id: string;
+    email: string;
+    full_name: string;
+    phone: string | null;
+    city: string | null;
+    country: string | null;
+    created_at: string;
+    role: string;
+  };
+  stats: {
+    total_reservations: number;
+    honored: number;
+    cancelled: number;
+    no_show: number;
+    total_spent: number;
+  };
+  previous_tickets: Array<{
+    id: string;
+    ticket_number: string | null;
+    subject: string;
+    status: string;
+    created_at: string;
+  }>;
+};
+
+export type SupportEstablishmentProfile = {
+  establishment: {
+    id: string;
+    name: string;
+    city: string | null;
+    type: string | null;
+    status: string;
+    avg_rating: number | null;
+    total_reviews: number;
+  };
+  owner: {
+    id: string;
+    email: string;
+    full_name: string;
+  } | null;
+  tickets: Array<{
+    id: string;
+    ticket_number: string | null;
+    subject: string;
+    status: string;
+    created_at: string;
+  }>;
+};
+
+export type AdminChatSession = {
+  id: string;
+  user_id: string | null;
+  user_role: string;
+  status: string;
+  contact_name: string | null;
+  contact_email: string | null;
+  created_at: string;
+  updated_at: string;
+  user_email?: string;
+  user_name?: string;
+};
+
+export type AdminChatMessage = {
+  id: string;
+  session_id: string;
+  from_role: string;
+  body: string;
+  message_type: string;
+  created_at: string;
+};
+
+export async function getAdminSupportClientProfile(
+  adminKey: string | undefined,
+  userId: string,
+): Promise<SupportClientProfile> {
+  return requestJson<SupportClientProfile>(
+    `/api/admin/support/client-profile/${encodeURIComponent(userId)}`,
+    adminKey,
+  );
+}
+
+export async function getAdminSupportEstablishmentProfile(
+  adminKey: string | undefined,
+  establishmentId: string,
+): Promise<SupportEstablishmentProfile> {
+  return requestJson<SupportEstablishmentProfile>(
+    `/api/admin/support/establishment-profile/${encodeURIComponent(establishmentId)}`,
+    adminKey,
+  );
+}
+
+export async function updateAdminTicketInternalNotes(
+  adminKey: string | undefined,
+  ticketId: string,
+  notes: string,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/support/tickets/${encodeURIComponent(ticketId)}/notes`,
+    adminKey,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ notes }),
+    },
+  );
+}
+
+export async function toggleAdminAgentStatus(
+  adminKey: string | undefined,
+  isOnline: boolean,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/support/agent-status`,
+    adminKey,
+    {
+      method: "POST",
+      body: JSON.stringify({ is_online: isOnline }),
+    },
+  );
+}
+
+export async function listAdminChatSessionsApi(
+  adminKey: string | undefined,
+  args?: { status?: string; limit?: number },
+): Promise<{ ok: boolean; sessions: AdminChatSession[] }> {
+  const params = new URLSearchParams();
+  if (args?.status) params.set("status", args.status);
+  if (args?.limit) params.set("limit", String(args.limit));
+  const qs = params.toString();
+  return requestJson(
+    `/api/admin/support/chat/sessions${qs ? `?${qs}` : ""}`,
+    adminKey,
+  );
+}
+
+export async function getAdminChatMessagesApi(
+  adminKey: string | undefined,
+  sessionId: string,
+): Promise<{ ok: boolean; messages: AdminChatMessage[] }> {
+  return requestJson(
+    `/api/admin/support/chat/sessions/${encodeURIComponent(sessionId)}/messages`,
+    adminKey,
+  );
+}
+
+export async function sendAdminChatMessageApi(
+  adminKey: string | undefined,
+  args: { session_id: string; body: string },
+): Promise<{ ok: boolean; message: AdminChatMessage }> {
+  return requestJson(
+    `/api/admin/support/chat/sessions/${encodeURIComponent(args.session_id)}/messages`,
+    adminKey,
+    {
+      method: "POST",
+      body: JSON.stringify({ body: args.body }),
     },
   );
 }
@@ -2672,6 +2919,31 @@ export async function listAdminEstablishmentOffers(
   return requestJson<{ ok: true; slots: any[]; packs: any[] }>(
     `/api/admin/establishments/${encodeURIComponent(establishmentId)}/offers`,
     adminKey,
+  );
+}
+
+export async function adminUpsertSlots(
+  adminKey: string | undefined,
+  establishmentId: string,
+  slots: Array<{
+    starts_at: string;
+    ends_at: string;
+    capacity: number;
+    base_price?: number | null;
+    service_label?: string | null;
+    promo_type?: string | null;
+    promo_value?: number | null;
+    promo_label?: string | null;
+    active?: boolean;
+  }>,
+): Promise<{ ok: true; upserted: number }> {
+  return requestJson<{ ok: true; upserted: number }>(
+    `/api/admin/establishments/${encodeURIComponent(establishmentId)}/slots/upsert`,
+    adminKey,
+    {
+      method: "PUT",
+      body: JSON.stringify({ slots }),
+    },
   );
 }
 
@@ -4468,7 +4740,7 @@ export async function uploadEmailBrandingLogo(
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({ error: "Upload failed" }));
-    throw new AdminApiError(err.error || "Upload failed", response.status);
+    throw new AdminApiError(err.error || "Upload failed", response.status, err);
   }
 
   return response.json();
@@ -5555,10 +5827,14 @@ export async function exportAdminPrestataires(
     const res = await fetch(`/api/admin/prestataires/export?${qs.toString()}`, {
       headers: adminKey ? { "x-admin-key": adminKey } : {},
     });
-    if (!res.ok)
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
       throw new AdminApiError(
-        (await res.json().catch(() => ({}))).error || `HTTP ${res.status}`,
+        errBody.error || `HTTP ${res.status}`,
+        res.status,
+        errBody,
       );
+    }
     return res.text();
   }
   return requestJson<{ ok: true; items: AdminPrestataire[] }>(
@@ -5796,7 +6072,7 @@ export async function getAdminMyProfile(
 
 export async function updateAdminMyProfile(
   adminKey: string | undefined,
-  data: { email?: string; displayName?: string; avatarUrl?: string; currentPassword?: string; newPassword?: string },
+  data: { email?: string; firstName?: string; lastName?: string; function?: string; displayName?: string; avatarUrl?: string | null; currentPassword?: string; newPassword?: string },
 ): Promise<{ ok: true; profile: AdminMyProfile }> {
   return requestJson<{ ok: true; profile: AdminMyProfile }>(
     "/api/admin/me",
@@ -6029,7 +6305,7 @@ export async function uploadAdminCategoryImage(
       json && typeof json.error === "string"
         ? json.error
         : `HTTP_${res.status}`;
-    throw new AdminApiError(message, res.status);
+    throw new AdminApiError(message, res.status, json);
   }
 
   return json as { ok: true; item: CategoryImageUploadResult };
@@ -6259,7 +6535,7 @@ export async function uploadAdminUniverseImage(
       json && typeof json.error === "string"
         ? json.error
         : `HTTP_${res.status}`;
-    throw new AdminApiError(message, res.status);
+    throw new AdminApiError(message, res.status, json);
   }
 
   return json as { ok: true; item: UniverseImageUploadResult };
@@ -6571,7 +6847,7 @@ export async function uploadAdminVideoThumbnail(
       json && typeof json.error === "string"
         ? json.error
         : `HTTP_${res.status}`;
-    throw new AdminApiError(message, res.status);
+    throw new AdminApiError(message, res.status, json);
   }
 
   return json as { ok: true; item: VideoThumbnailUploadResult };
@@ -7495,11 +7771,11 @@ export type ClaimRequestAdmin = {
   preferred_day: string | null;
   preferred_time: string | null;
   status: "pending" | "approved" | "rejected" | "contacted";
-  notes: string | null;
+  admin_notes: string | null;
   created_at: string;
   updated_at: string | null;
-  decided_at: string | null;
-  decided_by: string | null;
+  processed_at: string | null;
+  processed_by: string | null;
 };
 
 export async function listAdminClaimRequests(
@@ -7529,14 +7805,312 @@ export async function getAdminClaimRequest(
 export async function updateAdminClaimRequest(
   adminKey: string | undefined,
   id: string,
-  data: { status: string; notes?: string },
-): Promise<{ ok: true; item: ClaimRequestAdmin }> {
-  return requestJson<{ ok: true; item: ClaimRequestAdmin }>(
+  data: { status: string; notes?: string; sendCredentials?: boolean },
+): Promise<{
+  ok: true;
+  item: ClaimRequestAdmin;
+  credentials?: { email: string; temporaryPassword: string; userId: string } | null;
+  credentialsError?: string;
+}> {
+  return requestJson<{
+    ok: true;
+    item: ClaimRequestAdmin;
+    credentials?: { email: string; temporaryPassword: string; userId: string } | null;
+    credentialsError?: string;
+  }>(
     `/api/admin/claim-requests/${encodeURIComponent(id)}`,
     adminKey,
     {
       method: "POST",
       body: JSON.stringify(data),
     },
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Establishment Leads (Demandes d'ajout d'établissement)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type EstablishmentLeadAdmin = {
+  id: string;
+  full_name: string;
+  establishment_name: string;
+  city: string;
+  phone: string;
+  whatsapp: string;
+  email: string;
+  category: string;
+  source: string | null;
+  status: "new" | "contacted" | "converted" | "rejected";
+  admin_notes: string | null;
+  created_at: string;
+  processed_at: string | null;
+};
+
+export async function listAdminEstablishmentLeads(
+  adminKey: string | undefined,
+  options?: { status?: string; limit?: number },
+): Promise<{ items: EstablishmentLeadAdmin[] }> {
+  const params = new URLSearchParams();
+  if (options?.status) params.set("status", options.status);
+  if (options?.limit) params.set("limit", String(options.limit));
+  const query = params.toString();
+  return requestJson<{ items: EstablishmentLeadAdmin[] }>(
+    `/api/admin/establishment-leads${query ? `?${query}` : ""}`,
+    adminKey,
+  );
+}
+
+export async function updateAdminEstablishmentLead(
+  adminKey: string | undefined,
+  id: string,
+  data: { status: string; notes?: string },
+): Promise<{ ok: true; item: EstablishmentLeadAdmin }> {
+  return requestJson<{ ok: true; item: EstablishmentLeadAdmin }>(
+    `/api/admin/establishment-leads/${encodeURIComponent(id)}`,
+    adminKey,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Admin Activity Tracking
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type AdminActivityCollaboratorStats = {
+  collaborator_id: string;
+  name: string;
+  email: string | null;
+  role: string;
+  total_active_seconds: number;
+  session_count: number;
+  establishments_created: number;
+  avg_seconds_per_establishment: number | null;
+  first_heartbeat: string | null;
+  last_heartbeat: string | null;
+};
+
+export type AdminActivityStatsResponse = {
+  ok: true;
+  period: { from: string; to: string };
+  summary: {
+    total_active_seconds: number;
+    total_establishments: number;
+    active_collaborators: number;
+    avg_seconds_per_establishment: number | null;
+  };
+  collaborators: AdminActivityCollaboratorStats[];
+};
+
+export async function getAdminActivityStats(
+  adminKey: string | undefined,
+  from: string,
+  to: string,
+): Promise<AdminActivityStatsResponse> {
+  return requestJson<AdminActivityStatsResponse>(
+    `/api/admin/activity/stats?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    adminKey,
+  );
+}
+
+// ============================================
+// REVIEWS V2 — Admin Moderation API
+// ============================================
+
+export type AdminReviewStatusV2 =
+  | "pending_moderation"
+  | "approved"
+  | "rejected"
+  | "modification_requested"
+  | "pending_commercial_gesture"
+  | "resolved"
+  | "published";
+
+export type AdminReviewV2 = {
+  id: string;
+  user_id: string;
+  establishment_id: string;
+  reservation_id: string;
+  rating_welcome: number;
+  rating_quality: number;
+  rating_value: number;
+  rating_ambiance: number;
+  rating_hygiene: number | null;
+  rating_organization: number | null;
+  rating_overall: number;
+  comment: string;
+  would_recommend: boolean | null;
+  photos: string[];
+  status: AdminReviewStatusV2;
+  commercial_gesture_status: string;
+  gesture_deadline: string | null;
+  client_gesture_deadline: string | null;
+  gesture_mention: boolean;
+  moderated_by: string | null;
+  moderated_at: string | null;
+  moderation_note: string | null;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+  // Enriched fields
+  user_name?: string;
+  user_email?: string;
+  establishment_name?: string;
+  establishment_universe?: string;
+  pro_response?: { content: string; status: string; published_at: string | null } | null;
+  gesture?: { id: string; message: string; status: string; discount_percent: number } | null;
+};
+
+export type AdminReviewStatsV2 = {
+  pending_moderation: number;
+  pending_commercial_gesture: number;
+  published: number;
+  total: number;
+  pending_responses: number;
+  pending_reports: number;
+};
+
+export async function listAdminReviewsV2(
+  adminKey: string | undefined,
+  filters?: {
+    status?: AdminReviewStatusV2 | "all";
+    establishment_id?: string;
+    sort_by?: string;
+    sort_order?: string;
+    page?: number;
+    limit?: number;
+  },
+): Promise<{ ok: true; items: AdminReviewV2[]; total: number }> {
+  const qs = new URLSearchParams();
+  if (filters?.status && filters.status !== "all") qs.set("status", filters.status);
+  if (filters?.establishment_id) qs.set("establishment_id", filters.establishment_id);
+  if (filters?.sort_by) qs.set("sort_by", filters.sort_by);
+  if (filters?.sort_order) qs.set("sort_order", filters.sort_order);
+  if (filters?.page) qs.set("page", String(filters.page));
+  if (filters?.limit) qs.set("limit", String(filters.limit));
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return requestJson<{ ok: true; items: AdminReviewV2[]; total: number }>(
+    `/api/admin/v2/reviews${suffix}`,
+    adminKey,
+  );
+}
+
+export async function getAdminReviewV2(
+  adminKey: string | undefined,
+  reviewId: string,
+): Promise<{ ok: true; review: AdminReviewV2 }> {
+  return requestJson<{ ok: true; review: AdminReviewV2 }>(
+    `/api/admin/v2/reviews/${encodeURIComponent(reviewId)}`,
+    adminKey,
+  );
+}
+
+export async function moderateAdminReviewV2(
+  adminKey: string | undefined,
+  reviewId: string,
+  data: { action: "approve" | "reject" | "request_modification"; moderation_note?: string },
+): Promise<{ ok: true; status: string }> {
+  return requestJson<{ ok: true; status: string }>(
+    `/api/admin/v2/reviews/${encodeURIComponent(reviewId)}/moderate`,
+    adminKey,
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function getAdminReviewStatsV2(
+  adminKey: string | undefined,
+): Promise<{ ok: true; stats: AdminReviewStatsV2 }> {
+  return requestJson<{ ok: true; stats: AdminReviewStatsV2 }>(
+    `/api/admin/v2/reviews/stats`,
+    adminKey,
+  );
+}
+
+export type AdminReviewReportV2 = {
+  id: string;
+  review_id: string;
+  reporter_id: string | null;
+  reporter_type: string;
+  reason: string;
+  status: string;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_note: string | null;
+  created_at: string;
+  // Enriched
+  review_comment?: string;
+  review_rating?: number;
+  establishment_name?: string;
+};
+
+export async function listAdminReviewReportsV2(
+  adminKey: string | undefined,
+  filters?: {
+    status?: string;
+    page?: number;
+    limit?: number;
+  },
+): Promise<{ ok: true; items: AdminReviewReportV2[]; total: number }> {
+  const qs = new URLSearchParams();
+  if (filters?.status && filters.status !== "all") qs.set("status", filters.status);
+  if (filters?.page) qs.set("page", String(filters.page));
+  if (filters?.limit) qs.set("limit", String(filters.limit));
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return requestJson<{ ok: true; items: AdminReviewReportV2[]; total: number }>(
+    `/api/admin/v2/reviews/reports${suffix}`,
+    adminKey,
+  );
+}
+
+export async function resolveAdminReviewReportV2(
+  adminKey: string | undefined,
+  reportId: string,
+  data: { action: "reviewed" | "dismissed"; review_note?: string },
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/v2/reviews/reports/${encodeURIComponent(reportId)}/resolve`,
+    adminKey,
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export type AdminPendingResponseV2 = {
+  id: string;
+  review_id: string;
+  content: string;
+  status: string;
+  created_at: string;
+  // Enriched
+  review_comment?: string;
+  review_rating?: number;
+  establishment_name?: string;
+};
+
+export async function listAdminPendingResponsesV2(
+  adminKey: string | undefined,
+  filters?: { page?: number; limit?: number },
+): Promise<{ ok: true; items: AdminPendingResponseV2[]; total: number }> {
+  const qs = new URLSearchParams();
+  if (filters?.page) qs.set("page", String(filters.page));
+  if (filters?.limit) qs.set("limit", String(filters.limit));
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return requestJson<{ ok: true; items: AdminPendingResponseV2[]; total: number }>(
+    `/api/admin/v2/reviews/responses/pending${suffix}`,
+    adminKey,
+  );
+}
+
+export async function moderateAdminResponseV2(
+  adminKey: string | undefined,
+  responseId: string,
+  data: { action: "approve" | "reject"; moderation_note?: string },
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/v2/reviews/responses/${encodeURIComponent(responseId)}/moderate`,
+    adminKey,
+    { method: "POST", body: JSON.stringify(data) },
   );
 }

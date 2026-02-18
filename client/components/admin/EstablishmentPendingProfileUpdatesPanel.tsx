@@ -52,12 +52,109 @@ function safeJson(value: unknown): string {
   }
 }
 
-function valuePreview(value: unknown): string {
+/** Extract a readable filename from a Supabase storage URL */
+function filenameFromUrl(url: string): string {
+  try {
+    const parts = url.split("/");
+    const last = parts[parts.length - 1];
+    // Decode URL-encoded chars
+    return decodeURIComponent(last || url);
+  } catch {
+    return url;
+  }
+}
+
+/** Check if a string looks like a Supabase storage URL */
+function isStorageUrl(v: unknown): v is string {
+  return typeof v === "string" && (v.includes("supabase.co/storage/") || v.startsWith("https://") && v.includes("/object/public/"));
+}
+
+/** Day labels in French */
+const DAY_LABELS: Record<string, string> = {
+  monday: "Lundi",
+  tuesday: "Mardi",
+  wednesday: "Mercredi",
+  thursday: "Jeudi",
+  friday: "Vendredi",
+  saturday: "Samedi",
+  sunday: "Dimanche",
+};
+
+const DAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+
+/** Format hours object into a readable string */
+function formatHoursPreview(hours: Record<string, unknown>): string {
+  const lines: string[] = [];
+  for (const day of DAY_ORDER) {
+    const dayData = hours[day];
+    if (!dayData || typeof dayData !== "object") continue;
+    const d = dayData as Record<string, unknown>;
+    const label = DAY_LABELS[day] ?? day;
+
+    // Check if "open" is defined
+    const isOpen = d.open !== false;
+    const ranges = Array.isArray(d.ranges) ? d.ranges : [];
+
+    if (!isOpen || ranges.length === 0) {
+      lines.push(`${label}: Fermé`);
+    } else {
+      const slots = ranges
+        .map((r: unknown) => {
+          if (typeof r === "object" && r !== null) {
+            const rr = r as Record<string, unknown>;
+            return `${rr.from ?? "?"}–${rr.to ?? "?"}`;
+          }
+          return "?";
+        })
+        .join(", ");
+      lines.push(`${label}: ${slots}`);
+    }
+  }
+  return lines.join("\n") || "(vide)";
+}
+
+/** Format social links into readable string */
+function formatSocialLinks(obj: Record<string, unknown>): string {
+  const lines: string[] = [];
+  for (const [key, val] of Object.entries(obj)) {
+    if (val && typeof val === "string" && val.trim()) {
+      lines.push(`${key}: ${val.trim()}`);
+    }
+  }
+  return lines.join("\n") || "(vide)";
+}
+
+function valuePreview(value: unknown, field?: string): string {
   if (value === null || value === undefined) return "—";
-  if (typeof value === "string") return value.trim() ? value.trim() : "—";
+  if (typeof value === "string") {
+    if (!value.trim()) return "—";
+    // URLs → filename only
+    if (isStorageUrl(value)) return filenameFromUrl(value);
+    return value.trim();
+  }
   if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return `${value.length} élément(s)`;
-  if (typeof value === "object") return "(objet)";
+  if (Array.isArray(value)) {
+    // Gallery URLs → filenames
+    if (value.length > 0 && value.every((v) => isStorageUrl(v))) {
+      return value.map((v) => filenameFromUrl(v as string)).join(", ");
+    }
+    // String arrays (specialties, tags, etc.)
+    if (value.length > 0 && value.every((v) => typeof v === "string")) {
+      return (value as string[]).join(", ");
+    }
+    return `${value.length} élément(s)`;
+  }
+  if (typeof value === "object" && value !== null) {
+    const obj = value as Record<string, unknown>;
+    // Hours object
+    if (field === "hours") return formatHoursPreview(obj);
+    // Social links
+    if (field === "social_links") return formatSocialLinks(obj);
+    // Extra / mix_experience → key: value
+    const entries = Object.entries(obj).filter(([, v]) => v != null && v !== "");
+    if (entries.length === 0) return "(vide)";
+    return entries.map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`).join(", ");
+  }
   return String(value);
 }
 
@@ -70,6 +167,7 @@ function truncate(text: string, max = 80): string {
 const FIELD_LABELS: Record<string, string> = {
   name: "Nom",
   universe: "Univers",
+  category: "Catégorie",
   subcategory: "Sous-catégorie",
   specialties: "Spécialités",
   city: "Ville",
@@ -83,11 +181,13 @@ const FIELD_LABELS: Record<string, string> = {
   description_long: "Description longue",
   phone: "Téléphone",
   whatsapp: "WhatsApp",
+  email: "Email",
   website: "Site web",
   social_links: "Réseaux sociaux",
   hours: "Horaires",
   tags: "Tags",
   amenities: "Équipements",
+  logo_url: "Logo",
   cover_url: "Photo de couverture",
   gallery_urls: "Photos (galerie)",
   ambiance_tags: "Ambiances",
@@ -154,6 +254,9 @@ export function EstablishmentPendingProfileUpdatesPanel(props: {
   const [items, setItems] = useState<EstablishmentPendingProfileUpdateAdmin[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Track which individual change IDs have an action in progress */
+  const [busyChangeIds, setBusyChangeIds] = useState<Set<string>>(new Set());
+  const [busyAll, setBusyAll] = useState(false);
 
   const [reject, setReject] = useState<RejectDialogState>({ open: false });
 
@@ -209,6 +312,7 @@ export function EstablishmentPendingProfileUpdatesPanel(props: {
 
   const doAcceptOne = async (draftId: string, changeId: string) => {
     setError(null);
+    setBusyChangeIds((prev) => new Set(prev).add(changeId));
     try {
       await acceptAdminEstablishmentProfileChange(props.adminKey, props.establishmentId, draftId, changeId);
       await refresh();
@@ -216,11 +320,14 @@ export function EstablishmentPendingProfileUpdatesPanel(props: {
     } catch (e) {
       if (e instanceof AdminApiError) setError(e.message);
       else setError("Erreur inattendue");
+    } finally {
+      setBusyChangeIds((prev) => { const next = new Set(prev); next.delete(changeId); return next; });
     }
   };
 
   const doAcceptAll = async (draftId: string) => {
     setError(null);
+    setBusyAll(true);
     try {
       await acceptAllAdminEstablishmentProfileUpdates(props.adminKey, props.establishmentId, draftId);
       await refresh();
@@ -228,6 +335,8 @@ export function EstablishmentPendingProfileUpdatesPanel(props: {
     } catch (e) {
       if (e instanceof AdminApiError) setError(e.message);
       else setError("Erreur inattendue");
+    } finally {
+      setBusyAll(false);
     }
   };
 
@@ -276,10 +385,10 @@ export function EstablishmentPendingProfileUpdatesPanel(props: {
             variant="outline"
             className="gap-2"
             onClick={() => void doAcceptAll(currentDraft.draft.id)}
-            disabled={loading || counts.pending === 0}
+            disabled={loading || busyAll || counts.pending === 0}
           >
-            <CheckCircle2 className="h-4 w-4" />
-            Tout accepter
+            {busyAll ? <RefreshCcw className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+            {busyAll ? "Traitement…" : "Tout accepter"}
           </Button>
           <Button
             variant="destructive"
@@ -287,7 +396,7 @@ export function EstablishmentPendingProfileUpdatesPanel(props: {
             onClick={() =>
               setReject({ open: true, mode: "all", draftId: currentDraft.draft.id, reason: "", saving: false })
             }
-            disabled={loading || counts.pending === 0}
+            disabled={loading || busyAll || counts.pending === 0}
           >
             <XCircle className="h-4 w-4" />
             Tout refuser
@@ -353,52 +462,58 @@ export function EstablishmentPendingProfileUpdatesPanel(props: {
                     <TableHead>Nouvelle valeur</TableHead>
                     <TableHead>Demande</TableHead>
                     <TableHead>Statut</TableHead>
-                    {isPending && <TableHead className="text-right">Actions</TableHead>}
+                    {isPending && <TableHead className="text-end">Actions</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {currentDraft.changes.map((c) => {
                     const status = String(c.status ?? "").toLowerCase();
                     const changeIsPending = status === "pending";
-                    const before = truncate(valuePreview(c.before), 90);
-                    const after = truncate(valuePreview(c.after), 90);
+                    const before = truncate(valuePreview(c.before, c.field), 90);
+                    const after = truncate(valuePreview(c.after, c.field), 90);
                     return (
                       <TableRow key={c.id}>
                         <TableCell className="font-semibold">{fieldLabel(c.field)}</TableCell>
-                        <TableCell className="text-sm text-slate-700" title={safeJson(c.before)}>
+                        <TableCell className="text-sm text-slate-700 whitespace-pre-line" title={valuePreview(c.before, c.field)}>
                           {before}
                         </TableCell>
-                        <TableCell className="text-sm text-slate-700" title={safeJson(c.after)}>
+                        <TableCell className="text-sm text-slate-700 whitespace-pre-line" title={valuePreview(c.after, c.field)}>
                           {after}
                         </TableCell>
                         <TableCell className="text-xs text-slate-600">{formatLocal(c.created_at)}</TableCell>
                         <TableCell>{changeStatusBadge(status)}</TableCell>
                         {isPending && (
-                          <TableCell className="text-right">
-                            <div className="flex gap-2 justify-end">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="gap-2"
-                                onClick={() => void doAcceptOne(currentDraft.draft.id, c.id)}
-                                disabled={!changeIsPending || loading}
-                              >
-                                <CheckCircle2 className="h-4 w-4" />
-                                Accepter
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                className="gap-2"
-                                onClick={() =>
-                                  setReject({ open: true, mode: "single", draftId: currentDraft.draft.id, change: c, reason: "", saving: false })
-                                }
-                                disabled={!changeIsPending || loading}
-                              >
-                                <XCircle className="h-4 w-4" />
-                                Refuser
-                              </Button>
-                            </div>
+                          <TableCell className="text-end">
+                            {busyChangeIds.has(c.id) ? (
+                              <span className="inline-flex items-center gap-1 text-xs text-slate-500">
+                                <RefreshCcw className="h-3.5 w-3.5 animate-spin" /> Traitement…
+                              </span>
+                            ) : (
+                              <div className="flex gap-2 justify-end">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="gap-2"
+                                  onClick={() => void doAcceptOne(currentDraft.draft.id, c.id)}
+                                  disabled={!changeIsPending || loading || busyAll || busyChangeIds.size > 0}
+                                >
+                                  <CheckCircle2 className="h-4 w-4" />
+                                  Accepter
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  className="gap-2"
+                                  onClick={() =>
+                                    setReject({ open: true, mode: "single", draftId: currentDraft.draft.id, change: c, reason: "", saving: false })
+                                  }
+                                  disabled={!changeIsPending || loading || busyAll || busyChangeIds.size > 0}
+                                >
+                                  <XCircle className="h-4 w-4" />
+                                  Refuser
+                                </Button>
+                              </div>
+                            )}
                           </TableCell>
                         )}
                       </TableRow>
@@ -418,7 +533,7 @@ export function EstablishmentPendingProfileUpdatesPanel(props: {
                     <CollapsibleTrigger asChild>
                       <button
                         type="button"
-                        className="w-full p-3 flex items-center justify-between gap-3 text-left"
+                        className="w-full p-3 flex items-center justify-between gap-3 text-start"
                       >
                         <div className="min-w-0">
                           <div className="font-semibold text-slate-900 truncate">{fieldLabel(c.field)}</div>
@@ -436,13 +551,13 @@ export function EstablishmentPendingProfileUpdatesPanel(props: {
                           <div>
                             <div className="text-xs font-semibold text-slate-500">Ancienne valeur</div>
                             <pre className="mt-1 whitespace-pre-wrap text-xs rounded-md bg-slate-50 border border-slate-200 p-2">
-                              {safeJson(c.before)}
+                              {valuePreview(c.before, c.field)}
                             </pre>
                           </div>
                           <div>
                             <div className="text-xs font-semibold text-slate-500">Nouvelle valeur</div>
                             <pre className="mt-1 whitespace-pre-wrap text-xs rounded-md bg-slate-50 border border-slate-200 p-2">
-                              {safeJson(c.after)}
+                              {valuePreview(c.after, c.field)}
                             </pre>
                           </div>
                         </div>

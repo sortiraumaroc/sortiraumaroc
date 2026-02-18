@@ -136,6 +136,7 @@ async function requestAuthedJson<T>(
       },
     });
   } catch (e) {
+    console.error("[consumerTotpApi] Network error on", path, e);
     throw new ConsumerTotpApiError(
       "Impossible de contacter le serveur. Vérifiez votre connexion et réessayez.",
       0,
@@ -148,11 +149,16 @@ async function requestAuthedJson<T>(
   if (contentType.includes("application/json")) {
     payload = await res.json().catch(() => null);
   } else {
-    payload = await res.text().catch(() => null);
+    // Server returned non-JSON (e.g. HTML 404 page from Vite middleware)
+    const text = await res.text().catch(() => "");
+    payload = text;
+    if (!res.ok) {
+      console.error("[consumerTotpApi] Non-JSON response on", path, "status:", res.status, "body:", typeof text === "string" ? text.slice(0, 200) : text);
+    }
   }
 
   if (!res.ok) {
-    const msg = extractErrorMessage(payload) || `HTTP ${res.status}`;
+    const msg = extractErrorMessage(payload) || `Erreur serveur (${res.status})`;
     throw new ConsumerTotpApiError(msg, res.status, payload);
   }
 

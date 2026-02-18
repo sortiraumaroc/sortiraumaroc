@@ -19,6 +19,7 @@ import {
 import { recomputeConsumerUserStatsV1 } from "../consumerReliability";
 import { emitAdminNotification } from "../adminNotifications";
 import { sendLoggedEmail, sendTemplateEmail } from "../emailService";
+import { transformWizardHoursToOpeningHours } from "../lib/transformHours";
 import { triggerWaitlistPromotionForSlot } from "../waitlist";
 import {
   renderSambookingEmail,
@@ -624,6 +625,7 @@ function getAdminSessionSub(req: Parameters<RequestHandler>[0]): string | null {
 const PROFILE_UPDATE_FIELD_LABELS: Record<string, string> = {
   name: "Nom",
   universe: "Univers",
+  category: "Catégorie",
   subcategory: "Sous-catégorie",
   specialties: "Spécialités",
   city: "Ville",
@@ -637,11 +639,13 @@ const PROFILE_UPDATE_FIELD_LABELS: Record<string, string> = {
   description_long: "Description longue",
   phone: "Téléphone",
   whatsapp: "WhatsApp",
+  email: "Email",
   website: "Site web",
   social_links: "Réseaux sociaux",
   hours: "Horaires",
   tags: "Tags",
   amenities: "Équipements",
+  logo_url: "Logo",
   cover_url: "Photo de couverture",
   gallery_urls: "Photos (galerie)",
   ambiance_tags: "Ambiances",
@@ -684,6 +688,7 @@ async function finalizeDraftIfComplete(args: {
   draftId: string;
   decidedAtIso: string;
   adminSub: string | null;
+  req: Parameters<RequestHandler>[0];
 }): Promise<
   | { ok: true; finalized: false }
   | {
@@ -693,7 +698,7 @@ async function finalizeDraftIfComplete(args: {
     }
   | { ok: false; status?: number; error: string }
 > {
-  const { supabase, establishmentId, draftId, decidedAtIso, adminSub } = args;
+  const { supabase, establishmentId, draftId, decidedAtIso, adminSub, req } = args;
 
   const { data: draft, error: draftError } = await supabase
     .from("establishment_profile_drafts")
@@ -776,12 +781,13 @@ async function finalizeDraftIfComplete(args: {
     });
   }
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
-    actor_id: null,
+    actor_id: actor.actor_id,
     action: "establishment.profile_update.finalize",
     entity_type: "establishment",
     entity_id: establishmentId,
-    metadata: { draft_id: draftId, decision: overall, actor: adminSub },
+    metadata: { draft_id: draftId, decision: overall, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   return { ok: true, finalized: true, status: overall };
@@ -951,9 +957,16 @@ async function applyAcceptedFieldUpdate(args: {
 
   const before = (est as any)?.[field];
 
+  // Normalize hours to array-of-intervals format so the DB is always consistent,
+  // regardless of whether the pro submitted v1, v2, or array format.
+  let normalizedValue = value;
+  if (field === "hours" && value && typeof value === "object" && !Array.isArray(value)) {
+    normalizedValue = transformWizardHoursToOpeningHours(value as Record<string, unknown>);
+  }
+
   const { error: updateError } = await supabase
     .from("establishments")
-    .update({ [field]: value, updated_at: decidedAtIso })
+    .update({ [field]: normalizedValue, updated_at: decidedAtIso })
     .eq("id", establishmentId);
 
   if (updateError) return { ok: false, error: updateError.message };
@@ -1032,8 +1045,9 @@ export const acceptAdminEstablishmentProfileChange: RequestHandler = async (
 
   if (updateError) return res.status(500).json({ error: updateError.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
-    actor_id: null,
+    actor_id: actor.actor_id,
     action: "establishment.profile_update.accept",
     entity_type: "establishment",
     entity_id: establishmentId,
@@ -1042,7 +1056,7 @@ export const acceptAdminEstablishmentProfileChange: RequestHandler = async (
       change_id: changeId,
       field,
       field_label: prettyFieldLabel(field),
-      actor: adminSub,
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -1052,6 +1066,7 @@ export const acceptAdminEstablishmentProfileChange: RequestHandler = async (
     draftId,
     decidedAtIso: decidedAt,
     adminSub,
+    req,
   });
 
   if (finalizeRes.ok === false)
@@ -1127,8 +1142,9 @@ export const rejectAdminEstablishmentProfileChange: RequestHandler = async (
     draft_id: draftId,
   });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
-    actor_id: null,
+    actor_id: actor.actor_id,
     action: "establishment.profile_update.reject",
     entity_type: "establishment",
     entity_id: establishmentId,
@@ -1138,7 +1154,7 @@ export const rejectAdminEstablishmentProfileChange: RequestHandler = async (
       field,
       field_label: prettyFieldLabel(field),
       reason: reason || null,
-      actor: adminSub,
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -1148,6 +1164,7 @@ export const rejectAdminEstablishmentProfileChange: RequestHandler = async (
     draftId,
     decidedAtIso: decidedAt,
     adminSub,
+    req,
   });
 
   if (finalizeRes.ok === false)
@@ -1227,12 +1244,13 @@ export const acceptAllAdminEstablishmentProfileUpdates: RequestHandler = async (
       .eq("id", String(c.id));
   }
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
-    actor_id: null,
+    actor_id: actor.actor_id,
     action: "establishment.profile_update.accept_all",
     entity_type: "establishment",
     entity_id: establishmentId,
-    metadata: { draft_id: draftId, actor: adminSub },
+    metadata: { draft_id: draftId, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   const finalizeRes = await finalizeDraftIfComplete({
@@ -1241,6 +1259,7 @@ export const acceptAllAdminEstablishmentProfileUpdates: RequestHandler = async (
     draftId,
     decidedAtIso: decidedAt,
     adminSub,
+    req,
   });
   if (finalizeRes.ok === false)
     return res
@@ -1296,12 +1315,13 @@ export const rejectAllAdminEstablishmentProfileUpdates: RequestHandler = async (
     draft_id: draftId,
   });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
-    actor_id: null,
+    actor_id: actor.actor_id,
     action: "establishment.profile_update.reject_all",
     entity_type: "establishment",
     entity_id: establishmentId,
-    metadata: { draft_id: draftId, reason: reason || null, actor: adminSub },
+    metadata: { draft_id: draftId, reason: reason || null, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   const finalizeRes = await finalizeDraftIfComplete({
@@ -1310,6 +1330,7 @@ export const rejectAllAdminEstablishmentProfileUpdates: RequestHandler = async (
     draftId,
     decidedAtIso: decidedAt,
     adminSub,
+    req,
   });
   if (finalizeRes.ok === false)
     return res
@@ -1379,11 +1400,13 @@ export const approveModerationItem: RequestHandler = async (req, res) => {
 
   if (updateError) return res.status(500).json({ error: updateError.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "moderation.approve",
     entity_type: moderation.entity_type,
     entity_id: moderation.entity_id,
-    metadata: { moderation_id: id },
+    metadata: { moderation_id: id, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -1433,11 +1456,13 @@ export const rejectModerationItem: RequestHandler = async (req, res) => {
 
   if (updateError) return res.status(500).json({ error: updateError.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "moderation.reject",
     entity_type: moderation.entity_type,
     entity_id: moderation.entity_id,
-    metadata: { moderation_id: id, reason },
+    metadata: { moderation_id: id, reason, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -1568,7 +1593,9 @@ export const recomputeConsumerUserReliability: RequestHandler = async (
 
   const computed = await recomputeConsumerUserStatsV1({ supabase, userId: id });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "consumer.reliability.recompute",
     entity_type: "consumer_user",
     entity_id: id,
@@ -1577,6 +1604,7 @@ export const recomputeConsumerUserReliability: RequestHandler = async (
       reliability_level: computed.reliabilityLevel,
       reservations_count: computed.reservationsCount,
       no_shows_count: computed.noShowsCount,
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -1635,11 +1663,13 @@ export const updateConsumerUserStatus: RequestHandler = async (req, res) => {
     .eq("id", id);
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "consumer_user.status",
     entity_type: "consumer_user",
     entity_id: null,
-    metadata: { user_id: id, status },
+    metadata: { user_id: id, status, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -1710,7 +1740,9 @@ export const deleteConsumerUsers: RequestHandler = async (req, res) => {
   }
 
   // Audit log
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "consumer_users.delete",
     entity_type: "consumer_users",
     entity_id: "batch",
@@ -1718,6 +1750,7 @@ export const deleteConsumerUsers: RequestHandler = async (req, res) => {
       deleted_count: deleted.length,
       error_count: errors.length,
       deleted_ids: deleted.map((d) => d.id),
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -1778,11 +1811,13 @@ export const updateConsumerUserEvent: RequestHandler = async (req, res) => {
 
   if (updateErr) return res.status(500).json({ error: updateErr.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "consumer_user_event.update",
     entity_type: "consumer_user_event",
     entity_id: eventId as any,
-    metadata: { user_id: userId, patch },
+    metadata: { user_id: userId, patch, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -1867,11 +1902,13 @@ export const updateConsumerUserPurchase: RequestHandler = async (req, res) => {
 
   if (updateErr) return res.status(500).json({ error: updateErr.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "consumer_purchase.update",
     entity_type: "consumer_purchase",
     entity_id: purchaseId as any,
-    metadata: { user_id: userId, patch },
+    metadata: { user_id: userId, patch, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -2192,11 +2229,13 @@ export const createProUser: RequestHandler = async (req, res) => {
     }
   }
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "pro.user.create",
     entity_type: "pro_user",
     entity_id: userId,
-    metadata: { email, establishment_ids: establishmentIds, role },
+    metadata: { email, establishment_ids: establishmentIds, role, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   // Send welcome email with provisional password
@@ -2356,7 +2395,9 @@ export const setProUserMemberships: RequestHandler = async (req, res) => {
     if (delErr) return res.status(500).json({ error: delErr.message });
   }
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "pro.memberships.set",
     entity_type: "pro_user",
     entity_id: userId,
@@ -2364,6 +2405,7 @@ export const setProUserMemberships: RequestHandler = async (req, res) => {
       role,
       establishment_ids: establishmentIds,
       removed_ids: toRemove,
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -2444,7 +2486,9 @@ export const suspendProUser: RequestHandler = async (req, res) => {
   }
 
   // Audit log
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: suspend ? "pro.user.suspended" : "pro.user.reactivated",
     entity_type: "pro_user",
     entity_id: userId,
@@ -2452,6 +2496,7 @@ export const suspendProUser: RequestHandler = async (req, res) => {
       email,
       reason,
       by: adminUserId,
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -2522,6 +2567,7 @@ export const bulkDeleteProUsers: RequestHandler = async (req, res) => {
   }
 
   const supabase = getAdminSupabase();
+  const actor = getAuditActorInfo(req);
   const results: { id: string; email: string | null; success: boolean; error?: string }[] = [];
 
   for (const userId of ids) {
@@ -2640,6 +2686,7 @@ export const bulkDeleteProUsers: RequestHandler = async (req, res) => {
 
       // 4. Audit log
       await supabase.from("admin_audit_log").insert({
+        actor_id: actor.actor_id,
         action: "pro.user.deleted",
         entity_type: "pro_user",
         entity_id: userId,
@@ -2648,6 +2695,7 @@ export const bulkDeleteProUsers: RequestHandler = async (req, res) => {
           by: adminUserId,
           permanent: true,
           auth_user_existed: authUserExists,
+          actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
         },
       });
 
@@ -2749,7 +2797,7 @@ export const regenerateProUserPassword: RequestHandler = async (req, res) => {
 
   try {
     await sendTemplateEmail({
-      templateKey: "pro_password_reset",
+      templateKey: "pro_password_regenerated",
       lang: "fr",
       fromKey: "pro",
       to: [email],
@@ -2766,11 +2814,13 @@ export const regenerateProUserPassword: RequestHandler = async (req, res) => {
   }
 
   // Log the action
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "pro.user.password_regenerated",
     entity_type: "pro_user",
     entity_id: userId,
-    metadata: { email },
+    metadata: { email, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   // Always return the credentials so admin can show them in a popup
@@ -2829,7 +2879,9 @@ export const removeProFromEstablishment: RequestHandler = async (req, res) => {
   }
 
   // Audit log
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "pro.membership.removed",
     entity_type: "establishment",
     entity_id: establishmentId,
@@ -2837,6 +2889,7 @@ export const removeProFromEstablishment: RequestHandler = async (req, res) => {
       pro_user_id: proUserId,
       pro_email: proEmail,
       establishment_name: establishmentName,
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -3039,11 +3092,13 @@ export const updateAdminEstablishmentReservation: RequestHandler = async (
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "reservation.update",
     entity_type: "reservation",
     entity_id: reservationId,
-    metadata: { establishment_id: establishmentId, patch },
+    metadata: { establishment_id: establishmentId, patch, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   if (paymentStatusRaw && paymentStatusRaw !== previousPaymentStatus) {
@@ -3396,11 +3451,13 @@ export const updateAdminFinanceDiscrepancy: RequestHandler = async (
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "finance.discrepancy.update",
     entity_type: "finance.reconciliation_discrepancies",
     entity_id: id,
-    metadata: { patch },
+    metadata: { patch, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -3490,11 +3547,13 @@ export const runAdminFinanceReconciliation: RequestHandler = async (
     }
   }
 
+  const auditActor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: auditActor.actor_id,
     action: "finance.reconcile.run",
     entity_type: "finance.reconciliation_discrepancies",
     entity_id: null,
-    metadata: { limit, holdsEnsured, settlesAttempted, errorsCount },
+    metadata: { limit, holdsEnsured, settlesAttempted, errorsCount, actor_email: auditActor.actor_email, actor_name: auditActor.actor_name, actor_role: auditActor.actor_role },
   });
 
   res.json({ ok: true, limit, holdsEnsured, settlesAttempted, errorsCount });
@@ -3651,11 +3710,13 @@ export const updateAdminFinancePayout: RequestHandler = async (req, res) => {
   if (!data || !Array.isArray(data) || !data.length)
     return res.status(404).json({ error: "Introuvable" });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "finance.payout.update",
     entity_type: "finance.payouts",
     entity_id: id,
-    metadata: { patch },
+    metadata: { patch, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   if (statusRaw === "failed") {
@@ -3683,6 +3744,9 @@ type AdminUnifiedLogItem = {
   entity_id: string | null;
   actor_user_id?: string | null;
   actor_role?: string | null;
+  actor_id?: string | null;
+  actor_email?: string | null;
+  actor_name?: string | null;
   details: unknown;
 };
 
@@ -3745,7 +3809,7 @@ export const listAdminLogs: RequestHandler = async (req, res) => {
   const fetchAdmin = async () => {
     let q = supabase
       .from("admin_audit_log")
-      .select("id,created_at,action,entity_type,entity_id,metadata")
+      .select("id,created_at,action,entity_type,entity_id,actor_id,metadata")
       .order("created_at", { ascending: false })
       .limit(internalLimit);
 
@@ -3795,10 +3859,14 @@ export const listAdminLogs: RequestHandler = async (req, res) => {
   ).map((row) => ({
     id: String(row.id ?? ""),
     created_at: String(row.created_at ?? ""),
-    source: "admin",
+    source: "admin" as const,
     action: String(row.action ?? ""),
     entity_type: row.entity_type == null ? null : String(row.entity_type),
     entity_id: row.entity_id == null ? null : String(row.entity_id),
+    actor_id: row.actor_id ?? null,
+    actor_email: row.metadata?.actor_email ?? row.metadata?.actor ?? null,
+    actor_name: row.metadata?.actor_name ?? null,
+    actor_role: row.metadata?.actor_role ?? null,
     details: row.metadata ?? null,
   }));
 
@@ -4003,6 +4071,46 @@ function getAdminSessionSubAny(
   return payload?.sub ?? null;
 }
 
+/* ── Audit actor info helper ───────────────────────────────────── */
+export type AuditActorInfo = {
+  actor_id: string | null;
+  actor_email: string | null;
+  actor_name: string | null;
+  actor_role: string | null;
+};
+
+/**
+ * Extract full actor identity from the admin session attached to the request.
+ * Returns { actor_id, actor_email, actor_name, actor_role } for audit logging.
+ */
+export function getAuditActorInfo(
+  req: Parameters<RequestHandler>[0],
+): AuditActorInfo {
+  const session = (req as any).adminSession;
+  if (session) {
+    return {
+      actor_id: session.collaborator_id ?? null,
+      actor_email: session.sub ?? null,
+      actor_name: session.name ?? null,
+      actor_role: session.role ?? null,
+    };
+  }
+  // Fallback: try to decode from token directly
+  const tokenResult = getAdminSessionToken(req);
+  if (tokenResult) {
+    const payload = verifyAdminSessionToken(tokenResult.token);
+    if (payload) {
+      return {
+        actor_id: payload.collaborator_id ?? null,
+        actor_email: payload.sub ?? null,
+        actor_name: payload.name ?? null,
+        actor_role: payload.role ?? null,
+      };
+    }
+  }
+  return { actor_id: null, actor_email: null, actor_name: null, actor_role: null };
+}
+
 export function requireSuperadmin(
   req: Parameters<RequestHandler>[0],
   res: Parameters<RequestHandler>[1],
@@ -4063,7 +4171,7 @@ async function broadcastProNotification(args: {
 }
 
 // Default values for when tables don't exist or have no data
-const DEFAULT_FINANCE_RULES: FinanceRulesRow = {
+const DEFAULT_FINANCE_RULES = {
   id: 1,
   commission_rate_percent: 0,
   vat_rate_percent: 20,
@@ -4071,9 +4179,9 @@ const DEFAULT_FINANCE_RULES: FinanceRulesRow = {
   payout_delay_days: 7,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
-};
+} as any as FinanceRulesRow;
 
-const DEFAULT_RESERVATION_RULES: ReservationRulesRow = {
+const DEFAULT_RESERVATION_RULES = {
   id: 1,
   max_party_size: 20,
   min_advance_hours: 2,
@@ -4081,7 +4189,7 @@ const DEFAULT_RESERVATION_RULES: ReservationRulesRow = {
   cancellation_deadline_hours: 24,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
-};
+} as any as ReservationRulesRow;
 
 export const getAdminSettingsSnapshot: RequestHandler = async (req, res) => {
   if (!requireSuperadmin(req, res)) return;
@@ -4091,41 +4199,41 @@ export const getAdminSettingsSnapshot: RequestHandler = async (req, res) => {
   // Use Promise.allSettled to handle partial failures gracefully
   const [citiesRes, categoriesRes, financeRes, reservationRes, flagsRes] =
     await Promise.all([
-      supabase
+      Promise.resolve(supabase
         .from("admin_cities")
         .select("*")
         .order("created_at", { ascending: true })
         .limit(500)
-        .then((r) => ({ data: r.data, error: r.error }))
+        .then((r) => ({ data: r.data, error: r.error })))
         .catch(() => ({ data: null, error: null })),
-      supabase
+      Promise.resolve(supabase
         .from("admin_categories")
         .select("*")
         .order("universe", { ascending: true })
         .order("sort_order", { ascending: true })
         .limit(2000)
-        .then((r) => ({ data: r.data, error: r.error }))
+        .then((r) => ({ data: r.data, error: r.error })))
         .catch(() => ({ data: null, error: null })),
-      supabase
+      Promise.resolve(supabase
         .from("finance_rules")
         .select("*")
         .eq("id", 1)
         .single()
-        .then((r) => ({ data: r.data, error: r.error }))
+        .then((r) => ({ data: r.data, error: r.error })))
         .catch(() => ({ data: null, error: null })),
-      supabase
+      Promise.resolve(supabase
         .from("reservation_rules")
         .select("*")
         .eq("id", 1)
         .single()
-        .then((r) => ({ data: r.data, error: r.error }))
+        .then((r) => ({ data: r.data, error: r.error })))
         .catch(() => ({ data: null, error: null })),
-      supabase
+      Promise.resolve(supabase
         .from("admin_feature_flags")
         .select("*")
         .order("label", { ascending: true })
         .limit(200)
-        .then((r) => ({ data: r.data, error: r.error }))
+        .then((r) => ({ data: r.data, error: r.error })))
         .catch(() => ({ data: null, error: null })),
     ]);
 
@@ -4254,14 +4362,16 @@ export const updateAdminBillingCompanyProfile: RequestHandler = async (
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "settings.billing_company_profile.update",
     entity_type: "billing_company_profile",
     entity_id: "default",
     metadata: {
       before: beforeRow ?? null,
       after: data,
-      actor: getAdminSessionSubAny(req),
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -4314,11 +4424,13 @@ export const createAdminCity: RequestHandler = async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "settings.cities.create",
     entity_type: "admin_cities",
     entity_id: (data as any)?.id ?? null,
-    metadata: { after: data, actor: getAdminSessionSubAny(req) },
+    metadata: { after: data, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true, item: data as AdminCityRow });
@@ -4356,14 +4468,16 @@ export const updateAdminCity: RequestHandler = async (req, res) => {
     .single();
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "settings.cities.update",
     entity_type: "admin_cities",
     entity_id: id,
     metadata: {
       before: beforeRow ?? null,
       after: data,
-      actor: getAdminSessionSubAny(req),
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -4386,14 +4500,83 @@ export const deleteAdminCity: RequestHandler = async (req, res) => {
   const { error } = await supabase.from("admin_cities").delete().eq("id", id);
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "settings.cities.delete",
     entity_type: "admin_cities",
     entity_id: id,
-    metadata: { before: beforeRow ?? null, actor: getAdminSessionSubAny(req) },
+    metadata: { before: beforeRow ?? null, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
+};
+
+// ---------------------------------------------------------------------------
+// Admin Neighborhoods (Quartiers)
+// ---------------------------------------------------------------------------
+
+type AdminNeighborhoodRow = {
+  id: string;
+  city: string;
+  name: string;
+  active: boolean;
+  created_at: string;
+};
+
+export const listAdminNeighborhoods: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const city = typeof req.query.city === "string" ? req.query.city : "";
+
+  const supabase = getAdminSupabase();
+  let query = supabase
+    .from("admin_neighborhoods")
+    .select("*")
+    .eq("active", true)
+    .order("name", { ascending: true })
+    .limit(500);
+
+  if (city) query = query.eq("city", city);
+
+  const { data, error } = await query;
+  if (error) return res.status(500).json({ error: error.message });
+
+  res.json({ ok: true, items: (data ?? []) as AdminNeighborhoodRow[] });
+};
+
+export const createAdminNeighborhood: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+  if (!isRecord(req.body))
+    return res.status(400).json({ error: "Corps de requête invalide" });
+
+  const city = asString(req.body.city);
+  const name = asString(req.body.name);
+  if (!city) return res.status(400).json({ error: "Ville requise" });
+  if (!name) return res.status(400).json({ error: "Nom du quartier requis" });
+
+  const supabase = getAdminSupabase();
+  const { data, error } = await supabase
+    .from("admin_neighborhoods")
+    .insert({ city, name, active: true })
+    .select("*")
+    .single();
+
+  if (error) {
+    if (error.code === "23505") {
+      // Unique constraint violation — neighborhood already exists, return it
+      const { data: existing } = await supabase
+        .from("admin_neighborhoods")
+        .select("*")
+        .eq("city", city)
+        .eq("name", name)
+        .single();
+      return res.json({ ok: true, item: existing as AdminNeighborhoodRow, existing: true });
+    }
+    return res.status(500).json({ error: error.message });
+  }
+
+  res.json({ ok: true, item: data as AdminNeighborhoodRow });
 };
 
 export const listAdminCategories: RequestHandler = async (req, res) => {
@@ -4452,11 +4635,13 @@ export const createAdminCategory: RequestHandler = async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "settings.categories.create",
     entity_type: "admin_categories",
     entity_id: (data as any)?.id ?? null,
-    metadata: { after: data, actor: getAdminSessionSubAny(req) },
+    metadata: { after: data, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true, item: data as AdminCategoryRow });
@@ -4517,14 +4702,16 @@ export const updateAdminCategory: RequestHandler = async (req, res) => {
     .single();
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "settings.categories.update",
     entity_type: "admin_categories",
     entity_id: id,
     metadata: {
       before: beforeRow ?? null,
       after: data,
-      actor: getAdminSessionSubAny(req),
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -4550,11 +4737,13 @@ export const deleteAdminCategory: RequestHandler = async (req, res) => {
     .eq("id", id);
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "settings.categories.delete",
     entity_type: "admin_categories",
     entity_id: id,
-    metadata: { before: beforeRow ?? null, actor: getAdminSessionSubAny(req) },
+    metadata: { before: beforeRow ?? null, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -4588,7 +4777,9 @@ export const applyAdminUniverseCommission: RequestHandler = async (
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "settings.categories.apply_universe_commission",
     entity_type: "admin_categories",
     entity_id: null,
@@ -4596,7 +4787,7 @@ export const applyAdminUniverseCommission: RequestHandler = async (
       universe,
       commission_percent: commission,
       affected: (data ?? []).length,
-      actor: getAdminSessionSubAny(req),
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -4676,14 +4867,16 @@ export const updateAdminFinanceRules: RequestHandler = async (req, res) => {
     .single();
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "settings.finance_rules.update",
     entity_type: "finance_rules",
     entity_id: null,
     metadata: {
       before: beforeRow ?? null,
       after: data,
-      actor: getAdminSessionSubAny(req),
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -4778,14 +4971,16 @@ export const updateAdminReservationRules: RequestHandler = async (req, res) => {
     .single();
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "settings.reservation_rules.update",
     entity_type: "reservation_rules",
     entity_id: null,
     metadata: {
       before: beforeRow ?? null,
       after: data,
-      actor: getAdminSessionSubAny(req),
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -4834,14 +5029,16 @@ export const updateAdminFeatureFlag: RequestHandler = async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "settings.feature_flags.update",
     entity_type: "admin_feature_flags",
     entity_id: null,
     metadata: {
       before: beforeRow ?? null,
       after: data,
-      actor: getAdminSessionSubAny(req),
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
       key,
     },
   });
@@ -4882,6 +5079,67 @@ export const listAdminEstablishmentOffers: RequestHandler = async (
   if (packsErr) return res.status(500).json({ error: packsErr.message });
 
   res.json({ ok: true, slots: slots ?? [], packs: packs ?? [] });
+};
+
+/**
+ * PUT /api/admin/establishments/:id/slots/upsert
+ * Create or update slots for an establishment (admin version).
+ * Body: { slots: Array<{ starts_at, ends_at, capacity, base_price?, service_label?, active? }> }
+ */
+export const adminUpsertSlots: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const establishmentId = typeof req.params.id === "string" ? req.params.id : "";
+  if (!establishmentId) return res.status(400).json({ error: "Identifiant requis" });
+
+  if (!Array.isArray(req.body?.slots) || !req.body.slots.length) {
+    return res.status(400).json({ error: "slots array is required" });
+  }
+
+  const supabase = getAdminSupabase();
+  const rawSlots = req.body.slots as unknown[];
+  const rows: Record<string, unknown>[] = [];
+
+  for (const raw of rawSlots) {
+    if (typeof raw !== "object" || raw === null) return res.status(400).json({ error: "Invalid slot" });
+    const r = raw as Record<string, unknown>;
+
+    const startsRaw = typeof r.starts_at === "string" ? r.starts_at.trim() : "";
+    const endsRaw = typeof r.ends_at === "string" ? r.ends_at.trim() : "";
+    const capacity = typeof r.capacity === "number" ? r.capacity : NaN;
+
+    if (!startsRaw || !endsRaw) return res.status(400).json({ error: "starts_at/ends_at are required" });
+
+    const startsMs = Date.parse(startsRaw);
+    const endsMs = Date.parse(endsRaw);
+    if (!Number.isFinite(startsMs) || !Number.isFinite(endsMs)) {
+      return res.status(400).json({ error: "starts_at/ends_at are invalid ISO datetimes" });
+    }
+    if (endsMs <= startsMs) {
+      return res.status(400).json({ error: "ends_at must be after starts_at" });
+    }
+    if (!Number.isFinite(capacity) || capacity <= 0) {
+      return res.status(400).json({ error: "capacity must be > 0" });
+    }
+
+    rows.push({
+      establishment_id: establishmentId,
+      starts_at: new Date(startsMs).toISOString(),
+      ends_at: new Date(endsMs).toISOString(),
+      capacity: Math.max(1, Math.round(capacity)),
+      base_price: r.base_price == null ? null : Math.max(0, Math.round(Number(r.base_price) || 0)),
+      promo_type: r.promo_type == null ? null : String(r.promo_type),
+      promo_value: r.promo_value == null ? null : Math.max(0, Math.round(Number(r.promo_value) || 0)),
+      promo_label: r.promo_label == null ? null : String(r.promo_label),
+      service_label: r.service_label == null ? null : String(r.service_label),
+      active: r.active === false ? false : true,
+    });
+  }
+
+  const { error } = await supabase.from("pro_slots").upsert(rows, { onConflict: "establishment_id,starts_at" });
+  if (error) return res.status(500).json({ error: error.message });
+
+  res.json({ ok: true, upserted: rows.length });
 };
 
 export const listAdminEstablishmentQrLogs: RequestHandler = async (
@@ -5099,11 +5357,13 @@ export const createAdminVisibilityOffer: RequestHandler = async (req, res) => {
     .single();
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "visibility.offer.create",
     entity_type: "visibility_offers",
     entity_id: (data as any)?.id ?? null,
-    metadata: { after: data, actor: getAdminSessionSubAny(req) },
+    metadata: { after: data, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true, offer: data });
@@ -5207,14 +5467,16 @@ export const updateAdminVisibilityOffer: RequestHandler = async (req, res) => {
     .single();
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "visibility.offer.update",
     entity_type: "visibility_offers",
     entity_id: offerId,
     metadata: {
       before: beforeRow,
       after: data,
-      actor: getAdminSessionSubAny(req),
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -5244,14 +5506,16 @@ export const deleteAdminVisibilityOffer: RequestHandler = async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "visibility.offer.delete",
     entity_type: "visibility_offers",
     entity_id: offerId,
     metadata: {
       before: beforeRow ?? null,
       after: data,
-      actor: getAdminSessionSubAny(req),
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -5411,11 +5675,13 @@ export const createAdminVisibilityPromoCode: RequestHandler = async (
     .single();
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "visibility.promo.create",
     entity_type: "visibility_promo_codes",
     entity_id: (data as any)?.id ?? null,
-    metadata: { after: data, actor: getAdminSessionSubAny(req) },
+    metadata: { after: data, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true, promo_code: data });
@@ -5505,14 +5771,16 @@ export const updateAdminVisibilityPromoCode: RequestHandler = async (
     .single();
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "visibility.promo.update",
     entity_type: "visibility_promo_codes",
     entity_id: promoId,
     metadata: {
       before: beforeRow,
       after: data,
-      actor: getAdminSessionSubAny(req),
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -5545,14 +5813,16 @@ export const deleteAdminVisibilityPromoCode: RequestHandler = async (
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "visibility.promo.delete",
     entity_type: "visibility_promo_codes",
     entity_id: promoId,
     metadata: {
       before: beforeRow ?? null,
       after: data,
-      actor: getAdminSessionSubAny(req),
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -5652,11 +5922,13 @@ export const createAdminConsumerPromoCode: RequestHandler = async (
     .single();
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "consumer.promo.create",
     entity_type: "consumer_promo_codes",
     entity_id: (data as any)?.id ?? null,
-    metadata: { after: data, actor: getAdminSessionSubAny(req) },
+    metadata: { after: data, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   return res.json({ ok: true, promo_code: data });
@@ -5743,14 +6015,16 @@ export const updateAdminConsumerPromoCode: RequestHandler = async (
     .single();
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "consumer.promo.update",
     entity_type: "consumer_promo_codes",
     entity_id: promoId,
     metadata: {
       before: beforeRow,
       after: data,
-      actor: getAdminSessionSubAny(req),
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -5783,14 +6057,16 @@ export const deleteAdminConsumerPromoCode: RequestHandler = async (
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "consumer.promo.delete",
     entity_type: "consumer_promo_codes",
     entity_id: promoId,
     metadata: {
       before: beforeRow ?? null,
       after: data,
-      actor: getAdminSessionSubAny(req),
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -5988,14 +6264,16 @@ export const updateAdminVisibilityOrderStatus: RequestHandler = async (
     finance_invoice: financeInvoice,
   };
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "visibility.order.update_status",
     entity_type: "visibility_orders",
     entity_id: orderId,
     metadata: {
       before: beforeRow,
       after: fullOrder,
-      actor: getAdminSessionSubAny(req),
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -6044,14 +6322,16 @@ export const updateAdminVisibilityOrderItemMeta: RequestHandler = async (
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "visibility.order_item.update_meta",
     entity_type: "visibility_order_items",
     entity_id: itemId,
     metadata: {
       before: beforeRow,
       after: data,
-      actor: getAdminSessionSubAny(req),
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -6785,16 +7065,16 @@ export const getAdminProProfile: RequestHandler = async (req, res) => {
       client_type: String(profile.client_type ?? ""),
       company_name: profile.company_name,
       contact_name: profile.contact_name,
-      first_name: profile.first_name,
-      last_name: profile.last_name,
+      first_name: (profile as any).first_name,
+      last_name: (profile as any).last_name,
       email: profile.email,
       phone: profile.phone,
       city: profile.city,
       address: profile.address,
-      postal_code: profile.postal_code,
-      country: profile.country,
+      postal_code: (profile as any).postal_code,
+      country: (profile as any).country,
       ice: profile.ice,
-      rc: profile.rc,
+      rc: (profile as any).rc,
       notes: profile.notes,
       establishments,
     },
@@ -6900,11 +7180,13 @@ export const updateAdminProProfile: RequestHandler = async (req, res) => {
   }
 
   // Log the update
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "pro.profile.update",
     entity_type: "pro_profile",
     entity_id: userId,
-    metadata: { updates },
+    metadata: { updates, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   return res.json({ ok: true });
@@ -7050,11 +7332,13 @@ export const createAdminMediaQuote: RequestHandler = async (req, res) => {
       .single();
     if (error) return res.status(500).json({ error: error.message });
 
+    const actor = getAuditActorInfo(req);
     await supabase.from("admin_audit_log").insert({
+      actor_id: actor.actor_id,
       action: "media.quote.create",
       entity_type: "media_quotes",
       entity_id: (data as any)?.id ?? null,
-      metadata: { after: payload, actor: getAdminSessionSubAny(req) },
+      metadata: { after: payload, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
     });
 
     const quote = await getMediaQuoteWithItems({
@@ -7140,11 +7424,13 @@ export const updateAdminMediaQuote: RequestHandler = async (req, res) => {
     .single();
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "media.quote.update",
     entity_type: "media_quotes",
     entity_id: quoteId,
-    metadata: { before, after: patch, actor: getAdminSessionSubAny(req) },
+    metadata: { before, after: patch, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   const quote = await getMediaQuoteWithItems({
@@ -7362,11 +7648,13 @@ export const updateAdminMediaQuoteItem: RequestHandler = async (req, res) => {
 
   await recomputeMediaQuoteTotals({ supabase, quoteId });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "media.quote_item.update",
     entity_type: "media_quote_items",
     entity_id: itemId,
-    metadata: { before, after: fullPatch, actor: getAdminSessionSubAny(req) },
+    metadata: { before, after: fullPatch, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   const next = await getMediaQuoteWithItems({ supabase, quoteId });
@@ -7417,11 +7705,13 @@ export const deleteAdminMediaQuoteItem: RequestHandler = async (req, res) => {
 
   await recomputeMediaQuoteTotals({ supabase, quoteId });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "media.quote_item.delete",
     entity_type: "media_quote_items",
     entity_id: itemId,
-    metadata: { before, actor: getAdminSessionSubAny(req) },
+    metadata: { before, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   const next = await getMediaQuoteWithItems({ supabase, quoteId });
@@ -7457,13 +7747,15 @@ export const createAdminMediaQuotePublicLink: RequestHandler = async (
       baseUrl,
     });
 
+    const actor = getAuditActorInfo(req);
     await supabase.from("admin_audit_log").insert({
+      actor_id: actor.actor_id,
       action: "media.quote.public_link.create",
       entity_type: "media_quote_public_links",
       entity_id: quoteId,
       metadata: {
         expires_at: link.expiresAt,
-        actor: getAdminSessionSubAny(req),
+        actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
       },
     });
 
@@ -7595,13 +7887,15 @@ export const createAdminMediaInvoicePublicLink: RequestHandler = async (
       baseUrl,
     });
 
+    const actor = getAuditActorInfo(req);
     await supabase.from("admin_audit_log").insert({
+      actor_id: actor.actor_id,
       action: "media.invoice.public_link.create",
       entity_type: "media_invoice_public_links",
       entity_id: invoiceId,
       metadata: {
         expires_at: link.expiresAt,
-        actor: getAdminSessionSubAny(req),
+        actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
       },
     });
 
@@ -7800,7 +8094,9 @@ export const sendAdminMediaQuoteEmail: RequestHandler = async (req, res) => {
       .eq("id", quoteId);
     if (updErr) return res.status(500).json({ error: updErr.message });
 
+    const auditActor = getAuditActorInfo(req);
     await supabase.from("admin_audit_log").insert({
+      actor_id: auditActor.actor_id,
       action: "media.quote.send_email",
       entity_type: "media_quotes",
       entity_id: quoteId,
@@ -7810,7 +8106,7 @@ export const sendAdminMediaQuoteEmail: RequestHandler = async (req, res) => {
         email_id: sent.emailId,
         pro_user_id: safeString((quote as any).pro_user_id) || null,
         pro_client_type: proClientType,
-        actor: getAdminSessionSubAny(req),
+        actor_email: auditActor.actor_email, actor_name: auditActor.actor_name, actor_role: auditActor.actor_role,
       },
     });
 
@@ -7855,11 +8151,13 @@ export const markAdminMediaQuoteAccepted: RequestHandler = async (req, res) => {
     .eq("id", quoteId);
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "media.quote.mark_accepted",
     entity_type: "media_quotes",
     entity_id: quoteId,
-    metadata: { before, after: patch, actor: getAdminSessionSubAny(req) },
+    metadata: { before, after: patch, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   const next = await getMediaQuoteWithItems({ supabase, quoteId });
@@ -7894,11 +8192,13 @@ export const markAdminMediaQuoteRejected: RequestHandler = async (req, res) => {
     .eq("id", quoteId);
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "media.quote.mark_rejected",
     entity_type: "media_quotes",
     entity_id: quoteId,
-    metadata: { before, after: patch, actor: getAdminSessionSubAny(req) },
+    metadata: { before, after: patch, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   const next = await getMediaQuoteWithItems({ supabase, quoteId });
@@ -8009,14 +8309,16 @@ export const convertAdminMediaQuoteToInvoice: RequestHandler = async (
 
     await recomputeMediaInvoiceTotals({ supabase, invoiceId });
 
+    const auditActor = getAuditActorInfo(req);
     await supabase.from("admin_audit_log").insert({
+      actor_id: auditActor.actor_id,
       action: "media.quote.convert_to_invoice",
       entity_type: "media_invoices",
       entity_id: invoiceId,
       metadata: {
         quote_id: quoteId,
         invoice_number: invoiceNumber,
-        actor: getAdminSessionSubAny(req),
+        actor_email: auditActor.actor_email, actor_name: auditActor.actor_name, actor_role: auditActor.actor_role,
       },
     });
 
@@ -8230,7 +8532,9 @@ export const sendAdminMediaInvoiceEmail: RequestHandler = async (req, res) => {
 
     if (sent.ok !== true) return res.status(500).json({ error: sent.error });
 
+    const auditActor = getAuditActorInfo(req);
     await supabase.from("admin_audit_log").insert({
+      actor_id: auditActor.actor_id,
       action: "media.invoice.send_email",
       entity_type: "media_invoices",
       entity_id: invoiceId,
@@ -8240,7 +8544,7 @@ export const sendAdminMediaInvoiceEmail: RequestHandler = async (req, res) => {
         email_id: sent.emailId,
         pro_user_id: safeString((invoice as any).pro_user_id) || null,
         pro_client_type: proClientType,
-        actor: getAdminSessionSubAny(req),
+        actor_email: auditActor.actor_email, actor_name: auditActor.actor_name, actor_role: auditActor.actor_role,
       },
     });
 
@@ -8316,7 +8620,9 @@ export const markAdminMediaInvoicePaid: RequestHandler = async (req, res) => {
 
   if (updErr) return res.status(500).json({ error: updErr.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "media.invoice.mark_paid",
     entity_type: "media_invoices",
     entity_id: invoiceId,
@@ -8325,7 +8631,7 @@ export const markAdminMediaInvoicePaid: RequestHandler = async (req, res) => {
       method,
       reference: safeString(body.reference),
       paid_at: paidAt,
-      actor: getAdminSessionSubAny(req),
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -8530,11 +8836,13 @@ export const postAdminSupportTicketMessage: RequestHandler = async (
 
   if (touchErr) return res.status(500).json({ error: touchErr.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "support.ticket.message",
     entity_type: "support_tickets",
     entity_id: ticketId,
-    metadata: { is_internal: isInternal },
+    metadata: { is_internal: isInternal, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true, item: inserted as SupportTicketMessageRow });
@@ -8570,11 +8878,13 @@ export const updateAdminSupportTicket: RequestHandler = async (req, res) => {
   if (!data || !Array.isArray(data) || !data.length)
     return res.status(404).json({ error: "Introuvable" });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "support.ticket.update",
     entity_type: "support_tickets",
     entity_id: ticketId,
-    metadata: { patch },
+    metadata: { patch, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -8791,11 +9101,13 @@ export const createAdminContentPage: RequestHandler = async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "content.page.create",
     entity_type: "content_pages",
     entity_id: (data as any)?.id ?? null,
-    metadata: { slug, is_published: isPublished },
+    metadata: { slug, is_published: isPublished, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ item: data as ContentPageRow });
@@ -8939,11 +9251,13 @@ export const updateAdminContentPage: RequestHandler = async (req, res) => {
   if (!data || !Array.isArray(data) || !data.length)
     return res.status(404).json({ error: "Introuvable" });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "content.page.update",
     entity_type: "content_pages",
     entity_id: id,
-    metadata: { patch },
+    metadata: { patch, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -9050,11 +9364,13 @@ export const replaceAdminContentPageBlocks: RequestHandler = async (
     if (insertErr) return res.status(500).json({ error: insertErr.message });
   }
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "content.page.blocks.replace",
     entity_type: "content_pages",
     entity_id: pageId,
-    metadata: { count: blocks.length },
+    metadata: { count: blocks.length, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -9131,11 +9447,13 @@ export const createAdminFaqArticle: RequestHandler = async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "content.faq.create",
     entity_type: "faq_articles",
     entity_id: (data as any)?.id ?? null,
-    metadata: { is_published: isPublished },
+    metadata: { is_published: isPublished, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ item: data as FaqArticleRow });
@@ -9212,11 +9530,13 @@ export const updateAdminFaqArticle: RequestHandler = async (req, res) => {
   if (!data || !Array.isArray(data) || !data.length)
     return res.status(404).json({ error: "Introuvable" });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "content.faq.update",
     entity_type: "faq_articles",
     entity_id: id,
-    metadata: { patch },
+    metadata: { patch, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -9772,11 +10092,13 @@ export const createAdminCmsBlogArticle: RequestHandler = async (req, res) => {
     return res.status(500).json({ error: msg });
   }
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "content.blog.create",
     entity_type: "blog_articles",
     entity_id: (data as any)?.id ?? null,
-    metadata: { slug, is_published: isPublished },
+    metadata: { slug, is_published: isPublished, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ item: data as BlogArticleRow });
@@ -9973,11 +10295,13 @@ export const updateAdminCmsBlogArticle: RequestHandler = async (req, res) => {
   if (!data || !Array.isArray(data) || !data.length)
     return res.status(404).json({ error: "Introuvable" });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "content.blog.update",
     entity_type: "blog_articles",
     entity_id: id,
-    metadata: { patch },
+    metadata: { patch, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -10028,11 +10352,13 @@ export const deleteAdminCmsBlogArticle: RequestHandler = async (req, res) => {
   if (!deletedData || !Array.isArray(deletedData) || !deletedData.length)
     return res.status(404).json({ error: "Introuvable" });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "content.blog.delete",
     entity_type: "blog_articles",
     entity_id: id,
-    metadata: { slug },
+    metadata: { slug, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -10124,11 +10450,13 @@ export const createAdminCmsBlogAuthor: RequestHandler = async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "content.blog_author.create",
     entity_type: "blog_authors",
     entity_id: (data as any)?.id ?? null,
-    metadata: { display_name: displayName },
+    metadata: { display_name: displayName, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ item: data as BlogAuthorRow });
@@ -10183,11 +10511,13 @@ export const updateAdminCmsBlogAuthor: RequestHandler = async (req, res) => {
   if (!data || !Array.isArray(data) || !data.length)
     return res.status(404).json({ error: "Introuvable" });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "content.blog_author.update",
     entity_type: "blog_authors",
     entity_id: id,
-    metadata: { patch },
+    metadata: { patch, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -10298,11 +10628,13 @@ export const replaceAdminCmsBlogArticleBlocks: RequestHandler = async (
     if (insertErr) return res.status(500).json({ error: insertErr.message });
   }
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "content.blog.blocks.replace",
     entity_type: "blog_articles",
     entity_id: articleId,
-    metadata: { count: blocks.length },
+    metadata: { count: blocks.length, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -10549,7 +10881,6 @@ export const uploadAdminCmsBlogImage: RequestHandler = async (req, res) => {
   if (!signatureOk)
     return res.status(400).json({ error: "invalid_image_signature" });
 
-  const actor = getAdminSessionSubAny(req);
   const fileNameHeader = req.header("x-file-name") ?? "";
   const fileName = sanitizeImageFileName(fileNameHeader, ext);
 
@@ -10573,7 +10904,9 @@ export const uploadAdminCmsBlogImage: RequestHandler = async (req, res) => {
     supabase.storage.from(CMS_BLOG_IMAGES_BUCKET).getPublicUrl(storagePath)
       ?.data?.publicUrl ?? "";
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "content.blog.media.upload",
     entity_type: "storage",
     entity_id: storagePath,
@@ -10582,7 +10915,7 @@ export const uploadAdminCmsBlogImage: RequestHandler = async (req, res) => {
       file_name: fileName,
       mime_type: contentType,
       size_bytes: body.length,
-      actor,
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -10677,7 +11010,6 @@ export const uploadAdminCmsBlogDocument: RequestHandler = async (req, res) => {
     return res.status(400).json({ error: "invalid_pdf_signature" });
   }
 
-  const actor = getAdminSessionSubAny(req);
   const fileNameHeader = req.header("x-file-name") ?? "";
   const fileName = sanitizeFileName(fileNameHeader);
 
@@ -10703,7 +11035,9 @@ export const uploadAdminCmsBlogDocument: RequestHandler = async (req, res) => {
     supabase.storage.from(CMS_BLOG_DOCUMENTS_BUCKET).getPublicUrl(storagePath)
       ?.data?.publicUrl ?? "";
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "content.blog.documents.upload",
     entity_type: "storage",
     entity_id: storagePath,
@@ -10712,7 +11046,7 @@ export const uploadAdminCmsBlogDocument: RequestHandler = async (req, res) => {
       file_name: fileName,
       mime_type: "application/pdf",
       size_bytes: body.length,
-      actor,
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -10923,17 +11257,32 @@ export const listPublicFaqArticles: RequestHandler = async (req, res) => {
       : "";
   const lang = langRaw === "en" ? "en" : "fr";
 
+  // audience filter: "consumer", "pro", or undefined (all)
+  const audienceRaw =
+    typeof req.query.audience === "string"
+      ? req.query.audience.trim().toLowerCase()
+      : "";
+  const audience =
+    audienceRaw === "consumer" || audienceRaw === "pro" ? audienceRaw : "";
+
   const supabase = getAdminSupabase();
-  const { data, error } = await supabase
+  let query = supabase
     .from("faq_articles")
     .select(
-      "id,category,display_order,title,body,question_fr,question_en,answer_html_fr,answer_html_en,tags,updated_at",
+      "id,category,display_order,title,body,question_fr,question_en,answer_html_fr,answer_html_en,tags,updated_at,audience",
     )
     .eq("is_published", true)
     .order("category", { ascending: true })
     .order("display_order", { ascending: true })
     .order("updated_at", { ascending: false })
     .limit(500);
+
+  // If audience specified, return items matching that audience OR "both"
+  if (audience) {
+    query = query.in("audience", [audience, "both"]);
+  }
+
+  const { data, error } = await query;
 
   if (error) return res.status(500).json({ error: error.message });
 
@@ -10972,6 +11321,27 @@ export const listPublicFaqArticles: RequestHandler = async (req, res) => {
   res.json({ items });
 };
 
+export const searchEstablishmentsByName: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const name = typeof req.query.name === "string" ? req.query.name.trim() : "";
+  if (!name || name.length < 2) {
+    return res.json({ items: [] });
+  }
+
+  const supabase = getAdminSupabase();
+
+  const { data, error } = await supabase
+    .from("establishments")
+    .select("id,name,city,status,cover_url")
+    .ilike("name", `%${name}%`)
+    .order("name", { ascending: true })
+    .limit(10);
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ items: data ?? [] });
+};
+
 export const listEstablishments: RequestHandler = async (req, res) => {
   if (!requireAdminKey(req, res)) return;
 
@@ -10981,9 +11351,9 @@ export const listEstablishments: RequestHandler = async (req, res) => {
 
   let q = supabase
     .from("establishments")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(200);
+    .select("id,name,city,universe,subcategory,status,created_at,updated_at,verified,premium,curated,admin_created_by_name,admin_updated_by_name,cover_url")
+    .order("updated_at", { ascending: false })
+    .limit(2000);
   if (status) q = q.eq("status", status);
 
   const { data, error } = await q;
@@ -11045,7 +11415,8 @@ export const createEstablishment: RequestHandler = async (req, res) => {
     city,
     universe: universe ?? null,
     subcategory: (universe ?? null) as any,
-    status: "pending",
+    status: "active",
+    is_online: true,
     verified: false,
     created_by: ownerUserId,
   };
@@ -11061,7 +11432,7 @@ export const createEstablishment: RequestHandler = async (req, res) => {
   if (createEstErr || !createdEst) {
     await supabase.auth.admin.deleteUser(ownerUserId);
     return res.status(500).json({
-      error: createEstErr?.message ?? "Impossible de créer l’établissement",
+      error: createEstErr?.message ?? "Impossible de créer l'établissement",
     });
   }
 
@@ -11081,7 +11452,9 @@ export const createEstablishment: RequestHandler = async (req, res) => {
     return res.status(500).json({ error: membershipErr.message });
   }
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "establishment.create",
     entity_type: "establishment",
     entity_id: establishmentId ?? null,
@@ -11089,9 +11462,10 @@ export const createEstablishment: RequestHandler = async (req, res) => {
       name,
       city,
       universe: universe ?? null,
-      status: "pending",
+      status: "active",
       owner_email: ownerEmail,
       owner_user_id: ownerUserId,
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -11106,11 +11480,437 @@ export const createEstablishment: RequestHandler = async (req, res) => {
 };
 
 /**
+ * Generate a URL-friendly slug from name + city (same logic as public.ts).
+ */
+function generateEstablishmentSlug(name: string | null, city: string | null): string | null {
+  const namePart = (name ?? "").trim();
+  const cityPart = (city ?? "").trim();
+  if (!namePart) return null;
+  let slug = cityPart ? `${namePart}-${cityPart}` : namePart;
+  slug = slug.toLowerCase();
+  const accentMap: Record<string, string> = {
+    'à': 'a', 'â': 'a', 'ä': 'a', 'á': 'a', 'ã': 'a', 'å': 'a', 'æ': 'ae',
+    'ç': 'c', 'è': 'e', 'é': 'e', 'ê': 'e', 'ë': 'e', 'ì': 'i', 'í': 'i',
+    'î': 'i', 'ï': 'i', 'ñ': 'n', 'ò': 'o', 'ó': 'o', 'ô': 'o', 'õ': 'o',
+    'ö': 'o', 'ø': 'o', 'ù': 'u', 'ú': 'u', 'û': 'u', 'ü': 'u', 'ý': 'y',
+    'ÿ': 'y', 'œ': 'oe', 'ß': 'ss',
+  };
+  slug = slug.replace(/[àâäáãåæçèéêëìíîïñòóôõöøùúûüýÿœß]/g, (char) => accentMap[char] || char);
+  slug = slug.replace(/[^a-z0-9]+/g, '-');
+  slug = slug.replace(/^-+|-+$/g, '');
+  slug = slug.replace(/-+/g, '-');
+  if (slug.length < 3) {
+    slug = slug ? `${slug}-etablissement` : null;
+  }
+  return slug || null;
+}
+
+/**
+ * POST /api/admin/establishments/wizard
+ * Crée un établissement complet via le wizard admin (7 étapes).
+ */
+export const createEstablishmentWizard: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const payload = isRecord(req.body) ? req.body : {};
+
+  // Step 1 — Identity
+  const name = asString(payload.name);
+  const universeRaw = asString(payload.universe);
+  // Map UI universe values to valid DB enum (booking_kind) values
+  const UNIVERSE_TO_DB: Record<string, string> = {
+    restaurants: "restaurant",
+    restaurant: "restaurant",
+    loisirs: "loisir",
+    loisir: "loisir",
+    sport: "loisir",
+    hebergement: "hebergement",
+    hotels: "hebergement",
+    hotel: "hebergement",
+    wellness: "wellness",
+    culture: "culture",
+    shopping: "loisir",
+    rentacar: "loisir",
+  };
+  const universe = universeRaw
+    ? UNIVERSE_TO_DB[universeRaw.toLowerCase()] ?? universeRaw
+    : undefined;
+  const category = asString(payload.category);
+  const subcategory = asString(payload.subcategory);
+  const specialties = asStringArray(payload.specialties);
+
+  // Step 2 — Location
+  const country = asString(payload.country) ?? "Maroc";
+  const region = asString(payload.region);
+  const city = asString(payload.city);
+  const postal_code = asString(payload.postal_code);
+  const neighborhood = asString(payload.neighborhood);
+  const address = asString(payload.address);
+  const lat = typeof payload.lat === "number" ? payload.lat : undefined;
+  const lng = typeof payload.lng === "number" ? payload.lng : undefined;
+
+  // Step 3 — Contact
+  const phone = asString(payload.phone);
+  const whatsapp = asString(payload.whatsapp);
+  const booking_email = asString(payload.booking_email);
+  const google_maps_url = asString(payload.google_maps_link);
+  const website = asString(payload.website);
+  const ownerEmailRaw = asString(payload.owner_email);
+  const ownerEmail = ownerEmailRaw ? normalizeEmail(ownerEmailRaw) : "";
+
+  // Step 4 — Descriptions
+  const description_short = asString(payload.short_description);
+  const description_long = asString(payload.long_description);
+
+  // Step 6 — Hours
+  // Transform wizard DaySchedule format → openingHours format for OpeningHoursBlock
+  const rawHours = isRecord(payload.hours) ? payload.hours : undefined;
+  const hours = rawHours
+    ? transformWizardHoursToOpeningHours(rawHours as Record<string, unknown>)
+    : undefined;
+
+  // Step 7 — Tags & extras
+  const ambiance_tags = asStringArray(payload.ambiance_tags);
+  const general_tags = asStringArray(payload.general_tags);
+  const amenities = asStringArray(payload.amenities);
+  const highlights = asStringArray(payload.highlights);
+  const social_links = isRecord(payload.social_links) ? payload.social_links : undefined;
+
+  // Validation
+  if (!name || name.length < 2) return res.status(400).json({ error: "Le nom doit contenir au moins 2 caractères" });
+  if (!universe) return res.status(400).json({ error: "L'univers est requis" });
+  if (!city) return res.status(400).json({ error: "La ville est requise" });
+  if (!address) return res.status(400).json({ error: "L'adresse est requise" });
+  if (!phone) return res.status(400).json({ error: "Le téléphone est requis" });
+
+  const supabase = getAdminSupabase();
+
+  // Create owner user only if owner email is provided
+  let ownerUserId: string | null = null;
+  let provisionalPassword: string | null = null;
+
+  if (ownerEmail && ownerEmail.includes("@")) {
+    provisionalPassword = generateProvisionalPassword();
+    const { data: createdUser, error: createUserErr } =
+      await supabase.auth.admin.createUser({
+        email: ownerEmail,
+        password: provisionalPassword,
+        email_confirm: true,
+      });
+
+    if (createUserErr || !createdUser.user) {
+      return res.status(400).json({
+        error: translateErrorMessage(createUserErr?.message) ?? "Impossible de créer l'utilisateur",
+      });
+    }
+
+    ownerUserId = createdUser.user.id;
+  }
+
+  // Get admin actor info for "Créé par" tracking
+  const actor = getAuditActorInfo(req);
+
+  // Store general_tags in tags, highlights in separate column
+  const insertPayload: Record<string, unknown> = {
+    name,
+    universe: universe ?? null,
+    category: category ?? null,
+    subcategory: subcategory ?? null,
+    specialties: specialties ?? [],
+    country,
+    region: region ?? null,
+    city,
+    postal_code: postal_code ?? null,
+    neighborhood: neighborhood ?? null,
+    address,
+    lat: lat ?? null,
+    lng: lng ?? null,
+    phone: phone ?? null,
+    whatsapp: whatsapp ?? null,
+    email: booking_email ?? null,
+    google_maps_url: google_maps_url ?? null,
+    website: website ?? null,
+    description_short: description_short ?? null,
+    description_long: description_long ?? null,
+    hours: hours ?? null,
+    tags: general_tags && general_tags.length > 0 ? general_tags : null,
+    highlights: highlights && highlights.length > 0 ? highlights : null,
+    amenities: amenities ?? null,
+    ambiance_tags: ambiance_tags ?? null,
+    social_links: social_links ?? null,
+    status: "active",
+    is_online: true,
+    verified: false,
+    created_by: ownerUserId ?? actor.actor_id ?? null,
+    admin_created_by_name: actor.actor_name ?? null,
+    admin_created_by_id: actor.actor_id ?? null,
+    extra: {
+      admin_created: true,
+      ...(ownerEmail ? { owner_email: ownerEmail } : {}),
+    },
+  };
+
+  const { data: createdEst, error: createEstErr } = await supabase
+    .from("establishments")
+    .insert(insertPayload)
+    .select("*")
+    .single();
+
+  if (createEstErr || !createdEst) {
+    if (ownerUserId) await supabase.auth.admin.deleteUser(ownerUserId);
+    return res.status(500).json({
+      error: createEstErr?.message ?? "Impossible de créer l'établissement",
+    });
+  }
+
+  const establishmentId = (createdEst as any)?.id as string | undefined;
+
+  // Generate and save slug
+  if (establishmentId && name) {
+    let slug = generateEstablishmentSlug(name, city);
+    if (slug) {
+      const { data: existing } = await supabase
+        .from("establishments").select("id").eq("slug", slug).neq("id", establishmentId).limit(1);
+      if (existing && existing.length > 0) {
+        let counter = 2;
+        let candidate = `${slug}-${counter}`;
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const { data: check } = await supabase
+            .from("establishments").select("id").eq("slug", candidate).limit(1);
+          if (!check || check.length === 0) break;
+          counter++;
+          candidate = `${slug}-${counter}`;
+        }
+        slug = candidate;
+      }
+      await supabase.from("establishments").update({ slug }).eq("id", establishmentId);
+    }
+  }
+
+  // Create membership only if owner user was created
+  if (ownerUserId) {
+    const { error: membershipErr } = await supabase
+      .from("pro_establishment_memberships")
+      .insert({
+        establishment_id: establishmentId,
+        user_id: ownerUserId,
+        role: "owner",
+      });
+
+    if (membershipErr) {
+      await supabase.from("establishments").delete().eq("id", establishmentId);
+      await supabase.auth.admin.deleteUser(ownerUserId);
+      return res.status(500).json({ error: membershipErr.message });
+    }
+  }
+
+  // Audit log
+  await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
+    action: "establishment.wizard_create",
+    entity_type: "establishment",
+    entity_id: establishmentId ?? null,
+    metadata: {
+      name,
+      city,
+      universe: universe ?? null,
+      status: "pending",
+      owner_email: ownerEmail,
+      owner_user_id: ownerUserId,
+      actor_email: actor.actor_email,
+      actor_name: actor.actor_name,
+      actor_role: actor.actor_role,
+      wizard: true,
+    },
+  });
+
+  res.json({
+    item: createdEst,
+    owner: {
+      email: ownerEmail,
+      user_id: ownerUserId,
+      temporary_password: provisionalPassword,
+    },
+  });
+};
+
+/**
+ * PATCH /api/admin/establishments/wizard/:id
+ * Met à jour un établissement existant via le wizard admin (7 étapes).
+ */
+export const updateEstablishmentWizard: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const establishmentId = typeof req.params.id === "string" ? req.params.id : "";
+  if (!establishmentId) return res.status(400).json({ error: "ID établissement requis" });
+
+  const payload = isRecord(req.body) ? req.body : {};
+
+  // Step 1 — Identity
+  const name = asString(payload.name);
+  const universeRaw = asString(payload.universe);
+  const UNIVERSE_TO_DB: Record<string, string> = {
+    restaurants: "restaurant",
+    restaurant: "restaurant",
+    loisirs: "loisir",
+    loisir: "loisir",
+    sport: "loisir",
+    hebergement: "hebergement",
+    hotels: "hebergement",
+    hotel: "hebergement",
+    wellness: "wellness",
+    culture: "culture",
+    shopping: "loisir",
+    rentacar: "loisir",
+  };
+  const universe = universeRaw
+    ? UNIVERSE_TO_DB[universeRaw.toLowerCase()] ?? universeRaw
+    : undefined;
+  const category = asString(payload.category);
+  const subcategory = asString(payload.subcategory);
+  const specialties = asStringArray(payload.specialties);
+
+  // Step 2 — Location
+  const country = asString(payload.country) ?? "Maroc";
+  const region = asString(payload.region);
+  const city = asString(payload.city);
+  const postal_code = asString(payload.postal_code);
+  const neighborhood = asString(payload.neighborhood);
+  const address = asString(payload.address);
+  const lat = typeof payload.lat === "number" ? payload.lat : undefined;
+  const lng = typeof payload.lng === "number" ? payload.lng : undefined;
+
+  // Step 3 — Contact
+  const phone = asString(payload.phone);
+  const whatsapp = asString(payload.whatsapp);
+  const booking_email = asString(payload.booking_email);
+  const google_maps_url = asString(payload.google_maps_link);
+  const website = asString(payload.website);
+
+  // Step 4 — Descriptions
+  const description_short = asString(payload.short_description);
+  const description_long = asString(payload.long_description);
+
+  // Step 6 — Hours
+  const rawHours = isRecord(payload.hours) ? payload.hours : undefined;
+  const hours = rawHours
+    ? transformWizardHoursToOpeningHours(rawHours as Record<string, unknown>)
+    : undefined;
+
+  // Step 7 — Tags & extras
+  const ambiance_tags = asStringArray(payload.ambiance_tags);
+  const general_tags = asStringArray(payload.general_tags);
+  const highlights = asStringArray(payload.highlights);
+  const amenities = asStringArray(payload.amenities);
+  const social_links = isRecord(payload.social_links) ? payload.social_links : undefined;
+
+  // Validation
+  if (!name || name.length < 2) return res.status(400).json({ error: "Le nom doit contenir au moins 2 caractères" });
+
+  const supabase = getAdminSupabase();
+
+  // Verify establishment exists
+  const { data: existing, error: fetchErr } = await supabase
+    .from("establishments")
+    .select("id, name")
+    .eq("id", establishmentId)
+    .single();
+  if (fetchErr || !existing) return res.status(404).json({ error: "Établissement non trouvé" });
+
+  // Store general_tags in tags, highlights in separate column
+  const actor = getAuditActorInfo(req);
+
+  const updatePayload: Record<string, unknown> = {
+    name,
+    ...(universe ? { universe } : {}),
+    ...(category ? { category } : {}),
+    ...(subcategory ? { subcategory } : {}),
+    specialties: specialties ?? [],
+    country,
+    ...(region ? { region } : {}),
+    ...(city ? { city } : {}),
+    ...(postal_code ? { postal_code } : {}),
+    ...(neighborhood ? { neighborhood } : {}),
+    ...(address ? { address } : {}),
+    ...(lat != null ? { lat } : {}),
+    ...(lng != null ? { lng } : {}),
+    ...(phone ? { phone } : {}),
+    ...(whatsapp ? { whatsapp } : {}),
+    ...(booking_email ? { email: booking_email } : {}),
+    ...(google_maps_url ? { google_maps_url } : {}),
+    ...(website ? { website } : {}),
+    ...(description_short ? { description_short } : {}),
+    ...(description_long ? { description_long } : {}),
+    ...(hours ? { hours } : {}),
+    ...(general_tags && general_tags.length > 0 ? { tags: general_tags } : {}),
+    ...(highlights && highlights.length > 0 ? { highlights } : {}),
+    ...(amenities ? { amenities } : {}),
+    ...(ambiance_tags ? { ambiance_tags } : {}),
+    ...(social_links ? { social_links } : {}),
+    admin_updated_by_name: actor.actor_name ?? null,
+    admin_updated_by_id: actor.actor_id ?? null,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data: updatedEst, error: updateErr } = await supabase
+    .from("establishments")
+    .update(updatePayload)
+    .eq("id", establishmentId)
+    .select("*")
+    .single();
+
+  if (updateErr) {
+    return res.status(500).json({ error: updateErr.message });
+  }
+
+  // Update slug if name changed
+  if (name !== existing.name && name && city) {
+    let slug = generateEstablishmentSlug(name, city);
+    if (slug) {
+      const { data: slugExisting } = await supabase
+        .from("establishments").select("id").eq("slug", slug).neq("id", establishmentId).limit(1);
+      if (slugExisting?.length) {
+        let counter = 2;
+        let candidate = `${slug}-${counter}`;
+        while (true) {
+          const { data: check } = await supabase.from("establishments").select("id").eq("slug", candidate).limit(1);
+          if (!check?.length) break;
+          counter++;
+          candidate = `${slug}-${counter}`;
+        }
+        slug = candidate;
+      }
+      await supabase.from("establishments").update({ slug }).eq("id", establishmentId);
+    }
+  }
+
+  // Audit log
+  await supabase.from("audit_logs").insert({
+    action: "establishment.wizard_update",
+    actor_id: actor.actor_id,
+    actor_name: actor.actor_name,
+    actor_role: actor.actor_role,
+    entity_type: "establishment",
+    entity_id: establishmentId,
+    metadata: { name, city, universe },
+  });
+
+  res.json({ item: updatedEst });
+};
+
+/**
  * DELETE /api/admin/establishments/:id
  * Supprime un établissement (admin ou superadmin uniquement)
  */
 export const deleteEstablishment: RequestHandler = async (req, res) => {
   if (!requireAdminKey(req, res)) return;
+
+  // Seuls les superadmin et admin peuvent supprimer des établissements
+  const session = (req as any).adminSession;
+  if (session && session.role !== "superadmin" && session.role !== "admin") {
+    return res.status(403).json({ error: "Seuls les administrateurs peuvent supprimer des établissements" });
+  }
 
   const id = req.params.id;
   if (!id) return res.status(400).json({ error: "ID établissement requis" });
@@ -11148,7 +11948,9 @@ export const deleteEstablishment: RequestHandler = async (req, res) => {
   }
 
   // Audit log
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "establishment.delete",
     entity_type: "establishment",
     entity_id: id,
@@ -11156,6 +11958,7 @@ export const deleteEstablishment: RequestHandler = async (req, res) => {
       name: existing.name,
       status: existing.status,
       deleted_at: new Date().toISOString(),
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -11171,21 +11974,72 @@ export const updateEstablishmentStatus: RequestHandler = async (req, res) => {
   if (!status) return res.status(400).json({ error: "Statut requis" });
 
   const supabase = getAdminSupabase();
+  const actor = getAuditActorInfo(req);
   const { error } = await supabase
     .from("establishments")
-    .update({ status })
+    .update({
+      status,
+      admin_updated_by_name: actor.actor_name ?? null,
+      admin_updated_by_id: actor.actor_id ?? null,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", id);
 
   if (error) return res.status(500).json({ error: error.message });
 
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "establishment.status",
     entity_type: "establishment",
     entity_id: id,
-    metadata: { status },
+    metadata: { status, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
+};
+
+/**
+ * POST /api/admin/establishments/batch-status
+ * Met à jour le statut de plusieurs établissements en une seule opération.
+ */
+export const batchUpdateEstablishmentStatus: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((v: unknown) => typeof v === "string" && v.trim()) : [];
+  const status = typeof req.body?.status === "string" ? req.body.status.trim() : "";
+
+  if (!ids.length) return res.status(400).json({ error: "ids[] requis (au moins un)" });
+  if (!status) return res.status(400).json({ error: "status requis" });
+
+  const allowed = ["active", "pending", "suspended", "rejected"];
+  if (!allowed.includes(status)) return res.status(400).json({ error: `Statut invalide. Valeurs acceptées : ${allowed.join(", ")}` });
+
+  const supabase = getAdminSupabase();
+  const actor = getAuditActorInfo(req);
+  const { error, count } = await supabase
+    .from("establishments")
+    .update({
+      status,
+      admin_updated_by_name: actor.actor_name ?? null,
+      admin_updated_by_id: actor.actor_id ?? null,
+      updated_at: new Date().toISOString(),
+    })
+    .in("id", ids);
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  // Audit log pour chaque établissement
+  for (const id of ids) {
+    await supabase.from("admin_audit_log").insert({
+      actor_id: actor.actor_id,
+      action: "establishment.batch_status",
+      entity_type: "establishment",
+      entity_id: id,
+      metadata: { status, batch_size: ids.length, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
+    });
+  }
+
+  res.json({ ok: true, updated: count ?? ids.length });
 };
 
 export const updateEstablishmentFlags: RequestHandler = async (req, res) => {
@@ -11205,18 +12059,25 @@ export const updateEstablishmentFlags: RequestHandler = async (req, res) => {
   }
 
   const supabase = getAdminSupabase();
+  const actor = getAuditActorInfo(req);
   const { error } = await supabase
     .from("establishments")
-    .update(updates)
+    .update({
+      ...updates,
+      admin_updated_by_name: actor.actor_name ?? null,
+      admin_updated_by_id: actor.actor_id ?? null,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", id);
 
   if (error) return res.status(500).json({ error: error.message });
 
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "establishment.flags",
     entity_type: "establishment",
     entity_id: id,
-    metadata: updates,
+    metadata: { ...updates, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -11993,7 +12854,9 @@ export const createAdminHomeCurationItem: RequestHandler = async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "home_curation.create",
     entity_type: "home_curation_items",
     entity_id: (data as any)?.id ?? null,
@@ -12003,6 +12866,7 @@ export const createAdminHomeCurationItem: RequestHandler = async (req, res) => {
       kind,
       establishment_id: establishmentId,
       weight,
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -12063,11 +12927,13 @@ export const updateAdminHomeCurationItem: RequestHandler = async (req, res) => {
     .eq("id", id);
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "home_curation.update",
     entity_type: "home_curation_items",
     entity_id: id,
-    metadata: { patch },
+    metadata: { patch, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -12086,11 +12952,13 @@ export const deleteAdminHomeCurationItem: RequestHandler = async (req, res) => {
     .eq("id", id);
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "home_curation.delete",
     entity_type: "home_curation_items",
     entity_id: id,
-    metadata: {},
+    metadata: { actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -12201,11 +13069,13 @@ export const createAdminCommissionOverride: RequestHandler = async (
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "commission.override.create",
     entity_type: "establishment_commission_overrides",
     entity_id: establishmentId,
-    metadata: { after: data, actor: getAdminSessionSubAny(req) },
+    metadata: { after: data, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true, item: data as EstablishmentCommissionOverride });
@@ -12285,14 +13155,16 @@ export const updateAdminCommissionOverride: RequestHandler = async (
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "commission.override.update",
     entity_type: "establishment_commission_overrides",
     entity_id: establishmentId,
     metadata: {
       before: beforeRow ?? null,
       after: data,
-      actor: getAdminSessionSubAny(req),
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -12325,11 +13197,13 @@ export const deleteAdminCommissionOverride: RequestHandler = async (
     .eq("establishment_id", establishmentId);
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "commission.override.delete",
     entity_type: "establishment_commission_overrides",
     entity_id: establishmentId,
-    metadata: { before: beforeRow ?? null, actor: getAdminSessionSubAny(req) },
+    metadata: { before: beforeRow ?? null, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -12395,14 +13269,16 @@ export const updateAdminProTerms: RequestHandler = async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "pro_terms.update",
     entity_type: "finance.pro_terms",
     entity_id: null,
     metadata: {
       before: beforeRow,
       after: data,
-      actor: getAdminSessionSubAny(req),
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
       version,
     },
   });
@@ -12514,14 +13390,16 @@ export const updateAdminPayoutRequest: RequestHandler = async (req, res) => {
     .single();
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "payout_request.update",
     entity_type: "finance.payout_requests",
     entity_id: requestId,
     metadata: {
       before: beforeRow ?? null,
       after: data,
-      actor: getAdminSessionSubAny(req),
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
       status: nextStatus,
     },
   });
@@ -12737,14 +13615,16 @@ export const upsertAdminEstablishmentBankDetails: RequestHandler = async (
   });
 
   // Admin audit log (extra)
+  const auditActor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: auditActor.actor_id,
     action: "pro_bank_details.upsert",
     entity_type: "finance.pro_bank_details",
     entity_id: String((after as any).id ?? ""),
     metadata: {
       before: before ?? null,
       after,
-      actor,
+      actor_email: auditActor.actor_email, actor_name: auditActor.actor_name, actor_role: auditActor.actor_role,
       establishment_id: establishmentId,
     },
   });
@@ -12803,11 +13683,13 @@ export const validateAdminEstablishmentBankDetails: RequestHandler = async (
     new_data: after,
   });
 
+  const auditActor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: auditActor.actor_id,
     action: "pro_bank_details.validate",
     entity_type: "finance.pro_bank_details",
     entity_id: String((after as any).id ?? ""),
-    metadata: { before, after, actor, establishment_id: establishmentId },
+    metadata: { before, after, actor_email: auditActor.actor_email, actor_name: auditActor.actor_name, actor_role: auditActor.actor_role, establishment_id: establishmentId },
   });
 
   res.json({ ok: true, item: after as ProBankDetailsRow });
@@ -13583,7 +14465,6 @@ export const uploadAdminCategoryImage: RequestHandler = async (req, res) => {
   if (!signatureOk)
     return res.status(400).json({ error: "invalid_image_signature" });
 
-  const actor = getAdminSessionSubAny(req);
   const fileNameHeader = req.header("x-file-name") ?? "";
   const fileName = sanitizeImageFileName(fileNameHeader, ext);
 
@@ -13607,7 +14488,9 @@ export const uploadAdminCategoryImage: RequestHandler = async (req, res) => {
     supabase.storage.from(CATEGORY_IMAGES_BUCKET).getPublicUrl(storagePath)
       ?.data?.publicUrl ?? "";
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "category_images.upload",
     entity_type: "storage",
     entity_id: storagePath,
@@ -13616,7 +14499,7 @@ export const uploadAdminCategoryImage: RequestHandler = async (req, res) => {
       file_name: fileName,
       mime_type: contentType,
       size_bytes: body.length,
-      actor,
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -13838,11 +14721,13 @@ export const createAdminUniverse: RequestHandler = async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "universes.create",
     entity_type: "universes",
     entity_id: (data as any)?.id ?? null,
-    metadata: { slug, label_fr: labelFr, label_en: labelEn, icon_name: iconName },
+    metadata: { slug, label_fr: labelFr, label_en: labelEn, icon_name: iconName, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true, id: (data as any)?.id ?? null });
@@ -13886,11 +14771,13 @@ export const updateAdminUniverse: RequestHandler = async (req, res) => {
   const { error } = await supabase.from("universes").update(patch).eq("id", id);
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "universes.update",
     entity_type: "universes",
     entity_id: id,
-    metadata: { patch },
+    metadata: { patch, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -13920,11 +14807,13 @@ export const reorderAdminUniverses: RequestHandler = async (req, res) => {
   if (hasError)
     return res.status(500).json({ error: "Erreur lors de la réorganisation" });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "universes.reorder",
     entity_type: "universes",
     entity_id: null,
-    metadata: { order },
+    metadata: { order, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -13978,11 +14867,13 @@ export const deleteAdminUniverse: RequestHandler = async (req, res) => {
   const { error } = await supabase.from("universes").delete().eq("id", id);
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "universes.delete",
     entity_type: "universes",
     entity_id: id,
-    metadata: {},
+    metadata: { actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -14016,7 +14907,7 @@ export const uploadAdminUniverseImage: RequestHandler = async (req, res) => {
   if (!signatureOk)
     return res.status(400).json({ error: "invalid_image_signature" });
 
-  const actor = getAdminSessionSubAny(req);
+  const actor = getAuditActorInfo(req);
   const fileNameHeader = req.header("x-file-name") ?? "";
   const fileName = sanitizeImageFileName(fileNameHeader, ext);
 
@@ -14041,6 +14932,7 @@ export const uploadAdminUniverseImage: RequestHandler = async (req, res) => {
       ?.data?.publicUrl ?? "";
 
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "universe_images.upload",
     entity_type: "storage",
     entity_id: storagePath,
@@ -14049,7 +14941,7 @@ export const uploadAdminUniverseImage: RequestHandler = async (req, res) => {
       file_name: fileName,
       mime_type: contentType,
       size_bytes: body.length,
-      actor,
+      actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role,
     },
   });
 
@@ -14119,11 +15011,13 @@ export const updateAdminHomeSettings: RequestHandler = async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "home_settings.update",
     entity_type: "home_settings",
     entity_id: key,
-    metadata: { value },
+    metadata: { value, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -14189,11 +15083,13 @@ export const uploadAdminHeroImage: RequestHandler = async (req, res) => {
     { onConflict: "key" },
   );
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "home_settings.hero_image_upload",
     entity_type: "home_settings",
     entity_id: "hero",
-    metadata: { url: publicUrl },
+    metadata: { url: publicUrl, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true, url: publicUrl });
@@ -14231,11 +15127,13 @@ export const deleteAdminHeroImage: RequestHandler = async (req, res) => {
     { onConflict: "key" },
   );
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "home_settings.hero_image_delete",
     entity_type: "home_settings",
     entity_id: "hero",
-    metadata: {},
+    metadata: { actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -14309,11 +15207,13 @@ export const createAdminHomeCity: RequestHandler = async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "home_cities.create",
     entity_type: "home_cities",
     entity_id: (data as any)?.id ?? null,
-    metadata: { name, slug },
+    metadata: { name, slug, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true, id: (data as any)?.id ?? null });
@@ -14352,11 +15252,13 @@ export const updateAdminHomeCity: RequestHandler = async (req, res) => {
   const { error } = await supabase.from("home_cities").update(patch).eq("id", id);
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "home_cities.update",
     entity_type: "home_cities",
     entity_id: id,
-    metadata: { patch },
+    metadata: { patch, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -14385,11 +15287,13 @@ export const reorderAdminHomeCities: RequestHandler = async (req, res) => {
   if (hasError)
     return res.status(500).json({ error: "Erreur lors de la réorganisation" });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "home_cities.reorder",
     entity_type: "home_cities",
     entity_id: null,
-    metadata: { order },
+    metadata: { order, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -14421,11 +15325,13 @@ export const deleteAdminHomeCity: RequestHandler = async (req, res) => {
   const { error } = await supabase.from("home_cities").delete().eq("id", id);
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "home_cities.delete",
     entity_type: "home_cities",
     entity_id: id,
-    metadata: {},
+    metadata: { actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -14504,11 +15410,13 @@ export const uploadAdminHomeCityImage: RequestHandler = async (req, res) => {
   if (updateError)
     return res.status(500).json({ error: updateError.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "home_cities.image_upload",
     entity_type: "home_cities",
     entity_id: cityId,
-    metadata: { url: publicUrl },
+    metadata: { url: publicUrl, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true, url: publicUrl });
@@ -14612,11 +15520,13 @@ export const createAdminHomeVideo: RequestHandler = async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "home_videos.create",
     entity_type: "home_videos",
     entity_id: (data as any)?.id ?? null,
-    metadata: { youtube_url: youtubeUrl, title, thumbnail_url: thumbnailUrl, establishment_id: establishmentId },
+    metadata: { youtube_url: youtubeUrl, title, thumbnail_url: thumbnailUrl, establishment_id: establishmentId, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true, id: (data as any)?.id ?? null });
@@ -14659,11 +15569,13 @@ export const updateAdminHomeVideo: RequestHandler = async (req, res) => {
   const { error } = await supabase.from("home_videos").update(patch).eq("id", id);
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "home_videos.update",
     entity_type: "home_videos",
     entity_id: id,
-    metadata: { patch },
+    metadata: { patch, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -14692,11 +15604,13 @@ export const reorderAdminHomeVideos: RequestHandler = async (req, res) => {
   if (hasError)
     return res.status(500).json({ error: "Erreur lors de la réorganisation" });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "home_videos.reorder",
     entity_type: "home_videos",
     entity_id: null,
-    metadata: { order },
+    metadata: { order, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -14713,11 +15627,13 @@ export const deleteAdminHomeVideo: RequestHandler = async (req, res) => {
   const { error } = await supabase.from("home_videos").delete().eq("id", id);
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "home_videos.delete",
     entity_type: "home_videos",
     entity_id: id,
-    metadata: {},
+    metadata: { actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -14856,14 +15772,16 @@ export const updatePlatformSettingHandler: RequestHandler = async (req, res) => 
 
     // Also log to audit
     const supabase = getAdminSupabase();
+    const auditActor = getAuditActorInfo(req);
     await supabase.from("admin_audit_log").insert({
+      actor_id: auditActor.actor_id,
       action: "settings.platform.update",
       entity_type: "platform_settings",
       entity_id: key,
       metadata: {
         key,
         new_value: value,
-        actor: updatedBy,
+        actor_email: auditActor.actor_email, actor_name: auditActor.actor_name, actor_role: auditActor.actor_role,
       },
     });
 
@@ -14922,13 +15840,15 @@ export const setPlatformModeHandler: RequestHandler = async (req, res) => {
 
     // Log mode change
     const supabase = getAdminSupabase();
+    const auditActor = getAuditActorInfo(req);
     await supabase.from("admin_audit_log").insert({
+      actor_id: auditActor.actor_id,
       action: "settings.platform.mode_change",
       entity_type: "platform_settings",
       entity_id: "PLATFORM_MODE",
       metadata: {
         new_mode: mode,
-        actor: updatedBy,
+        actor_email: auditActor.actor_email, actor_name: auditActor.actor_name, actor_role: auditActor.actor_role,
       },
     });
 
@@ -14960,7 +15880,7 @@ export const invalidatePlatformSettingsCacheHandler: RequestHandler = async (req
  * List pending username requests for moderation
  */
 export const listUsernameRequests: RequestHandler = async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!requireAdminKey(req, res)) return;
 
   const supabase = getAdminSupabase();
 
@@ -15000,7 +15920,7 @@ export const listUsernameRequests: RequestHandler = async (req, res) => {
  * Approve a username request
  */
 export const approveUsernameRequest: RequestHandler = async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!requireAdminKey(req, res)) return;
 
   const supabase = getAdminSupabase();
   const requestId = req.params.requestId;
@@ -15084,7 +16004,7 @@ export const approveUsernameRequest: RequestHandler = async (req, res) => {
  * Reject a username request
  */
 export const rejectUsernameRequest: RequestHandler = async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!requireAdminKey(req, res)) return;
 
   const supabase = getAdminSupabase();
   const requestId = req.params.requestId;
@@ -15220,11 +16140,13 @@ export const createAdminCountry: RequestHandler = async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "countries.create",
     entity_type: "countries",
     entity_id: data.id,
-    metadata: { name, code, actor: getAdminSessionSubAny(req) },
+    metadata: { name, code, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ id: data.id });
@@ -15288,11 +16210,13 @@ export const updateAdminCountry: RequestHandler = async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "countries.update",
     entity_type: "countries",
     entity_id: id,
-    metadata: { before: beforeRow, after: data, actor: getAdminSessionSubAny(req) },
+    metadata: { before: beforeRow, after: data, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -15333,11 +16257,13 @@ export const deleteAdminCountry: RequestHandler = async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "countries.delete",
     entity_type: "countries",
     entity_id: id,
-    metadata: { name: country?.name, code: country?.code, actor: getAdminSessionSubAny(req) },
+    metadata: { name: country?.name, code: country?.code, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -15358,11 +16284,13 @@ export const reorderAdminCountries: RequestHandler = async (req, res) => {
     await supabase.from("countries").update({ sort_order: i }).eq("id", order[i]);
   }
 
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
     action: "countries.reorder",
     entity_type: "countries",
     entity_id: null,
-    metadata: { order, actor: getAdminSessionSubAny(req) },
+    metadata: { order, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ ok: true });
@@ -15450,17 +16378,19 @@ export const extendAdminUsernameSubscription: RequestHandler = async (req, res) 
   if (additionalDays <= 0) return res.status(400).json({ error: "Nombre de jours requis" });
 
   const adminSession = getAdminSessionSubAny(req);
-  const adminUserId = adminSession?.id ?? "admin";
+  const adminUserId = adminSession ?? "admin";
 
   try {
     const subscription = await extendSubscription(subscriptionId, additionalDays, adminUserId);
 
     const supabase = getAdminSupabase();
+    const auditActor = getAuditActorInfo(req);
     await supabase.from("admin_audit_log").insert({
+      actor_id: auditActor.actor_id,
       action: "username_subscription.extend",
       entity_type: "username_subscription",
       entity_id: subscriptionId,
-      metadata: { additionalDays, actor: adminSession },
+      metadata: { additionalDays, actor_email: auditActor.actor_email, actor_name: auditActor.actor_name, actor_role: auditActor.actor_role },
     });
 
     res.json({ ok: true, subscription });
@@ -15476,17 +16406,19 @@ export const cancelAdminUsernameSubscription: RequestHandler = async (req, res) 
   if (!subscriptionId) return res.status(400).json({ error: "Identifiant requis" });
 
   const adminSession = getAdminSessionSubAny(req);
-  const adminUserId = adminSession?.id ?? "admin";
+  const adminUserId = adminSession ?? "admin";
 
   try {
     const subscription = await adminCancelSubscription(subscriptionId, adminUserId);
 
     const supabase = getAdminSupabase();
+    const auditActor = getAuditActorInfo(req);
     await supabase.from("admin_audit_log").insert({
+      actor_id: auditActor.actor_id,
       action: "username_subscription.cancel",
       entity_type: "username_subscription",
       entity_id: subscriptionId,
-      metadata: { actor: adminSession },
+      metadata: { actor_email: auditActor.actor_email, actor_name: auditActor.actor_name, actor_role: auditActor.actor_role },
     });
 
     res.json({ ok: true, subscription });
@@ -15568,18 +16500,32 @@ export const updateAdminClaimRequest: RequestHandler = async (req, res) => {
   const supabase = getAdminSupabase();
   const adminSession = getAdminSessionSubAny(req);
 
+  // Map frontend status values to DB CHECK constraint values
+  // DB allows: pending, contacted, verified, rejected, completed
+  // Frontend sends: pending, contacted, approved, rejected
+  const DB_STATUS_MAP: Record<string, string> = {
+    pending: "pending",
+    contacted: "contacted",
+    approved: "approved", // will be stored; DB constraint updated
+    rejected: "rejected",
+  };
+
+  const dbStatus = DB_STATUS_MAP[status] ?? status;
+
+  const sendCredentials = payload.sendCredentials === true;
+
   const updateData: Record<string, unknown> = {
-    status,
+    status: dbStatus,
     updated_at: new Date().toISOString(),
   };
 
   if (notes !== null) {
-    updateData.notes = notes;
+    updateData.admin_notes = notes;
   }
 
   if (status === "approved" || status === "rejected") {
-    updateData.decided_at = new Date().toISOString();
-    updateData.decided_by = adminSession?.email ?? adminSession?.id ?? "admin";
+    updateData.processed_at = new Date().toISOString();
+    updateData.processed_by = adminSession ?? null;
   }
 
   const { data, error } = await supabase
@@ -15593,17 +16539,203 @@ export const updateAdminClaimRequest: RequestHandler = async (req, res) => {
     return res.status(500).json({ error: error.message });
   }
 
+  // If approved + sendCredentials → create Pro account + send welcome email
+  let credentials: { email: string; temporaryPassword: string; userId: string } | null = null;
+
+  if (status === "approved" && sendCredentials && data) {
+    const claimEmail = (data as any).email;
+    const claimEstablishmentId = (data as any).establishment_id;
+    const claimEstablishmentName = (data as any).establishment_name || "votre établissement";
+    const claimFirstName = (data as any).first_name || "";
+
+    if (claimEmail && claimEmail.includes("@")) {
+      const provisionalPassword = generateProvisionalPassword();
+
+      // Check if user already exists
+      const { data: existingUsers } = await supabase.auth.admin.listUsers({ perPage: 1 });
+      const { data: existingLookup } = await supabase
+        .from("pro_profiles")
+        .select("user_id")
+        .eq("email", claimEmail.toLowerCase().trim())
+        .maybeSingle();
+
+      let userId: string | null = null;
+
+      if (existingLookup?.user_id) {
+        // User already exists — just link to establishment if not already
+        userId = existingLookup.user_id;
+      } else {
+        // Create new Supabase auth user
+        const { data: createdUser, error: createUserErr } =
+          await supabase.auth.admin.createUser({
+            email: claimEmail.toLowerCase().trim(),
+            password: provisionalPassword,
+            email_confirm: true,
+          });
+
+        if (createUserErr || !createdUser.user) {
+          console.error("[claim approve] Failed to create user:", createUserErr?.message);
+          // Return success for the claim update but note the error
+          const auditActor = getAuditActorInfo(req);
+          await supabase.from("admin_audit_log").insert({
+            actor_id: auditActor.actor_id,
+            action: `claim_request.${status}`,
+            entity_type: "claim_request",
+            entity_id: id,
+            metadata: { status, notes, sendCredentials, create_user_error: createUserErr?.message, actor_email: auditActor.actor_email, actor_name: auditActor.actor_name, actor_role: auditActor.actor_role },
+          });
+          return res.json({ ok: true, item: data, credentialsError: createUserErr?.message ?? "Impossible de créer le compte" });
+        }
+
+        userId = createdUser.user.id;
+
+        // Create pro_profiles entry
+        await supabase.from("pro_profiles").upsert(
+          { user_id: userId, email: claimEmail.toLowerCase().trim(), client_type: "A", must_change_password: true },
+          { onConflict: "user_id" },
+        );
+      }
+
+      // Link to establishment if not already linked
+      if (userId && claimEstablishmentId) {
+        const { data: existingMembership } = await supabase
+          .from("pro_establishment_memberships")
+          .select("id")
+          .eq("user_id", userId)
+          .eq("establishment_id", claimEstablishmentId)
+          .maybeSingle();
+
+        if (!existingMembership) {
+          await supabase.from("pro_establishment_memberships").insert({
+            user_id: userId,
+            establishment_id: claimEstablishmentId,
+            role: "owner",
+          });
+        }
+      }
+
+      // Send welcome email with credentials
+      const baseUrl = (process.env.PUBLIC_URL ?? "https://sam.ma").replace(/\/+$/, "");
+      const loginUrl = `${baseUrl}/pro`;
+
+      try {
+        await sendTemplateEmail({
+          templateKey: "pro_welcome_password",
+          lang: "fr",
+          fromKey: "pro",
+          to: [claimEmail.toLowerCase().trim()],
+          variables: {
+            email: claimEmail.toLowerCase().trim(),
+            password: provisionalPassword,
+            establishment_name: claimEstablishmentName,
+            login_url: loginUrl,
+            first_name: claimFirstName,
+          },
+        });
+      } catch (emailErr) {
+        console.error("[claim approve] Failed to send welcome email:", emailErr);
+      }
+
+      credentials = {
+        email: claimEmail.toLowerCase().trim(),
+        temporaryPassword: provisionalPassword,
+        userId: userId!,
+      };
+    }
+  }
+
   // Audit log
+  const auditActor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
+    actor_id: auditActor.actor_id,
     action: `claim_request.${status}`,
     entity_type: "claim_request",
     entity_id: id,
     metadata: {
       status,
       notes,
-      actor: adminSession,
+      sendCredentials,
+      credentials_sent: !!credentials,
+      actor_email: auditActor.actor_email, actor_name: auditActor.actor_name, actor_role: auditActor.actor_role,
     },
   });
+
+  res.json({ ok: true, item: data, credentials });
+};
+
+// ---------------------------------------------------------------------------
+// Establishment Leads (Demandes d'ajout d'établissement)
+// ---------------------------------------------------------------------------
+
+export const listAdminEstablishmentLeads: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const status = typeof req.query.status === "string" ? req.query.status : undefined;
+  const limit = typeof req.query.limit === "string" ? parseInt(req.query.limit) || 200 : 200;
+
+  const supabase = getAdminSupabase();
+
+  let query = supabase
+    .from("lead_establishment_requests")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (status && status !== "all") {
+    query = query.eq("status", status);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  res.json({ items: data ?? [] });
+};
+
+export const updateAdminEstablishmentLead: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const id = typeof req.params.id === "string" ? req.params.id : "";
+  if (!id) return res.status(400).json({ error: "Identifiant requis" });
+
+  const payload = isRecord(req.body) ? req.body : {};
+  const status = asString(payload.status);
+  const notes = asString(payload.notes);
+
+  if (!status) {
+    return res.status(400).json({ error: "Statut requis" });
+  }
+
+  if (!["new", "contacted", "converted", "rejected"].includes(status)) {
+    return res.status(400).json({ error: "Statut invalide" });
+  }
+
+  const supabase = getAdminSupabase();
+
+  const updateData: Record<string, unknown> = {
+    status,
+  };
+
+  if (notes !== null) {
+    updateData.admin_notes = notes;
+  }
+
+  if (status === "converted" || status === "rejected") {
+    updateData.processed_at = new Date().toISOString();
+  }
+
+  const { data, error } = await supabase
+    .from("lead_establishment_requests")
+    .update(updateData)
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
 
   res.json({ ok: true, item: data });
 };
@@ -15761,3 +16893,115 @@ export const detectDuplicateEstablishments: RequestHandler = async (req, res) =>
 
   res.json({ groups });
 };
+
+// ---------------------------------------------------------------------------
+// Audit log retention – purge entries older than 30 days
+// ---------------------------------------------------------------------------
+
+/** Retention period in days */
+const AUDIT_LOG_RETENTION_DAYS = 30;
+
+/**
+ * DELETE /api/admin/cron/audit-log-cleanup
+ * Cron-triggered endpoint that deletes admin_audit_log rows older than 30 days.
+ * Protected by ADMIN_API_KEY header.
+ */
+export const cronAuditLogCleanup: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const supabase = getAdminSupabase();
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - AUDIT_LOG_RETENTION_DAYS);
+  const cutoffISO = cutoff.toISOString();
+
+  try {
+    // Delete in batches to avoid timeout on large tables
+    let totalDeleted = 0;
+    let batchDeleted = 0;
+    const BATCH_SIZE = 1000;
+
+    do {
+      // Select IDs of old rows (batch)
+      const { data: oldRows, error: selectErr } = await supabase
+        .from("admin_audit_log")
+        .select("id")
+        .lt("created_at", cutoffISO)
+        .limit(BATCH_SIZE);
+
+      if (selectErr) {
+        console.error("[AuditLogCleanup] Select error:", selectErr);
+        return res.status(500).json({ error: selectErr.message });
+      }
+
+      if (!oldRows || oldRows.length === 0) break;
+
+      const ids = oldRows.map((r: { id: string }) => r.id);
+      const { error: deleteErr } = await supabase
+        .from("admin_audit_log")
+        .delete()
+        .in("id", ids);
+
+      if (deleteErr) {
+        console.error("[AuditLogCleanup] Delete error:", deleteErr);
+        return res.status(500).json({ error: deleteErr.message, deleted_so_far: totalDeleted });
+      }
+
+      batchDeleted = ids.length;
+      totalDeleted += batchDeleted;
+    } while (batchDeleted === BATCH_SIZE);
+
+    console.log(`[AuditLogCleanup] Purged ${totalDeleted} entries older than ${AUDIT_LOG_RETENTION_DAYS} days`);
+
+    res.json({
+      ok: true,
+      deleted: totalDeleted,
+      retention_days: AUDIT_LOG_RETENTION_DAYS,
+      cutoff: cutoffISO,
+    });
+  } catch (err) {
+    console.error("[AuditLogCleanup] Unexpected error:", err);
+    res.status(500).json({ error: "Erreur lors du nettoyage des logs" });
+  }
+};
+
+/**
+ * Standalone function (no req/res) for use in server startup auto-cleanup.
+ * Deletes admin_audit_log rows older than 30 days.
+ */
+export async function purgeOldAuditLogs(): Promise<{ deleted: number }> {
+  const supabase = getAdminSupabase();
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - AUDIT_LOG_RETENTION_DAYS);
+  const cutoffISO = cutoff.toISOString();
+
+  let totalDeleted = 0;
+  let batchDeleted = 0;
+  const BATCH_SIZE = 1000;
+
+  do {
+    const { data: oldRows, error: selectErr } = await supabase
+      .from("admin_audit_log")
+      .select("id")
+      .lt("created_at", cutoffISO)
+      .limit(BATCH_SIZE);
+
+    if (selectErr || !oldRows || oldRows.length === 0) break;
+
+    const ids = oldRows.map((r: { id: string }) => r.id);
+    const { error: deleteErr } = await supabase
+      .from("admin_audit_log")
+      .delete()
+      .in("id", ids);
+
+    if (deleteErr) break;
+
+    batchDeleted = ids.length;
+    totalDeleted += batchDeleted;
+  } while (batchDeleted === BATCH_SIZE);
+
+  if (totalDeleted > 0) {
+    console.log(`[AuditLogCleanup] Auto-purged ${totalDeleted} entries older than ${AUDIT_LOG_RETENTION_DAYS} days`);
+  }
+
+  return { deleted: totalDeleted };
+}

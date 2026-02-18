@@ -67,9 +67,17 @@ function getNotificationHref(n: AdminNotification): string | null {
   }
 
   if (type.includes("profile_update")) return "/admin/moderation";
+  if (type.includes("inventory_change") || type.includes("inventory")) {
+    if (establishmentId)
+      return `/admin/establishments/${encodeURIComponent(establishmentId)}`;
+    return "/admin/inventory-moderation";
+  }
+  if (type.includes("ad_campaign")) return "/admin/ads";
+  if (type.includes("claim_request") || type.includes("claim")) return "/admin/claims";
+  if (type.includes("username_request")) return "/admin/usernames";
   if (type.includes("payment")) return "/admin/payments";
   if (type.includes("pack") || type.includes("deal") || type.includes("offer"))
-    return "/admin/deals";
+    return "/admin/packs-moderation";
   if (type.includes("review") || type.includes("signal")) return "/admin/reviews";
   if (type.includes("support")) return "/admin/support";
   if (type.includes("message")) {
@@ -109,8 +117,17 @@ function getNotificationCategory(type: string): string {
     return "finance";
   if (t.includes("visibility")) return "visibility";
   if (t.includes("review") || t.includes("signal")) return "review";
-  if (t.includes("moderation") || t.includes("profile_update")) return "moderation";
+  if (
+    t.includes("moderation") ||
+    t.includes("profile_update") ||
+    t.includes("inventory_change") ||
+    t.includes("ad_campaign") ||
+    t.includes("pack") ||
+    t.includes("claim")
+  )
+    return "moderation";
   if (t.includes("message") || t.includes("support")) return "support";
+  if (t.includes("fraud") || t.includes("alert")) return "alert";
   return "system";
 }
 
@@ -126,6 +143,8 @@ function categoryBadge(category: string) {
     return "bg-violet-100 text-violet-700 border-violet-200";
   if (category === "review")
     return "bg-orange-100 text-orange-700 border-orange-200";
+  if (category === "alert")
+    return "bg-red-100 text-red-800 border-red-300";
   return base;
 }
 
@@ -249,7 +268,7 @@ export function AdminNotificationsSheet({
         >
           <Bell className="h-4 w-4" />
           {unreadCount > 0 ? (
-            <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[11px] font-extrabold flex items-center justify-center">
+            <span className="absolute -top-1 -end-1 min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[11px] font-extrabold flex items-center justify-center">
               {unreadCount > 99 ? "99+" : unreadCount}
             </span>
           ) : null}

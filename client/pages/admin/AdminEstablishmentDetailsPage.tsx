@@ -12,6 +12,9 @@ import {
   QrCode,
   RefreshCcw,
   Save,
+  Loader2,
+  Moon,
+  Plus,
   Store,
   Ticket,
   Trash2,
@@ -49,6 +52,7 @@ import { AdminGalleryManager } from "@/components/admin/establishment/AdminGalle
 import { AdminContactInfoCard } from "@/components/admin/establishment/AdminContactInfoCard";
 import { AdminTagsServicesCard } from "@/components/admin/establishment/AdminTagsServicesCard";
 import { AdminEstablishmentEditDialog } from "@/components/admin/establishment/AdminEstablishmentEditDialog";
+import { AdminAuditHistoryCard } from "@/components/admin/AdminAuditHistoryCard";
 import { AdminEstablishmentBankDetailsCard } from "@/components/admin/establishment/AdminEstablishmentBankDetailsCard";
 import { AdminEstablishmentContractsCard } from "@/components/admin/establishment/AdminEstablishmentContractsCard";
 import { AdminEstablishmentFinanceRulesCard } from "@/components/admin/establishment/AdminEstablishmentFinanceRulesCard";
@@ -58,6 +62,7 @@ import { AdminDataTable } from "@/components/admin/table/AdminDataTable";
 import { useToast } from "@/hooks/use-toast";
 import {
   AdminApiError,
+  adminUpsertSlots,
   getEstablishment,
   listAdminEstablishmentConversations,
   listAdminEstablishmentConversationMessages,
@@ -76,12 +81,33 @@ import {
   type ReservationAdmin,
 } from "@/lib/adminApi";
 
+// Map DB universe slugs → human-readable labels
+const UNIVERSE_LABELS: Record<string, string> = {
+  restaurant: "Boire & Manger",
+  restaurants: "Boire & Manger",
+  sport: "Sport & Bien-être",
+  wellness: "Sport & Bien-être",
+  loisir: "Loisirs",
+  loisirs: "Loisirs",
+  hebergement: "Hébergement",
+  hotels: "Hébergement",
+  hotel: "Hébergement",
+  culture: "Culture",
+  shopping: "Shopping",
+  rentacar: "Location de véhicules",
+};
+
+function universeLabel(slug: string): string {
+  return UNIVERSE_LABELS[slug.toLowerCase().trim()] ?? slug;
+}
+
 type EstablishmentDetails = {
   id: string;
   name: string;
   city: string;
   status: string;
   universe: string;
+  category: string;
   subcategory: string;
   createdAt: string;
   website: string;
@@ -128,13 +154,19 @@ type QrRow = {
 
 type SlotRow = {
   startsAt: string;
+  date: string;
+  time: string;
+  capacity: string;
   basePrice: string;
+  serviceLabel: string;
+  promo: string;
   status: string;
 };
 
 type PackRow = {
   title: string;
   price: string;
+  moderationStatus: string;
   active: string;
 };
 
@@ -163,6 +195,24 @@ function formatLocal(iso: string | null | undefined): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return String(iso);
   return d.toLocaleString();
+}
+
+/** Formate un ISO en "Mer 5 mars" */
+function formatSlotDate(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return d.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" });
+}
+
+/** Formate un ISO en "19h15" */
+function formatSlotTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const h = d.getHours();
+  const m = d.getMinutes();
+  return m === 0 ? `${h}h` : `${h}h${String(m).padStart(2, "0")}`;
 }
 
 function toDatetimeLocalValue(iso: string | null | undefined): string {
@@ -256,6 +306,23 @@ export function AdminEstablishmentDetailsPage() {
 
   const [packPurchaseConsumptionFilter, setPackPurchaseConsumptionFilter] = useState<"not_consumed" | "fully_consumed" | "all">("not_consumed");
   const [qrLogs, setQrLogs] = useState<QrRow[]>([]);
+
+  // Ftour slots dialog
+  const [ftourDialogOpen, setFtourDialogOpen] = useState(false);
+  const [ftourDateStart, setFtourDateStart] = useState("");
+  const [ftourDateEnd, setFtourDateEnd] = useState("");
+  const [ftourTimeStart, setFtourTimeStart] = useState("19:15");
+  const [ftourDurationMin, setFtourDurationMin] = useState(180);
+  const [ftourCapacity, setFtourCapacity] = useState(30);
+  const [ftourBasePrice, setFtourBasePrice] = useState("");
+  const [ftourServiceLabel, setFtourServiceLabel] = useState("Ftour");
+  const [ftourPromoLabel, setFtourPromoLabel] = useState("");
+  const [ftourPromoType, setFtourPromoType] = useState<"percent" | "amount">("percent");
+  const [ftourPromoValue, setFtourPromoValue] = useState("");
+  const [ftourPaidPercent, setFtourPaidPercent] = useState(88);
+  const [ftourFreePercent, setFtourFreePercent] = useState(6);
+  const [ftourBufferPercent, setFtourBufferPercent] = useState(6);
+  const [ftourCreating, setFtourCreating] = useState(false);
   const [qrLogsById, setQrLogsById] = useState<Record<string, QrScanLogAdmin>>({});
   const [conversations, setConversations] = useState<ConversationRow[]>([]);
   const [linkedPros, setLinkedPros] = useState<Array<{ id: string; email: string }>>([]);
@@ -346,6 +413,7 @@ export function AdminEstablishmentDetailsPage() {
         city: String(raw?.city ?? ""),
         status: String(raw?.status ?? ""),
         universe: String(raw?.universe ?? ""),
+        category: String(raw?.category ?? ""),
         subcategory: String(raw?.subcategory ?? ""),
         createdAt: String(raw?.created_at ?? ""),
         website: String(raw?.website ?? "").trim(),
@@ -379,14 +447,31 @@ export function AdminEstablishmentDetailsPage() {
 
       const slots: SlotRow[] = (offersRes.slots ?? []).map((s: any) => ({
         startsAt: formatLocal(s?.starts_at),
+        date: formatSlotDate(s?.starts_at),
+        time: formatSlotTime(s?.starts_at),
+        capacity: String(s?.capacity ?? "—"),
         basePrice: formatMoneyCents(typeof s?.base_price === "number" ? s.base_price : null, s?.currency ?? null),
+        serviceLabel: String(s?.service_label ?? "—"),
+        promo: s?.promo_label ? `${s.promo_label}` : s?.promo_value ? `${s.promo_type === "percent" ? `${s.promo_value}%` : `${s.promo_value} MAD`}` : "—",
         status: String(s?.status ?? "—"),
       }));
       setOffersSlots(slots);
 
+      const moderationLabels: Record<string, string> = {
+        draft: "Brouillon",
+        pending_moderation: "En attente",
+        approved: "Approuvé",
+        active: "Actif",
+        modification_requested: "Modification demandée",
+        rejected: "Rejeté",
+        suspended: "Suspendu",
+        sold_out: "Épuisé",
+        ended: "Terminé",
+      };
       const packs: PackRow[] = (offersRes.packs ?? []).map((p: any) => ({
         title: String(p?.title ?? p?.name ?? p?.id ?? "—"),
         price: formatMoneyCents(typeof p?.price === "number" ? p.price : null, p?.currency ?? null),
+        moderationStatus: moderationLabels[String(p?.moderation_status ?? "")] ?? String(p?.moderation_status ?? "—"),
         active: typeof p?.active === "boolean" ? (p.active ? "Oui" : "Non") : "—",
       }));
       setOffersPacks(packs);
@@ -691,8 +776,12 @@ export function AdminEstablishmentDetailsPage() {
 
   const slotsColumns = useMemo<ColumnDef<SlotRow>[]>(() => {
     return [
-      { accessorKey: "startsAt", header: "Début" },
+      { accessorKey: "date", header: "Date" },
+      { accessorKey: "time", header: "Heure" },
+      { accessorKey: "serviceLabel", header: "Service" },
+      { accessorKey: "capacity", header: "Places" },
       { accessorKey: "basePrice", header: "Prix" },
+      { accessorKey: "promo", header: "Promo" },
       { accessorKey: "status", header: "Statut" },
     ];
   }, []);
@@ -701,6 +790,7 @@ export function AdminEstablishmentDetailsPage() {
     return [
       { accessorKey: "title", header: "Pack" },
       { accessorKey: "price", header: "Prix" },
+      { accessorKey: "moderationStatus", header: "Modération" },
       { accessorKey: "active", header: "Actif" },
     ];
   }, []);
@@ -765,15 +855,100 @@ export function AdminEstablishmentDetailsPage() {
     });
   }, [packPurchases, packPurchaseConsumptionFilter]);
 
+  // Create Ftour slots in batch
+  const handleCreateFtourSlots = async () => {
+    if (!establishmentId || !ftourDateStart || !ftourDateEnd || !ftourTimeStart) return;
+
+    // Validate capacity distribution
+    if (ftourPaidPercent + ftourFreePercent + ftourBufferPercent !== 100) {
+      toast({ title: "Erreur", description: "La répartition des places doit totaliser 100%.", variant: "destructive" });
+      return;
+    }
+
+    setFtourCreating(true);
+    try {
+      const startDate = new Date(ftourDateStart);
+      const endDate = new Date(ftourDateEnd);
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime()) || endDate < startDate) {
+        toast({ title: "Erreur", description: "Dates invalides", variant: "destructive" });
+        return;
+      }
+
+      const [hours, minutes] = ftourTimeStart.split(":").map(Number);
+      const basePrice = ftourBasePrice.trim() ? Math.round(Number(ftourBasePrice) * 100) : null;
+      const promoValueNum = ftourPromoValue.trim() ? Math.round(Number(ftourPromoValue)) : null;
+      const promoValue = promoValueNum && promoValueNum > 0 ? promoValueNum : null;
+
+      const slots: Array<{
+        starts_at: string;
+        ends_at: string;
+        capacity: number;
+        base_price?: number | null;
+        service_label: string;
+        promo_type?: string | null;
+        promo_value?: number | null;
+        promo_label?: string | null;
+      }> = [];
+
+      const current = new Date(startDate);
+      while (current <= endDate) {
+        const slotStart = new Date(current);
+        slotStart.setHours(hours, minutes, 0, 0);
+
+        const slotEnd = new Date(slotStart);
+        slotEnd.setMinutes(slotEnd.getMinutes() + ftourDurationMin);
+
+        slots.push({
+          starts_at: slotStart.toISOString(),
+          ends_at: slotEnd.toISOString(),
+          capacity: ftourCapacity,
+          base_price: basePrice,
+          service_label: ftourServiceLabel || "Ftour",
+          promo_type: promoValue ? ftourPromoType : null,
+          promo_value: promoValue,
+          promo_label: promoValue ? (ftourPromoLabel.trim() || null) : null,
+        });
+
+        current.setDate(current.getDate() + 1);
+      }
+
+      const res = await adminUpsertSlots(undefined, establishmentId, slots);
+      toast({
+        title: "Créneaux créés",
+        description: `${res.upserted} créneau(x) créé(s) avec succès`,
+      });
+
+      // Refresh offers list
+      const offersRes = await listAdminEstablishmentOffers(undefined, establishmentId);
+      const refreshedSlots: SlotRow[] = (offersRes.slots ?? []).map((s: any) => ({
+        startsAt: formatLocal(s?.starts_at),
+        date: formatSlotDate(s?.starts_at),
+        time: formatSlotTime(s?.starts_at),
+        capacity: String(s?.capacity ?? "—"),
+        basePrice: formatMoneyCents(typeof s?.base_price === "number" ? s.base_price : null, s?.currency ?? null),
+        serviceLabel: String(s?.service_label ?? "—"),
+        promo: s?.promo_label ? `${s.promo_label}` : s?.promo_value ? `${s.promo_type === "percent" ? `${s.promo_value}%` : `${s.promo_value} MAD`}` : "—",
+        status: String(s?.status ?? "—"),
+      }));
+      setOffersSlots(refreshedSlots);
+      setFtourDialogOpen(false);
+    } catch (e) {
+      const msg = e instanceof AdminApiError ? e.message : "Erreur inattendue";
+      toast({ title: "Erreur", description: msg, variant: "destructive" });
+    } finally {
+      setFtourCreating(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <AdminPageHeader
         title={est?.name || "Établissement"}
         description={est ? `ID: ${est.id}` : ""}
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" asChild>
-              <Link to="/admin/establishments" className="gap-2">
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/admin/establishments" className="gap-1.5">
                 <ArrowLeft className="h-4 w-4" />
                 Retour
               </Link>
@@ -782,7 +957,8 @@ export function AdminEstablishmentDetailsPage() {
             {est ? (
               <Button
                 variant="outline"
-                className="gap-2"
+                size="sm"
+                className="gap-1.5"
                 onClick={() => {
                   void (async () => {
                     try {
@@ -795,12 +971,12 @@ export function AdminEstablishmentDetailsPage() {
                 }}
               >
                 <Copy className="h-4 w-4" />
-                Copier l’ID
+                Copier l'ID
               </Button>
             ) : null}
 
             {publicUrl ? (
-              <Button variant="outline" asChild className="gap-2">
+              <Button variant="outline" size="sm" asChild className="gap-1.5">
                 <Link to={publicUrl} target="_blank" rel="noreferrer">
                   <ExternalLink className="h-4 w-4" />
                   Ouvrir la page publique
@@ -809,7 +985,7 @@ export function AdminEstablishmentDetailsPage() {
             ) : null}
 
             {est?.website ? (
-              <Button variant="outline" asChild className="gap-2">
+              <Button variant="outline" size="sm" asChild className="gap-1.5">
                 <a href={est.website} target="_blank" rel="noreferrer">
                   <ExternalLink className="h-4 w-4" />
                   Site web
@@ -817,8 +993,8 @@ export function AdminEstablishmentDetailsPage() {
               </Button>
             ) : null}
 
-            <Button variant="outline" onClick={() => void refresh()} disabled={loading || saving} className="gap-2">
-              <RefreshCcw className={loading ? "animate-spin" : ""} />
+            <Button variant="outline" size="sm" onClick={() => void refresh()} disabled={loading || saving} className="gap-1.5">
+              <RefreshCcw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
               Rafraîchir
             </Button>
           </div>
@@ -855,15 +1031,15 @@ export function AdminEstablishmentDetailsPage() {
               </div>
               <div>
                 <div className="text-xs font-semibold text-slate-500">Univers</div>
-                <div className="font-medium text-slate-900">{est.universe || "—"}</div>
+                <div className="font-medium text-slate-900">{est.universe ? universeLabel(est.universe) : "—"}</div>
               </div>
               <div>
                 <div className="text-xs font-semibold text-slate-500">Catégorie</div>
-                <div className="font-medium text-slate-900">{est.subcategory?.split("/")[0]?.trim() || "—"}</div>
+                <div className="font-medium text-slate-900">{est.category || "—"}</div>
               </div>
               <div>
                 <div className="text-xs font-semibold text-slate-500">Sous-catégorie</div>
-                <div className="font-medium text-slate-900">{est.subcategory?.split("/")[1]?.trim() || "—"}</div>
+                <div className="font-medium text-slate-900">{est.subcategory || "—"}</div>
               </div>
             </div>
 
@@ -1110,18 +1286,29 @@ export function AdminEstablishmentDetailsPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="space-y-2">
+        <div className="space-y-2 min-w-0 overflow-hidden">
           <div className="flex items-center justify-between">
             <div className="text-sm font-bold text-slate-900 flex items-center gap-2">
               <Store className="h-4 w-4 text-primary" />
               Offres (slots)
             </div>
-            <div className="text-xs text-slate-500">{offersSlots.length}</div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1"
+                onClick={() => setFtourDialogOpen(true)}
+              >
+                <Moon className="h-3 w-3" />
+                Créer créneaux Ftour
+              </Button>
+              <div className="text-xs text-slate-500">{offersSlots.length}</div>
+            </div>
           </div>
           <AdminDataTable data={offersSlots} columns={slotsColumns} searchPlaceholder="Rechercher…" />
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-2 min-w-0 overflow-hidden">
           <div className="flex items-center justify-between">
             <div className="text-sm font-bold text-slate-900 flex items-center gap-2">
               <Store className="h-4 w-4 text-primary" />
@@ -1134,7 +1321,7 @@ export function AdminEstablishmentDetailsPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="space-y-2">
+        <div className="space-y-2 min-w-0 overflow-hidden">
           <div className="flex items-center justify-between gap-3">
             <div className="text-sm font-bold text-slate-900 flex items-center gap-2">
               <CreditCard className="h-4 w-4 text-primary" />
@@ -1157,7 +1344,7 @@ export function AdminEstablishmentDetailsPage() {
           <AdminDataTable data={filteredPackPurchases} columns={purchasesColumns} searchPlaceholder="Rechercher…" />
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-2 min-w-0 overflow-hidden">
           <div className="flex items-center justify-between">
             <div className="text-sm font-bold text-slate-900 flex items-center gap-2">
               <CreditCard className="h-4 w-4 text-primary" />
@@ -1187,6 +1374,9 @@ export function AdminEstablishmentDetailsPage() {
           }}
         />
       </div>
+
+      {/* Historique de modification */}
+      <AdminAuditHistoryCard entityType="establishment" entityId={establishmentId} />
 
       <AdminReservationDetailsDialog
         open={reservationDetailsOpen}
@@ -1441,6 +1631,283 @@ export function AdminEstablishmentDetailsPage() {
               disabled={removingPro}
             >
               {removingPro ? "Suppression..." : "Confirmer la suppression"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Ftour Slots Creation Dialog */}
+      <Dialog open={ftourDialogOpen} onOpenChange={setFtourDialogOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Moon className="h-5 w-5" />
+              Créer créneaux
+            </DialogTitle>
+            <DialogDescription>
+              Génère un créneau par jour sur la période sélectionnée.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5">
+            {/* ── Dates ── */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Date début</Label>
+                <Input
+                  type="date"
+                  value={ftourDateStart}
+                  onChange={(e) => setFtourDateStart(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Date fin</Label>
+                <Input
+                  type="date"
+                  value={ftourDateEnd}
+                  onChange={(e) => setFtourDateEnd(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* ── Heure & Service ── */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Heure début</Label>
+                <Input
+                  type="time"
+                  value={ftourTimeStart}
+                  onChange={(e) => setFtourTimeStart(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Service</Label>
+                <Select value={ftourServiceLabel} onValueChange={setFtourServiceLabel}>
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Petit-déjeuner">Petit-déjeuner</SelectItem>
+                    <SelectItem value="Déjeuner">Déjeuner</SelectItem>
+                    <SelectItem value="Tea Time">Tea Time</SelectItem>
+                    <SelectItem value="Happy Hour">Happy Hour</SelectItem>
+                    <SelectItem value="Dîner">Dîner</SelectItem>
+                    <SelectItem value="Ftour">Ftour (Ramadan)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* ── Durée (boutons) ── */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Durée</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { value: 15, label: "15 min" },
+                  { value: 30, label: "30 min" },
+                  { value: 45, label: "45 min" },
+                  { value: 60, label: "1h" },
+                  { value: 90, label: "1h30" },
+                  { value: 120, label: "2h" },
+                  { value: 180, label: "3h" },
+                ].map((opt) => (
+                  <Button
+                    key={opt.value}
+                    type="button"
+                    size="sm"
+                    variant={ftourDurationMin === opt.value ? "default" : "outline"}
+                    className="text-xs h-7 px-2.5"
+                    onClick={() => setFtourDurationMin(opt.value)}
+                  >
+                    {opt.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {/* ── Capacité & Prix ── */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Capacité par créneau</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={ftourCapacity}
+                  onChange={(e) => setFtourCapacity(Number(e.target.value) || 30)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Prix (MAD)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={1}
+                  placeholder="Gratuit"
+                  value={ftourBasePrice}
+                  onChange={(e) => setFtourBasePrice(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* ── Répartition des places ── */}
+            <div className="space-y-2 rounded-lg border p-3">
+              <Label className="text-xs font-medium">Répartition des places</Label>
+              <div className="flex gap-1.5 mb-2">
+                {[
+                  { label: "Priorité payante", paid: 88, free: 6, buffer: 6 },
+                  { label: "Équilibré", paid: 50, free: 30, buffer: 20 },
+                  { label: "Gratuit généreux", paid: 30, free: 60, buffer: 10 },
+                ].map((profile) => (
+                  <Button
+                    key={profile.label}
+                    type="button"
+                    size="sm"
+                    variant={
+                      ftourPaidPercent === profile.paid &&
+                      ftourFreePercent === profile.free &&
+                      ftourBufferPercent === profile.buffer
+                        ? "default"
+                        : "outline"
+                    }
+                    className="text-xs h-7 px-2"
+                    onClick={() => {
+                      setFtourPaidPercent(profile.paid);
+                      setFtourFreePercent(profile.free);
+                      setFtourBufferPercent(profile.buffer);
+                    }}
+                  >
+                    {profile.label}
+                  </Button>
+                ))}
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="space-y-0.5">
+                  <Label className="text-[11px] text-slate-500">Payant %</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={ftourPaidPercent}
+                    onChange={(e) => setFtourPaidPercent(Number(e.target.value) || 0)}
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div className="space-y-0.5">
+                  <Label className="text-[11px] text-slate-500">Gratuit %</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={ftourFreePercent}
+                    onChange={(e) => setFtourFreePercent(Number(e.target.value) || 0)}
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div className="space-y-0.5">
+                  <Label className="text-[11px] text-slate-500">Buffer %</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={ftourBufferPercent}
+                    onChange={(e) => setFtourBufferPercent(Number(e.target.value) || 0)}
+                    className="h-8 text-sm"
+                  />
+                </div>
+              </div>
+              {ftourPaidPercent + ftourFreePercent + ftourBufferPercent !== 100 && (
+                <p className="text-xs text-red-500 mt-1">
+                  Total : {ftourPaidPercent + ftourFreePercent + ftourBufferPercent}% — doit être 100%
+                </p>
+              )}
+              {/* Visual bar */}
+              <div className="flex h-2 rounded-full overflow-hidden mt-1">
+                <div className="bg-blue-500" style={{ width: `${ftourPaidPercent}%` }} />
+                <div className="bg-green-500" style={{ width: `${ftourFreePercent}%` }} />
+                <div className="bg-slate-300" style={{ width: `${ftourBufferPercent}%` }} />
+              </div>
+              <div className="flex justify-between text-[10px] text-slate-400">
+                <span>Payant {ftourPaidPercent}%</span>
+                <span>Gratuit {ftourFreePercent}%</span>
+                <span>Buffer {ftourBufferPercent}%</span>
+              </div>
+            </div>
+
+            {/* ── Promotion (optionnel) ── */}
+            <div className="space-y-2 rounded-lg border p-3">
+              <Label className="text-xs font-medium">Promotion (optionnel)</Label>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="space-y-0.5">
+                  <Label className="text-[11px] text-slate-500">Label affiché</Label>
+                  <Input
+                    type="text"
+                    placeholder="-15%"
+                    value={ftourPromoLabel}
+                    onChange={(e) => setFtourPromoLabel(e.target.value)}
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div className="space-y-0.5">
+                  <Label className="text-[11px] text-slate-500">Type</Label>
+                  <Select value={ftourPromoType} onValueChange={(v) => setFtourPromoType(v as "percent" | "amount")}>
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="percent">Pourcentage</SelectItem>
+                      <SelectItem value="amount">Montant (MAD)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-0.5">
+                  <Label className="text-[11px] text-slate-500">Valeur</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    placeholder="0"
+                    value={ftourPromoValue}
+                    onChange={(e) => setFtourPromoValue(e.target.value)}
+                    className="h-8 text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* ── Résumé ── */}
+            {ftourDateStart && ftourDateEnd && (
+              <div className="text-xs text-slate-500 bg-slate-50 rounded p-2">
+                {(() => {
+                  const start = new Date(ftourDateStart);
+                  const end = new Date(ftourDateEnd);
+                  if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) return "Dates invalides";
+                  const days = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                  const priceStr = ftourBasePrice.trim() ? ` — ${ftourBasePrice} MAD` : " — Gratuit";
+                  return `${days} créneau(x) ${ftourServiceLabel} seront créés (${ftourTimeStart} — ${ftourCapacity} places/jour${priceStr})`;
+                })()}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFtourDialogOpen(false)}>
+              Annuler
+            </Button>
+            <Button
+              onClick={() => void handleCreateFtourSlots()}
+              disabled={ftourCreating || !ftourDateStart || !ftourDateEnd}
+            >
+              {ftourCreating ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                  Création...
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Créer les créneaux
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

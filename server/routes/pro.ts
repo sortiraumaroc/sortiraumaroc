@@ -1,9 +1,25 @@
 import type { RequestHandler } from "express";
 import { randomUUID, randomBytes } from "node:crypto";
 
-import { mkIsoInTimeZoneDayOffset } from "../../shared/datetime";
+import { mkIsoInTimeZoneDayOffset, formatDateLongFr } from "../../shared/datetime";
 
 import { getAdminSupabase } from "../supabaseAdmin";
+import {
+  hasPermission,
+  getPermissionMatrix,
+  saveRolePermissions,
+  resetPermissionsToDefaults,
+} from "../permissionLogic";
+import {
+  CUSTOMIZABLE_ROLES,
+  ALL_PERMISSION_KEYS,
+  OWNER_ONLY_PERMISSIONS,
+  type CustomizableRole,
+  type PermissionKey,
+} from "../../shared/permissionTypes";
+import { createClient } from "@supabase/supabase-js";
+import { getUserPreferences, updateUserPreferences } from "../notificationPreferences";
+import { generateVisibilityOrderInvoicePdf } from "../subscriptions/usernameInvoicing";
 import { validateBody } from "../middleware/validate";
 import { createPackSchema, updatePackSchema, type CreatePackInput, type UpdatePackInput } from "../schemas/pack";
 import { ensureEscrowHoldForReservation, settleEscrowForReservation, ensureInvoiceForProInvoice, ensureInvoiceForVisibilityOrder } from "../finance";
@@ -228,6 +244,9 @@ function extractEstablishmentProfileUpdate(data: unknown): Record<string, unknow
   const amenities = asStringArray(data.amenities);
   if (amenities !== undefined) out.amenities = amenities;
 
+  const logoUrl = asString(data.logo_url);
+  if (logoUrl !== undefined) out.logo_url = logoUrl;
+
   const coverUrl = asString(data.cover_url);
   if (coverUrl !== undefined) out.cover_url = coverUrl;
 
@@ -284,9 +303,8 @@ async function ensureCanSubmitProfileUpdate(args: {
   const res = await ensureRole(args);
   if (res.ok === false) return res;
 
-  if (res.role !== "owner" && res.role !== "manager") {
-    return { ok: false, status: 403, error: "Forbidden" };
-  }
+  const allowed = await hasPermission(args.establishmentId, res.role, "manage_profile");
+  if (!allowed) return { ok: false, status: 403, error: "Forbidden" };
 
   return res;
 }
@@ -312,9 +330,8 @@ async function ensureCanManageReservations(args: {
   const res = await ensureRole(args);
   if (res.ok === false) return res;
 
-  if (res.role !== "owner" && res.role !== "manager" && res.role !== "reception") {
-    return { ok: false, status: 403, error: "Forbidden" };
-  }
+  const allowed = await hasPermission(args.establishmentId, res.role, "manage_reservations");
+  if (!allowed) return { ok: false, status: 403, error: "Forbidden" };
 
   return res;
 }
@@ -326,9 +343,8 @@ async function ensureCanViewBilling(args: {
   const res = await ensureRole(args);
   if (res.ok === false) return res;
 
-  if (res.role !== "owner" && res.role !== "manager" && res.role !== "accounting") {
-    return { ok: false, status: 403, error: "Forbidden" };
-  }
+  const allowed = await hasPermission(args.establishmentId, res.role, "view_billing");
+  if (!allowed) return { ok: false, status: 403, error: "Forbidden" };
 
   return res;
 }
@@ -340,9 +356,8 @@ async function ensureCanManageInventory(args: {
   const res = await ensureRole(args);
   if (res.ok === false) return res;
 
-  if (res.role !== "owner" && res.role !== "manager" && res.role !== "marketing") {
-    return { ok: false, status: 403, error: "Forbidden" };
-  }
+  const allowed = await hasPermission(args.establishmentId, res.role, "manage_inventory");
+  if (!allowed) return { ok: false, status: 403, error: "Forbidden" };
 
   return res;
 }
@@ -354,9 +369,8 @@ async function ensureCanManageOffers(args: {
   const res = await ensureRole(args);
   if (res.ok === false) return res;
 
-  if (res.role !== "owner" && res.role !== "manager" && res.role !== "marketing") {
-    return { ok: false, status: 403, error: "Forbidden" };
-  }
+  const allowed = await hasPermission(args.establishmentId, res.role, "manage_offers");
+  if (!allowed) return { ok: false, status: 403, error: "Forbidden" };
 
   return res;
 }
@@ -497,7 +511,7 @@ export const requestPasswordReset: RequestHandler = async (req, res) => {
       to: [email],
       variables: {
         email,
-        reset_link: resetLink,
+        cta_url: resetLink,
         base_url: baseUrl,
       },
     });
@@ -553,7 +567,6 @@ export const changePassword: RequestHandler = async (req, res) => {
     // auth context from service_role to the user session, which causes
     // subsequent .from() calls to run under RLS as the user instead of admin,
     // potentially blocking the must_change_password update.
-    const { createClient } = await import("@supabase/supabase-js");
     const tempClient = createClient(
       process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "",
       process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "",
@@ -605,6 +618,83 @@ export const changePassword: RequestHandler = async (req, res) => {
     console.error("[changePassword] Error:", e);
     res.status(500).json({ error: "Erreur lors du changement de mot de passe" });
   }
+};
+
+// ---------------------------------------------------------------------------
+// Onboarding Wizard — progress tracking
+// ---------------------------------------------------------------------------
+
+export const getOnboardingWizardProgress: RequestHandler = async (req, res) => {
+  const token = parseBearerToken(req.header("authorization") ?? undefined);
+  if (!token) return res.status(401).json({ error: "Missing bearer token" });
+
+  const userResult = await getUserFromBearerToken(token);
+  if (userResult.ok === false) return res.status(userResult.status).json({ error: userResult.error });
+
+  const supabase = getAdminSupabase();
+
+  const { data: profile, error } = await supabase
+    .from("pro_profiles")
+    .select("onboarding_wizard_progress")
+    .eq("user_id", userResult.user.id)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[getOnboardingWizardProgress] Error:", error);
+    return res.json({ progress: null });
+  }
+
+  res.json({ progress: profile?.onboarding_wizard_progress ?? null });
+};
+
+export const saveOnboardingWizardProgress: RequestHandler = async (req, res) => {
+  const token = parseBearerToken(req.header("authorization") ?? undefined);
+  if (!token) return res.status(401).json({ error: "Missing bearer token" });
+
+  const userResult = await getUserFromBearerToken(token);
+  if (userResult.ok === false) return res.status(userResult.status).json({ error: userResult.error });
+
+  const body = req.body;
+  if (!isRecord(body) || !isRecord(body.progress)) {
+    return res.status(400).json({ error: "Invalid request body" });
+  }
+
+  const progress = body.progress as Record<string, unknown>;
+  const establishmentId = asString(progress.establishment_id);
+
+  if (!establishmentId) {
+    return res.status(400).json({ error: "Missing establishment_id in progress" });
+  }
+
+  // Verify the user has access to this establishment
+  const supabase = getAdminSupabase();
+
+  const { data: membership } = await supabase
+    .from("pro_establishment_memberships")
+    .select("id")
+    .eq("user_id", userResult.user.id)
+    .eq("establishment_id", establishmentId)
+    .limit(1)
+    .maybeSingle();
+
+  if (!membership) {
+    return res.status(403).json({ error: "Not a member of this establishment" });
+  }
+
+  const { error } = await supabase
+    .from("pro_profiles")
+    .update({
+      onboarding_wizard_progress: progress,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("user_id", userResult.user.id);
+
+  if (error) {
+    console.error("[saveOnboardingWizardProgress] Error:", error);
+    return res.status(500).json({ error: "Failed to save progress" });
+  }
+
+  res.json({ ok: true });
 };
 
 export const createProEstablishment: RequestHandler = async (req, res) => {
@@ -754,11 +844,13 @@ export const submitEstablishmentProfileUpdate: RequestHandler = async (req, res)
         "description_long",
         "phone",
         "whatsapp",
+        "email",
         "website",
         "social_links",
         "hours",
         "tags",
         "amenities",
+        "logo_url",
         "cover_url",
         "gallery_urls",
         "ambiance_tags",
@@ -800,17 +892,40 @@ export const submitEstablishmentProfileUpdate: RequestHandler = async (req, res)
 
   await supabase.from("establishment_profile_drafts").update({ moderation_id: moderation.id }).eq("id", draft.id);
 
-  const changeRows = Object.entries(update).map(([field, nextValue]) => {
-    const prevValue = Object.prototype.hasOwnProperty.call(establishmentRecord, field) ? establishmentRecord[field] : null;
-    return {
-      draft_id: draft.id,
-      establishment_id: establishmentId,
-      field,
-      before: prevValue ?? null,
-      after: nextValue ?? null,
-      status: "pending",
-    };
-  });
+  // Only include fields that actually changed (deep compare)
+  const changeRows = Object.entries(update)
+    .map(([field, nextValue]) => {
+      const prevValue = Object.prototype.hasOwnProperty.call(establishmentRecord, field) ? establishmentRecord[field] : null;
+      return {
+        draft_id: draft.id,
+        establishment_id: establishmentId,
+        field,
+        before: prevValue ?? null,
+        after: nextValue ?? null,
+        status: "pending",
+      };
+    })
+    .filter((row) => {
+      // Deep compare: skip fields where before === after
+      const a = row.before;
+      const b = row.after;
+      // Both null/undefined → unchanged
+      if (a == null && b == null) return false;
+      // Primitive equal
+      if (a === b) return false;
+      // Deep JSON compare for objects/arrays
+      try {
+        if (JSON.stringify(a) === JSON.stringify(b)) return false;
+      } catch { /* keep if comparison fails */ }
+      return true;
+    });
+
+  if (!changeRows.length) {
+    // No actual changes — clean up draft + moderation and return
+    await supabase.from("moderation_queue").delete().eq("id", moderation.id);
+    await supabase.from("establishment_profile_drafts").delete().eq("id", draft.id);
+    return res.status(400).json({ error: "Aucune modification détectée" });
+  }
 
   console.log("[Pro Profile Update] Creating changeRows:", changeRows.length, "for draft:", draft.id);
   console.log("[Pro Profile Update] Fields to update:", changeRows.map(r => r.field));
@@ -1663,11 +1778,11 @@ export const upsertProSlots: RequestHandler = async (req, res) => {
       starts_at,
       ends_at,
       capacity: Math.max(1, Math.round(capacity)),
-      base_price: base_price === undefined ? null : Math.max(0, Math.round(base_price)),
-      promo_type: promo_type === undefined ? null : promo_type,
-      promo_value: promo_value === undefined ? null : Math.max(0, Math.round(promo_value)),
-      promo_label: promo_label === undefined ? null : promo_label,
-      service_label: service_label === undefined ? null : service_label,
+      base_price: base_price == null ? null : Math.max(0, Math.round(base_price)),
+      promo_type: promo_type == null ? null : promo_type,
+      promo_value: promo_value == null ? null : Math.max(0, Math.round(promo_value)),
+      promo_label: promo_label == null ? null : promo_label,
+      service_label: service_label == null ? null : service_label,
       active: active === undefined ? true : active,
     });
   }
@@ -2959,6 +3074,158 @@ export const deleteProNotification: RequestHandler = async (req, res) => {
   res.json({ ok: true });
 };
 
+// =============================================================================
+// PRO NOTIFICATION PREFERENCES
+// =============================================================================
+
+export const getProNotificationPreferences: RequestHandler = async (req, res) => {
+  const token = parseBearerToken(req.header("authorization") ?? undefined);
+  if (!token) return res.status(401).json({ error: "Missing bearer token" });
+
+  const userResult = await getUserFromBearerToken(token);
+  if (userResult.ok === false) return res.status(userResult.status).json({ error: userResult.error });
+
+  try {
+    const prefs = await getUserPreferences(userResult.user.id, "pro");
+
+    res.json({
+      ok: true,
+      preferences: {
+        popupsEnabled: prefs.pro_popups_enabled ?? true,
+        soundEnabled: prefs.pro_sound_enabled ?? true,
+      },
+    });
+  } catch (err) {
+    console.error("[pro] getProNotificationPreferences error:", err);
+    res.status(500).json({ error: "internal_error" });
+  }
+};
+
+export const updateProNotificationPreferences: RequestHandler = async (req, res) => {
+  const token = parseBearerToken(req.header("authorization") ?? undefined);
+  if (!token) return res.status(401).json({ error: "Missing bearer token" });
+
+  const userResult = await getUserFromBearerToken(token);
+  if (userResult.ok === false) return res.status(userResult.status).json({ error: userResult.error });
+
+  const body = req.body;
+  if (!body || typeof body !== "object") {
+    return res.status(400).json({ error: "invalid_body" });
+  }
+
+  try {
+    const updates: Record<string, boolean> = {};
+    if (typeof body.popupsEnabled === "boolean") updates.pro_popups_enabled = body.popupsEnabled;
+    if (typeof body.soundEnabled === "boolean") updates.pro_sound_enabled = body.soundEnabled;
+
+    const prefs = await updateUserPreferences(userResult.user.id, "pro", updates);
+
+    res.json({
+      ok: true,
+      preferences: {
+        popupsEnabled: prefs.pro_popups_enabled ?? true,
+        soundEnabled: prefs.pro_sound_enabled ?? true,
+      },
+    });
+  } catch (err) {
+    console.error("[pro] updateProNotificationPreferences error:", err);
+    res.status(500).json({ error: "internal_error" });
+  }
+};
+
+// =============================================================================
+// Permissions CRUD
+// =============================================================================
+
+export const getEstablishmentPermissions: RequestHandler = async (req, res) => {
+  const establishmentId = typeof req.params.establishmentId === "string" ? req.params.establishmentId : "";
+  if (!establishmentId) return res.status(400).json({ error: "establishmentId required" });
+
+  const token = parseBearerToken(req.header("authorization") ?? undefined);
+  if (!token) return res.status(401).json({ error: "Missing bearer token" });
+
+  const userResult = await getUserFromBearerToken(token);
+  if (userResult.ok === false) return res.status(userResult.status).json({ error: userResult.error });
+
+  // Any member can read permissions (needed for client-side tab filtering)
+  const roleRes = await ensureRole({ establishmentId, userId: userResult.user.id });
+  if (roleRes.ok === false) return res.status(roleRes.status).json({ error: roleRes.error });
+
+  try {
+    const matrix = await getPermissionMatrix(establishmentId);
+    res.json({ ok: true, permissions: matrix });
+  } catch (err) {
+    console.error("[pro] getEstablishmentPermissions error:", err);
+    res.status(500).json({ error: "internal_error" });
+  }
+};
+
+export const updateEstablishmentPermissions: RequestHandler = async (req, res) => {
+  const establishmentId = typeof req.params.establishmentId === "string" ? req.params.establishmentId : "";
+  if (!establishmentId) return res.status(400).json({ error: "establishmentId required" });
+
+  const token = parseBearerToken(req.header("authorization") ?? undefined);
+  if (!token) return res.status(401).json({ error: "Missing bearer token" });
+
+  const userResult = await getUserFromBearerToken(token);
+  if (userResult.ok === false) return res.status(userResult.status).json({ error: userResult.error });
+
+  // Owner-only (reuse ensureCanCreateTeamMember which checks owner)
+  const permission = await ensureCanCreateTeamMember({ establishmentId, userId: userResult.user.id });
+  if (permission.ok === false) return res.status(permission.status).json({ error: permission.error });
+
+  const { role, permissions } = req.body as { role: string; permissions: Record<string, boolean> };
+  if (!role || !CUSTOMIZABLE_ROLES.includes(role as CustomizableRole)) {
+    return res.status(400).json({ error: "Invalid role" });
+  }
+
+  if (!permissions || typeof permissions !== "object") {
+    return res.status(400).json({ error: "Invalid permissions" });
+  }
+
+  // Filter to valid permission keys only
+  const safePerms: Partial<Record<PermissionKey, boolean>> = {};
+  for (const key of ALL_PERMISSION_KEYS) {
+    if (OWNER_ONLY_PERMISSIONS.has(key)) continue;
+    if (typeof permissions[key] === "boolean") {
+      safePerms[key] = permissions[key];
+    }
+  }
+
+  try {
+    await saveRolePermissions(establishmentId, role as CustomizableRole, safePerms);
+    const matrix = await getPermissionMatrix(establishmentId);
+    res.json({ ok: true, permissions: matrix });
+  } catch (err) {
+    console.error("[pro] updateEstablishmentPermissions error:", err);
+    res.status(500).json({ error: "internal_error" });
+  }
+};
+
+export const resetEstablishmentPermissions: RequestHandler = async (req, res) => {
+  const establishmentId = typeof req.params.establishmentId === "string" ? req.params.establishmentId : "";
+  if (!establishmentId) return res.status(400).json({ error: "establishmentId required" });
+
+  const token = parseBearerToken(req.header("authorization") ?? undefined);
+  if (!token) return res.status(401).json({ error: "Missing bearer token" });
+
+  const userResult = await getUserFromBearerToken(token);
+  if (userResult.ok === false) return res.status(userResult.status).json({ error: userResult.error });
+
+  // Owner-only
+  const permission = await ensureCanCreateTeamMember({ establishmentId, userId: userResult.user.id });
+  if (permission.ok === false) return res.status(permission.status).json({ error: permission.error });
+
+  try {
+    await resetPermissionsToDefaults(establishmentId);
+    const matrix = await getPermissionMatrix(establishmentId);
+    res.json({ ok: true, permissions: matrix });
+  } catch (err) {
+    console.error("[pro] resetEstablishmentPermissions error:", err);
+    res.status(500).json({ error: "internal_error" });
+  }
+};
+
 export const listProInvoices: RequestHandler = async (req, res) => {
   const establishmentId = typeof req.params.establishmentId === "string" ? req.params.establishmentId : "";
   if (!establishmentId) return res.status(400).json({ error: "establishmentId is required" });
@@ -3135,7 +3402,7 @@ function parseInventoryVariants(input: unknown):
     if (price < 0) return { ok: false, error: "variant.price invalide" };
 
     const quantityRaw = raw.quantity === null ? null : asNumber(raw.quantity);
-    const quantity = quantityRaw === undefined ? null : Math.round(quantityRaw);
+    const quantity = quantityRaw == null ? null : Math.round(quantityRaw);
     if (quantity !== null && (!Number.isFinite(quantity) || quantity <= 0)) return { ok: false, error: "variant.quantity invalide" };
 
     const unit = asString(raw.unit) ?? null;
@@ -3907,6 +4174,13 @@ export const createProInventoryCategory: RequestHandler = async (req, res) => {
 
   if (pendingErr) return res.status(500).json({ error: pendingErr.message });
 
+  void emitAdminNotification({
+    type: "inventory_change",
+    title: "Modification inventaire",
+    body: `Nouvelle demande : création de catégorie "${title}"`,
+    data: { establishmentId, changeType: "create_category", pendingChangeId: pendingChange?.id },
+  });
+
   res.json({ ok: true, pending: true, pendingChange, message: "Votre demande de création de catégorie a été soumise pour modération." });
 };
 
@@ -3960,6 +4234,13 @@ export const updateProInventoryCategory: RequestHandler = async (req, res) => {
 
   if (pendingErr) return res.status(500).json({ error: pendingErr.message });
 
+  void emitAdminNotification({
+    type: "inventory_change",
+    title: "Modification inventaire",
+    body: `Nouvelle demande : modification de catégorie`,
+    data: { establishmentId, changeType: "update_category", targetId: categoryId, pendingChangeId: pendingChange?.id },
+  });
+
   res.json({ ok: true, pending: true, pendingChange, message: "Votre demande de modification de catégorie a été soumise pour modération." });
 };
 
@@ -3995,6 +4276,13 @@ export const deleteProInventoryCategory: RequestHandler = async (req, res) => {
 
   if (pendingErr) return res.status(500).json({ error: pendingErr.message });
 
+  void emitAdminNotification({
+    type: "inventory_change",
+    title: "Modification inventaire",
+    body: `Nouvelle demande : suppression de catégorie`,
+    data: { establishmentId, changeType: "delete_category", targetId: categoryId, pendingChangeId: pendingChange?.id },
+  });
+
   res.json({ ok: true, pending: true, pendingChange, message: "Votre demande de suppression de catégorie a été soumise pour modération." });
 };
 
@@ -4026,7 +4314,7 @@ export const createProInventoryItem: RequestHandler = async (req, res) => {
   const photos = normalizeUrlList(photosRaw).slice(0, 12);
 
   const basePriceRaw = req.body.base_price === null ? null : asNumber(req.body.base_price);
-  const base_price = basePriceRaw === undefined ? null : Math.round(basePriceRaw);
+  const base_price = basePriceRaw == null ? null : Math.round(basePriceRaw);
   if (base_price !== null && (!Number.isFinite(base_price) || base_price < 0)) return res.status(400).json({ error: "base_price invalide" });
 
   const currency = (asString(req.body.currency) ?? "MAD").toUpperCase();
@@ -4072,6 +4360,13 @@ export const createProInventoryItem: RequestHandler = async (req, res) => {
     .single();
 
   if (pendingErr) return res.status(500).json({ error: pendingErr.message });
+
+  void emitAdminNotification({
+    type: "inventory_change",
+    title: "Modification inventaire",
+    body: `Nouvelle demande : création d'offre "${title}"`,
+    data: { establishmentId, changeType: "create_item", pendingChangeId: pendingChange?.id },
+  });
 
   res.json({ ok: true, pending: true, pendingChange, message: "Votre demande de création d'offre a été soumise pour modération." });
 };
@@ -4163,6 +4458,13 @@ export const updateProInventoryItem: RequestHandler = async (req, res) => {
 
   if (pendingErr) return res.status(500).json({ error: pendingErr.message });
 
+  void emitAdminNotification({
+    type: "inventory_change",
+    title: "Modification inventaire",
+    body: `Nouvelle demande : modification d'offre`,
+    data: { establishmentId, changeType: "update_item", targetId: itemId, pendingChangeId: pendingChange?.id },
+  });
+
   res.json({ ok: true, pending: true, pendingChange, message: "Votre demande de modification d'offre a été soumise pour modération." });
 };
 
@@ -4197,6 +4499,13 @@ export const deleteProInventoryItem: RequestHandler = async (req, res) => {
     .single();
 
   if (pendingErr) return res.status(500).json({ error: pendingErr.message });
+
+  void emitAdminNotification({
+    type: "inventory_change",
+    title: "Modification inventaire",
+    body: `Nouvelle demande : suppression d'offre`,
+    data: { establishmentId, changeType: "delete_item", targetId: itemId, pendingChangeId: pendingChange?.id },
+  });
 
   res.json({ ok: true, pending: true, pendingChange, message: "Votre demande de suppression d'offre a été soumise pour modération." });
 };
@@ -4651,6 +4960,132 @@ export const updateProReservation: RequestHandler = async (req, res) => {
     } catch {
       // ignore
     }
+
+    // ---- Send reservation status-change emails (best-effort, fire-and-forget) ----
+    void (async () => {
+      try {
+        const kind = String(nextStatus || "").toLowerCase();
+        if (!["confirmed", "refused", "cancelled_pro", "noshow"].includes(kind)) return;
+
+        const startsAtIso = typeof (existing as any)?.starts_at === "string" ? String((existing as any).starts_at).trim() : "";
+        const dateLabel = startsAtIso ? formatDateLongFr(startsAtIso) : "";
+        const ref = bookingReference || reservationId;
+        const baseUrl = (process.env.PUBLIC_URL ?? "https://sortiraumaroc.com").replace(/\/+$/, "");
+
+        // Fetch establishment name
+        const { data: estData } = await supabase
+          .from("establishments")
+          .select("name")
+          .eq("id", establishmentId)
+          .maybeSingle();
+        const establishmentName = typeof (estData as any)?.name === "string" ? String((estData as any).name).trim() : "";
+
+        // Fetch consumer email + name
+        let consumerEmail = "";
+        let consumerName = "";
+        if (consumerUserId) {
+          const { data: authData } = await supabase.auth.admin.getUserById(consumerUserId);
+          consumerEmail = typeof (authData?.user as any)?.email === "string" ? String((authData?.user as any).email).trim() : "";
+          const meta = (authData?.user as any)?.user_metadata;
+          consumerName = typeof meta?.full_name === "string" ? meta.full_name : typeof meta?.name === "string" ? meta.name : "";
+        }
+
+        const consumerCtaUrl = `${baseUrl}/profile/bookings/${encodeURIComponent(reservationId)}`;
+
+        if (kind === "confirmed" && consumerEmail) {
+          await sendTemplateEmail({
+            templateKey: "user_booking_pro_confirmed",
+            lang: "fr",
+            fromKey: "noreply",
+            to: [consumerEmail],
+            variables: {
+              user_name: consumerName || "Client",
+              booking_ref: ref,
+              date: dateLabel,
+              establishment: establishmentName,
+              cta_url: consumerCtaUrl,
+            },
+            ctaUrl: consumerCtaUrl,
+            meta: {
+              source: "pro.updateProReservation",
+              reservation_id: reservationId,
+              establishment_id: establishmentId,
+            },
+          });
+        }
+
+        if (kind === "refused" && consumerEmail) {
+          const reasonCode = typeof (patch as any)?.refusal_reason_code === "string" ? String((patch as any).refusal_reason_code).trim() : "";
+          await sendTemplateEmail({
+            templateKey: "user_booking_refused",
+            lang: "fr",
+            fromKey: "noreply",
+            to: [consumerEmail],
+            variables: {
+              user_name: consumerName || "Client",
+              booking_ref: ref,
+              date: dateLabel,
+              establishment: establishmentName,
+              reason: reasonCode || "Non précisée",
+              cta_url: consumerCtaUrl,
+            },
+            ctaUrl: consumerCtaUrl,
+            meta: {
+              source: "pro.updateProReservation",
+              reservation_id: reservationId,
+              establishment_id: establishmentId,
+              refusal_reason_code: reasonCode,
+            },
+          });
+        }
+
+        if (kind === "cancelled_pro" && consumerEmail) {
+          await sendTemplateEmail({
+            templateKey: "user_booking_cancelled_by_pro",
+            lang: "fr",
+            fromKey: "noreply",
+            to: [consumerEmail],
+            variables: {
+              user_name: consumerName || "Client",
+              booking_ref: ref,
+              date: dateLabel,
+              establishment: establishmentName,
+              cta_url: consumerCtaUrl,
+            },
+            ctaUrl: consumerCtaUrl,
+            meta: {
+              source: "pro.updateProReservation",
+              reservation_id: reservationId,
+              establishment_id: establishmentId,
+            },
+          });
+        }
+
+        if (kind === "noshow" && consumerEmail) {
+          await sendTemplateEmail({
+            templateKey: "user_no_show_notification",
+            lang: "fr",
+            fromKey: "noreply",
+            to: [consumerEmail],
+            variables: {
+              user_name: consumerName || "Client",
+              booking_ref: ref,
+              date: dateLabel,
+              establishment: establishmentName,
+              cta_url: consumerCtaUrl,
+            },
+            ctaUrl: consumerCtaUrl,
+            meta: {
+              source: "pro.updateProReservation",
+              reservation_id: reservationId,
+              establishment_id: establishmentId,
+            },
+          });
+        }
+      } catch {
+        // best-effort — never block the response
+      }
+    })();
   }
 
   if (paymentStatusRaw && paymentStatusRaw !== previousPaymentStatus) {
@@ -5639,12 +6074,13 @@ export const markProMessagesRead: RequestHandler = async (req, res) => {
   const nowIso = new Date().toISOString();
 
   // Mark all client messages in this conversation as read by pro
+  // Note: consumer messages use from_role "user" or "client" — match both
   const { error: updateErr } = await supabase
     .from("pro_messages")
     .update({ read_by_pro_at: nowIso })
     .eq("establishment_id", establishmentId)
     .eq("conversation_id", conversationId)
-    .eq("from_role", "client")
+    .neq("from_role", "pro")
     .is("read_by_pro_at", null);
 
   if (updateErr) return res.status(500).json({ error: updateErr.message });
@@ -5755,7 +6191,7 @@ export const updateProAutoReplySettings: RequestHandler = async (req, res) => {
   const userResult = await getUserFromBearerToken(token);
   if (userResult.ok === false) return res.status(userResult.status).json({ error: userResult.error });
 
-  const roleRes = await ensureRole({ establishmentId, userId: userResult.user.id, requiredRole: "manager" });
+  const roleRes = await ensureRole({ establishmentId, userId: userResult.user.id });
   if (roleRes.ok === false) return res.status(roleRes.status).json({ error: roleRes.error });
 
   if (!isRecord(req.body)) return res.status(400).json({ error: "Invalid body" });
@@ -5810,6 +6246,91 @@ export const updateProAutoReplySettings: RequestHandler = async (req, res) => {
   }
 
   res.json({ ok: true, settings: result });
+};
+
+// =============================================================================
+// MESSAGE ATTACHMENT UPLOAD
+// =============================================================================
+
+const MESSAGE_ATTACHMENT_BUCKET = "message-attachments";
+
+export const uploadMessageAttachment: RequestHandler = async (req, res) => {
+  const establishmentId = typeof req.params.establishmentId === "string" ? req.params.establishmentId : "";
+  const conversationId = typeof req.params.conversationId === "string" ? req.params.conversationId : "";
+  if (!establishmentId) return res.status(400).json({ error: "establishmentId is required" });
+  if (!conversationId) return res.status(400).json({ error: "conversationId is required" });
+
+  const token = parseBearerToken(req.header("authorization") ?? undefined);
+  if (!token) return res.status(401).json({ error: "Missing bearer token" });
+
+  const userResult = await getUserFromBearerToken(token);
+  if (userResult.ok === false) return res.status(userResult.status).json({ error: userResult.error });
+
+  const roleRes = await ensureRole({ establishmentId, userId: userResult.user.id });
+  if (roleRes.ok === false) return res.status(roleRes.status).json({ error: roleRes.error });
+
+  const file = (req as any).file;
+  if (!file || !file.buffer) return res.status(400).json({ error: "No file uploaded" });
+
+  const ext = (file.originalname || "file").split(".").pop() || "bin";
+  const safeName = `${establishmentId}/${conversationId}/${Date.now()}_${randomUUID().slice(0, 8)}.${ext}`;
+
+  const supabase = getAdminSupabase();
+
+  const { error: uploadError } = await supabase.storage
+    .from(MESSAGE_ATTACHMENT_BUCKET)
+    .upload(safeName, file.buffer, {
+      contentType: file.mimetype || "application/octet-stream",
+      upsert: false,
+    });
+
+  if (uploadError) return res.status(500).json({ error: uploadError.message });
+
+  const { data: urlData } = supabase.storage
+    .from(MESSAGE_ATTACHMENT_BUCKET)
+    .getPublicUrl(safeName);
+
+  res.json({
+    ok: true,
+    attachment: {
+      url: urlData?.publicUrl ?? null,
+      path: safeName,
+      name: file.originalname || "file",
+      size: file.size || 0,
+      type: file.mimetype || "application/octet-stream",
+    },
+  });
+};
+
+// =============================================================================
+// MARK CONVERSATION AS UNREAD
+// =============================================================================
+
+export const markProConversationUnread: RequestHandler = async (req, res) => {
+  const establishmentId = typeof req.params.establishmentId === "string" ? req.params.establishmentId : "";
+  const conversationId = typeof req.params.conversationId === "string" ? req.params.conversationId : "";
+  if (!establishmentId) return res.status(400).json({ error: "establishmentId is required" });
+  if (!conversationId) return res.status(400).json({ error: "conversationId is required" });
+
+  const token = parseBearerToken(req.header("authorization") ?? undefined);
+  if (!token) return res.status(401).json({ error: "Missing bearer token" });
+
+  const userResult = await getUserFromBearerToken(token);
+  if (userResult.ok === false) return res.status(userResult.status).json({ error: userResult.error });
+
+  const roleRes = await ensureRole({ establishmentId, userId: userResult.user.id });
+  if (roleRes.ok === false) return res.status(roleRes.status).json({ error: roleRes.error });
+
+  const supabase = getAdminSupabase();
+
+  // Set unread_count to at least 1
+  await supabase
+    .from("pro_conversations")
+    .update({ unread_count: 1 })
+    .eq("id", conversationId)
+    .eq("establishment_id", establishmentId);
+
+  res.json({ ok: true });
 };
 
 export const seedFakeReservations: RequestHandler = async (req, res) => {
@@ -6126,7 +6647,7 @@ export const listProTeamMembers: RequestHandler = async (req, res) => {
     }
     if (userData?.user) {
       const user = userData.user;
-      const isBanned = !!(user.banned_until && new Date(user.banned_until) > new Date());
+      const isBanned = !!((user as any).banned_until && new Date((user as any).banned_until) > new Date());
       userDataMap.set(userId, {
         email: user.email ?? "",
         is_banned: isBanned,
@@ -6424,7 +6945,7 @@ export const resetProTeamMemberPassword: RequestHandler = async (req, res) => {
     const loginUrl = `${baseUrl}/pro`;
 
     await sendTemplateEmail({
-      templateKey: "pro_password_reset",
+      templateKey: "pro_password_regenerated",
       lang: "fr",
       fromKey: "pro",
       to: [email],
@@ -7222,7 +7743,7 @@ export const checkoutProVisibilityCart: RequestHandler = async (req, res) => {
       const to = listInternalVisibilityOrderEmails();
       if (!to.length) return;
 
-      const baseUrl = (process.env.PUBLIC_BASE_URL || "https://sortiraumaroc.ma").trim() || "https://sortiraumaroc.ma";
+      const baseUrl = (process.env.PUBLIC_BASE_URL || "https://sam.ma").trim() || "https://sam.ma";
       const adminUrl = `${baseUrl}/admin/visibility`;
 
       const { data: estRow } = await supabase
@@ -7552,7 +8073,7 @@ export const confirmProVisibilityOrder: RequestHandler = async (req, res) => {
       const to = listInternalVisibilityOrderEmails();
       if (!to.length) return;
 
-      const baseUrl = (process.env.PUBLIC_BASE_URL || "https://sortiraumaroc.ma").trim() || "https://sortiraumaroc.ma";
+      const baseUrl = (process.env.PUBLIC_BASE_URL || "https://sam.ma").trim() || "https://sam.ma";
       const adminUrl = `${baseUrl}/admin/visibility`;
 
       const { data: estRow } = await supabase
@@ -7602,7 +8123,7 @@ export const confirmProVisibilityOrder: RequestHandler = async (req, res) => {
   // Emails transactionnels (best-effort)
   void (async () => {
     try {
-      const baseUrl = (process.env.PUBLIC_BASE_URL || "https://sortiraumaroc.ma").trim() || "https://sortiraumaroc.ma";
+      const baseUrl = (process.env.PUBLIC_BASE_URL || "https://sam.ma").trim() || "https://sam.ma";
       const email = typeof userResult.user.email === "string" ? userResult.user.email.trim() : "";
       if (!email) return;
 
@@ -7847,9 +8368,6 @@ export const downloadProVisibilityOrderInvoicePdf: RequestHandler = async (req, 
   }
 
   try {
-    // Import dynamically to avoid circular dependencies
-    const { generateVisibilityOrderInvoicePdf } = await import("../subscriptions/usernameInvoicing");
-
     const result = await generateVisibilityOrderInvoicePdf(orderId);
 
     if (!result) {
@@ -8512,7 +9030,7 @@ export const createProPayoutRequest: RequestHandler = async (req, res) => {
   // Email interne (best-effort) — aligné avec la création Superadmin.
   void (async () => {
     try {
-      const baseUrl = (process.env.PUBLIC_BASE_URL || "https://sortiraumaroc.ma").trim() || "https://sortiraumaroc.ma";
+      const baseUrl = (process.env.PUBLIC_BASE_URL || "https://sam.ma").trim() || "https://sam.ma";
       const emailDomain = (process.env.EMAIL_DOMAIN || "sortiraumaroc.ma").trim() || "sortiraumaroc.ma";
 
       const toRaw = (process.env.FINANCE_PAYOUT_REQUEST_EMAIL || `finance@${emailDomain}`).trim();
@@ -8678,6 +9196,43 @@ const PRO_INVENTORY_IMAGES_BUCKET = "pro-inventory-images";
 const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
+/** Auto-create a public storage bucket if it doesn't exist yet. */
+async function ensureProStorageBucket(
+  supabase: ReturnType<typeof getAdminSupabase>,
+  bucket: string,
+): Promise<void> {
+  try {
+    const exists = await supabase.storage.getBucket(bucket);
+    if (!exists.error) return;
+
+    const msg = String(exists.error.message ?? "").toLowerCase();
+    const status =
+      (exists.error as any)?.statusCode ??
+      (exists.error as any)?.status ??
+      null;
+
+    if (
+      status === 404 ||
+      msg.includes("not found") ||
+      msg.includes("does not exist")
+    ) {
+      const created = await supabase.storage.createBucket(bucket, {
+        public: true,
+      });
+      const cmsg = String(created.error?.message ?? "").toLowerCase();
+      if (
+        created.error &&
+        !cmsg.includes("exists") &&
+        !cmsg.includes("duplicate")
+      ) {
+        throw created.error;
+      }
+    }
+  } catch {
+    // Best-effort only: if we cannot create the bucket, upload will fail and return a clear error.
+  }
+}
+
 export const uploadProInventoryImage: RequestHandler = async (req, res) => {
   const establishmentId = typeof req.params.establishmentId === "string" ? req.params.establishmentId : "";
   if (!establishmentId) return res.status(400).json({ error: "establishmentId is required" });
@@ -8729,6 +9284,9 @@ export const uploadProInventoryImage: RequestHandler = async (req, res) => {
   const filename = `${establishmentId}/${uniqueId}.${extension}`;
 
   const supabase = getAdminSupabase();
+
+  // Ensure bucket exists (auto-create on first upload)
+  await ensureProStorageBucket(supabase, PRO_INVENTORY_IMAGES_BUCKET);
 
   // Upload to Supabase Storage
   const { error: uploadError } = await supabase.storage
@@ -9923,7 +10481,7 @@ export const submitUsernameRequest: RequestHandler = async (req, res) => {
 
   // Notify admins
   emitAdminNotification({
-    category: "username_request",
+    type: "username_request",
     title: "Nouvelle demande de nom d'utilisateur",
     body: `${establishment.name || "Un établissement"} demande le nom @${normalized}`,
     data: {

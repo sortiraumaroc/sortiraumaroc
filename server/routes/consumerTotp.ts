@@ -125,16 +125,52 @@ export async function getConsumerTOTPSecret(
 
     const supabase = getAdminSupabase();
 
-    // Verify user exists and is active
-    const { data: user, error: userError } = await supabase
+    // Verify user exists and is active — auto-create consumer_users row if missing
+    let { data: user, error: userError } = await supabase
       .from("consumer_users")
       .select("id, full_name, account_status")
       .eq("id", userId)
       .single();
 
     if (userError || !user) {
-      res.status(404).json({ error: "User not found" });
-      return;
+      // User may be authenticated via Supabase Auth but missing from consumer_users.
+      // Insert (not upsert) to avoid overwriting existing data in a race condition.
+      const { data: authData } = await supabase.auth.admin.getUserById(userId);
+      const email = authData?.user?.email ?? `unknown+${userId}@example.invalid`;
+      const meta = authData?.user?.user_metadata;
+      const fullName =
+        typeof meta?.full_name === "string" ? meta.full_name
+        : [meta?.first_name, meta?.last_name].filter(Boolean).join(" ") || "";
+
+      const { error: insErr } = await supabase
+        .from("consumer_users")
+        .insert({ id: userId, email, full_name: fullName, city: "", country: "" });
+
+      // 23505 = unique_violation (row already exists) — that's fine
+      if (insErr && insErr.code !== "23505") {
+        console.error("[consumerTotp] Failed to auto-create consumer_users:", insErr);
+        res.status(404).json({ error: "User not found" });
+        return;
+      }
+
+      // Re-select (either just-created or pre-existing)
+      const { data: refetched, error: refetchErr } = await supabase
+        .from("consumer_users")
+        .select("id, full_name, account_status")
+        .eq("id", userId)
+        .single();
+
+      if (refetchErr || !refetched) {
+        res.status(404).json({ error: "User not found" });
+        return;
+      }
+      user = refetched;
+
+      // Also ensure consumer_user_stats row exists
+      await supabase
+        .from("consumer_user_stats")
+        .upsert({ user_id: userId }, { onConflict: "user_id" })
+        .then(() => {});
     }
 
     if (user.account_status !== "active") {
@@ -214,16 +250,34 @@ export async function generateConsumerTOTPCode(
 
     const supabase = getAdminSupabase();
 
-    // Get user info
-    const { data: user, error: userError } = await supabase
+    // Get user info — auto-create if missing
+    let { data: user, error: userError } = await supabase
       .from("consumer_users")
       .select("id, full_name, account_status")
       .eq("id", userId)
       .single();
 
     if (userError || !user) {
-      res.status(404).json({ error: "User not found" });
-      return;
+      const { data: authData } = await supabase.auth.admin.getUserById(userId);
+      const email = authData?.user?.email ?? `unknown+${userId}@example.invalid`;
+      const meta = authData?.user?.user_metadata;
+      const fullName =
+        typeof meta?.full_name === "string" ? meta.full_name
+        : [meta?.first_name, meta?.last_name].filter(Boolean).join(" ") || "";
+
+      await supabase
+        .from("consumer_users")
+        .insert({ id: userId, email, full_name: fullName, city: "", country: "" })
+        .then(() => {}); // ignore 23505 unique_violation
+
+      const { data: refetched } = await supabase
+        .from("consumer_users")
+        .select("id, full_name, account_status")
+        .eq("id", userId)
+        .single();
+      if (!refetched) { res.status(404).json({ error: "User not found" }); return; }
+      user = refetched;
+      await supabase.from("consumer_user_stats").upsert({ user_id: userId }, { onConflict: "user_id" }).then(() => {});
     }
 
     if (user.account_status !== "active") {
@@ -292,16 +346,34 @@ export async function regenerateConsumerTOTPSecret(
 
     const supabase = getAdminSupabase();
 
-    // Verify user exists
-    const { data: user, error: userError } = await supabase
+    // Verify user exists — auto-create if missing
+    let { data: user, error: userError } = await supabase
       .from("consumer_users")
       .select("id, account_status")
       .eq("id", userId)
       .single();
 
     if (userError || !user) {
-      res.status(404).json({ error: "User not found" });
-      return;
+      const { data: authData } = await supabase.auth.admin.getUserById(userId);
+      const email = authData?.user?.email ?? `unknown+${userId}@example.invalid`;
+      const meta = authData?.user?.user_metadata;
+      const fullName =
+        typeof meta?.full_name === "string" ? meta.full_name
+        : [meta?.first_name, meta?.last_name].filter(Boolean).join(" ") || "";
+
+      await supabase
+        .from("consumer_users")
+        .insert({ id: userId, email, full_name: fullName, city: "", country: "" })
+        .then(() => {}); // ignore 23505
+
+      const { data: refetched } = await supabase
+        .from("consumer_users")
+        .select("id, account_status")
+        .eq("id", userId)
+        .single();
+      if (!refetched) { res.status(404).json({ error: "User not found" }); return; }
+      user = refetched;
+      await supabase.from("consumer_user_stats").upsert({ user_id: userId }, { onConflict: "user_id" }).then(() => {});
     }
 
     if (user.account_status !== "active") {
