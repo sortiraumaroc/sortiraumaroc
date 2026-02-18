@@ -111,7 +111,7 @@ export function LucideIconPicker({
   const [showAll, setShowAll] = React.useState(false);
 
   const IconComponent = (
-    Icons as Record<string, React.FC<{ className?: string }>>
+    Icons as unknown as Record<string, React.FC<{ className?: string }>>
   )[value] ?? Icons.Circle;
 
   const filteredIcons = React.useMemo(() => {
@@ -122,7 +122,7 @@ export function LucideIconPicker({
   }, [search, showAll]);
 
   const renderIcon = (iconName: string) => {
-    const Icon = (Icons as Record<string, React.FC<{ className?: string }>>)[
+    const Icon = (Icons as unknown as Record<string, React.FC<{ className?: string }>>)[
       iconName
     ];
     if (!Icon) return null;
@@ -166,18 +166,18 @@ export function LucideIconPicker({
       <PopoverContent className="w-[400px] p-0" align="start">
         <div className="p-3 border-b">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <Input
               placeholder="Rechercher une icône..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
+              className="ps-9"
             />
             {search && (
               <button
                 type="button"
                 onClick={() => setSearch("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2"
+                className="absolute end-3 top-1/2 -translate-y-1/2"
               >
                 <X className="w-4 h-4 text-slate-400" />
               </button>
@@ -228,8 +228,8 @@ export function DynamicLucideIcon({
   fallback?: string;
 }) {
   const Icon =
-    (Icons as Record<string, React.FC<{ className?: string; style?: React.CSSProperties }>>)[name] ??
-    (Icons as Record<string, React.FC<{ className?: string; style?: React.CSSProperties }>>)[fallback] ??
+    (Icons as unknown as Record<string, React.FC<{ className?: string; style?: React.CSSProperties }>>)[name] ??
+    (Icons as unknown as Record<string, React.FC<{ className?: string; style?: React.CSSProperties }>>)[fallback] ??
     Icons.Circle;
   return <Icon className={className} style={style} />;
 }

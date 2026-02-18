@@ -4,6 +4,9 @@ import {
   Users,
   Gauge,
   Car,
+  DoorOpen,
+  Snowflake,
+  Briefcase,
   MapPin,
   Check,
   Zap,
@@ -24,8 +27,11 @@ export interface VehicleCardProps {
 
   // Specs
   seats: number;
+  doors?: number;
   transmission: "Automatique" | "Manuelle";
   fuelType: "Essence" | "Diesel" | "Électrique" | "Hybride";
+  ac?: boolean;
+  trunkVolume?: string;
 
   // Features
   unlimitedMileage?: boolean;
@@ -66,8 +72,11 @@ export const VehicleCard = memo(function VehicleCard({
   model,
   image,
   seats,
+  doors,
   transmission,
   fuelType,
+  ac,
+  trunkVolume,
   unlimitedMileage = false,
   pickupLocation,
   freeCancellation = false,
@@ -166,15 +175,33 @@ export const VehicleCard = memo(function VehicleCard({
             </p>
 
             {/* Specs */}
-            <div className="flex items-center gap-4 text-sm text-slate-700 mb-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-700 mb-3">
               <div className="flex items-center gap-1.5">
                 <Users className="w-4 h-4 text-slate-400" />
                 <span>{seats}</span>
               </div>
+              {doors && (
+                <div className="flex items-center gap-1.5">
+                  <DoorOpen className="w-4 h-4 text-slate-400" />
+                  <span>{doors}p</span>
+                </div>
+              )}
               <div className="flex items-center gap-1.5">
                 <Gauge className="w-4 h-4 text-slate-400" />
                 <span>{transmission}</span>
               </div>
+              {ac && (
+                <div className="flex items-center gap-1.5">
+                  <Snowflake className="w-4 h-4 text-blue-400" />
+                  <span>Clim</span>
+                </div>
+              )}
+              {trunkVolume && (
+                <div className="flex items-center gap-1.5">
+                  <Briefcase className="w-4 h-4 text-slate-400" />
+                  <span>{trunkVolume}L</span>
+                </div>
+              )}
             </div>
 
             {/* Features */}
@@ -227,19 +254,20 @@ export const VehicleCard = memo(function VehicleCard({
             </div>
 
             {/* Supplier */}
-            <div className="flex items-center gap-2 mt-4 pt-3 border-t border-slate-100">
-              {supplierLogo ? (
-                <img src={supplierLogo} alt={supplierName} className="h-5 object-contain" />
-              ) : (
+            {supplierName && (
+              <div className="flex items-center gap-2 mt-4 pt-3 border-t border-slate-100">
+                {supplierLogo && (
+                  <img src={supplierLogo} alt={supplierName} className="h-5 object-contain" />
+                )}
                 <span className="text-sm font-medium text-slate-700">{supplierName}</span>
-              )}
-              {supplierRating && (
-                <div className="flex items-center gap-1 text-sm text-slate-600">
-                  <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />
-                  <span>{supplierRating}% {t("vehicle.positive_reviews")}</span>
-                </div>
-              )}
-            </div>
+                {supplierRating && (
+                  <div className="flex items-center gap-1 text-sm text-slate-600">
+                    <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />
+                    <span>{supplierRating}% {t("vehicle.positive_reviews")}</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Right side - Image and price */}
@@ -257,20 +285,23 @@ export const VehicleCard = memo(function VehicleCard({
             </div>
 
             {/* Price section */}
-            <div className="text-right mt-4">
+            <div className="text-end mt-4">
               {discount && discount > 0 && (
                 <span className="inline-block px-2 py-1 mb-2 text-xs font-semibold bg-green-100 text-green-700 rounded">
-                  {discount} € {t("vehicle.discount")}
+                  {discount} MAD {t("vehicle.discount")}
                 </span>
+              )}
+              {priceLabel.includes("jour") && (
+                <span className="text-[10px] font-medium text-primary/70 uppercase tracking-wide">À partir de</span>
               )}
               <div className="flex items-baseline justify-end gap-2">
                 {originalPrice && originalPrice > price && (
                   <span className="text-sm text-slate-400 line-through">
-                    {originalPrice} €
+                    {originalPrice} MAD
                   </span>
                 )}
                 <span className="text-2xl font-bold text-slate-900">
-                  {price} €
+                  {price} MAD
                 </span>
               </div>
               <span className="text-xs text-slate-500">{priceLabel}</span>

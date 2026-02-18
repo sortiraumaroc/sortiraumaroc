@@ -187,8 +187,8 @@ export function ReservationTemplatesManagerDialog(props: {
                           key={t.id}
                           onClick={() => startEdit(t.id)}
                           className={
-                            "w-full px-3 py-2.5 text-left hover:bg-slate-50 transition-colors " +
-                            (t.id === selectedId && mode === "edit" ? "bg-primary/5 border-l-2 border-l-primary" : "")
+                            "w-full px-3 py-2.5 text-start hover:bg-slate-50 transition-colors " +
+                            (t.id === selectedId && mode === "edit" ? "bg-primary/5 border-s-2 border-s-primary" : "")
                           }
                         >
                           <div className="flex items-start gap-2">

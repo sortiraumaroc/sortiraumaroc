@@ -240,7 +240,8 @@ export async function analyzeClickPatterns(
     .select('ip_hash, session_id, is_valid, fraud_reason, created_at')
     .eq('campaign_id', campaignId)
     .gte('created_at', since)
-    .order('created_at', { ascending: true });
+    .order('created_at', { ascending: true })
+    .returns<any[]>();
 
   if (error || !clicks) {
     return { suspicious_ips: [], fraud_rate: 0, recommendations: [] };

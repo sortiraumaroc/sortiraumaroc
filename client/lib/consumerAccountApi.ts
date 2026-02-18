@@ -171,3 +171,41 @@ export async function completePasswordReset(args: {
 
   return payload;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Trusted Devices
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface TrustedDevice {
+  id: string;
+  device_name: string;
+  ip_address: string;
+  created_at: string;
+  last_used_at: string;
+  is_current: boolean;
+}
+
+/**
+ * List all trusted devices for the current user.
+ */
+export async function listMyTrustedDevices(): Promise<{ devices: TrustedDevice[] }> {
+  return requestAuthedJson<{ devices: TrustedDevice[] }>("/api/consumer/account/trusted-devices");
+}
+
+/**
+ * Revoke a specific trusted device by ID.
+ */
+export async function revokeMyTrustedDevice(deviceId: string): Promise<{ ok: true }> {
+  return requestAuthedJson<{ ok: true }>(`/api/consumer/account/trusted-devices/${deviceId}/revoke`, {
+    method: "POST",
+  });
+}
+
+/**
+ * Revoke ALL trusted devices (disconnect everywhere).
+ */
+export async function revokeAllMyTrustedDevices(): Promise<{ ok: true; revoked: number }> {
+  return requestAuthedJson<{ ok: true; revoked: number }>("/api/consumer/account/trusted-devices/revoke-all", {
+    method: "POST",
+  });
+}

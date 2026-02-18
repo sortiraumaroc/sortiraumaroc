@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
-import { Eye, Loader2, ShieldCheck } from "lucide-react";
+import { Eye, EyeOff, Loader2, ShieldCheck, CheckCircle2 } from "lucide-react";
 
 import { useSessionConflict } from "@/hooks/useSessionConflict";
 import { SessionConflictDialog } from "@/components/SessionConflictDialog";
@@ -96,7 +96,7 @@ export function ProAuthGate({ children, variant = "pro" }: Props) {
   const { hasConflict, conflictingSession, clearConflict } = useSessionConflict("pro");
   const [showConflictDialog, setShowConflictDialog] = useState(false);
 
-  const [mode, setMode] = useState<"signin" | "signup" | "forgot-password">("signin");
+  const [mode, setMode] = useState<"signin" | "signup" | "forgot-password" | "reset-password">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [peekPassword, setPeekPassword] = useState(false);
@@ -107,6 +107,13 @@ export function ProAuthGate({ children, variant = "pro" }: Props) {
   const [captchaCode, setCaptchaCode] = useState(() => generateCaptcha());
   const [captchaInput, setCaptchaInput] = useState("");
   const [forgotPasswordSuccess, setForgotPasswordSuccess] = useState(false);
+
+  // Reset password state (when user clicks email link)
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [peekNewPassword, setPeekNewPassword] = useState(false);
+  const [resetPasswordSuccess, setResetPasswordSuccess] = useState(false);
+  const [resetPasswordReady, setResetPasswordReady] = useState(false);
 
   const [signupStep, setSignupStep] = useState<SignupStep>(1);
   const [signup, setSignup] = useState<SignupForm>({
@@ -132,6 +139,16 @@ export function ProAuthGate({ children, variant = "pro" }: Props) {
     const paramMode = searchParams.get("mode");
     if (paramMode === "signup") setMode("signup");
     if (paramMode === "signin") setMode("signin");
+    if (paramMode === "reset-password") {
+      setMode("reset-password");
+      // If the user already has a session (Supabase processed the token before mount),
+      // mark the form as ready immediately
+      proSupabase.auth.getSession().then(({ data }) => {
+        if (data.session) {
+          setResetPasswordReady(true);
+        }
+      });
+    }
   }, [searchParams]);
 
   // Show conflict dialog when there's a conflicting session and user is not logged in
@@ -149,6 +166,11 @@ export function ProAuthGate({ children, variant = "pro" }: Props) {
     setForgotPasswordSuccess(false);
     if (mode === "forgot-password") {
       setCaptchaCode(generateCaptcha());
+    }
+    if (mode !== "reset-password") {
+      setNewPassword("");
+      setConfirmPassword("");
+      setResetPasswordSuccess(false);
     }
   }, [mode]);
 
@@ -170,8 +192,14 @@ export function ProAuthGate({ children, variant = "pro" }: Props) {
       });
 
     const { data: sub } = proSupabase.auth.onAuthStateChange(
-      (_event, session) => {
+      (event, session) => {
         setUser(session?.user ?? null);
+        // When Supabase processes the recovery token from the email link,
+        // it fires PASSWORD_RECOVERY event — mark the form as ready
+        if (event === "PASSWORD_RECOVERY") {
+          setResetPasswordReady(true);
+          setMode("reset-password");
+        }
       },
     );
 
@@ -246,10 +274,57 @@ export function ProAuthGate({ children, variant = "pro" }: Props) {
       if (error) throw error;
       setForgotPasswordSuccess(true);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Une erreur est survenue";
+      const raw = e instanceof Error ? e.message : "";
+      let msg: string;
+      if (raw.toLowerCase().includes("rate limit") || raw.toLowerCase().includes("too many")) {
+        msg = "Trop de tentatives. Veuillez réessayer dans quelques minutes.";
+      } else if (raw.toLowerCase().includes("recovery email") || raw.toLowerCase().includes("sending")) {
+        msg = "Impossible d'envoyer l'email de récupération. Veuillez réessayer dans quelques minutes ou contacter le support.";
+      } else if (raw) {
+        msg = raw;
+      } else {
+        msg = "Une erreur est survenue. Veuillez réessayer.";
+      }
       setError(msg);
       setCaptchaCode(generateCaptcha());
       setCaptchaInput("");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const doResetPassword = async () => {
+    if (newPassword.length < 8) {
+      setError("Le mot de passe doit contenir au moins 8 caractères.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("Les mots de passe ne correspondent pas.");
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      const { error } = await proSupabase.auth.updateUser({
+        password: newPassword,
+      });
+      if (error) throw error;
+      setResetPasswordSuccess(true);
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : "";
+      let msg: string;
+      if (raw.toLowerCase().includes("same password") || raw.toLowerCase().includes("should be different")) {
+        msg = "Le nouveau mot de passe doit être différent de l'ancien.";
+      } else if (raw.toLowerCase().includes("weak") || raw.toLowerCase().includes("too short")) {
+        msg = "Le mot de passe est trop faible. Utilisez au moins 8 caractères.";
+      } else if (raw) {
+        msg = raw;
+      } else {
+        msg = "Une erreur est survenue. Veuillez réessayer.";
+      }
+      setError(msg);
     } finally {
       setSubmitting(false);
     }
@@ -360,11 +435,17 @@ export function ProAuthGate({ children, variant = "pro" }: Props) {
     );
   }
 
-  if (!user) {
+  // When in reset-password mode (and not yet completed), show the reset form
+  // even if the user has a session (the recovery token creates a temporary session)
+  const showResetPasswordForm = mode === "reset-password" && !resetPasswordSuccess;
+
+  if (!user && !showResetPasswordForm) {
     if (publicSection && !searchParams.get("mode")) {
       return <ProPublicLanding section={publicSection} />;
     }
+  }
 
+  if (!user || showResetPasswordForm) {
     return (
       <div className="relative container mx-auto px-4 pb-10 md:pb-14">
         {/* Session conflict dialog */}
@@ -384,7 +465,7 @@ export function ProAuthGate({ children, variant = "pro" }: Props) {
           />
         )}
 
-        <div className="absolute right-4 top-4">
+        <div className="absolute end-4 top-4">
           <Link
             to="/"
             className="inline-flex h-10 items-center justify-center rounded-md border border-primary px-4 text-sm font-bold text-primary hover:bg-primary hover:text-white active:bg-primary active:text-white"
@@ -421,7 +502,9 @@ export function ProAuthGate({ children, variant = "pro" }: Props) {
                       ? variantConfig.descriptionSignIn
                       : mode === "forgot-password"
                         ? "Réinitialisez votre mot de passe."
-                        : variantConfig.descriptionSignUp}
+                        : mode === "reset-password"
+                          ? "Choisissez votre nouveau mot de passe."
+                          : variantConfig.descriptionSignUp}
                   </CardDescription>
                 </div>
               </div>
@@ -659,13 +742,13 @@ export function ProAuthGate({ children, variant = "pro" }: Props) {
                             ? "current-password"
                             : "new-password"
                         }
-                        className="pr-11"
+                        className="pe-11"
                       />
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 text-slate-600 hover:text-slate-900"
+                        className="absolute end-1 top-1/2 h-8 w-8 -translate-y-1/2 text-slate-600 hover:text-slate-900"
                         aria-label={
                           peekPassword
                             ? "Masquer le mot de passe"
@@ -777,6 +860,134 @@ export function ProAuthGate({ children, variant = "pro" }: Props) {
                         J’ai déjà un compte
                       </button>
                     </div>
+                  )}
+                </div>
+              ) : null}
+
+              {/* Reset Password Mode (from email link) */}
+              {mode === "reset-password" ? (
+                <div className="space-y-4">
+                  {resetPasswordSuccess ? (
+                    <div className="space-y-4">
+                      <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" />
+                          <div className="text-sm font-bold text-green-800">
+                            Mot de passe modifié !
+                          </div>
+                        </div>
+                        <div className="mt-1 text-sm text-green-700 ms-7">
+                          Votre mot de passe a été mis à jour avec succès. Vous pouvez maintenant vous connecter.
+                        </div>
+                      </div>
+                      <Button
+                        className="w-full bg-primary text-white hover:bg-primary/90 font-bold"
+                        onClick={() => {
+                          setMode("signin");
+                          setResetPasswordSuccess(false);
+                          setNewPassword("");
+                          setConfirmPassword("");
+                        }}
+                      >
+                        Se connecter
+                      </Button>
+                    </div>
+                  ) : !resetPasswordReady ? (
+                    <div className="space-y-4">
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                        <div className="text-sm font-bold text-amber-800">
+                          Vérification en cours…
+                        </div>
+                        <div className="mt-1 text-sm text-amber-700">
+                          Veuillez patienter pendant que nous vérifions votre lien de réinitialisation.
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                      </div>
+                      <div className="text-sm text-slate-600 text-center">
+                        <button
+                          type="button"
+                          className="underline hover:text-slate-900"
+                          onClick={() => {
+                            setMode("forgot-password");
+                            setError(null);
+                          }}
+                        >
+                          Renvoyer un nouveau lien
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="space-y-2">
+                        <Label htmlFor="new-password">Nouveau mot de passe</Label>
+                        <div className="relative">
+                          <Input
+                            id="new-password"
+                            type={peekNewPassword ? "text" : "password"}
+                            value={newPassword}
+                            onChange={(e) => setNewPassword(e.target.value)}
+                            autoComplete="new-password"
+                            placeholder="8 caractères minimum"
+                            className="pe-11"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute end-1 top-1/2 h-8 w-8 -translate-y-1/2 text-slate-600 hover:text-slate-900"
+                            aria-label={peekNewPassword ? "Masquer" : "Afficher"}
+                            onPointerDown={(e) => { e.preventDefault(); setPeekNewPassword(true); }}
+                            onPointerUp={() => setPeekNewPassword(false)}
+                            onPointerCancel={() => setPeekNewPassword(false)}
+                            onPointerLeave={() => setPeekNewPassword(false)}
+                            onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); setPeekNewPassword(true); } }}
+                            onKeyUp={() => setPeekNewPassword(false)}
+                            onBlur={() => setPeekNewPassword(false)}
+                          >
+                            <Eye className={peekNewPassword ? "opacity-100" : "opacity-70"} />
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="confirm-password">Confirmer le mot de passe</Label>
+                        <Input
+                          id="confirm-password"
+                          type="password"
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          autoComplete="new-password"
+                          placeholder="Retapez votre mot de passe"
+                        />
+                      </div>
+
+                      {error ? (
+                        <div className="text-sm text-red-600">{error}</div>
+                      ) : null}
+
+                      <Button
+                        className="w-full bg-primary text-white hover:bg-primary/90 font-bold"
+                        disabled={submitting || newPassword.length < 8 || confirmPassword.length < 1}
+                        onClick={doResetPassword}
+                      >
+                        {submitting ? "Mise à jour…" : "Mettre à jour mon mot de passe"}
+                      </Button>
+
+                      <div className="text-sm text-slate-600">
+                        <button
+                          type="button"
+                          className="underline hover:text-slate-900"
+                          onClick={() => {
+                            setMode("signin");
+                            setError(null);
+                          }}
+                        >
+                          Retour à la connexion
+                        </button>
+                      </div>
+                    </>
                   )}
                 </div>
               ) : null}

@@ -170,7 +170,7 @@ export default function BookingConfirm() {
                 Votre réservation est maintenue.
               </div>
               {confirmResult.reservation && (
-                <div className="mt-4 bg-green-50 rounded-lg p-4 text-left">
+                <div className="mt-4 bg-green-50 rounded-lg p-4 text-start">
                   <div className="font-semibold text-slate-900">
                     {confirmResult.reservation.establishment_name}
                   </div>
@@ -219,7 +219,7 @@ export default function BookingConfirm() {
                 Votre présence a déjà été confirmée pour cette réservation.
               </div>
               {info.reservation && (
-                <div className="mt-4 bg-green-50 rounded-lg p-4 text-left">
+                <div className="mt-4 bg-green-50 rounded-lg p-4 text-start">
                   <div className="font-semibold text-slate-900">
                     {info.reservation.establishment_name}
                   </div>
@@ -249,7 +249,7 @@ export default function BookingConfirm() {
                 Le délai de confirmation est dépassé. Votre réservation a été automatiquement annulée.
               </div>
               {info.reservation && (
-                <div className="mt-4 bg-amber-50 rounded-lg p-4 text-left">
+                <div className="mt-4 bg-amber-50 rounded-lg p-4 text-start">
                   <div className="font-semibold text-slate-900">
                     {info.reservation.establishment_name}
                   </div>

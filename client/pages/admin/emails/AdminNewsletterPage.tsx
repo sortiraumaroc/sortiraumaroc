@@ -286,7 +286,7 @@ export function AdminNewsletterPage() {
       preheader_fr: tpl.preheader_fr || "",
       preheader_en: tpl.preheader_en || "",
       blocks: (tpl.blocks as NewsletterBlock[]) || [],
-      design_settings: (tpl.design_settings as DesignSettings) || {
+      design_settings: (tpl.design_settings as unknown as DesignSettings) || {
         ...DEFAULT_DESIGN,
       },
       is_template: tpl.is_template,
@@ -320,7 +320,7 @@ export function AdminNewsletterPage() {
         preheader_fr: draft.preheader_fr.trim() || null,
         preheader_en: draft.preheader_en.trim() || null,
         blocks: draft.blocks,
-        design_settings: draft.design_settings,
+        design_settings: draft.design_settings as unknown as Record<string, unknown>,
         is_template: draft.is_template,
         is_featured: draft.is_featured,
         enabled: draft.enabled,
@@ -382,7 +382,7 @@ export function AdminNewsletterPage() {
       const res = await previewNewsletterTemplate(undefined, {
         subject: lang === "fr" ? draft.subject_fr : draft.subject_en,
         blocks: draft.blocks,
-        design_settings: draft.design_settings,
+        design_settings: draft.design_settings as unknown as Record<string, unknown>,
         lang,
         variables: {
           first_name: "Ahmed",
@@ -707,7 +707,7 @@ export function AdminNewsletterPage() {
                       <button
                         key={bt.type}
                         onClick={() => addBlock(bt.type)}
-                        className="w-full text-left p-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 transition-colors"
+                        className="w-full text-start p-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 transition-colors"
                       >
                         <div className="flex items-center gap-2">
                           <span className="text-lg">{bt.icon}</span>
@@ -1167,7 +1167,7 @@ export function AdminNewsletterPage() {
                               },
                             }))
                           }
-                          className="p-3 rounded-lg border hover:border-blue-500 transition-colors text-left"
+                          className="p-3 rounded-lg border hover:border-blue-500 transition-colors text-start"
                         >
                           <div className="flex gap-1 mb-2">
                             {[theme.bg, theme.header, theme.btn].map((c, i) => (

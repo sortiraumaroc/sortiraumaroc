@@ -221,7 +221,7 @@ export function PartnerLayout({ user, onSignOut }: Props) {
               </Link>
 
               {/* Role + Status badges - desktop */}
-              <div className="hidden md:flex items-center gap-2 ml-4">
+              <div className="hidden md:flex items-center gap-2 ms-4">
                 <Badge
                   variant="outline"
                   className="text-[10px] font-semibold border-[#a3001d] text-[#a3001d]"
@@ -267,7 +267,7 @@ export function PartnerLayout({ user, onSignOut }: Props) {
                   >
                     <Bell className="w-5 h-5 text-slate-600" />
                     {notificationsUnread > 0 && (
-                      <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                      <span className="absolute -top-0.5 -end-0.5 min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
                         {notificationsUnread > 9 ? "9+" : notificationsUnread}
                       </span>
                     )}
@@ -336,7 +336,7 @@ export function PartnerLayout({ user, onSignOut }: Props) {
                 className="hidden sm:flex"
               >
                 <RefreshCw
-                  className={cn("h-4 w-4 mr-1", refreshing && "animate-spin")}
+                  className={cn("h-4 w-4 me-1", refreshing && "animate-spin")}
                 />
                 Rafraîchir
               </Button>
@@ -386,7 +386,7 @@ export function PartnerLayout({ user, onSignOut }: Props) {
                   <Icon className="w-4 h-4" />
                   {item.label}
                   {isMessages && messagesUnread > 0 && (
-                    <span className="ml-1 min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                    <span className="ms-1 min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
                       {messagesUnread > 99 ? "99+" : messagesUnread}
                     </span>
                   )}
@@ -446,7 +446,7 @@ export function PartnerLayout({ user, onSignOut }: Props) {
                     {item.label}
                     {item.path === "/partners/messages" &&
                       messagesUnread > 0 && (
-                        <span className="ml-auto min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                        <span className="ms-auto min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
                           {messagesUnread > 99 ? "99+" : messagesUnread}
                         </span>
                       )}

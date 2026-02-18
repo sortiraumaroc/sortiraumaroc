@@ -1,6 +1,8 @@
 import type { RequestHandler } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { requireAdminKey } from "./admin";
+import { sendTemplateEmail } from "../emailService";
+import { emitAdminNotification } from "../adminNotifications";
 
 // ============================================================================
 // TYPES
@@ -372,6 +374,22 @@ export const addSupportTicketMessage: RequestHandler = async (req, res) => {
       })
       .eq("id", ticketId);
 
+    // Notify admin of new client message (best-effort, non-blocking)
+    void (async () => {
+      try {
+        const { data: ticketData } = await supabase
+          .from("support_tickets")
+          .select("subject, ticket_number")
+          .eq("id", ticketId)
+          .single();
+
+        const { data: authData } = await supabase.auth.admin.getUserById(userId);
+        const clientName = authData?.user?.user_metadata?.full_name || "Client";
+
+        void notifyAdminOfClientMessage(ticketId, clientName, ticketData?.subject || "Support");
+      } catch { /* best-effort */ }
+    })();
+
     res.json({ ok: true, message });
   } catch (e) {
     console.error("[addSupportTicketMessage] Exception:", e);
@@ -615,11 +633,23 @@ export const sendChatMessage: RequestHandler = async (req, res) => {
       return;
     }
 
-    // Update session timestamp
+    // Update session timestamp + last client message time (for 5-min timer)
     await supabase
       .from("support_chat_sessions")
-      .update({ updated_at: new Date().toISOString() })
+      .update({
+        updated_at: new Date().toISOString(),
+        last_client_message_at: new Date().toISOString(),
+        timeout_message_sent: false, // reset timeout flag on new client message
+      })
       .eq("id", sessionId);
+
+    // Notify admin of new chat message (best-effort)
+    void emitAdminNotification({
+      type: "support_chat_message",
+      title: "Nouveau message chat support",
+      body: messageBody.slice(0, 100),
+      data: { session_id: sessionId },
+    }).catch(() => {});
 
     res.json({ ok: true, message });
   } catch (e) {
@@ -920,6 +950,11 @@ export const postAdminSupportTicketMessage: RequestHandler = async (req, res) =>
       })
       .eq("id", ticketId);
 
+    // Send email notification to client (best-effort, non-blocking)
+    if (!isInternal) {
+      void notifyClientOfAdminReply(ticketId, messageBody);
+    }
+
     res.json({ ok: true, message });
   } catch (e) {
     console.error("[postAdminSupportTicketMessage] Exception:", e);
@@ -1116,10 +1151,14 @@ export const sendAdminChatMessage: RequestHandler = async (req, res) => {
       return;
     }
 
-    // Update session
+    // Update session + track admin response time (resets 5-min timer)
     await supabase
       .from("support_chat_sessions")
-      .update({ updated_at: new Date().toISOString() })
+      .update({
+        updated_at: new Date().toISOString(),
+        last_admin_response_at: new Date().toISOString(),
+        timeout_message_sent: false,
+      })
       .eq("id", sessionId);
 
     res.json({ ok: true, message });
@@ -1128,3 +1167,369 @@ export const sendAdminChatMessage: RequestHandler = async (req, res) => {
     res.status(500).json({ error: "Erreur inattendue" });
   }
 };
+
+// ============================================================================
+// AGENT ONLINE STATUS
+// ============================================================================
+
+/**
+ * Check if any support agent is online
+ * GET /api/support/agent-online
+ */
+export const checkAgentOnline: RequestHandler = async (_req, res) => {
+  try {
+    const supabase = getAdminSupabase();
+
+    const { data, error } = await supabase
+      .from("support_agent_status")
+      .select("agent_id, agent_name")
+      .eq("is_online", true)
+      .gte("last_seen_at", new Date(Date.now() - 10 * 60 * 1000).toISOString())
+      .limit(1);
+
+    if (error) {
+      console.error("[checkAgentOnline] Error:", error);
+      res.json({ ok: true, online: false });
+      return;
+    }
+
+    res.json({ ok: true, online: (data?.length ?? 0) > 0 });
+  } catch (e) {
+    console.error("[checkAgentOnline] Exception:", e);
+    res.json({ ok: true, online: false });
+  }
+};
+
+/**
+ * Toggle agent online/offline status (admin)
+ * POST /api/admin/support/agent-status
+ */
+export const toggleAgentStatus: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  try {
+    const body = isRecord(req.body) ? req.body : {};
+    const isOnline = body.is_online === true;
+
+    const adminSession = (req as any).adminSession;
+    const agentId = adminSession?.collaborator_id ?? adminSession?.user_id;
+    const agentName = safeString(body.agent_name, 200) || adminSession?.name || "Agent";
+
+    if (!agentId) {
+      res.status(400).json({ error: "Agent ID manquant" });
+      return;
+    }
+
+    const supabase = getAdminSupabase();
+
+    await supabase
+      .from("support_agent_status")
+      .upsert({
+        agent_id: agentId,
+        agent_name: agentName,
+        is_online: isOnline,
+        last_seen_at: new Date().toISOString(),
+      }, { onConflict: "agent_id" });
+
+    res.json({ ok: true, is_online: isOnline });
+  } catch (e) {
+    console.error("[toggleAgentStatus] Exception:", e);
+    res.status(500).json({ error: "Erreur inattendue" });
+  }
+};
+
+// ============================================================================
+// CLIENT / ESTABLISHMENT PROFILE (admin)
+// ============================================================================
+
+/**
+ * Get consumer user profile for support sidebar
+ * GET /api/admin/support/client-profile/:userId
+ */
+export const getClientProfile: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  try {
+    const userId = req.params.userId;
+    if (!userId) {
+      res.status(400).json({ error: "userId requis" });
+      return;
+    }
+
+    const supabase = getAdminSupabase();
+
+    // Get user from auth
+    const { data: authData } = await supabase.auth.admin.getUserById(userId);
+    const meta = authData?.user?.user_metadata ?? {};
+
+    // Get consumer_users data
+    const { data: consumerData } = await supabase
+      .from("consumer_users")
+      .select("*")
+      .eq("id", userId)
+      .single();
+
+    // Get reservation stats
+    const { count: totalBookings } = await supabase
+      .from("reservations")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId);
+
+    const { data: lastBooking } = await supabase
+      .from("reservations")
+      .select("date")
+      .eq("user_id", userId)
+      .order("date", { ascending: false })
+      .limit(1)
+      .single();
+
+    // Get consumer stats
+    const { data: stats } = await supabase
+      .from("consumer_user_stats")
+      .select("*")
+      .eq("user_id", userId)
+      .single();
+
+    // Get previous support tickets
+    const { data: prevTickets } = await supabase
+      .from("support_tickets")
+      .select("id, ticket_number, subject, status, category, created_at")
+      .eq("created_by_user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    const profile = {
+      id: userId,
+      type: "user" as const,
+      name: meta.full_name || meta.name || consumerData?.full_name || "—",
+      email: authData?.user?.email ?? consumerData?.email ?? "—",
+      phone: meta.phone || consumerData?.phone || "—",
+      city: consumerData?.city || meta.city || "—",
+      member_since: authData?.user?.created_at ?? "—",
+      total_bookings: totalBookings ?? 0,
+      last_booking: lastBooking?.date ?? null,
+      loyalty_points: stats?.points ?? 0,
+      reliability_score: stats?.reliability_score ?? null,
+      referrals: stats?.referral_count ?? 0,
+      preferred_categories: consumerData?.preferred_categories ?? [],
+      status: consumerData?.status ?? "active",
+      notes: consumerData?.admin_notes ?? "",
+      previous_tickets: prevTickets ?? [],
+    };
+
+    res.json({ ok: true, profile });
+  } catch (e) {
+    console.error("[getClientProfile] Exception:", e);
+    res.status(500).json({ error: "Erreur inattendue" });
+  }
+};
+
+/**
+ * Get establishment profile for support sidebar
+ * GET /api/admin/support/establishment-profile/:establishmentId
+ */
+export const getEstablishmentProfile: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  try {
+    const estId = req.params.establishmentId;
+    if (!estId) {
+      res.status(400).json({ error: "establishmentId requis" });
+      return;
+    }
+
+    const supabase = getAdminSupabase();
+
+    // Get establishment
+    const { data: est } = await supabase
+      .from("establishments")
+      .select("*")
+      .eq("id", estId)
+      .single();
+
+    if (!est) {
+      res.status(404).json({ error: "Établissement introuvable" });
+      return;
+    }
+
+    // Get reservation stats
+    const { count: totalBookingsReceived } = await supabase
+      .from("reservations")
+      .select("id", { count: "exact", head: true })
+      .eq("establishment_id", estId);
+
+    // Get average rating
+    const { data: ratingData } = await supabase
+      .from("reviews")
+      .select("overall_score")
+      .eq("establishment_id", estId)
+      .eq("status", "published");
+
+    const avgRating = ratingData && ratingData.length > 0
+      ? Math.round((ratingData.reduce((sum: number, r: any) => sum + (r.overall_score || 0), 0) / ratingData.length) * 10) / 10
+      : null;
+
+    // Get primary contact (owner)
+    const { data: members } = await supabase
+      .from("pro_establishment_memberships")
+      .select("user_id, role")
+      .eq("establishment_id", estId)
+      .eq("role", "owner")
+      .limit(1);
+
+    let contactName = "—";
+    let contactEmail = "—";
+    if (members && members.length > 0) {
+      const { data: ownerAuth } = await supabase.auth.admin.getUserById(members[0].user_id);
+      contactName = ownerAuth?.user?.user_metadata?.full_name ?? "—";
+      contactEmail = ownerAuth?.user?.email ?? "—";
+    }
+
+    // Get previous support tickets
+    const { data: prevTickets } = await supabase
+      .from("support_tickets")
+      .select("id, ticket_number, subject, status, category, created_at")
+      .eq("establishment_id", estId)
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    const profile = {
+      id: estId,
+      type: "pro" as const,
+      name: est.name ?? "—",
+      category: est.category ?? "—",
+      contact: contactName,
+      email: contactEmail,
+      phone: est.phone ?? "—",
+      city: est.city ?? "—",
+      address: est.address ?? "—",
+      member_since: est.created_at ?? "—",
+      total_bookings_received: totalBookingsReceived ?? 0,
+      average_rating: avgRating,
+      status: est.status ?? "—",
+      commission: est.commission_rate ?? "—",
+      subscription: est.subscription_plan ?? "—",
+      last_activity: est.updated_at ?? "—",
+      notes: est.admin_notes ?? "",
+      previous_tickets: prevTickets ?? [],
+    };
+
+    res.json({ ok: true, profile });
+  } catch (e) {
+    console.error("[getEstablishmentProfile] Exception:", e);
+    res.status(500).json({ error: "Erreur inattendue" });
+  }
+};
+
+// ============================================================================
+// INTERNAL NOTES (persistent, editable)
+// ============================================================================
+
+/**
+ * Update ticket internal notes
+ * PATCH /api/admin/support/tickets/:id/notes
+ */
+export const updateTicketInternalNotes: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  try {
+    const ticketId = req.params.id;
+    if (!ticketId) {
+      res.status(400).json({ error: "ID ticket requis" });
+      return;
+    }
+
+    const body = isRecord(req.body) ? req.body : {};
+    const notes = safeString(body.notes, 10000);
+
+    const supabase = getAdminSupabase();
+
+    const { error } = await supabase
+      .from("support_tickets")
+      .update({ internal_notes: notes })
+      .eq("id", ticketId);
+
+    if (error) {
+      console.error("[updateTicketInternalNotes] Error:", error);
+      res.status(500).json({ error: "Erreur lors de la mise à jour" });
+      return;
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[updateTicketInternalNotes] Exception:", e);
+    res.status(500).json({ error: "Erreur inattendue" });
+  }
+};
+
+// ============================================================================
+// EMAIL NOTIFICATIONS (best-effort, fire-and-forget)
+// ============================================================================
+
+/**
+ * Send email notification to client when admin replies to their ticket
+ */
+async function notifyClientOfAdminReply(ticketId: string, messagePreview: string): Promise<void> {
+  try {
+    const supabase = getAdminSupabase();
+
+    const { data: ticket } = await supabase
+      .from("support_tickets")
+      .select("created_by_user_id, subject, ticket_number, last_email_notified_at")
+      .eq("id", ticketId)
+      .single();
+
+    if (!ticket?.created_by_user_id) return;
+
+    // Rate limit: no more than 1 email per 5 minutes per ticket
+    if (ticket.last_email_notified_at) {
+      const lastNotified = new Date(ticket.last_email_notified_at).getTime();
+      if (Date.now() - lastNotified < 5 * 60 * 1000) return;
+    }
+
+    const { data: authData } = await supabase.auth.admin.getUserById(ticket.created_by_user_id);
+    const email = authData?.user?.email;
+    if (!email) return;
+
+    const clientName = authData?.user?.user_metadata?.full_name || "Client";
+
+    await sendTemplateEmail({
+      templateKey: "support_admin_reply",
+      lang: "fr",
+      fromKey: "support",
+      to: [email],
+      variables: {
+        client_name: clientName,
+        ticket_number: ticket.ticket_number || ticketId.slice(0, 8),
+        ticket_subject: ticket.subject || "Support",
+        message_preview: messagePreview.slice(0, 200),
+      },
+      ctaUrl: `${process.env.PUBLIC_BASE_URL || "https://sam.ma"}/aide`,
+      ctaLabel: "Voir ma conversation",
+    });
+
+    // Update last notified
+    await supabase
+      .from("support_tickets")
+      .update({ last_email_notified_at: new Date().toISOString() })
+      .eq("id", ticketId);
+  } catch (e) {
+    console.error("[notifyClientOfAdminReply] Error (non-blocking):", e);
+  }
+}
+
+/**
+ * Send admin notification when client sends a message
+ */
+async function notifyAdminOfClientMessage(ticketId: string, clientName: string, subject: string): Promise<void> {
+  try {
+    void emitAdminNotification({
+      type: "support_new_message",
+      title: `Nouveau message support — ${clientName}`,
+      body: subject,
+      data: { ticket_id: ticketId },
+    });
+  } catch (e) {
+    console.error("[notifyAdminOfClientMessage] Error (non-blocking):", e);
+  }
+}

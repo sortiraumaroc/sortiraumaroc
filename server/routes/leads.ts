@@ -284,7 +284,7 @@ export async function submitEstablishmentLead(req: Request, res: Response) {
       subject: ackSubject,
       bodyText: ackBody,
       ctaLabel: "Découvrir Sortir Au Maroc",
-      ctaUrl: "https://sortiraumaroc.ma/",
+      ctaUrl: "https://sam.ma/",
       meta: { source: "lead_establishment_requests", kind: "ack" },
     }).catch((err) => console.error("[Leads] Email error (ack):", err));
 
@@ -412,7 +412,7 @@ export async function submitProDemoRequest(req: Request, res: Response) {
       subject: ackSubject,
       bodyText: ackBody,
       ctaLabel: "Ouvrir Sortir Au Maroc",
-      ctaUrl: "https://sortiraumaroc.ma/",
+      ctaUrl: "https://sam.ma/",
       meta: { source: "pro_demo_requests", kind: "ack" },
     }).catch((err) => console.error("[Leads] Email error (ack):", err));
 

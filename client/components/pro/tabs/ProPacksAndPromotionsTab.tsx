@@ -830,19 +830,19 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
       <Tabs defaultValue="packs">
         <TabsList className="bg-slate-100 flex-wrap h-auto gap-1 p-1">
           <TabsTrigger value="packs" className="font-bold">
-            <Package className="w-4 h-4 mr-1.5" />
-            Packs <span className="ml-1.5 text-xs text-slate-500">({packs.length})</span>
+            <Package className="w-4 h-4 me-1.5" />
+            Packs <span className="ms-1.5 text-xs text-slate-500">({packs.length})</span>
           </TabsTrigger>
           <TabsTrigger value="codes" className="font-bold">
-            <Tag className="w-4 h-4 mr-1.5" />
-            Codes promo <span className="ml-1.5 text-xs text-slate-500">({promoCodes.length})</span>
+            <Tag className="w-4 h-4 me-1.5" />
+            Codes promo <span className="ms-1.5 text-xs text-slate-500">({promoCodes.length})</span>
           </TabsTrigger>
           <TabsTrigger value="templates" className="font-bold">
-            <FileText className="w-4 h-4 mr-1.5" />
-            Templates <span className="ml-1.5 text-xs text-slate-500">({templates.length})</span>
+            <FileText className="w-4 h-4 me-1.5" />
+            Templates <span className="ms-1.5 text-xs text-slate-500">({templates.length})</span>
           </TabsTrigger>
           <TabsTrigger value="analytics" className="font-bold">
-            <BarChart3 className="w-4 h-4 mr-1.5" />
+            <BarChart3 className="w-4 h-4 me-1.5" />
             Analytics
           </TabsTrigger>
         </TabsList>
@@ -869,7 +869,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
               </div>
             </CardHeader>
             <CardContent className="p-6">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                 {/* Colonne gauche - Informations principales */}
                 <div className="space-y-5">
                   <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-3">
@@ -921,7 +921,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                       value={newPack.conditions}
                       onChange={(e) => setNewPack((p) => ({ ...p, conditions: e.target.value }))}
                       placeholder="Sur réservation, valable le weekend..."
-                      rows={2}
+                      rows={8}
                       className="resize-none"
                     />
                   </div>
@@ -936,7 +936,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                       Tarification
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-2 gap-4 items-end">
                       <div className="space-y-2">
                         <Label className="text-emerald-700">
                           Prix <span className="text-red-500">*</span>
@@ -946,26 +946,25 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                             value={newPack.price}
                             onChange={(e) => setNewPack((p) => ({ ...p, price: e.target.value }))}
                             placeholder="299"
-                            className="h-11 pr-14 text-lg font-semibold"
+                            className="h-11 pe-14 text-lg font-semibold"
                             inputMode="decimal"
                           />
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-500 font-medium">MAD</span>
+                          <span className="absolute end-3 top-1/2 -translate-y-1/2 text-sm text-slate-500 font-medium">MAD</span>
                         </div>
                       </div>
                       <div className="space-y-2">
                         <Label className="text-slate-500 flex items-center gap-1">
-                          <Percent className="w-3 h-3" />
-                          Prix barré
+                          Ancien prix
                         </Label>
                         <div className="relative">
                           <Input
                             value={newPack.originalPrice}
                             onChange={(e) => setNewPack((p) => ({ ...p, originalPrice: e.target.value }))}
                             placeholder="399"
-                            className="h-11 pr-14 line-through text-slate-400"
+                            className="h-11 pe-14 line-through text-slate-400"
                             inputMode="decimal"
                           />
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">MAD</span>
+                          <span className="absolute end-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">MAD</span>
                         </div>
                       </div>
                     </div>
@@ -1007,7 +1006,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                           type="button"
                           variant="destructive"
                           size="sm"
-                          className="absolute top-2 right-2 h-8 w-8 p-0"
+                          className="absolute top-2 end-2 h-8 w-8 p-0"
                           onClick={() => setNewPack((p) => ({ ...p, coverUrl: "" }))}
                         >
                           <X className="w-4 h-4" />
@@ -1124,16 +1123,19 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                     </div>
                   </div>
 
-                  {/* Bouton de création */}
-                  <Button
-                    className="w-full h-12 bg-primary text-white hover:bg-primary/90 font-bold gap-2 text-base shadow-lg shadow-primary/20"
-                    disabled={!canEdit || !newPack.title.trim() || !newPack.price.trim()}
-                    onClick={createPack}
-                  >
-                    <Plus className="w-5 h-5" />
-                    Créer le pack
-                  </Button>
                 </div>
+              </div>
+
+              {/* Bouton de création — pleine largeur sous la grille */}
+              <div className="mt-6">
+                <Button
+                  className="w-full h-12 bg-primary text-white hover:bg-primary/90 font-bold gap-2 text-base shadow-lg shadow-primary/20"
+                  disabled={!canEdit || !newPack.title.trim() || !newPack.price.trim()}
+                  onClick={createPack}
+                >
+                  <Plus className="w-5 h-5" />
+                  Créer le pack
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -1202,7 +1204,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                                 )}
                               </div>
                             </div>
-                            <div className="text-right">
+                            <div className="text-end">
                               <div className="text-xs text-slate-500">Stock</div>
                               <div className="font-semibold tabular-nums">{p.stock ?? "Illimité"}</div>
                             </div>
@@ -1231,7 +1233,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                           <TableHead>Stock</TableHead>
                           <TableHead>Validité</TableHead>
                           <TableHead>Statut</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
+                          <TableHead className="text-end">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1273,7 +1275,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                                 <Badge className="bg-slate-100 text-slate-600 border-0">Inactif</Badge>
                               )}
                             </TableCell>
-                            <TableCell className="text-right whitespace-nowrap">
+                            <TableCell className="text-end whitespace-nowrap">
                               <div className="flex items-center justify-end gap-2">
                                 <Button variant="outline" size="sm" className="gap-2" disabled={!canEdit} onClick={() => openEditPackDialog(p)}>
                                   <Edit3 className="w-4 h-4" />
@@ -1444,7 +1446,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                           type="button"
                           variant="destructive"
                           size="sm"
-                          className="absolute top-1 right-1 h-7 w-7 p-0"
+                          className="absolute top-1 end-1 h-7 w-7 p-0"
                           onClick={() => setEditPack((p) => ({ ...p, coverUrl: "" }))}
                         >
                           <X className="w-3 h-3" />
@@ -1920,7 +1922,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                     onClick={() => setTemplateDialogOpen(true)}
                     disabled={!canEdit}
                   >
-                    <Plus className="w-4 h-4 mr-2" />
+                    <Plus className="w-4 h-4 me-2" />
                     Nouveau template
                   </Button>
                 </div>
@@ -1991,7 +1993,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                           }}
                           disabled={!canEdit || savingTemplateId === tpl.id}
                         >
-                          <Copy className="w-4 h-4 mr-1.5" />
+                          <Copy className="w-4 h-4 me-1.5" />
                           Créer code
                         </Button>
                         <Button
@@ -2269,7 +2271,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                     {analyticsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Rafraîchir"}
                   </Button>
                   <Button variant="outline" onClick={() => void exportCsv()} disabled={!canEdit}>
-                    <Download className="w-4 h-4 mr-2" />
+                    <Download className="w-4 h-4 me-2" />
                     Export CSV
                   </Button>
                 </div>
@@ -2310,10 +2312,10 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                       <TableHeader>
                         <TableRow className="bg-slate-50">
                           <TableHead>Code</TableHead>
-                          <TableHead className="text-right">Remise</TableHead>
-                          <TableHead className="text-right">Utilisations</TableHead>
-                          <TableHead className="text-right">Revenus</TableHead>
-                          <TableHead className="text-right">Remises</TableHead>
+                          <TableHead className="text-end">Remise</TableHead>
+                          <TableHead className="text-end">Utilisations</TableHead>
+                          <TableHead className="text-end">Revenus</TableHead>
+                          <TableHead className="text-end">Remises</TableHead>
                           <TableHead className="text-center">Statut</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -2328,8 +2330,8 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                           analyticsData.analytics.map((promo) => (
                             <TableRow key={promo.id}>
                               <TableCell className="font-mono font-medium">{promo.code}</TableCell>
-                              <TableCell className="text-right tabular-nums">-{promo.discount_bps / 100}%</TableCell>
-                              <TableCell className="text-right tabular-nums">
+                              <TableCell className="text-end tabular-nums">-{promo.discount_bps / 100}%</TableCell>
+                              <TableCell className="text-end tabular-nums">
                                 <div className="flex items-center justify-end gap-1">
                                   {promo.usage_count}
                                   {promo.max_uses_total && (
@@ -2337,10 +2339,10 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                                   )}
                                 </div>
                               </TableCell>
-                              <TableCell className="text-right tabular-nums font-medium text-emerald-700">
+                              <TableCell className="text-end tabular-nums font-medium text-emerald-700">
                                 {formatMoney(promo.revenue_generated, "MAD")}
                               </TableCell>
-                              <TableCell className="text-right tabular-nums text-amber-700">
+                              <TableCell className="text-end tabular-nums text-amber-700">
                                 {formatMoney(promo.discount_given, "MAD")}
                               </TableCell>
                               <TableCell className="text-center">

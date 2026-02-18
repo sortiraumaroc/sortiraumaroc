@@ -18,8 +18,7 @@
 
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#ffffff" />
-    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#a3001d" />
 
     <title>Sortir Au Maroc — Réservez vos meilleures sorties au Maroc</title>
     <meta
@@ -30,21 +29,27 @@
     <meta name="author" content="Sortir Au Maroc" />
     <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1" />
 
-    <link rel="canonical" href="https://sortiraumaroc.ma/" />
-    <link rel="alternate" hreflang="fr" href="https://sortiraumaroc.ma/" />
-    <link rel="alternate" hreflang="en" href="https://sortiraumaroc.ma/en/" />
-    <link rel="alternate" hreflang="x-default" href="https://sortiraumaroc.ma/" />
+    <link rel="canonical" href="https://sam.ma/" />
+    <link rel="alternate" hreflang="fr" href="https://sam.ma/" />
+    <link rel="alternate" hreflang="en" href="https://sam.ma/en/" />
+    <link rel="alternate" hreflang="es" href="https://sam.ma/es/" />
+    <link rel="alternate" hreflang="it" href="https://sam.ma/it/" />
+    <link rel="alternate" hreflang="ar" href="https://sam.ma/ar/" />
+    <link rel="alternate" hreflang="x-default" href="https://sam.ma/" />
 
     <meta property="og:site_name" content="Sortir Au Maroc" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="Sortir Au Maroc — Réservez vos meilleures sorties au Maroc" />
     <meta property="og:locale" content="fr_MA" />
     <meta property="og:locale:alternate" content="en_US" />
+    <meta property="og:locale:alternate" content="es_ES" />
+    <meta property="og:locale:alternate" content="it_IT" />
+    <meta property="og:locale:alternate" content="ar_SA" />
     <meta
       property="og:description"
       content="Trouvez et réservez vos restaurants, loisirs, spas, hôtels et expériences au Maroc. Réservation simple, confirmations et support."
     />
-    <meta property="og:url" content="https://sortiraumaroc.ma/" />
+    <meta property="og:url" content="https://sam.ma/" />
 
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Sortir Au Maroc — Réservez vos meilleures sorties au Maroc" />
@@ -75,6 +80,21 @@
 
     <!-- Google Search Console verification -->
     <meta name="google-site-verification" content="rlTLY6Xr-HJIxXn97j1Vje2kZCxVnUo606bvRkUyFBo" />
+
+    <!-- Noto Sans Arabic for RTL locale -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+      media="print"
+      onload="this.media='all'"
+    />
   </head>
 
   <body>
@@ -90,6 +110,31 @@
     <!-- End Google Tag Manager (noscript) -->
 
     <div id="root"></div>
+
+    <!-- Unregister old PWA service worker (Workbox) and clear its caches.
+         Keeps firebase-messaging-sw.js intact for push notifications. -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          registrations.forEach(function(reg) {
+            // Only unregister the Workbox PWA SW (sw.js), NOT firebase-messaging-sw.js
+            if (reg.active && reg.active.scriptURL && !reg.active.scriptURL.includes('firebase-messaging')) {
+              reg.unregister();
+            }
+          });
+        });
+        // Clear all Workbox caches (sam-assets, sam-api, sam-cdn, workbox-precache)
+        if ('caches' in window) {
+          caches.keys().then(function(names) {
+            names.forEach(function(name) {
+              if (name.startsWith('sam-') || name.startsWith('workbox-')) {
+                caches.delete(name);
+              }
+            });
+          });
+        }
+      }
+    </script>
 
     <script type="module" src="/client/main.tsx"></script>
   </body>

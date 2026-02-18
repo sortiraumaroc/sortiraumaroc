@@ -180,7 +180,7 @@ export function PartnerShell(props: Props) {
           <CardContent className="p-3">
             {profileLoading ? (
               <div className="text-sm text-slate-600">
-                <Loader2 className="inline h-4 w-4 animate-spin mr-2" />
+                <Loader2 className="inline h-4 w-4 animate-spin me-2" />
                 Chargement…
               </div>
             ) : profile ? (
@@ -234,7 +234,7 @@ export function PartnerShell(props: Props) {
                   <TableHead>Titre</TableHead>
                   <TableHead>Statut job</TableHead>
                   <TableHead>Livrables assignés</TableHead>
-                  <TableHead className="text-right">Action</TableHead>
+                  <TableHead className="text-end">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -244,7 +244,7 @@ export function PartnerShell(props: Props) {
                       colSpan={5}
                       className="py-8 text-center text-sm text-slate-600"
                     >
-                      <Loader2 className="inline h-4 w-4 animate-spin mr-2" />
+                      <Loader2 className="inline h-4 w-4 animate-spin me-2" />
                       Chargement…
                     </TableCell>
                   </TableRow>
@@ -267,7 +267,7 @@ export function PartnerShell(props: Props) {
                         <TableCell className="text-xs text-slate-700">
                           {deliverables.length}
                         </TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="text-end">
                           <Button
                             size="sm"
                             variant="outline"
@@ -313,7 +313,7 @@ export function PartnerShell(props: Props) {
 
             {detailsLoading ? (
               <div className="py-10 text-center text-sm text-slate-600">
-                <Loader2 className="inline h-4 w-4 animate-spin mr-2" />
+                <Loader2 className="inline h-4 w-4 animate-spin me-2" />
                 Chargement…
               </div>
             ) : details ? (
@@ -330,7 +330,7 @@ export function PartnerShell(props: Props) {
                           <TableHead>Type</TableHead>
                           <TableHead>Statut</TableHead>
                           <TableHead>Version</TableHead>
-                          <TableHead className="text-right">Upload</TableHead>
+                          <TableHead className="text-end">Upload</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -445,7 +445,7 @@ function PartnerDeliverableRow(props: {
       <TableCell className="text-xs font-mono">
         v{String(props.deliverable.current_version ?? 0)}
       </TableCell>
-      <TableCell className="text-right">
+      <TableCell className="text-end">
         <label className="inline-flex items-center gap-2">
           <input
             type="file"

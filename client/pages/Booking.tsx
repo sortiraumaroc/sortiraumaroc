@@ -13,7 +13,7 @@ import { isAuthed } from "@/lib/auth";
 import { getPublicEstablishment } from "@/lib/publicApi";
 import { isUuid } from "@/lib/pro/visits";
 import { useI18n } from "@/lib/i18n";
-import { applySeo } from "@/lib/seo";
+import { applySeo, buildI18nSeoFields } from "@/lib/seo";
 
 
 function parseYmd(dateYmd: string): Date | null {
@@ -39,7 +39,7 @@ function inferServiceFromTime(time: string): ServiceType {
 }
 
 export default function Booking() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
 
   const { establishmentId } = useParams<{ establishmentId: string }>();
   const navigate = useNavigate();
@@ -68,7 +68,7 @@ export default function Booking() {
       ? `Finalisez votre réservation chez ${name} en quelques étapes.`
       : "Finalisez votre réservation en quelques étapes.";
 
-    applySeo({ title, description, ogType: "website" });
+    applySeo({ title, description, ogType: "website", ...buildI18nSeoFields(locale) });
   }, [resolvedName]);
 
   const {

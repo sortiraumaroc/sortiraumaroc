@@ -8,6 +8,7 @@ import {
   FAQ_CATEGORIES,
   filterFaqItems,
   listPublicFaqArticles,
+  type FaqAudience,
   type FaqCategoryId,
   type PublicFaqArticle,
 } from "@/lib/faq";
@@ -17,9 +18,10 @@ type Props = {
   className?: string;
   defaultCategory?: FaqCategoryId | "all";
   compact?: boolean;
+  audience?: FaqAudience;
 };
 
-export function FaqSection({ className, defaultCategory = "all", compact }: Props) {
+export function FaqSection({ className, defaultCategory = "all", compact, audience }: Props) {
   const { t, locale } = useI18n();
 
   const [query, setQuery] = useState("");
@@ -37,7 +39,7 @@ export function FaqSection({ className, defaultCategory = "all", compact }: Prop
       setError(null);
 
       try {
-        const data = await listPublicFaqArticles(locale);
+        const data = await listPublicFaqArticles(locale, audience);
         if (cancelled) return;
 
         // Strict language rule: only keep items that have both question+answer in the selected language.
@@ -53,7 +55,7 @@ export function FaqSection({ className, defaultCategory = "all", compact }: Prop
     return () => {
       cancelled = true;
     };
-  }, [locale, t]);
+  }, [locale, t, audience]);
 
   const results = useMemo(() => {
     return filterFaqItems({
@@ -62,6 +64,15 @@ export function FaqSection({ className, defaultCategory = "all", compact }: Prop
       category: category === "all" ? undefined : category,
     });
   }, [items, query, category]);
+
+  // Filter categories based on audience — hide irrelevant categories
+  const visibleCategories = useMemo(() => {
+    return FAQ_CATEGORIES.filter((c) => {
+      if (audience === "consumer" && c.id === "comptes_pro") return false;
+      if (audience === "pro" && c.id === "comptes_utilisateurs") return false;
+      return true;
+    });
+  }, [audience]);
 
   const activeLabel = useMemo(() => {
     if (category === "all") return t("faq.section.category_all");
@@ -93,19 +104,19 @@ export function FaqSection({ className, defaultCategory = "all", compact }: Prop
               type="button"
               onClick={() => setCategory("all")}
               className={cn(
-                "w-full text-left rounded-md px-3 py-2 text-sm font-semibold transition",
+                "w-full text-start rounded-md px-3 py-2 text-sm font-semibold transition",
                 category === "all" ? "bg-primary text-white" : "hover:bg-white",
               )}
             >
               {t("faq.section.category_all_short")}
             </button>
-            {FAQ_CATEGORIES.map((c) => (
+            {visibleCategories.map((c) => (
               <button
                 key={c.id}
                 type="button"
                 onClick={() => setCategory(c.id)}
                 className={cn(
-                  "w-full text-left rounded-md px-3 py-2 text-sm font-semibold transition",
+                  "w-full text-start rounded-md px-3 py-2 text-sm font-semibold transition",
                   category === c.id ? "bg-primary text-white" : "hover:bg-white",
                 )}
               >
@@ -139,7 +150,7 @@ export function FaqSection({ className, defaultCategory = "all", compact }: Prop
 
                 return (
                   <AccordionItem key={item.id} value={item.id}>
-                    <AccordionTrigger className="text-left">
+                    <AccordionTrigger className="text-start">
                       <div className="flex flex-col gap-1">
                         <div className="font-semibold text-slate-900">{item.resolved.question}</div>
                         <div className="text-xs text-slate-500">

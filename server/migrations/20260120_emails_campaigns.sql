@@ -16,7 +16,7 @@ create table if not exists public.email_branding_settings (
   background_color text not null default '#FFFFFF',
   from_name text not null default 'Sortir Au Maroc',
   contact_email text not null default 'hello@sortiraumaroc.ma',
-  legal_links jsonb not null default '{"legal":"https://sortiraumaroc.ma/mentions-legales","terms":"https://sortiraumaroc.ma/cgu","privacy":"https://sortiraumaroc.ma/politique-de-confidentialite"}'::jsonb,
+  legal_links jsonb not null default '{"legal":"https://sam.ma/mentions-legales","terms":"https://sam.ma/cgu","privacy":"https://sam.ma/politique-de-confidentialite"}'::jsonb,
   signature_fr text not null default 'L’équipe Sortir Au Maroc',
   signature_en text not null default 'The Sortir Au Maroc team',
   created_at timestamptz not null default now(),
@@ -171,7 +171,7 @@ values
     'Bonjour {{user_name}},\n\nBienvenue sur Sortir Au Maroc. Vous pouvez découvrir et réserver les meilleures expériences au Maroc.\n\nÀ bientôt,\nL’équipe Sortir Au Maroc',
     'Hello {{user_name}},\n\nWelcome to Sortir Au Maroc. Discover and book the best experiences in Morocco.\n\nSee you soon,\nThe Sortir Au Maroc team',
     'Découvrir Sortir Au Maroc','Explore Sortir Au Maroc',
-    'https://sortiraumaroc.ma/'),
+    'https://sam.ma/'),
 
   ('user_booking_confirmed','consumer','Confirmation de réservation',
     'Confirmation de réservation {{booking_ref}}',
@@ -195,7 +195,7 @@ values
     'Bonjour {{user_name}},\n\nVotre réservation a été annulée.\n\nRéférence : {{booking_ref}}\nÉtablissement : {{establishment}}\nDate : {{date}}\n\nSi vous avez besoin d’aide, contactez-nous.\n\nL’équipe Sortir Au Maroc',
     'Hello {{user_name}},\n\nYour booking was cancelled.\n\nReference: {{booking_ref}}\nEstablishment: {{establishment}}\nDate: {{date}}\n\nIf you need help, contact us.\n\nThe Sortir Au Maroc team',
     'Contacter le support','Contact support',
-    'https://sortiraumaroc.ma/aide'),
+    'https://sam.ma/aide'),
 
   ('user_waitlist_offer','consumer','Offre liste d’attente',
     'Une place est disponible — {{establishment}}',
@@ -227,7 +227,7 @@ values
     'Bonjour {{user_name}},\n\nVotre compte a été créé via votre réseau social.\n\nVous pouvez maintenant gérer vos réservations et préférences.\n\nL’équipe Sortir Au Maroc',
     'Hello {{user_name}},\n\nYour account was created via social login.\n\nYou can now manage your bookings and preferences.\n\nThe Sortir Au Maroc team',
     'Accéder à mon compte','Go to my account',
-    'https://sortiraumaroc.ma/profile'),
+    'https://sam.ma/profile'),
 
   ('user_password_reset','consumer','Réinitialisation mot de passe',
     'Réinitialisation de votre mot de passe',
@@ -349,7 +349,7 @@ values
     'Bonjour {{user_name}},\n\nVotre paiement a été refusé.\n\nMontant : {{amount}}\n\nMerci de réessayer ou de contacter le support.\n\nL’équipe Sortir Au Maroc',
     'Hello {{user_name}},\n\nYour payment was rejected.\n\nAmount: {{amount}}\n\nPlease try again or contact support.\n\nThe Sortir Au Maroc team',
     'Contacter le support','Contact support',
-    'https://sortiraumaroc.ma/aide'),
+    'https://sam.ma/aide'),
 
   ('finance_invoice_request','finance','Appel à facture établissement',
     'Demande de facture — {{establishment}}',
@@ -366,7 +366,7 @@ values
     'Bonjour {{user_name}},\n\nVotre adresse email a été modifiée avec succès.\n\nSi vous n’êtes pas à l’origine de cette action, contactez-nous immédiatement.\n\nL’équipe Sortir Au Maroc',
     'Hello {{user_name}},\n\nYour email address was changed successfully.\n\nIf you did not do this, contact us immediately.\n\nThe Sortir Au Maroc team',
     'Contacter le support','Contact support',
-    'https://sortiraumaroc.ma/aide'),
+    'https://sam.ma/aide'),
 
   ('system_security_alert','system','Alerte sécurité',
     'Alerte sécurité — action requise',
@@ -382,7 +382,7 @@ values
     'Bonjour {{user_name}},\n\nVotre compte a été fermé.\n\nMerci d’avoir utilisé Sortir Au Maroc.\n\nL’équipe Sortir Au Maroc',
     'Hello {{user_name}},\n\nYour account has been closed.\n\nThank you for using Sortir Au Maroc.\n\nThe Sortir Au Maroc team',
     'Revenir sur le site','Back to website',
-    'https://sortiraumaroc.ma/'),
+    'https://sam.ma/'),
 
   ('system_data_deletion','system','Suppression données',
     'Suppression de vos données',
@@ -390,7 +390,7 @@ values
     'Bonjour {{user_name}},\n\nVotre demande de suppression de données a été prise en compte.\n\nL’équipe Sortir Au Maroc',
     'Hello {{user_name}},\n\nYour data deletion request has been processed.\n\nThe Sortir Au Maroc team',
     'Contacter le support','Contact support',
-    'https://sortiraumaroc.ma/aide'),
+    'https://sam.ma/aide'),
 
   ('system_maintenance','system','Maintenance plateforme',
     'Maintenance programmée',

@@ -54,7 +54,7 @@ export function SearchSuggestionsDropdown({
             <button
               key={item.id}
               onClick={() => onSelectItem(item)}
-              className="w-full flex items-center justify-between px-4 py-3 hover:bg-pink-50 active:bg-pink-100 transition text-left"
+              className="w-full flex items-center justify-between px-4 py-3 hover:bg-pink-50 active:bg-pink-100 transition text-start"
               role="option"
             >
               <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -70,9 +70,9 @@ export function SearchSuggestionsDropdown({
                 </div>
               </div>
               {item.trailing ? (
-                <div className="flex-shrink-0 ml-2">{item.trailing}</div>
+                <div className="flex-shrink-0 ms-2">{item.trailing}</div>
               ) : (
-                <ChevronRight className="w-4 h-4 text-slate-300 flex-shrink-0 ml-2" />
+                <ChevronRight className="w-4 h-4 text-slate-300 flex-shrink-0 ms-2" />
               )}
             </button>
           ))}

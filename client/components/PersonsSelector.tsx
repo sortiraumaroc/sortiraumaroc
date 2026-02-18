@@ -12,7 +12,7 @@ const TriggerButton = forwardRef<HTMLButtonElement, TriggerButtonProps>(
     <button
       ref={ref}
       type="button"
-      className={`w-full pl-10 pr-4 py-2 h-10 md:h-11 bg-slate-100 border border-slate-200 rounded-md text-left text-sm flex items-center justify-between transition-colors hover:bg-slate-100 hover:border-slate-300 focus-visible:border-primary/50 focus-visible:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${inputClassName}`}
+      className={`w-full ps-10 pe-4 py-2 h-10 md:h-11 bg-slate-100 border border-slate-200 rounded-md text-start text-sm flex items-center justify-between transition-colors hover:bg-slate-100 hover:border-slate-300 focus-visible:border-primary/50 focus-visible:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${inputClassName}`}
       style={{ fontFamily: "Circular Std, sans-serif" }}
       {...props}
     >
@@ -140,7 +140,7 @@ export function PersonsSelector({
 
   return (
     <div className="relative w-full group">
-      <Users className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary w-5 h-5 pointer-events-none transition-colors" />
+      <Users className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary w-5 h-5 pointer-events-none transition-colors" />
 
       {isMobile ? (
         <>

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, Copy, Plus, BadgeCheck, Crown, Star, Trash2, Power, Eye, GitCompareArrows } from "lucide-react";
+import { ArrowRight, Copy, Plus, BadgeCheck, Crown, Star, Trash2, Power, Eye, GitCompareArrows, Loader2, CheckCircle, XCircle, PauseCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { RefreshIconButton } from "@/components/ui/refresh-icon-button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -33,20 +34,24 @@ import {
   AdminApiError,
   Establishment,
   EstablishmentStatus,
+  batchEstablishmentsStatus,
   createEstablishment,
   listEstablishments,
   updateEstablishmentStatus,
   updateEstablishmentFlags,
+  updateEstablishmentCity,
   listAdminUniverses,
   UniverseAdmin,
   deleteEstablishment,
   isAdminSuperadmin,
   getAdminUserRole,
 } from "@/lib/adminApi";
+import { MOROCCAN_CITIES } from "@/components/admin/wizard/wizardConstants";
 import { useToast } from "@/hooks/use-toast";
 import { DynamicLucideIcon } from "@/components/admin/LucideIconPicker";
 import { DuplicateEstablishmentsDialog } from "@/components/admin/DuplicateEstablishmentsDialog";
 import { PaginationControls } from "@/components/admin/table/PaginationControls";
+import { EstablishmentCreationWizard } from "@/components/admin/wizard/EstablishmentCreationWizard";
 
 const STATUS_OPTIONS: Array<{ value: EstablishmentStatus; label: string; badge: "default" | "secondary" | "destructive" | "outline" }> = [
   { value: "pending", label: "En attente", badge: "secondary" },
@@ -142,6 +147,49 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Multi-sélection & actions en masse
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      if (prev.size === paginatedItems.length) return new Set();
+      return new Set(paginatedItems.map((e) => e.id));
+    });
+  };
+
+  const handleBulkAction = async (status: EstablishmentStatus) => {
+    if (!selectedIds.size || bulkActionLoading) return;
+    setBulkActionLoading(true);
+    setError(null);
+
+    try {
+      const ids = Array.from(selectedIds);
+      await batchEstablishmentsStatus(props.adminKey, { ids, status });
+      const labels: Record<string, string> = { active: "activé(s)", suspended: "suspendu(s)", rejected: "rejeté(s)", pending: "en attente" };
+      toast({
+        title: "Mise à jour en masse",
+        description: `${ids.length} établissement(s) ${labels[status] ?? status}.`,
+      });
+      setSelectedIds(new Set());
+      await refresh();
+    } catch (e) {
+      if (e instanceof AdminApiError) setError(e.message);
+      else setError("Erreur lors de l'action en masse");
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
   // Univers dynamiques depuis la base de données
   const [universes, setUniverses] = useState<UniverseAdmin[]>([]);
   const [universesLoading, setUniversesLoading] = useState(false);
@@ -154,6 +202,7 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
   }, [universes]);
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
   const [createSaving, setCreateSaving] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createDraft, setCreateDraft] = useState<{
@@ -321,6 +370,37 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
     return role === "superadmin" || role === "admin";
   }, []);
 
+  // Vérifier si l'utilisateur peut modifier la ville inline (admin ou superadmin)
+  const canEditCity = canDelete; // même condition
+
+  const handleCitySave = async (id: string, newCity: string) => {
+    setSavingIds((prev) => new Set(prev).add(id));
+    setError(null);
+
+    try {
+      await updateEstablishmentCity(props.adminKey, id, newCity);
+
+      // Optimistic update
+      setItems((prev) => prev.map((item) =>
+        item.id === id ? { ...item, city: newCity } : item
+      ));
+
+      toast({
+        title: "Ville mise à jour",
+        description: `La ville a été changée en "${newCity}".`,
+      });
+    } catch (e) {
+      if (e instanceof AdminApiError) setError(e.message);
+      else setError("Erreur inattendue");
+    } finally {
+      setSavingIds((prev) => {
+        const copy = new Set(prev);
+        copy.delete(id);
+        return copy;
+      });
+    }
+  };
+
   const handleDelete = async () => {
     if (!deleteConfirm || deleting) return;
 
@@ -340,6 +420,45 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
       else setError("Erreur lors de la suppression");
     } finally {
       setDeleting(false);
+    }
+  };
+
+  // Suppression en masse
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  const handleBulkDelete = async () => {
+    if (!selectedIds.size || bulkDeleting) return;
+    setBulkDeleting(true);
+    setError(null);
+
+    try {
+      const ids = Array.from(selectedIds);
+      let deleted = 0;
+      let failed = 0;
+      for (const id of ids) {
+        try {
+          await deleteEstablishment(props.adminKey, id);
+          deleted++;
+        } catch {
+          failed++;
+        }
+      }
+      toast({
+        title: "Suppression en masse",
+        description: failed
+          ? `${deleted} supprimé(s), ${failed} erreur(s).`
+          : `${deleted} établissement(s) supprimé(s).`,
+        variant: failed ? "destructive" : undefined,
+      });
+      setSelectedIds(new Set());
+      setBulkDeleteConfirm(false);
+      await refresh();
+    } catch (e) {
+      if (e instanceof AdminApiError) setError(e.message);
+      else setError("Erreur lors de la suppression en masse");
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -394,9 +513,10 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
     });
   }, [cityFilter, items, search, universeFilter]);
 
-  // Reset page when filters change
+  // Reset page & selection when filters change
   useEffect(() => {
     setCurrentPage(0);
+    setSelectedIds(new Set());
   }, [search, statusFilter, cityFilter, universeFilter]);
 
   const paginatedItems = useMemo(() => {
@@ -417,19 +537,7 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
             <Button
               variant="outline"
               className="px-3"
-              onClick={() => {
-                setCreateError(null);
-                setCreatedCredentials(null);
-                setCreateDraft({
-                  name: "",
-                  city: "",
-                  universe: universeOptions[0]?.value || "restaurants",
-                  owner_email: "",
-                  contact_name: "",
-                  contact_phone: "",
-                });
-                setCreateOpen(true);
-              }}
+              onClick={() => setWizardOpen(true)}
               aria-label="Créer un nouvel établissement"
               title="Créer un nouvel établissement"
             >
@@ -527,7 +635,78 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
         </div>
       </div>
 
+      {/* Barre d'actions en masse */}
+      {selectedIds.size > 0 && (
+        <div className="px-4 md:px-6 py-3 border-b border-slate-200 bg-blue-50/60 flex flex-wrap items-center gap-3">
+          <span className="text-sm font-medium text-blue-800">
+            {selectedIds.size} sélectionné{selectedIds.size > 1 ? "s" : ""}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-blue-600 hover:text-blue-800"
+            onClick={() => setSelectedIds(new Set())}
+            disabled={bulkActionLoading}
+          >
+            Tout désélectionner
+          </Button>
+          <div className="flex gap-2 ms-auto">
+            {bulkActionLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin text-slate-500" />
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 text-emerald-700 border-emerald-300 hover:bg-emerald-50"
+                  onClick={() => void handleBulkAction("active")}
+                >
+                  <CheckCircle className="h-3.5 w-3.5" />
+                  Activer
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 text-amber-700 border-amber-300 hover:bg-amber-50"
+                  onClick={() => void handleBulkAction("suspended")}
+                >
+                  <PauseCircle className="h-3.5 w-3.5" />
+                  Suspendre
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 text-red-700 border-red-300 hover:bg-red-50"
+                  onClick={() => void handleBulkAction("rejected")}
+                >
+                  <XCircle className="h-3.5 w-3.5" />
+                  Rejeter
+                </Button>
+                {canDelete && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 text-red-800 border-red-400 hover:bg-red-100 font-semibold"
+                    onClick={() => setBulkDeleteConfirm(true)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Supprimer
+                  </Button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {error && <div className="px-4 md:px-6 py-3 text-sm text-destructive">{error}</div>}
+
+      <EstablishmentCreationWizard
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        onCreated={() => void refresh()}
+        onSelectExisting={(id) => navigate(`/admin/establishments/${encodeURIComponent(id)}`)}
+      />
 
       <Dialog
         open={createOpen}
@@ -768,17 +947,60 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
         </DialogContent>
       </Dialog>
 
+      {/* Dialog de confirmation de suppression en masse */}
+      <Dialog open={bulkDeleteConfirm} onOpenChange={(open) => !open && setBulkDeleteConfirm(false)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Suppression en masse</DialogTitle>
+            <DialogDescription>
+              Êtes-vous sûr de vouloir supprimer définitivement <strong>{selectedIds.size} établissement(s)</strong> ?
+              <br /><br />
+              Cette action est irréversible et supprimera toutes les données associées (réservations, avis, memberships, etc.).
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setBulkDeleteConfirm(false)}
+              disabled={bulkDeleting}
+            >
+              Annuler
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void handleBulkDelete()}
+              disabled={bulkDeleting}
+              className="gap-2"
+            >
+              <Trash2 className="h-4 w-4" />
+              {bulkDeleting ? "Suppression..." : `Supprimer ${selectedIds.size} établissement(s)`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="p-4 md:p-6 overflow-x-auto">
         <TooltipProvider>
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={paginatedItems.length > 0 && selectedIds.size === paginatedItems.length}
+                    onCheckedChange={() => toggleSelectAll()}
+                    aria-label="Tout sélectionner"
+                  />
+                </TableHead>
                 <TableHead>Nom</TableHead>
                 <TableHead>Ville</TableHead>
                 <TableHead>Statut</TableHead>
                 <TableHead className="text-center">Badges</TableHead>
-                <TableHead>Créé</TableHead>
-                <TableHead className="text-right">Action</TableHead>
+                <TableHead>Date</TableHead>
+                <TableHead className="text-xs">Créé par</TableHead>
+                <TableHead className="text-xs">Modifié par</TableHead>
+                <TableHead className="text-end">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -789,15 +1011,69 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
                 const hasChanged = draft && draft.toString() !== current;
 
                 return (
-                  <TableRow key={item.id}>
+                  <TableRow key={item.id} className={selectedIds.has(item.id) ? "bg-blue-50/40" : ""}>
+                    <TableCell>
+                      <Checkbox
+                        checked={selectedIds.has(item.id)}
+                        onCheckedChange={() => toggleSelect(item.id)}
+                        aria-label={`Sélectionner ${getLabel(item)}`}
+                      />
+                    </TableCell>
                     <TableCell className="font-semibold">{getLabel(item)}</TableCell>
-                    <TableCell className="text-sm text-slate-600">{item.city ?? ""}</TableCell>
+                    <TableCell className="text-sm text-slate-600">
+                      {canEditCity ? (
+                        (() => {
+                          const currentCity = (item.city ?? "").trim();
+                          const cityInList = MOROCCAN_CITIES.includes(currentCity);
+                          return (
+                            <Select
+                              value={currentCity || "__empty__"}
+                              onValueChange={(v) => {
+                                const newVal = v === "__empty__" ? "" : v;
+                                if (newVal !== currentCity) {
+                                  void handleCitySave(item.id, newVal);
+                                }
+                              }}
+                              disabled={savingIds.has(item.id)}
+                            >
+                              <SelectTrigger className="w-full sm:w-[150px] h-8 text-sm">
+                                <SelectValue placeholder="Ville…" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {/* Show current city at top if not in standard list */}
+                                {currentCity && !cityInList && (
+                                  <SelectItem key={`__current__${currentCity}`} value={currentCity}>
+                                    {currentCity} ⚠️
+                                  </SelectItem>
+                                )}
+                                {!currentCity && (
+                                  <SelectItem value="__empty__">
+                                    <span className="text-slate-400 italic">Non définie</span>
+                                  </SelectItem>
+                                )}
+                                {MOROCCAN_CITIES.map((c) => (
+                                  <SelectItem key={c} value={c}>
+                                    {c}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          );
+                        })()
+                      ) : (
+                        item.city ?? ""
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Select
                         value={draft?.toString() ?? ""}
-                        onValueChange={(v) =>
-                          setDraftStatus((prev) => ({ ...prev, [item.id]: v as EstablishmentStatus }))
-                        }
+                        onValueChange={(v) => {
+                          const next = v as EstablishmentStatus;
+                          setDraftStatus((prev) => ({ ...prev, [item.id]: next }));
+                          if (next !== current) {
+                            void handleSave(item.id, next);
+                          }
+                        }}
                       >
                         <SelectTrigger className="w-full sm:w-[140px]">
                           <SelectValue placeholder="Choisir" />
@@ -877,8 +1153,21 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
                         </Tooltip>
                       </div>
                     </TableCell>
-                    <TableCell className="text-sm text-slate-600">{formatDate(item.created_at ?? null)}</TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-xs text-slate-600">
+                      <div>{formatDate(item.updated_at ?? item.created_at ?? null)}</div>
+                      {item.updated_at && item.updated_at !== item.created_at ? (
+                        <span className="text-[10px] text-slate-400">modifié</span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400">créé</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs text-slate-500">
+                      {item.admin_created_by_name || "\u2014"}
+                    </TableCell>
+                    <TableCell className="text-xs text-slate-500">
+                      {item.admin_updated_by_name || "\u2014"}
+                    </TableCell>
+                    <TableCell className="text-end">
                       <div className="flex gap-1.5 justify-end">
                         {/* Bouton Voir */}
                         <Tooltip>
@@ -946,7 +1235,7 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
 
               {!visibleItems.length && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-sm text-slate-600">
+                  <TableCell colSpan={8} className="text-center text-sm text-slate-600">
                     Aucun établissement.
                   </TableCell>
                 </TableRow>

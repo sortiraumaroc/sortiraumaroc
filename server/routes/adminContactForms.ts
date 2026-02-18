@@ -1,4 +1,5 @@
 import type { RequestHandler } from "express";
+import { randomBytes } from "crypto";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { emitAdminNotification } from "../adminNotifications";
 
@@ -710,5 +711,87 @@ export const getAdminContactFormsUnreadCount: RequestHandler = async (_req, res)
   } catch (err) {
     console.error("[getAdminContactFormsUnreadCount]", err);
     res.status(500).json({ error: "Failed to get unread count" });
+  }
+};
+
+// ============================================================================
+// ADMIN ROUTES - Generic image upload (contact form hero/logo images)
+// ============================================================================
+
+const CONTACT_FORM_IMAGES_BUCKET = "contact-form-images";
+
+/**
+ * Upload an image for contact form (hero or logo)
+ * Expects multipart/form-data with a "file" field
+ */
+export const uploadAdminContactFormImage: RequestHandler = async (req, res) => {
+  try {
+    const file = (req as any).file as
+      | { buffer: Buffer; mimetype: string; originalname: string; size: number }
+      | undefined;
+
+    if (!file) {
+      return res.status(400).json({ error: "No file provided" });
+    }
+
+    if (!file.mimetype.startsWith("image/")) {
+      return res.status(400).json({ error: "Only images are allowed" });
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      return res.status(413).json({ error: "File too large (max 5MB)" });
+    }
+
+    const supabase = getAdminSupabase();
+
+    // Determine extension
+    const mimeToExt: Record<string, string> = {
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+      "image/gif": "gif",
+      "image/svg+xml": "svg",
+    };
+    const ext = mimeToExt[file.mimetype] || "jpg";
+
+    const now = new Date();
+    const y = String(now.getUTCFullYear());
+    const m = String(now.getUTCMonth() + 1).padStart(2, "0");
+    const id = randomBytes(12).toString("hex");
+    const storagePath = `${y}/${m}/${id}.${ext}`;
+
+    // Ensure bucket exists
+    const { data: buckets } = await supabase.storage.listBuckets();
+    const bucketExists = buckets?.some((b) => b.name === CONTACT_FORM_IMAGES_BUCKET);
+    if (!bucketExists) {
+      await supabase.storage.createBucket(CONTACT_FORM_IMAGES_BUCKET, {
+        public: true,
+        fileSizeLimit: 5 * 1024 * 1024,
+        allowedMimeTypes: ["image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml"],
+      });
+    }
+
+    const { error: uploadError } = await supabase.storage
+      .from(CONTACT_FORM_IMAGES_BUCKET)
+      .upload(storagePath, file.buffer, {
+        contentType: file.mimetype,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error("[uploadAdminContactFormImage] storage error:", uploadError);
+      return res.status(500).json({ error: uploadError.message });
+    }
+
+    const { data: urlData } = supabase.storage
+      .from(CONTACT_FORM_IMAGES_BUCKET)
+      .getPublicUrl(storagePath);
+
+    const publicUrl = urlData?.publicUrl ?? "";
+
+    res.json({ url: publicUrl });
+  } catch (err) {
+    console.error("[uploadAdminContactFormImage]", err);
+    res.status(500).json({ error: "Failed to upload image" });
   }
 };

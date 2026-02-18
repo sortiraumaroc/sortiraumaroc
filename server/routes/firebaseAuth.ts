@@ -317,7 +317,7 @@ export async function authenticateWithFirebase(
         type: "magiclink",
         email: phoneEmail,
         options: {
-          redirectTo: process.env.PUBLIC_BASE_URL || process.env.VITE_APP_URL || "https://sortiraumaroc.ma",
+          redirectTo: process.env.PUBLIC_BASE_URL || process.env.VITE_APP_URL || "https://sam.ma",
         },
       });
 
@@ -328,18 +328,20 @@ export async function authenticateWithFirebase(
     }
 
     // Log successful authentication
-    await supabase.from("system_logs").insert({
-      actor_user_id: userId,
-      actor_role: "consumer",
-      action: "auth.phone_login",
-      entity_type: "consumer_user",
-      entity_id: userId,
-      payload: {
-        method: "firebase_phone",
-        is_new_user: isNewUser,
-        firebase_uid: verification.uid,
-      },
-    }).catch(() => { /* ignore logging errors */ });
+    try {
+      await supabase.from("system_logs").insert({
+        actor_user_id: userId,
+        actor_role: "consumer",
+        action: "auth.phone_login",
+        entity_type: "consumer_user",
+        entity_id: userId,
+        payload: {
+          method: "firebase_phone",
+          is_new_user: isNewUser,
+          firebase_uid: verification.uid,
+        },
+      });
+    } catch { /* ignore logging errors */ }
 
     // Return the session data
     res.json({

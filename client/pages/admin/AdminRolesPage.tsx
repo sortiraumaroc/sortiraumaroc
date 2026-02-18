@@ -261,7 +261,7 @@ export function AdminRolesPage() {
                   type="button"
                   onClick={() => setSelectedId(r.id)}
                   className={
-                    "w-full text-left rounded-md border px-3 py-2 transition " +
+                    "w-full text-start rounded-md border px-3 py-2 transition " +
                     (r.id === selectedId
                       ? "border-primary bg-primary/5"
                       : "border-slate-200 hover:bg-slate-50")
@@ -298,10 +298,10 @@ export function AdminRolesPage() {
                 <div className="overflow-x-auto">
                   <table className="min-w-[860px] w-full text-sm">
                     <thead>
-                      <tr className="text-left text-slate-600">
-                        <th className="py-2 pr-4">Module</th>
+                      <tr className="text-start text-slate-600">
+                        <th className="py-2 pe-4">Module</th>
                         {ADMIN_ACTIONS.map((a) => (
-                          <th key={a} className="py-2 pr-4">
+                          <th key={a} className="py-2 pe-4">
                             {ACTION_LABELS[a]}
                           </th>
                         ))}
@@ -310,9 +310,9 @@ export function AdminRolesPage() {
                     <tbody>
                       {ADMIN_MODULES.map((m) => (
                         <tr key={m} className="border-t border-slate-200">
-                          <td className="py-3 pr-4 font-semibold text-slate-900">{MODULE_LABELS[m]}</td>
+                          <td className="py-3 pe-4 font-semibold text-slate-900">{MODULE_LABELS[m]}</td>
                           {ADMIN_ACTIONS.map((a) => (
-                            <td key={a} className="py-3 pr-4">
+                            <td key={a} className="py-3 pe-4">
                               <Checkbox
                                 checked={getFlag(selected, m, a)}
                                 disabled={selected.id === "superadmin"}
@@ -410,7 +410,7 @@ export function AdminRolesPage() {
               disabled={saving}
               className="bg-red-600 hover:bg-red-700"
             >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              {saving ? <Loader2 className="h-4 w-4 animate-spin me-2" /> : null}
               Supprimer
             </AlertDialogAction>
           </AlertDialogFooter>

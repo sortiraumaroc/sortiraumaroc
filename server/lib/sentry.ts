@@ -46,8 +46,18 @@ export async function initSentry(): Promise<void> {
       environment: process.env.NODE_ENV || "development",
       release: process.env.npm_package_version || "1.0.0",
 
-      // Performance monitoring
-      tracesSampleRate: process.env.NODE_ENV === "production" ? 0.1 : 1.0,
+      // Disable OpenTelemetry auto-instrumentation that requires `require.cache`
+      // (incompatible with Vite ESM bundles where modules are inlined, not loaded via require)
+      registerEsmLoaderHooks: false,
+
+      // Disable performance tracing to avoid require-in-the-middle instrumentation
+      // which crashes with "ReferenceError: require is not defined" in ESM bundles
+      tracesSampleRate: 0,
+      autoSessionTracking: false,
+
+      // Strip all default integrations that rely on require/CJS hooks
+      defaultIntegrations: false,
+      integrations: [],
 
       // Filter sensitive data
       beforeSend(event: any) {

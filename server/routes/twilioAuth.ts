@@ -14,6 +14,7 @@ import type { Request, Response } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
 import crypto from "crypto";
 import Twilio from "twilio";
+import { isTrustedDevice, issueTrustedDevice, revokeAllTrustedDevices } from "../trustedDeviceLogic";
 
 // Twilio configuration
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
@@ -69,6 +70,46 @@ function cleanExpiredOtps() {
 
 // Clean expired OTPs every 5 minutes
 setInterval(cleanExpiredOtps, 5 * 60 * 1000);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper: Find auth user by phone or synthetic email (paginated, exhaustive)
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface AuthUser { id: string; email?: string; phone?: string; user_metadata?: Record<string, unknown> }
+
+/**
+ * Search auth.users by phone number or synthetic email.
+ * Paginates through ALL users (1000 per page, up to 50 pages = 50k users)
+ * instead of only checking the first 200.
+ */
+async function findAuthUserByPhone(
+  supabase: ReturnType<typeof getAdminSupabase>,
+  cleanPhone: string,
+  phoneEmail: string,
+): Promise<AuthUser | null> {
+  const MAX_PAGES = 50;
+  const PER_PAGE = 1000;
+
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const { data, error } = await supabase.auth.admin.listUsers({
+      page,
+      perPage: PER_PAGE,
+    });
+
+    if (error || !data?.users?.length) break;
+
+    const users = data.users as unknown as AuthUser[];
+    const match = users.find(
+      (u) => u.phone === cleanPhone || u.email === phoneEmail,
+    );
+    if (match) return match;
+
+    // If we got fewer than PER_PAGE, we've reached the last page
+    if (data.users.length < PER_PAGE) break;
+  }
+
+  return null;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rate limiting (in production, use Redis)
@@ -271,14 +312,7 @@ export async function verifyPhoneCode(req: Request, res: Response): Promise<void
     let isNewUser = false;
 
     // Step 1: Check if a user with this phone already exists in auth.users
-    const { data: authUsersList } = await supabase.auth.admin.listUsers({
-      page: 1,
-      perPage: 200,
-    });
-
-    const existingAuthUser = authUsersList?.users?.find(
-      (u) => u.phone === verifiedPhoneNumber || u.email === phoneEmail
-    ) || null;
+    const existingAuthUser = await findAuthUserByPhone(supabase, verifiedPhoneNumber, phoneEmail);
 
     if (existingAuthUser) {
       // User already exists — refuse signup, they should login instead
@@ -374,7 +408,7 @@ export async function verifyPhoneCode(req: Request, res: Response): Promise<void
         type: "magiclink",
         email: phoneEmail,
         options: {
-          redirectTo: process.env.PUBLIC_BASE_URL || process.env.VITE_APP_URL || "https://sortiraumaroc.ma",
+          redirectTo: process.env.PUBLIC_BASE_URL || process.env.VITE_APP_URL || "https://sam.ma",
         },
       });
 
@@ -402,6 +436,9 @@ export async function verifyPhoneCode(req: Request, res: Response): Promise<void
     } catch {
       /* ignore logging errors */
     }
+
+    // Issue trusted device cookie for new user (best-effort, non-blocking)
+    await issueTrustedDevice(req, res, userId);
 
     res.json({
       success: true,
@@ -476,14 +513,7 @@ export async function verifyPhoneLogin(req: Request, res: Response): Promise<voi
     const phoneEmail = `${cleanPhone.replace(/\+/g, "")}@phone.sortiraumaroc.ma`;
 
     // Find the existing user
-    const { data: authUsersList } = await supabase.auth.admin.listUsers({
-      page: 1,
-      perPage: 200,
-    });
-
-    const existingUser = authUsersList?.users?.find(
-      (u) => u.phone === cleanPhone || u.email === phoneEmail
-    ) || null;
+    const existingUser = await findAuthUserByPhone(supabase, cleanPhone, phoneEmail);
 
     if (!existingUser) {
       res.status(404).json({ error: "Aucun compte trouvé avec ce numéro" });
@@ -497,7 +527,7 @@ export async function verifyPhoneLogin(req: Request, res: Response): Promise<voi
         type: "magiclink",
         email: userEmail,
         options: {
-          redirectTo: process.env.PUBLIC_BASE_URL || process.env.VITE_APP_URL || "https://sortiraumaroc.ma",
+          redirectTo: process.env.PUBLIC_BASE_URL || process.env.VITE_APP_URL || "https://sam.ma",
         },
       });
 
@@ -525,6 +555,9 @@ export async function verifyPhoneLogin(req: Request, res: Response): Promise<voi
     } catch {
       /* ignore logging errors */
     }
+
+    // Issue trusted device cookie (best-effort, non-blocking)
+    await issueTrustedDevice(req, res, existingUser.id);
 
     res.json({
       success: true,
@@ -561,19 +594,17 @@ export async function lookupPhone(req: Request, res: Response): Promise<void> {
     const supabase = getAdminSupabase();
     const phoneEmail = `${cleanPhone.replace(/\+/g, "")}@phone.sortiraumaroc.ma`;
 
-    // Check auth.users for this phone or synthetic email
-    const { data: authUsersList } = await supabase.auth.admin.listUsers({
-      page: 1,
-      perPage: 200,
-    });
-
-    const existingUser = authUsersList?.users?.find(
-      (u) => u.phone === cleanPhone || u.email === phoneEmail
-    ) || null;
+    // Check auth.users for this phone or synthetic email (paginated, exhaustive)
+    const existingUser = await findAuthUserByPhone(supabase, cleanPhone, phoneEmail);
 
     if (existingUser) {
-      // Return the synthetic email so the client can use signInWithPassword
-      res.json({ exists: true, email: phoneEmail });
+      // Check if user has completed onboarding (set a real email + password)
+      // Phone users start with synthetic email (xxx@phone.sortiraumaroc.ma)
+      // After onboarding step 3, their email is replaced with a real one
+      const hasPassword = Boolean(
+        existingUser.email && !existingUser.email.endsWith("@phone.sortiraumaroc.ma")
+      );
+      res.json({ exists: true, email: phoneEmail, hasPassword });
     } else {
       res.json({ exists: false });
     }
@@ -597,4 +628,430 @@ export async function checkPhoneAuthStatus(
     provider: isTwilioConfigured() ? "twilio" : "none",
     methods: isTwilioConfigured() ? ["sms"] : [],
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Endpoint 6: Login with phone + password
+// POST /api/consumer/auth/phone/login-password
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function loginPhonePassword(req: Request, res: Response): Promise<void> {
+  try {
+    const { phoneNumber, password } = req.body;
+
+    if (!phoneNumber || typeof phoneNumber !== "string") {
+      res.status(400).json({ error: "Numéro de téléphone requis" });
+      return;
+    }
+
+    if (!password || typeof password !== "string") {
+      res.status(400).json({ error: "Mot de passe requis" });
+      return;
+    }
+
+    const cleanPhone = phoneNumber.replace(/\s/g, "");
+    if (!/^\+\d{10,15}$/.test(cleanPhone)) {
+      res.status(400).json({ error: "Format de numéro invalide" });
+      return;
+    }
+
+    const supabase = getAdminSupabase();
+
+    // Find user by phone or synthetic email
+    const phoneEmail = `${cleanPhone.replace(/\+/g, "")}@phone.sortiraumaroc.ma`;
+    const existingUser = await findAuthUserByPhone(supabase, cleanPhone, phoneEmail);
+
+    if (!existingUser) {
+      res.status(404).json({ error: "Aucun compte trouvé avec ce numéro" });
+      return;
+    }
+
+    // Get the actual email to use for sign-in (could be real email after onboarding)
+    const signInEmail = existingUser.email || phoneEmail;
+
+    // Attempt password-based sign-in via Supabase
+    const { error: signInErr } = await supabase.auth.signInWithPassword({
+      email: signInEmail,
+      password,
+    });
+
+    if (signInErr) {
+      console.log("[TwilioAuth] Password login failed for:", cleanPhone, signInErr.message);
+      res.status(401).json({ error: "Mot de passe incorrect" });
+      return;
+    }
+
+    // Password correct — generate magic link for session
+    const { data: sessionData, error: sessionError } =
+      await supabase.auth.admin.generateLink({
+        type: "magiclink",
+        email: signInEmail,
+        options: {
+          redirectTo: process.env.PUBLIC_BASE_URL || process.env.VITE_APP_URL || "https://sam.ma",
+        },
+      });
+
+    if (sessionError) {
+      console.error("[TwilioAuth] Error generating login session:", sessionError);
+      res.status(500).json({ error: "Échec de la création de la session" });
+      return;
+    }
+
+    // Log authentication
+    try {
+      await supabase
+        .from("system_logs")
+        .insert({
+          actor_user_id: existingUser.id,
+          actor_role: "consumer",
+          action: "auth.phone_password_login",
+          entity_type: "consumer_user",
+          entity_id: existingUser.id,
+          payload: {
+            method: "phone_password",
+            is_new_user: false,
+          },
+        });
+    } catch {
+      /* ignore logging errors */
+    }
+
+    // Issue trusted device cookie (best-effort, non-blocking)
+    await issueTrustedDevice(req, res, existingUser.id);
+
+    res.json({
+      success: true,
+      isNewUser: false,
+      userId: existingUser.id,
+      actionLink: sessionData?.properties?.action_link,
+    });
+  } catch (error: unknown) {
+    console.error("[TwilioAuth] Phone password login error:", error);
+    res.status(500).json({ error: "Erreur de connexion" });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Endpoint: Trusted device login (skip OTP if device is recognized)
+// POST /api/consumer/auth/phone/trusted-login
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function trustedDeviceLogin(req: Request, res: Response): Promise<void> {
+  try {
+    const { phoneNumber } = req.body;
+
+    if (!phoneNumber || typeof phoneNumber !== "string") {
+      res.status(400).json({ trusted: false, error: "Numéro de téléphone requis" });
+      return;
+    }
+
+    const cleanPhone = phoneNumber.replace(/\s/g, "");
+    if (!/^\+\d{10,15}$/.test(cleanPhone)) {
+      res.status(400).json({ trusted: false, error: "Format de numéro invalide" });
+      return;
+    }
+
+    const supabase = getAdminSupabase();
+    const phoneEmail = `${cleanPhone.replace(/\+/g, "")}@phone.sortiraumaroc.ma`;
+
+    // Step 1: Find the user
+    const existingUser = await findAuthUserByPhone(supabase, cleanPhone, phoneEmail);
+    if (!existingUser) {
+      // Don't reveal if phone exists — just say not trusted
+      res.json({ trusted: false });
+      return;
+    }
+
+    // Step 2: Check if current device is trusted for this user
+    const trusted = await isTrustedDevice(req, existingUser.id);
+    if (!trusted) {
+      res.json({ trusted: false });
+      return;
+    }
+
+    // Step 3: Device is trusted — generate session directly (no OTP needed)
+    console.log("[TwilioAuth] Trusted device login for:", cleanPhone);
+
+    const userEmail = existingUser.email || phoneEmail;
+    const { data: sessionData, error: sessionError } =
+      await supabase.auth.admin.generateLink({
+        type: "magiclink",
+        email: userEmail,
+        options: {
+          redirectTo: process.env.PUBLIC_BASE_URL || process.env.VITE_APP_URL || "https://sam.ma",
+        },
+      });
+
+    if (sessionError) {
+      console.error("[TwilioAuth] Error generating trusted device session:", sessionError);
+      res.status(500).json({ trusted: false, error: "Échec de la création de la session" });
+      return;
+    }
+
+    // Log authentication
+    try {
+      await supabase
+        .from("system_logs")
+        .insert({
+          actor_user_id: existingUser.id,
+          actor_role: "consumer",
+          action: "auth.trusted_device_login",
+          entity_type: "consumer_user",
+          entity_id: existingUser.id,
+          payload: {
+            method: "trusted_device",
+            is_new_user: false,
+          },
+        });
+    } catch {
+      /* ignore logging errors */
+    }
+
+    // Refresh the trust token (extend expiry)
+    await issueTrustedDevice(req, res, existingUser.id);
+
+    res.json({
+      trusted: true,
+      success: true,
+      isNewUser: false,
+      userId: existingUser.id,
+      actionLink: sessionData?.properties?.action_link,
+    });
+  } catch (error: unknown) {
+    console.error("[TwilioAuth] Trusted device login error:", error);
+    res.json({ trusted: false });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Password reset via SMS/WhatsApp
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface ResetCodeRecord {
+  code: string;
+  expiresAt: number;
+  attempts: number;
+  userId: string;
+}
+
+const resetCodeStore = new Map<string, ResetCodeRecord>();
+const RESET_CODE_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
+const MAX_RESET_VERIFY_ATTEMPTS = 5;
+
+// Rate limiting for forgot-password
+const forgotPasswordAttempts = new Map<string, { count: number; lastAttempt: number }>();
+const FORGOT_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const MAX_FORGOT_ATTEMPTS = 3; // Max 3 per hour
+
+// Clean expired reset codes every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, record] of resetCodeStore.entries()) {
+    if (record.expiresAt < now) {
+      resetCodeStore.delete(key);
+    }
+  }
+}, 5 * 60 * 1000);
+
+// WhatsApp sender (Twilio WhatsApp sandbox or dedicated number)
+const TWILIO_WHATSAPP_NUMBER = process.env.TWILIO_WHATSAPP_NUMBER || "whatsapp:+14155238886";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Endpoint 7: Request password reset via SMS or WhatsApp
+// POST /api/consumer/auth/phone/forgot-password
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function forgotPhonePassword(req: Request, res: Response): Promise<void> {
+  try {
+    const { phoneNumber, method } = req.body;
+
+    if (!phoneNumber || typeof phoneNumber !== "string") {
+      res.status(400).json({ error: "Numéro de téléphone requis" });
+      return;
+    }
+
+    const channel: "sms" | "whatsapp" = method === "whatsapp" ? "whatsapp" : "sms";
+
+    const cleanPhone = phoneNumber.replace(/\s/g, "");
+    if (!/^\+\d{10,15}$/.test(cleanPhone)) {
+      res.status(400).json({ error: "Format de numéro invalide" });
+      return;
+    }
+
+    // Rate limit
+    const rateKey = `forgot:${cleanPhone}`;
+    const rateCheck = checkRateLimit(
+      forgotPasswordAttempts,
+      rateKey,
+      FORGOT_RATE_LIMIT_WINDOW_MS,
+      MAX_FORGOT_ATTEMPTS
+    );
+    if (!rateCheck.allowed) {
+      res.status(429).json({
+        error: "Trop de tentatives. Réessayez plus tard.",
+        retryAfter: rateCheck.retryAfter,
+      });
+      return;
+    }
+
+    // Find user
+    const supabase = getAdminSupabase();
+    const phoneEmail = `${cleanPhone.replace(/\+/g, "")}@phone.sortiraumaroc.ma`;
+    const existingUser = await findAuthUserByPhone(supabase, cleanPhone, phoneEmail);
+
+    if (!existingUser) {
+      // Don't reveal if phone exists — return success anyway
+      res.json({ success: true });
+      return;
+    }
+
+    // Generate 6-digit reset code
+    const code = generateOtp();
+    resetCodeStore.set(cleanPhone, {
+      code,
+      expiresAt: Date.now() + RESET_CODE_EXPIRY_MS,
+      attempts: 0,
+      userId: existingUser.id,
+    });
+
+    // Send code via chosen channel
+    const client = getTwilioClient();
+    if (!client) {
+      console.error("[TwilioAuth] Twilio not configured for password reset");
+      res.status(500).json({ error: "Service SMS indisponible" });
+      return;
+    }
+
+    const messageBody = `Sortir Au Maroc : votre code de réinitialisation est ${code}. Il expire dans 5 minutes.`;
+
+    if (channel === "whatsapp") {
+      await client.messages.create({
+        body: messageBody,
+        from: TWILIO_WHATSAPP_NUMBER,
+        to: `whatsapp:${cleanPhone}`,
+      });
+    } else {
+      await client.messages.create({
+        body: messageBody,
+        from: TWILIO_PHONE_NUMBER,
+        to: cleanPhone,
+      });
+    }
+
+    console.log(`[TwilioAuth] Password reset code sent via ${channel} to:`, cleanPhone);
+
+    res.json({ success: true });
+  } catch (error: unknown) {
+    console.error("[TwilioAuth] Forgot password error:", error);
+    res.status(500).json({ error: "Erreur lors de l'envoi du code" });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Endpoint 8: Reset password with code
+// POST /api/consumer/auth/phone/reset-password
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function resetPhonePassword(req: Request, res: Response): Promise<void> {
+  try {
+    const { phoneNumber, code, newPassword } = req.body;
+
+    if (!phoneNumber || typeof phoneNumber !== "string") {
+      res.status(400).json({ error: "Numéro de téléphone requis" });
+      return;
+    }
+
+    if (!code || typeof code !== "string" || code.length < 4 || code.length > 8) {
+      res.status(400).json({ error: "Code de vérification invalide" });
+      return;
+    }
+
+    if (!newPassword || typeof newPassword !== "string" || newPassword.length < 8) {
+      res.status(400).json({ error: "Le mot de passe doit contenir au moins 8 caractères" });
+      return;
+    }
+
+    const cleanPhone = phoneNumber.replace(/\s/g, "");
+    if (!/^\+\d{10,15}$/.test(cleanPhone)) {
+      res.status(400).json({ error: "Format de numéro invalide" });
+      return;
+    }
+
+    // Verify reset code
+    const resetRecord = resetCodeStore.get(cleanPhone);
+
+    if (!resetRecord) {
+      res.status(401).json({ error: "Aucun code envoyé pour ce numéro. Demandez un nouveau code." });
+      return;
+    }
+
+    if (Date.now() > resetRecord.expiresAt) {
+      resetCodeStore.delete(cleanPhone);
+      res.status(401).json({ error: "Code expiré. Demandez un nouveau code." });
+      return;
+    }
+
+    if (resetRecord.attempts >= MAX_RESET_VERIFY_ATTEMPTS) {
+      resetCodeStore.delete(cleanPhone);
+      res.status(429).json({ error: "Trop de tentatives. Demandez un nouveau code." });
+      return;
+    }
+
+    resetRecord.attempts++;
+
+    if (resetRecord.code !== code.trim()) {
+      res.status(401).json({ error: "Code invalide" });
+      return;
+    }
+
+    // Code valid — update password
+    resetCodeStore.delete(cleanPhone);
+
+    const supabase = getAdminSupabase();
+    const { error: updateErr } = await supabase.auth.admin.updateUserById(
+      resetRecord.userId,
+      { password: newPassword }
+    );
+
+    if (updateErr) {
+      console.error("[TwilioAuth] Password update error:", updateErr);
+      res.status(500).json({ error: "Erreur lors de la mise à jour du mot de passe" });
+      return;
+    }
+
+    // Revoke all trusted devices on password reset (security measure)
+    try {
+      const revokedCount = await revokeAllTrustedDevices(resetRecord.userId);
+      if (revokedCount > 0) {
+        console.log(`[TwilioAuth] Revoked ${revokedCount} trusted devices after password reset for:`, cleanPhone);
+      }
+    } catch {
+      /* ignore revocation errors */
+    }
+
+    // Log event
+    try {
+      await supabase
+        .from("system_logs")
+        .insert({
+          actor_user_id: resetRecord.userId,
+          actor_role: "consumer",
+          action: "auth.phone_password_reset",
+          entity_type: "consumer_user",
+          entity_id: resetRecord.userId,
+          payload: {
+            method: "phone_reset_code",
+          },
+        });
+    } catch {
+      /* ignore logging errors */
+    }
+
+    console.log("[TwilioAuth] Password reset successfully for:", cleanPhone);
+
+    res.json({ success: true });
+  } catch (error: unknown) {
+    console.error("[TwilioAuth] Reset password error:", error);
+    res.status(500).json({ error: "Erreur lors de la réinitialisation" });
+  }
 }

@@ -323,7 +323,7 @@ export default function PartnerBloggerArticleEditor() {
         <div className="flex items-center gap-3">
           <Link to="/partners/articles">
             <Button variant="ghost" size="sm">
-              <ArrowLeft className="h-4 w-4 mr-1" />
+              <ArrowLeft className="h-4 w-4 me-1" />
               Retour
             </Button>
           </Link>
@@ -334,12 +334,12 @@ export default function PartnerBloggerArticleEditor() {
             {!isNew && (
               <div className="flex items-center gap-2 mt-1">
                 <Badge className={cn("text-xs", moderationConfig.className)}>
-                  <StatusIcon className="h-3 w-3 mr-1" />
+                  <StatusIcon className="h-3 w-3 me-1" />
                   {moderationConfig.label}
                 </Badge>
                 {article.is_published && (
                   <Badge className="text-xs bg-emerald-600 text-white">
-                    <Eye className="h-3 w-3 mr-1" />
+                    <Eye className="h-3 w-3 me-1" />
                     Publié
                   </Badge>
                 )}
@@ -420,7 +420,7 @@ export default function PartnerBloggerArticleEditor() {
               href={`/blog/${article.slug}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="ml-2 underline inline-flex items-center gap-1"
+              className="ms-2 underline inline-flex items-center gap-1"
             >
               Voir l'article <ExternalLink className="h-3 w-3" />
             </a>
@@ -682,7 +682,7 @@ export default function PartnerBloggerArticleEditor() {
               Annuler
             </Button>
             <Button onClick={handleSubmit} disabled={submitting}>
-              {submitting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              {submitting && <Loader2 className="h-4 w-4 animate-spin me-2" />}
               Soumettre
             </Button>
           </DialogFooter>
@@ -714,7 +714,7 @@ export default function PartnerBloggerArticleEditor() {
               disabled={requestingPayment}
               className="bg-emerald-600 hover:bg-emerald-700"
             >
-              {requestingPayment && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              {requestingPayment && <Loader2 className="h-4 w-4 animate-spin me-2" />}
               Confirmer la demande
             </Button>
           </DialogFooter>

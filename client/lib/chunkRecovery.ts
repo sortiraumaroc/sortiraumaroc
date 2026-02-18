@@ -23,13 +23,21 @@ function shouldReloadForMessage(message: string): boolean {
   return false;
 }
 
+/** Max number of automatic reload attempts before giving up. */
+const MAX_RETRIES = 2;
+
+/** Delay (ms) before reloading — gives the server time to recover from a 503. */
+const RELOAD_DELAY_MS = 2_000;
+
 function reloadOnce(reason: string): void {
   if (typeof window === "undefined") return;
 
-  const key = "__sam_chunk_reload_once_v1";
+  const key = "__sam_chunk_reload_count_v2";
+  let attempts = 0;
   try {
-    if (window.sessionStorage.getItem(key) === "1") return;
-    window.sessionStorage.setItem(key, "1");
+    attempts = Number(window.sessionStorage.getItem(key) ?? "0") || 0;
+    if (attempts >= MAX_RETRIES) return; // already retried enough
+    window.sessionStorage.setItem(key, String(attempts + 1));
   } catch {
     // If sessionStorage is blocked, still attempt a reload but avoid loops via a
     // global flag.
@@ -38,11 +46,14 @@ function reloadOnce(reason: string): void {
     w.__sam_chunk_reload_once = true;
   }
 
-  // Avoid polluting the URL; just hard reload the current location.
-  // This fixes stale index.html -> stale chunk graphs after deploys.
   // eslint-disable-next-line no-console
-  console.warn(`[sam] Reloading page after module/chunk load failure (${reason})`);
-  window.location.reload();
+  console.warn(
+    `[sam] Reloading page in ${RELOAD_DELAY_MS}ms after module/chunk load failure (${reason}, attempt ${attempts + 1}/${MAX_RETRIES})`,
+  );
+
+  // Wait a short moment before reloading — on Plesk the Node.js backend can
+  // temporarily return 503 after a hard refresh; a brief delay lets it recover.
+  setTimeout(() => window.location.reload(), RELOAD_DELAY_MS);
 }
 
 /**
@@ -56,6 +67,16 @@ function reloadOnce(reason: string): void {
  */
 export function installChunkLoadRecovery(): void {
   if (typeof window === "undefined") return;
+
+  // Clear the retry counter once the page fully loads successfully.
+  // This ensures future navigation/refreshes get fresh retry attempts.
+  window.addEventListener("load", () => {
+    try {
+      window.sessionStorage.removeItem("__sam_chunk_reload_count_v2");
+    } catch {
+      /* ignore */
+    }
+  });
 
   window.addEventListener("unhandledrejection", (event) => {
     const msg = messageFromUnknown((event as PromiseRejectionEvent).reason);

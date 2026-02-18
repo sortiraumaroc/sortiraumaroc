@@ -6,13 +6,13 @@ import { getPublicHomeCities } from "@/lib/publicApi";
 
 // Fallback data - used when API is unavailable
 const FALLBACK_MOROCCAN_CITIES = [
-  { id: "casablanca", name: "Casablanca" },
-  { id: "marrakech", name: "Marrakech" },
-  { id: "rabat", name: "Rabat" },
-  { id: "fes", name: "Fès" },
-  { id: "tangier", name: "Tanger" },
   { id: "agadir", name: "Agadir" },
+  { id: "casablanca", name: "Casablanca" },
+  { id: "fes", name: "Fès" },
+  { id: "marrakech", name: "Marrakech" },
   { id: "meknes", name: "Meknès" },
+  { id: "rabat", name: "Rabat" },
+  { id: "tangier", name: "Tanger" },
 ];
 
 // Dynamic cities - will be loaded from API
@@ -22,10 +22,12 @@ let MOROCCAN_CITIES = [...FALLBACK_MOROCCAN_CITIES];
 getPublicHomeCities()
   .then((res) => {
     if (res.ok && res.cities.length > 0) {
-      MOROCCAN_CITIES = res.cities.map((c) => ({
-        id: c.slug || c.id,
-        name: c.name,
-      }));
+      MOROCCAN_CITIES = res.cities
+        .map((c) => ({
+          id: c.slug || c.id,
+          name: c.name,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name, "fr"));
     }
   })
   .catch(() => {

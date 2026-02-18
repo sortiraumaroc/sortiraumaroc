@@ -956,7 +956,7 @@ export function AdminImportExportPage() {
 
               {/* Options */}
               {fileName && (
-                <div className="flex items-center space-x-2 rounded-lg border p-4">
+                <div className="flex items-center gap-x-2 rounded-lg border p-4">
                   <Switch id="send-emails" checked={sendEmails} onCheckedChange={setSendEmails} />
                   <Label htmlFor="send-emails" className="cursor-pointer">
                     Envoyer les accès par email aux nouveaux PRO
@@ -1151,7 +1151,7 @@ export function AdminImportExportPage() {
                   </p>
                 </div>
                 <Button onClick={() => setChrNewBatchOpen(true)}>
-                  <Play className="h-4 w-4 mr-2" />
+                  <Play className="h-4 w-4 me-2" />
                   Nouvelle collecte
                 </Button>
               </div>
@@ -1273,7 +1273,7 @@ export function AdminImportExportPage() {
                             setChrStagingPage(1);
                           }}
                         >
-                          <RefreshCw className="h-4 w-4 mr-2" />
+                          <RefreshCw className="h-4 w-4 me-2" />
                           Réinitialiser
                         </Button>
 
@@ -1283,7 +1283,7 @@ export function AdminImportExportPage() {
                           rel="noopener noreferrer"
                         >
                           <Button variant="outline">
-                            <Download className="h-4 w-4 mr-2" />
+                            <Download className="h-4 w-4 me-2" />
                             Export CSV
                           </Button>
                         </a>
@@ -1295,9 +1295,9 @@ export function AdminImportExportPage() {
                           className="text-orange-600 border-orange-300 hover:bg-orange-50"
                         >
                           {chrCleaningDuplicates ? (
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            <Loader2 className="h-4 w-4 me-2 animate-spin" />
                           ) : (
-                            <Trash2 className="h-4 w-4 mr-2" />
+                            <Trash2 className="h-4 w-4 me-2" />
                           )}
                           Nettoyer doublons
                         </Button>
@@ -1310,11 +1310,11 @@ export function AdminImportExportPage() {
                     <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
                       <span className="font-medium">{chrSelectedIds.size} sélectionné(s)</span>
                       <Button size="sm" onClick={handleChrBulkApprove}>
-                        <Check className="h-4 w-4 mr-2" />
+                        <Check className="h-4 w-4 me-2" />
                         Valider
                       </Button>
                       <Button size="sm" variant="destructive" onClick={handleChrBulkReject}>
-                        <X className="h-4 w-4 mr-2" />
+                        <X className="h-4 w-4 me-2" />
                         Rejeter
                       </Button>
                       <Button
@@ -1334,7 +1334,7 @@ export function AdminImportExportPage() {
                         <table className="w-full">
                           <thead className="bg-muted/50">
                             <tr>
-                              <th className="p-3 text-left w-10">
+                              <th className="p-3 text-start w-10">
                                 <Checkbox
                                   checked={
                                     chrSelectedIds.size === chrStagingEntries.length &&
@@ -1343,13 +1343,13 @@ export function AdminImportExportPage() {
                                   onCheckedChange={toggleChrSelectAll}
                                 />
                               </th>
-                              <th className="p-3 text-left">Nom</th>
-                              <th className="p-3 text-left whitespace-nowrap">Catégorie</th>
-                              <th className="p-3 text-left whitespace-nowrap">Ville</th>
-                              <th className="p-3 text-left whitespace-nowrap">Sources</th>
-                              <th className="p-3 text-left whitespace-nowrap">Score</th>
-                              <th className="p-3 text-left whitespace-nowrap">Statut</th>
-                              <th className="p-3 text-left whitespace-nowrap">Actions</th>
+                              <th className="p-3 text-start">Nom</th>
+                              <th className="p-3 text-start whitespace-nowrap">Catégorie</th>
+                              <th className="p-3 text-start whitespace-nowrap">Ville</th>
+                              <th className="p-3 text-start whitespace-nowrap">Sources</th>
+                              <th className="p-3 text-start whitespace-nowrap">Score</th>
+                              <th className="p-3 text-start whitespace-nowrap">Statut</th>
+                              <th className="p-3 text-start whitespace-nowrap">Actions</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1479,14 +1479,14 @@ export function AdminImportExportPage() {
                         <table className="w-full">
                           <thead className="bg-muted/50">
                             <tr>
-                              <th className="p-3 text-left">Date</th>
-                              <th className="p-3 text-left">Sources</th>
-                              <th className="p-3 text-left">Villes</th>
-                              <th className="p-3 text-left">Progression</th>
-                              <th className="p-3 text-left">Collectés</th>
-                              <th className="p-3 text-left">Normalisés</th>
-                              <th className="p-3 text-left">Doublons</th>
-                              <th className="p-3 text-right">Actions</th>
+                              <th className="p-3 text-start">Date</th>
+                              <th className="p-3 text-start">Sources</th>
+                              <th className="p-3 text-start">Villes</th>
+                              <th className="p-3 text-start">Progression</th>
+                              <th className="p-3 text-start">Collectés</th>
+                              <th className="p-3 text-start">Normalisés</th>
+                              <th className="p-3 text-start">Doublons</th>
+                              <th className="p-3 text-end">Actions</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1524,7 +1524,7 @@ export function AdminImportExportPage() {
                                       <>
                                         <div className="relative">
                                           <CircleDot className="h-5 w-5 text-blue-500 animate-pulse" />
-                                          <Sparkles className="h-3 w-3 text-blue-400 absolute -top-1 -right-1 animate-bounce" />
+                                          <Sparkles className="h-3 w-3 text-blue-400 absolute -top-1 -end-1 animate-bounce" />
                                         </div>
                                         <div className="flex flex-col">
                                           <span className="text-sm font-medium text-blue-600">En cours</span>
@@ -1567,7 +1567,7 @@ export function AdminImportExportPage() {
                                   </span>
                                 </td>
                                 <td className="p-3">{batch.totalDuplicates}</td>
-                                <td className="p-3 text-right">
+                                <td className="p-3 text-end">
                                   <Button
                                     variant="ghost"
                                     size="sm"
@@ -1730,17 +1730,17 @@ export function AdminImportExportPage() {
                     <TableCell>
                       {!item.valid ? (
                         <Badge variant="destructive" className="text-xs">
-                          <XCircle className="h-3 w-3 mr-1" />
+                          <XCircle className="h-3 w-3 me-1" />
                           Erreur
                         </Badge>
                       ) : item.isNew ? (
                         <Badge variant="default" className="bg-green-500 text-xs">
-                          <CheckCircle2 className="h-3 w-3 mr-1" />
+                          <CheckCircle2 className="h-3 w-3 me-1" />
                           Nouveau
                         </Badge>
                       ) : (
                         <Badge variant="secondary" className="bg-amber-100 text-amber-800 text-xs">
-                          <AlertCircle className="h-3 w-3 mr-1" />
+                          <AlertCircle className="h-3 w-3 me-1" />
                           Existe déjà
                         </Badge>
                       )}
@@ -2065,7 +2065,7 @@ export function AdminImportExportPage() {
               Annuler
             </Button>
             <Button onClick={handleChrCreateBatch}>
-              <Play className="h-4 w-4 mr-2" />
+              <Play className="h-4 w-4 me-2" />
               Lancer la collecte
             </Button>
           </DialogFooter>
@@ -2089,7 +2089,7 @@ export function AdminImportExportPage() {
                   </Badge>
                   {chrSelectedEntry.confidenceScore >= 85 && (
                     <Badge variant="destructive">
-                      <AlertTriangle className="h-3 w-3 mr-1" />
+                      <AlertTriangle className="h-3 w-3 me-1" />
                       Doublon probable ({chrSelectedEntry.confidenceScore}%)
                     </Badge>
                   )}
@@ -2243,7 +2243,7 @@ export function AdminImportExportPage() {
                       className="flex-1"
                       onClick={() => handleChrApprove(chrSelectedEntry)}
                     >
-                      <Check className="h-4 w-4 mr-2" />
+                      <Check className="h-4 w-4 me-2" />
                       Valider (créer en DRAFT)
                     </Button>
                     <Button
@@ -2251,7 +2251,7 @@ export function AdminImportExportPage() {
                       className="flex-1"
                       onClick={() => handleChrReject(chrSelectedEntry)}
                     >
-                      <X className="h-4 w-4 mr-2" />
+                      <X className="h-4 w-4 me-2" />
                       Rejeter
                     </Button>
                   </div>

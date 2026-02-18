@@ -127,7 +127,7 @@ function OrderCard({ order }: { order: VisibilityOrder }) {
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
       <div className="border rounded-lg bg-white overflow-hidden">
         <CollapsibleTrigger asChild>
-          <button className="w-full p-4 text-left hover:bg-slate-50 transition-colors">
+          <button className="w-full p-4 text-start hover:bg-slate-50 transition-colors">
             <div className="flex items-start justify-between gap-3">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
@@ -135,7 +135,7 @@ function OrderCard({ order }: { order: VisibilityOrder }) {
                     #{order.id.slice(0, 8)}
                   </span>
                   <Badge variant="outline" className={statusConfig.color}>
-                    <StatusIcon className="w-3 h-3 mr-1" />
+                    <StatusIcon className="w-3 h-3 me-1" />
                     {statusConfig.label}
                   </Badge>
                 </div>
@@ -144,15 +144,15 @@ function OrderCard({ order }: { order: VisibilityOrder }) {
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <div className="text-right">
+                <div className="text-end">
                   <div className="font-semibold">
                     {formatMoney(order.total_cents, order.currency)}
                   </div>
                   <Badge variant="outline" className={`text-xs ${paymentConfig.color}`}>
                     {order.payment_status === "paid" ? (
-                      <CreditCard className="w-3 h-3 mr-1" />
+                      <CreditCard className="w-3 h-3 me-1" />
                     ) : (
-                      <Banknote className="w-3 h-3 mr-1" />
+                      <Banknote className="w-3 h-3 me-1" />
                     )}
                     {paymentConfig.label}
                   </Badge>

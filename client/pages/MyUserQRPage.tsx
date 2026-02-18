@@ -14,21 +14,45 @@ import { ArrowLeft, Loader2, LogIn, QrCode } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ProfileQRCode } from "@/components/profile/ProfileQRCode";
+import { CeQrCode } from "@/components/ce/CeQrCode";
+import { useCeStatus } from "@/hooks/useCeStatus";
 import { isAuthed, AUTH_CHANGED_EVENT } from "@/lib/auth";
-import { getUserProfile } from "@/lib/userData";
+import { getUserProfile, USER_DATA_CHANGED_EVENT } from "@/lib/userData";
 import { AuthModalV2 } from "@/components/AuthModalV2";
+
+/** CE QR section — rendered only if user is an active CE employee */
+function CeQrSection() {
+  const { isCeActive, profileComplete, loading } = useCeStatus();
+  if (loading || !isCeActive || !profileComplete) return null;
+  return (
+    <CeQrCode
+      size={280}
+      showTimer
+      allowFullscreen
+      className="shadow-lg"
+    />
+  );
+}
 
 export default function MyUserQRPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [authed, setAuthed] = useState(isAuthed());
   const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [profileVersion, setProfileVersion] = useState(0);
 
   // Listen for auth changes
   useEffect(() => {
     const onAuthChange = () => setAuthed(isAuthed());
     window.addEventListener(AUTH_CHANGED_EVENT, onAuthChange);
     return () => window.removeEventListener(AUTH_CHANGED_EVENT, onAuthChange);
+  }, []);
+
+  // Listen for profile data changes (triggered by server sync after login)
+  useEffect(() => {
+    const onProfileChange = () => setProfileVersion((v) => v + 1);
+    window.addEventListener(USER_DATA_CHANGED_EVENT, onProfileChange);
+    return () => window.removeEventListener(USER_DATA_CHANGED_EVENT, onProfileChange);
   }, []);
 
   // Show auth modal if not authenticated
@@ -157,13 +181,16 @@ export default function MyUserQRPage() {
 
       {/* Main content */}
       <main className="flex-1 flex flex-col items-center justify-center p-6">
-        <div className="w-full max-w-sm">
+        <div className="w-full max-w-sm space-y-6">
           <ProfileQRCode
             size={280}
             showTimer
             allowFullscreen
             className="shadow-lg"
           />
+
+          {/* CE QR Code — shown only for active CE employees with complete profile */}
+          <CeQrSection />
 
           {/* Instructions */}
           <p className="text-center text-sm text-slate-500 mt-6">

@@ -16,7 +16,7 @@ import {
 } from "@/lib/blog";
 import { useI18n } from "@/lib/i18n";
 import { sanitizeRichTextHtml, stripHtmlToText } from "@/lib/richText";
-import { applySeo } from "@/lib/seo";
+import { applySeo, buildI18nSeoFields } from "@/lib/seo";
 
 export default function BlogArticle() {
   const { slug } = useParams<{ slug: string }>();
@@ -65,6 +65,7 @@ export default function BlogArticle() {
           title: titleCandidate ? `${titleCandidate} — Sortir Au Maroc` : "Sortir Au Maroc",
           description: desc || undefined,
           ogType: "article",
+          ...buildI18nSeoFields(locale),
         });
       } catch {
         if (!cancelled) {
@@ -262,7 +263,7 @@ export default function BlogArticle() {
                     [&_p]:mb-4
                     [&_h2]:text-xl [&_h2]:font-extrabold [&_h2]:text-foreground [&_h2]:mt-8 [&_h2]:mb-3
                     [&_h3]:text-lg [&_h3]:font-bold [&_h3]:text-foreground [&_h3]:mt-6 [&_h3]:mb-2
-                    [&_ul]:my-4 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:my-4 [&_ol]:list-decimal [&_ol]:pl-6
+                    [&_ul]:my-4 [&_ul]:list-disc [&_ul]:ps-6 [&_ol]:my-4 [&_ol]:list-decimal [&_ol]:ps-6
                     [&_li]:my-1
                     [&_a]:text-primary [&_a:hover]:underline
                     [&_strong]:font-bold"

@@ -180,7 +180,7 @@ export function CmsBlocksRenderer({ blocks, className, blogSlug }: Props) {
             <nav aria-label={title || t("content.toc")}>
               <ul className="space-y-2 text-sm">
                 {tocItems.map((item) => (
-                  <li key={item.anchor} className={cn(item.level === 3 ? "pl-3" : "")}>
+                  <li key={item.anchor} className={cn(item.level === 3 ? "ps-3" : "")}>
                     <a href={`#${item.anchor}`} className="text-slate-700 hover:text-primary hover:underline">
                       {item.text}
                     </a>
@@ -266,7 +266,7 @@ export function CmsBlocksRenderer({ blocks, className, blogSlug }: Props) {
 
           return (
             <section key={block.id}>
-              <List className={cn("pl-6 space-y-2 text-slate-800", listClass)}>
+              <List className={cn("ps-6 space-y-2 text-slate-800", listClass)}>
                 {items.map((item, idx) => (
                   <li key={`${block.id}-${idx}`} className="leading-relaxed">
                     {item}
@@ -319,7 +319,7 @@ export function CmsBlocksRenderer({ blocks, className, blogSlug }: Props) {
               )}
             >
               <div
-                className={cn("p-6 md:p-10", align === "center" ? "text-center" : align === "right" ? "text-right" : "text-left")}
+                className={cn("p-6 md:p-10", align === "center" ? "text-center" : align === "right" ? "text-end" : "text-start")}
                 style={
                   backgroundUrl
                     ? {
@@ -381,7 +381,7 @@ export function CmsBlocksRenderer({ blocks, className, blogSlug }: Props) {
                 "[&_p]:mb-4 [&_p:last-child]:mb-0",
                 "[&_h2]:text-xl [&_h2]:font-extrabold [&_h2]:mt-6 [&_h2]:mb-3",
                 "[&_h3]:text-lg [&_h3]:font-bold [&_h3]:mt-5 [&_h3]:mb-2",
-                "[&_ul]:my-4 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:my-4 [&_ol]:list-decimal [&_ol]:pl-6",
+                "[&_ul]:my-4 [&_ul]:list-disc [&_ul]:ps-6 [&_ol]:my-4 [&_ol]:list-decimal [&_ol]:ps-6",
                 "[&_li]:my-1",
                 "[&_a]:text-primary [&_a:hover]:underline",
                 "[&_strong]:font-bold",

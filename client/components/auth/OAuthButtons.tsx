@@ -24,7 +24,7 @@ export function OAuthButtons({
         onClick={onGoogleClick}
         disabled={loading}
       >
-        <span className="w-8 flex items-center justify-center mr-3">
+        <span className="w-8 flex items-center justify-center me-3">
           {loadingProvider === "google" ? (
             <span className="animate-spin">⏳</span>
           ) : (
@@ -42,7 +42,7 @@ export function OAuthButtons({
         onClick={onAppleClick}
         disabled={loading}
       >
-        <span className="w-8 flex items-center justify-center mr-3">
+        <span className="w-8 flex items-center justify-center me-3">
           {loadingProvider === "apple" ? (
             <span className="animate-spin">⏳</span>
           ) : (

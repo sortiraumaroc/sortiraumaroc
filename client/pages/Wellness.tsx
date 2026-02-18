@@ -2,19 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   ChevronLeft,
-  Facebook,
   Globe,
-  Instagram,
   MapPin,
-  Music,
   Phone,
   Share2,
   Star,
   Tag,
   Timer,
-  Twitter,
-  Youtube,
 } from "lucide-react";
+import { getSocialIcon } from "@/components/ui/SocialIcons";
 
 import { Header } from "@/components/Header";
 import type { DateSlots } from "@/components/booking/StickyBottomBookingActionBar";
@@ -24,6 +20,7 @@ import { OpeningHoursBlock } from "@/components/restaurant/OpeningHoursBlock";
 import { Button } from "@/components/ui/button";
 import { WellnessTreatmentsTab } from "@/components/wellness/WellnessTreatmentsTab";
 import { EstablishmentTabs } from "@/components/establishment/EstablishmentTabs";
+import { CeAdvantageSection } from "@/components/ce/CeAdvantageSection";
 import { cn } from "@/lib/utils";
 import { createRng, makeImageSet, makePhoneMa, makeWebsiteUrl, nextDaysYmd, pickMany, pickOne } from "@/lib/mockData";
 import { makeLegacyHoursPreset } from "@/lib/openingHoursPresets";
@@ -36,6 +33,7 @@ import { getPublicEstablishment } from "@/lib/publicApi";
 import { useI18n } from "@/lib/i18n";
 import { isAuthed, openAuthModal } from "@/lib/auth";
 import { ReportEstablishmentDialog } from "@/components/ReportEstablishmentDialog";
+import { applySeo, clearJsonLd, setJsonLd, generateLocalBusinessSchema, generateBreadcrumbSchema, hoursToOpeningHoursSpecification, buildI18nSeoFields } from "@/lib/seo";
 
 type Review = {
   id: string;
@@ -151,19 +149,7 @@ function platformLabel(platform: SocialMediaPlatform): string {
 }
 
 function SocialIcon({ platform, className }: { platform: SocialMediaPlatform; className?: string }) {
-  const cls = cn("h-4 w-4", className);
-  switch (platform) {
-    case "instagram":
-      return <Instagram className={cls} />;
-    case "facebook":
-      return <Facebook className={cls} />;
-    case "tiktok":
-      return <Music className={cls} />;
-    case "youtube":
-      return <Youtube className={cls} />;
-    case "twitter":
-      return <Twitter className={cls} />;
-  }
+  return getSocialIcon(platform, cn("h-4 w-4", className));
 }
 
 function buildWazeUrl(query: string): string {
@@ -385,7 +371,7 @@ function buildFallbackWellness(args: {
 }
 
 export default function Wellness() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const params = useParams();
 
   const [searchParams] = useSearchParams();
@@ -429,9 +415,87 @@ export default function Wellness() {
     };
   }, [id, title]);
 
+  // ── SEO ──────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const name = data?.name?.trim();
+    if (!name) return;
+
+    const est = publicPayload?.establishment;
+    const city = (est?.city ?? data.city ?? "").trim();
+    const seoTitle = city ? `${name} à ${city} — Sortir Au Maroc` : `${name} — Sortir Au Maroc`;
+    const description = (data.description ?? "").trim() || undefined;
+    const ogImageUrl = data.images?.[0] ? String(data.images[0]) : undefined;
+
+    applySeo({
+      title: seoTitle,
+      description,
+      ogType: "place",
+      ogImageUrl,
+      canonicalStripQuery: true,
+      ...buildI18nSeoFields(locale),
+    });
+
+    if (est?.id) {
+      const canonicalUrl = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}` : "";
+      const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+      const openingHoursSpecification = hoursToOpeningHoursSpecification(data.hours);
+      const schema = generateLocalBusinessSchema({
+        name: est.name || name,
+        url: canonicalUrl,
+        telephone: est.phone || undefined,
+        address: {
+          streetAddress: est.address || data.address || undefined,
+          addressLocality: est.city || data.city || undefined,
+          addressRegion: est.region || undefined,
+          postalCode: est.postal_code || undefined,
+          addressCountry: est.country || "MA",
+        },
+        images: (data.images ?? []).slice(0, 8),
+        description: data.description || undefined,
+        openingHoursSpecification,
+        aggregateRating: { ratingValue: data.rating, reviewCount: data.reviewCount },
+        geo:
+          typeof est.lat === "number" && typeof est.lng === "number"
+            ? { latitude: est.lat, longitude: est.lng }
+            : undefined,
+      });
+      (schema as any)["@type"] = "HealthAndBeautyBusiness";
+      setJsonLd("wellness", schema);
+
+      setJsonLd(
+        "breadcrumb",
+        generateBreadcrumbSchema([
+          { name: "Accueil", url: `${baseUrl}/` },
+          { name: "Wellness", url: `${baseUrl}/results?universe=wellness` },
+          { name: est.name || name, url: canonicalUrl },
+        ]),
+      );
+    }
+
+    return () => {
+      clearJsonLd("wellness");
+      clearJsonLd("breadcrumb");
+    };
+  }, [data.name, data.description, data.images?.[0], publicPayload?.establishment?.id, publicPayload?.establishment?.city]);
+
   const bookingEstablishmentId = publicPayload?.establishment?.id ?? data.id;
   // Booking is only enabled if the establishment has an email address registered
   const hasEstablishmentEmail = Boolean(publicPayload?.establishment?.email);
+
+  // Override category from DB subcategory when available
+  const dbCategory = useMemo(() => {
+    const est = publicPayload?.establishment as Record<string, unknown> | null | undefined;
+    if (!est) return null;
+    const sub = est.subcategory;
+    if (typeof sub === "string" && sub.length > 0 && sub !== "general") {
+      const parts = sub.split("/");
+      return parts[parts.length - 1].trim();
+    }
+    const cat = est.category;
+    return typeof cat === "string" && cat.length > 0 ? cat : null;
+  }, [publicPayload?.establishment]);
+
+  const effectiveCategory = dbCategory ?? data.category;
 
   const [bookingOpen, setBookingOpen] = useState(false);
   const [showReportDialog, setShowReportDialog] = useState(false);
@@ -601,7 +665,7 @@ export default function Wellness() {
               </div>
 
               <div className="flex flex-wrap gap-3 text-sm text-slate-600">
-                <span className="px-3 py-1 bg-slate-100 rounded">{data.category}</span>
+                <span className="px-3 py-1 bg-slate-100 rounded">{effectiveCategory}</span>
                 <span className="flex items-center gap-1">
                   <MapPin className="w-4 h-4" />
                   {displayNeighborhood}
@@ -649,6 +713,8 @@ export default function Wellness() {
       <EstablishmentTabs universe="wellness" />
 
       <main className="container mx-auto px-4 pt-6 pb-8 space-y-10">
+        <CeAdvantageSection establishmentId={bookingEstablishmentId} />
+
         <section id="section-prestations" data-tab="prestations" className="scroll-mt-28 space-y-6">
           <div>
             <h2 className="text-xl font-bold mb-2">Prestations & tarifs</h2>
@@ -802,7 +868,7 @@ export default function Wellness() {
 
           <div className="flex gap-3 flex-wrap">
             <a
-              href={buildWazeUrl(data.mapQuery)}
+              href={(publicPayload?.establishment?.social_links as Record<string, string> | null)?.waze || buildWazeUrl(data.mapQuery)}
               target="_blank"
               rel="noopener noreferrer"
               className="flex-1 min-w-32 px-4 py-3 bg-white border-2 border-slate-300 rounded-lg font-semibold hover:bg-slate-50 transition text-center flex items-center justify-center gap-2"

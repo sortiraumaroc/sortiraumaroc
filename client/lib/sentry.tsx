@@ -6,6 +6,7 @@
  * 2. Add to .env: VITE_SENTRY_DSN=https://xxx@xxx.ingest.sentry.io/xxx
  */
 
+
 let Sentry: any = null;
 let initialized = false;
 
@@ -24,6 +25,7 @@ export async function initSentry(): Promise<void> {
   }
 
   try {
+    // @ts-ignore -- @sentry/react is an optional peer dependency, loaded dynamically at runtime
     Sentry = await import("@sentry/react");
 
     Sentry.init({

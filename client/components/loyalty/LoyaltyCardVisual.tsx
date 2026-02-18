@@ -93,7 +93,7 @@ function getCardStyles(design: CardDesign): {
     case "neon":
       return {
         background: `linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)`,
-        stampActive: `bg-[${primary_color}] text-white shadow-[0_0_15px_${primary_color}]`,
+        stampActive: "bg-current text-white shadow-lg",
         stampInactive: "bg-slate-800 text-slate-600 border border-slate-700",
         text: "text-white",
         subtext: "text-slate-400",
@@ -235,7 +235,8 @@ export function LoyaltyCardVisual({
     lg: "p-6 rounded-3xl",
   };
 
-  const logoUrl = design.logo_url ?? establishmentLogo;
+  const logoUrl = design.logo_url ?? establishmentLogo ?? card?.establishment?.logo_url ?? card?.establishment?.cover_url;
+  const backgroundUrl = design.background_url;
   const estName = establishmentName ?? card?.establishment?.name ?? "Établissement";
 
   return (
@@ -249,34 +250,50 @@ export function LoyaltyCardVisual({
       style={{ background: styles.background }}
       onClick={onClick}
     >
+      {/* Image d'arrière-plan */}
+      {backgroundUrl && (
+        <>
+          <img
+            src={backgroundUrl}
+            alt=""
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+          <div className="absolute inset-0 bg-black/45" />
+        </>
+      )}
+
+      {/* Contenu (relatif pour passer au-dessus du fond) */}
+      <div className="relative">
       {/* Logo / En-tête */}
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="min-w-0">
+            <h3 className={cn("font-bold text-sm truncate", backgroundUrl ? "text-white" : styles.text)}>{estName}</h3>
+            <p className={cn("text-xs truncate", backgroundUrl ? "text-white/70" : styles.subtext)}>{program?.name ?? "Programme Fidélité"}</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {isComplete && (
+            <div className="bg-white/90 text-emerald-600 px-2 py-1 rounded-full text-xs font-bold flex items-center gap-1">
+              <Gift className="w-3 h-3" />
+              Cadeau !
+            </div>
+          )}
           {logoUrl ? (
             <img
               src={logoUrl}
               alt={estName}
-              className="w-10 h-10 rounded-full object-cover bg-white/20"
+              className="w-10 h-10 rounded-full object-cover bg-white/20 ring-2 ring-white/30"
             />
           ) : (
-            <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
-              <span className={cn("text-lg font-bold", styles.text)}>
+            <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center ring-2 ring-white/30">
+              <span className={cn("text-lg font-bold", backgroundUrl ? "text-white" : styles.text)}>
                 {estName.charAt(0).toUpperCase()}
               </span>
             </div>
           )}
-          <div>
-            <h3 className={cn("font-bold text-sm", styles.text)}>{estName}</h3>
-            <p className={cn("text-xs", styles.subtext)}>{program?.name ?? "Programme Fidélité"}</p>
-          </div>
         </div>
-
-        {isComplete && (
-          <div className="bg-white/90 text-emerald-600 px-2 py-1 rounded-full text-xs font-bold flex items-center gap-1">
-            <Gift className="w-3 h-3" />
-            Cadeau !
-          </div>
-        )}
       </div>
 
       {/* Grille de tampons */}
@@ -291,11 +308,11 @@ export function LoyaltyCardVisual({
       {showProgress && (
         <div className="mt-4">
           <div className="flex justify-between items-center mb-1">
-            <span className={cn("text-xs font-medium", styles.subtext)}>
+            <span className={cn("text-xs font-medium", backgroundUrl ? "text-white/70" : styles.subtext)}>
               {stampsCount} / {stampsRequired} tampons
             </span>
             {!isComplete && (
-              <span className={cn("text-xs", styles.subtext)}>
+              <span className={cn("text-xs", backgroundUrl ? "text-white/70" : styles.subtext)}>
                 Plus que {stampsRequired - stampsCount} !
               </span>
             )}
@@ -311,22 +328,23 @@ export function LoyaltyCardVisual({
 
       {/* Récompense */}
       {program?.reward_description && (
-        <div className={cn("mt-3 text-center text-xs", styles.subtext)}>
-          <Gift className="w-3 h-3 inline mr-1" />
+        <div className={cn("mt-3 text-center text-xs", backgroundUrl ? "text-white/70" : styles.subtext)}>
+          <Gift className="w-3 h-3 inline me-1" />
           {program.reward_description}
         </div>
       )}
+      </div>{/* fin du wrapper relatif */}
 
       {/* Overlay si carte complète (effet célébration) */}
       {isComplete && (
         <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute top-2 left-2 animate-bounce delay-100">
+          <div className="absolute top-2 start-2 animate-bounce delay-100">
             <Sparkles className="w-4 h-4 text-yellow-300" />
           </div>
-          <div className="absolute top-4 right-4 animate-bounce delay-300">
+          <div className="absolute top-4 end-4 animate-bounce delay-300">
             <Star className="w-3 h-3 text-yellow-300" />
           </div>
-          <div className="absolute bottom-4 left-6 animate-bounce delay-500">
+          <div className="absolute bottom-4 start-6 animate-bounce delay-500">
             <Star className="w-3 h-3 text-yellow-300" />
           </div>
         </div>
@@ -399,7 +417,7 @@ export function LoyaltyCardMini({
       </div>
 
       {/* Progression */}
-      <div className="text-right">
+      <div className="text-end">
         <div className={cn("text-sm font-bold", styles.text)}>
           {hasPendingReward ? (
             <span className="flex items-center gap-1">
@@ -431,6 +449,7 @@ export function LoyaltyCardPreview({
   stampsRequired,
   rewardDescription,
   establishmentName,
+  establishmentLogo,
   className,
 }: {
   design: Partial<CardDesign>;
@@ -438,6 +457,7 @@ export function LoyaltyCardPreview({
   stampsRequired?: number;
   rewardDescription?: string;
   establishmentName?: string;
+  establishmentLogo?: string | null;
   className?: string;
 }) {
   const fullDesign: CardDesign = {
@@ -446,6 +466,7 @@ export function LoyaltyCardPreview({
     secondary_color: design.secondary_color ?? "#8b5cf6",
     stamp_icon: design.stamp_icon ?? "star",
     logo_url: design.logo_url ?? null,
+    background_url: design.background_url ?? null,
   };
 
   const mockProgram: LoyaltyProgram = {
@@ -484,6 +505,7 @@ export function LoyaltyCardPreview({
       program={mockProgram}
       stampsCount={Math.floor((stampsRequired ?? 10) * 0.6)} // 60% rempli pour preview
       establishmentName={establishmentName ?? "Mon Établissement"}
+      establishmentLogo={establishmentLogo}
       className={className}
       size="md"
     />

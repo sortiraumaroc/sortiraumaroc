@@ -115,7 +115,7 @@ export async function cronWaitlistExpireAndPromote(req: Request, res: Response) 
 
         if (expiredUser?.email) {
           const dateLabel = startsAt ? formatLeJjMmAaAHeure(startsAt) : "";
-          const baseUrl = process.env.PUBLIC_BASE_URL || "https://sortiraumaroc.ma";
+          const baseUrl = process.env.PUBLIC_BASE_URL || "https://sam.ma";
 
           await sendTemplateEmail({
             templateKey: "user_waitlist_offer_expired",
@@ -200,7 +200,7 @@ export async function cronWaitlistExpireAndPromote(req: Request, res: Response) 
 
           if (promotedUser?.email) {
             const dateLabel = startsAt ? formatLeJjMmAaAHeure(startsAt) : "";
-            const baseUrl = process.env.PUBLIC_BASE_URL || "https://sortiraumaroc.ma";
+            const baseUrl = process.env.PUBLIC_BASE_URL || "https://sam.ma";
             const ctaUrl = `${baseUrl}/profile/bookings/${encodeURIComponent(nextInQueue.reservation_id)}`;
 
             await sendTemplateEmail({

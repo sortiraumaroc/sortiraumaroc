@@ -5,20 +5,28 @@ import fs from "fs";
 import sharp from "sharp";
 import { parseCookies, getSessionCookieName, verifyAdminSessionToken, type AdminSessionPayload } from "../adminSession";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { getAuditActorInfo } from "./admin";
+import { transformWizardHoursToOpeningHours, openingHoursToWizardFormat } from "../lib/transformHours";
 
 // Image compression settings
 const IMAGE_COMPRESSION_CONFIG = {
+  logo: {
+    maxWidth: 512,
+    maxHeight: 512,
+    quality: 85,
+    targetSizeKb: 80,
+  },
   cover: {
     maxWidth: 1200,
     maxHeight: 800,
-    quality: 85,
-    targetSizeKb: 200,
+    quality: 80,
+    targetSizeKb: 150,
   },
   gallery: {
-    maxWidth: 1600,
-    maxHeight: 1200,
-    quality: 85,
-    targetSizeKb: 300,
+    maxWidth: 1400,
+    maxHeight: 1050,
+    quality: 80,
+    targetSizeKb: 200,
   },
 };
 
@@ -124,6 +132,32 @@ const upload = multer({
   },
 });
 
+// Separate multer for gallery/image uploads — accepts all image types sharp can process
+const imageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB max
+  },
+  fileFilter: (_req, file, cb) => {
+    const allowedImageMimes = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "image/heic",
+      "image/heif",
+      "image/avif",
+      "image/gif",
+      "image/bmp",
+      "image/tiff",
+    ];
+    if (allowedImageMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Type de fichier non supporté. Formats acceptés: JPEG, PNG, WebP, HEIC, AVIF, GIF"));
+    }
+  },
+});
+
 function getAdminSessionToken(req: Parameters<RequestHandler>[0]): string | null {
   const cookies = parseCookies(req.header("cookie") ?? undefined);
   const cookieToken = cookies[getSessionCookieName()];
@@ -153,6 +187,11 @@ function requireAdminSession(req: Parameters<RequestHandler>[0]): AdminSessionPa
 
 function isSuperAdmin(session: AdminSessionPayload): boolean {
   return session.role === "superadmin";
+}
+
+/** Roles allowed to manage establishment media (gallery, contact-info, tags-services) */
+function canManageEstablishments(session: AdminSessionPayload): boolean {
+  return session.role === "superadmin" || session.role === "admin" || session.role === "marketing";
 }
 
 const AI_EXTRACTION_SYSTEM_PROMPT = `Tu es un assistant spécialisé dans l'extraction de données de menus et catalogues pour Sortir Au Maroc.
@@ -690,17 +729,17 @@ export function registerAdminInventoryRoutes(router: Router): void {
       }
 
       // Delete items
-      const { count: itemsDeleted } = await supabase
+      const { count: itemsDeleted } = await (supabase
         .from("pro_inventory_items")
         .delete()
-        .eq("establishment_id", establishmentId)
+        .eq("establishment_id", establishmentId) as any)
         .select("id", { count: "exact", head: true });
 
       // Delete categories
-      const { count: categoriesDeleted } = await supabase
+      const { count: categoriesDeleted } = await (supabase
         .from("pro_inventory_categories")
         .delete()
-        .eq("establishment_id", establishmentId)
+        .eq("establishment_id", establishmentId) as any)
         .select("id", { count: "exact", head: true });
 
       return res.json({
@@ -830,8 +869,8 @@ export function registerAdminInventoryRoutes(router: Router): void {
         return res.status(401).json({ error: "Unauthorized" });
       }
 
-      if (!isSuperAdmin(session)) {
-        return res.status(403).json({ error: "Forbidden", message: "Accès réservé aux super administrateurs" });
+      if (!canManageEstablishments(session)) {
+        return res.status(403).json({ error: "Forbidden", message: "Accès réservé aux administrateurs" });
       }
 
       const { establishmentId } = req.params;
@@ -841,7 +880,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
 
       const { data, error } = await supabase
         .from("establishments")
-        .select("id, name, cover_url, gallery_urls, extra")
+        .select("id, name, logo_url, cover_url, gallery_urls, extra")
         .eq("id", establishmentId)
         .single();
 
@@ -855,7 +894,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         return res.status(404).json({ error: "Établissement non trouvé" });
       }
 
-      console.log("[Admin Gallery] Found establishment:", data.name, "cover_url:", data.cover_url ? "YES" : "NO", "gallery_urls:", Array.isArray(data.gallery_urls) ? data.gallery_urls.length : 0);
+      console.log("[Admin Gallery] Found establishment:", data.name, "logo_url:", data.logo_url ? "YES" : "NO", "cover_url:", data.cover_url ? "YES" : "NO", "gallery_urls:", Array.isArray(data.gallery_urls) ? data.gallery_urls.length : 0);
 
       // Extract gallery metadata from extra field
       const extra = (data?.extra as Record<string, unknown>) || {};
@@ -864,6 +903,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
 
       return res.json({
         ok: true,
+        logo_url: data?.logo_url || null,
         cover_url: data?.cover_url || null,
         cover_meta: coverMeta,
         gallery_urls: Array.isArray(data?.gallery_urls) ? data.gallery_urls : [],
@@ -883,12 +923,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
         return res.status(401).json({ error: "Unauthorized" });
       }
 
-      if (!isSuperAdmin(session)) {
-        return res.status(403).json({ error: "Forbidden", message: "Accès réservé aux super administrateurs" });
+      if (!canManageEstablishments(session)) {
+        return res.status(403).json({ error: "Forbidden", message: "Accès réservé aux administrateurs" });
       }
 
       const { establishmentId } = req.params;
       const body = req.body as {
+        logo_url?: string | null;
         cover_url?: string | null;
         cover_meta?: Record<string, unknown>;
         gallery_urls?: string[];
@@ -899,6 +940,10 @@ export function registerAdminInventoryRoutes(router: Router): void {
 
       // Build update object
       const updateData: Record<string, unknown> = {};
+
+      if (body.logo_url !== undefined) {
+        updateData.logo_url = body.logo_url;
+      }
 
       if (body.cover_url !== undefined) {
         updateData.cover_url = body.cover_url;
@@ -935,6 +980,12 @@ export function registerAdminInventoryRoutes(router: Router): void {
         return res.status(400).json({ error: "No data to update" });
       }
 
+      // Track who made the update
+      const actor = getAuditActorInfo(req);
+      updateData.admin_updated_by_name = actor.actor_name ?? null;
+      updateData.admin_updated_by_id = actor.actor_id ?? null;
+      updateData.updated_at = new Date().toISOString();
+
       const { error } = await supabase
         .from("establishments")
         .update(updateData)
@@ -948,6 +999,81 @@ export function registerAdminInventoryRoutes(router: Router): void {
       return res.json({ ok: true });
     } catch (error) {
       console.error("[Admin Gallery] Update error:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }) as RequestHandler);
+
+  // Backfill cover_url from Storage for establishments missing it
+  router.post("/api/admin/establishments/backfill-covers", (async (req, res) => {
+    try {
+      const session = requireAdminSession(req);
+      if (!session) return res.status(401).json({ error: "Unauthorized" });
+      if (!isSuperAdmin(session)) return res.status(403).json({ error: "Forbidden" });
+
+      const supabase = getAdminSupabase();
+
+      // Get establishments with no cover_url
+      const { data: establishments, error: fetchErr } = await supabase
+        .from("establishments")
+        .select("id, name")
+        .or("cover_url.is.null,cover_url.eq.")
+        .limit(500);
+
+      if (fetchErr) {
+        console.error("[Backfill Covers] Fetch error:", fetchErr);
+        return res.status(500).json({ error: fetchErr.message });
+      }
+
+      let updated = 0;
+      let skipped = 0;
+      const details: Array<{ id: string; name: string; cover_url: string }> = [];
+
+      for (const est of establishments ?? []) {
+        // List files in the covers folder for this establishment
+        const { data: files } = await supabase.storage
+          .from("public")
+          .list(`establishments/${est.id}/covers`, { limit: 10, sortBy: { column: "created_at", order: "desc" } });
+
+        // Also list gallery files
+        const { data: galleryFiles } = await supabase.storage
+          .from("public")
+          .list(`establishments/${est.id}/gallery`, { limit: 50, sortBy: { column: "created_at", order: "desc" } });
+
+        const updateData: Record<string, unknown> = {};
+
+        if (files && files.length > 0) {
+          const storagePath = `establishments/${est.id}/covers/${files[0].name}`;
+          const { data: urlData } = supabase.storage.from("public").getPublicUrl(storagePath);
+          updateData.cover_url = urlData.publicUrl;
+        }
+
+        if (galleryFiles && galleryFiles.length > 0) {
+          const galleryUrls = galleryFiles.map((f) => {
+            const path = `establishments/${est.id}/gallery/${f.name}`;
+            return supabase.storage.from("public").getPublicUrl(path).data.publicUrl;
+          });
+          updateData.gallery_urls = galleryUrls;
+        }
+
+        if (Object.keys(updateData).length > 0) {
+          const { error: updateErr } = await supabase
+            .from("establishments")
+            .update(updateData)
+            .eq("id", est.id);
+
+          if (!updateErr) {
+            updated++;
+            details.push({ id: est.id, name: est.name, cover_url: (updateData.cover_url as string) ?? "" });
+          }
+        } else {
+          skipped++;
+        }
+      }
+
+      console.log(`[Backfill Covers] Updated ${updated}, skipped ${skipped} (no covers in storage)`);
+      return res.json({ ok: true, updated, skipped, total: (establishments ?? []).length, details });
+    } catch (error) {
+      console.error("[Backfill Covers] Error:", error);
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -1025,7 +1151,10 @@ export function registerAdminInventoryRoutes(router: Router): void {
         email: data.email ?? extra.email ?? null,
         website: data.website ?? null,
         social_links: data.social_links || {},
-        hours: data.hours || {},
+        // Convert openingHours (array intervals) back to DaySchedule for admin form
+        hours: data.hours && typeof data.hours === "object"
+          ? openingHoursToWizardFormat(data.hours as Record<string, unknown>)
+          : {},
       });
     } catch (error) {
       console.error("[Admin Contact Info] Error:", error);
@@ -1041,8 +1170,8 @@ export function registerAdminInventoryRoutes(router: Router): void {
         return res.status(401).json({ error: "Unauthorized" });
       }
 
-      if (!isSuperAdmin(session)) {
-        return res.status(403).json({ error: "Forbidden", message: "Accès réservé aux super administrateurs" });
+      if (!canManageEstablishments(session)) {
+        return res.status(403).json({ error: "Forbidden", message: "Accès réservé aux administrateurs" });
       }
 
       const { establishmentId } = req.params;
@@ -1067,7 +1196,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
       if (body.whatsapp !== undefined) updateData.whatsapp = body.whatsapp;
       if (body.website !== undefined) updateData.website = body.website;
       if (body.social_links !== undefined) updateData.social_links = body.social_links;
-      if (body.hours !== undefined) updateData.hours = body.hours;
+      if (body.hours !== undefined) {
+        // Transform DaySchedule (wizard/admin form) → openingHours (array of intervals) for public display
+        updateData.hours =
+          body.hours && typeof body.hours === "object" && !Array.isArray(body.hours)
+            ? transformWizardHoursToOpeningHours(body.hours as Record<string, unknown>)
+            : body.hours;
+      }
 
       // Store mobile in extra field
       // For email: try direct column first, fallback to extra field if column doesn't exist
@@ -1118,20 +1253,20 @@ export function registerAdminInventoryRoutes(router: Router): void {
   }) as RequestHandler);
 
   // Upload gallery image with automatic compression
-  router.post("/api/admin/establishments/:establishmentId/gallery/upload", upload.single("image"), (async (req, res) => {
+  router.post("/api/admin/establishments/:establishmentId/gallery/upload", imageUpload.single("image"), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
         return res.status(401).json({ error: "Unauthorized" });
       }
 
-      if (!isSuperAdmin(session)) {
-        return res.status(403).json({ error: "Forbidden", message: "Accès réservé aux super administrateurs" });
+      if (!canManageEstablishments(session)) {
+        return res.status(403).json({ error: "Forbidden", message: "Accès réservé aux administrateurs" });
       }
 
       const { establishmentId } = req.params;
       const file = req.file;
-      const imageType = (req.body.type || "gallery") as "cover" | "gallery";
+      const imageType = (req.body.type || "gallery") as "logo" | "cover" | "gallery";
 
       if (!file) {
         return res.status(400).json({ error: "image is required" });
@@ -1142,9 +1277,9 @@ export function registerAdminInventoryRoutes(router: Router): void {
         return res.status(400).json({ error: "Le fichier doit être une image" });
       }
 
-      // Allow larger files since we'll compress them (max 10MB)
-      if (file.size > 10 * 1024 * 1024) {
-        return res.status(400).json({ error: "L'image est trop volumineuse (max 10 MB)" });
+      // Allow files up to 5 MB — they will be compressed to WebP
+      if (file.size > 5 * 1024 * 1024) {
+        return res.status(400).json({ error: "L'image est trop volumineuse (max 5 MB)" });
       }
 
       console.log(`[Admin Gallery] Uploading ${imageType} image for ${establishmentId}, original size: ${(file.size / 1024).toFixed(1)}KB, mimetype: ${file.mimetype}`);
@@ -1166,7 +1301,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
       const supabase = getAdminSupabase();
 
       // Generate unique filename - always use .webp since we convert to WebP
-      const folder = imageType === "cover" ? "covers" : "gallery";
+      const folder = imageType === "logo" ? "logos" : imageType === "cover" ? "covers" : "gallery";
       const filename = `${establishmentId}/${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.webp`;
       const storagePath = `establishments/${filename}`;
 
@@ -1937,12 +2072,30 @@ export function registerAdminInventoryRoutes(router: Router): void {
 
       const supabase = getAdminSupabase();
 
+      // Map UI universe values to valid DB enum values
+      const UNIVERSE_TO_DB: Record<string, string> = {
+        restaurants: "restaurant",
+        restaurant: "restaurant",
+        loisirs: "loisir",
+        loisir: "loisir",
+        sport: "wellness",
+        hebergement: "hebergement",
+        hotels: "hebergement",
+        hotel: "hebergement",
+        wellness: "wellness",
+        culture: "culture",
+        shopping: "loisir",
+        rentacar: "loisir",
+      };
+
       // Build update object
       const updateData: Record<string, unknown> = {};
 
       if (body.name !== undefined) updateData.name = body.name;
       if (body.city !== undefined) updateData.city = body.city;
-      if (body.universe !== undefined) updateData.universe = body.universe;
+      if (body.universe !== undefined) {
+        updateData.universe = UNIVERSE_TO_DB[body.universe.toLowerCase()] ?? body.universe;
+      }
       if (body.subcategory !== undefined) updateData.subcategory = body.subcategory;
 
       if (Object.keys(updateData).length === 0) {
@@ -1960,11 +2113,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
       }
 
       // Log the action
+      const actor = getAuditActorInfo(req);
       await supabase.from("admin_audit_log").insert({
         action: "establishment.profile_update",
         entity_type: "establishment",
         entity_id: establishmentId,
-        metadata: updateData,
+        actor_id: actor.actor_id,
+        metadata: { ...updateData, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
       });
 
       return res.json({ ok: true });
@@ -1991,7 +2146,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
 
       const { data, error } = await supabase
         .from("establishments")
-        .select("specialties, tags, amenities, ambiance_tags, booking_enabled, menu_digital_enabled, verified, extra")
+        .select("specialties, tags, amenities, ambiance_tags, highlights, booking_enabled, menu_digital_enabled, verified, extra")
         .eq("id", establishmentId)
         .single();
 
@@ -2007,6 +2162,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
           tags: [],
           amenities: [],
           ambiance_tags: [],
+          highlights: [],
           booking_enabled: false,
           menu_digital_enabled: false,
           verified: false,
@@ -2019,6 +2175,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         tags: data.tags,
         amenities: data.amenities,
         ambiance_tags: data.ambiance_tags,
+        highlights: data.highlights,
         booking_enabled: data.booking_enabled,
         menu_digital_enabled: data.menu_digital_enabled,
         verified: data.verified,
@@ -2029,6 +2186,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         tags: Array.isArray(data.tags) ? data.tags : [],
         amenities: Array.isArray(data.amenities) ? data.amenities : [],
         ambiance_tags: Array.isArray(data.ambiance_tags) ? data.ambiance_tags : [],
+        highlights: Array.isArray(data.highlights) ? data.highlights : [],
         booking_enabled: data.booking_enabled ?? false,
         menu_digital_enabled: data.menu_digital_enabled ?? false,
         verified: data.verified ?? false,
@@ -2047,8 +2205,8 @@ export function registerAdminInventoryRoutes(router: Router): void {
         return res.status(401).json({ error: "Unauthorized" });
       }
 
-      if (!isSuperAdmin(session)) {
-        return res.status(403).json({ error: "Forbidden", message: "Accès réservé aux super administrateurs" });
+      if (!canManageEstablishments(session)) {
+        return res.status(403).json({ error: "Forbidden", message: "Accès réservé aux administrateurs" });
       }
 
       const { establishmentId } = req.params;
@@ -2062,6 +2220,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
       if (body.tags !== undefined) updateData.tags = body.tags;
       if (body.amenities !== undefined) updateData.amenities = body.amenities;
       if (body.ambiance_tags !== undefined) updateData.ambiance_tags = body.ambiance_tags;
+      if (body.highlights !== undefined) updateData.highlights = body.highlights;
       if (body.booking_enabled !== undefined) updateData.booking_enabled = body.booking_enabled;
       if (body.menu_digital_enabled !== undefined) updateData.menu_digital_enabled = body.menu_digital_enabled;
       if (body.verified !== undefined) updateData.verified = body.verified;

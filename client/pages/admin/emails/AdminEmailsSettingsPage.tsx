@@ -36,9 +36,9 @@ function toDraft(item: AdminEmailBranding | null): Draft {
     contact_email: item?.contact_email ?? "hello@sortiraumaroc.ma",
     signature_fr: item?.signature_fr ?? "L'équipe Sortir Au Maroc",
     signature_en: item?.signature_en ?? "The Sortir Au Maroc team",
-    legal_legal: String(links.legal ?? "https://sortiraumaroc.ma/mentions-legales"),
-    legal_terms: String(links.terms ?? "https://sortiraumaroc.ma/cgu"),
-    legal_privacy: String(links.privacy ?? "https://sortiraumaroc.ma/politique-de-confidentialite"),
+    legal_legal: String(links.legal ?? "https://sam.ma/mentions-legales"),
+    legal_terms: String(links.terms ?? "https://sam.ma/cgu"),
+    legal_privacy: String(links.privacy ?? "https://sam.ma/politique-de-confidentialite"),
   };
 }
 
@@ -282,12 +282,12 @@ export function AdminEmailsSettingsPage() {
                   >
                     {uploading ? (
                       <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        <Loader2 className="w-4 h-4 me-2 animate-spin" />
                         Telechargement...
                       </>
                     ) : (
                       <>
-                        <Upload className="w-4 h-4 mr-2" />
+                        <Upload className="w-4 h-4 me-2" />
                         Telecharger
                       </>
                     )}
@@ -296,12 +296,12 @@ export function AdminEmailsSettingsPage() {
                     <Button type="button" variant="outline" size="sm" onClick={handleLogoDelete} disabled={deleting} className="w-full text-red-600 hover:text-red-700 hover:bg-red-50">
                       {deleting ? (
                         <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          <Loader2 className="w-4 h-4 me-2 animate-spin" />
                           Suppression...
                         </>
                       ) : (
                         <>
-                          <Trash2 className="w-4 h-4 mr-2" />
+                          <Trash2 className="w-4 h-4 me-2" />
                           Supprimer
                         </>
                       )}

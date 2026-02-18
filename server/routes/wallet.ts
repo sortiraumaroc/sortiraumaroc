@@ -235,7 +235,7 @@ export async function createAppleWalletPass(
         {
           key: "website",
           label: "Site web",
-          value: "https://sortiraumaroc.ma",
+          value: "https://sam.ma",
         }
       );
 
@@ -382,7 +382,7 @@ export async function createGoogleWalletPass(
       hexBackgroundColor: "#a3001d",
       logo: {
         sourceUri: {
-          uri: "https://sortiraumaroc.ma/logo-white.png",
+          uri: "https://sam.ma/api/public/assets/email-logo.png",
         },
       },
       cardTitle: {
@@ -578,7 +578,7 @@ async function generateGoogleWalletSaveUrl(
       aud: "google",
       typ: "savetowallet",
       iat: now,
-      origins: ["https://sortiraumaroc.ma", "https://sam.ma", "http://localhost:8080", "http://localhost:8081", "http://localhost:8082", "http://localhost:8083", "http://localhost:5173"],
+      origins: ["https://sam.ma", "http://localhost:8080", "http://localhost:8081", "http://localhost:8082", "http://localhost:8083", "http://localhost:5173"],
       payload: {
         genericObjects: [passObject],
       },
@@ -770,7 +770,7 @@ export async function createUserAppleWalletPass(
         {
           key: "website",
           label: "Site web",
-          value: "https://sortiraumaroc.ma",
+          value: "https://sam.ma",
         },
         {
           key: "support",
@@ -863,7 +863,7 @@ export async function createUserGoogleWalletPass(
       hexBackgroundColor: "#a3001d",
       logo: {
         sourceUri: {
-          uri: "https://sortiraumaroc.ma/logo-white.png",
+          uri: "https://sam.ma/api/public/assets/email-logo.png",
         },
       },
       cardTitle: {
@@ -918,7 +918,7 @@ export async function createUserGoogleWalletPass(
             description: "Mon QR Code",
           },
           {
-            uri: "https://sortiraumaroc.ma",
+            uri: "https://sam.ma",
             description: "Site web",
           },
         ],

@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from "react";
 
 // Coordonnées des principales villes marocaines
-const CITY_COORDINATES: Array<{
+export const CITY_COORDINATES: Array<{
   name: string;
   lat: number;
   lng: number;
@@ -35,6 +35,15 @@ const CITY_COORDINATES: Array<{
   { name: "Dakhla", lat: 23.7147, lng: -15.9328, radius: 15 },
   { name: "Laâyoune", lat: 27.1253, lng: -13.1625, radius: 15 },
 ];
+
+/**
+ * Retourne les coordonnées d'une ville par son nom (case-insensitive)
+ */
+export function getCityCoordinates(cityName: string): { lat: number; lng: number } | null {
+  const lower = cityName.toLowerCase();
+  const match = CITY_COORDINATES.find((c) => c.name.toLowerCase() === lower);
+  return match ? { lat: match.lat, lng: match.lng } : null;
+}
 
 /**
  * Calcule la distance entre deux points GPS (formule de Haversine)
@@ -133,7 +142,11 @@ export function useDetectedCity(autoDetect: boolean = true): UseDetectedCityResu
         setStatus("detected");
       },
       (error) => {
-        console.warn("[useDetectedCity] Geolocation error:", error.message);
+        // Only warn once to avoid console spam on re-renders
+        if (!(window as any).__geoWarnLogged) {
+          console.warn("[useDetectedCity] Geolocation error:", error.message);
+          (window as any).__geoWarnLogged = true;
+        }
         setStatus(error.code === 1 ? "denied" : "unavailable");
       },
       {

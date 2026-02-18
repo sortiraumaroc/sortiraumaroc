@@ -1,12 +1,15 @@
 import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate } from "react-router-dom";
-import { MapPin, Search, ChevronDown, Navigation, Loader2, X, TrendingUp, Building2, ChefHat, Utensils, Hash, Globe } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { MapPin, Search, ChevronDown, Navigation, Loader2, X, TrendingUp, Building2, ChefHat, Utensils, Hash, Globe, Clock } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { MOROCCAN_CITIES } from "@/hooks/useSuggestions";
 import { searchAutocomplete, getPopularSearches, getPublicHomeCities, getPublicCountries, type AutocompleteSuggestion, type PublicCountry } from "@/lib/publicApi";
 import { useDebounce } from "@/hooks/useDebounce";
+import { readSearchState } from "@/lib/searchState";
+import type { ActivityCategory } from "@/lib/taxonomy";
+import { parseTemporalIntent, getTemporalSuggestions, type TemporalSuggestion } from "@/lib/search/temporalParser";
 
 interface MobileHeaderSearchProps {
   universe?: string;
@@ -29,11 +32,19 @@ const CATEGORY_ICONS: Record<string, React.ReactNode> = {
  * Opens full-screen modals when clicking on fields (like TheFork)
  */
 export function MobileHeaderSearch({ universe, className }: MobileHeaderSearchProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
-  const [city, setCity] = useState("");
-  const [query, setQuery] = useState("");
+  const universeKey = (universe || "restaurants") as ActivityCategory;
+  const [city, setCity] = useState(() => {
+    const urlCity = searchParams.get("city") || "";
+    return urlCity || readSearchState(universeKey).city || "";
+  });
+  const [query, setQuery] = useState(() => {
+    const urlQuery = searchParams.get("q") || "";
+    return urlQuery || readSearchState(universeKey).query || "";
+  });
 
   // Modal states
   const [isCityModalOpen, setIsCityModalOpen] = useState(false);
@@ -55,6 +66,9 @@ export function MobileHeaderSearch({ universe, className }: MobileHeaderSearchPr
   const [countries, setCountries] = useState<PublicCountry[]>([]);
   const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
   const [isLoadingCities, setIsLoadingCities] = useState(true);
+
+  // Temporal suggestions
+  const [temporalSuggestions, setTemporalSuggestions] = useState<TemporalSuggestion[]>([]);
 
   const debouncedSearchInput = useDebounce(searchInput, 300);
 
@@ -132,7 +146,9 @@ export function MobileHeaderSearch({ universe, className }: MobileHeaderSearchPr
     searchAutocomplete({
       q: debouncedSearchInput,
       universe: universe ?? undefined,
+      city: city || undefined,
       limit: 10,
+      lang: locale,
     })
       .then((res) => {
         if (active && res.ok) {
@@ -149,7 +165,7 @@ export function MobileHeaderSearch({ universe, className }: MobileHeaderSearchPr
     return () => {
       active = false;
     };
-  }, [debouncedSearchInput, universe]);
+  }, [debouncedSearchInput, universe, locale]);
 
   // Track the universe for which we loaded popular searches
   const [loadedForUniverse, setLoadedForUniverse] = useState<string | null | undefined>(undefined);
@@ -160,7 +176,7 @@ export function MobileHeaderSearch({ universe, className }: MobileHeaderSearchPr
     const shouldLoad = isSearchModalOpen && (popularSearches.length === 0 || loadedForUniverse !== universe);
 
     if (shouldLoad) {
-      getPopularSearches({ universe: universe ?? undefined, limit: 8 })
+      getPopularSearches({ universe: universe ?? undefined, limit: 8, lang: locale })
         .then((res) => {
           if (res.ok) {
             setPopularSearches(res.searches);
@@ -169,7 +185,7 @@ export function MobileHeaderSearch({ universe, className }: MobileHeaderSearchPr
         })
         .catch(() => {});
     }
-  }, [isSearchModalOpen, universe, popularSearches.length, loadedForUniverse]);
+  }, [isSearchModalOpen, universe, popularSearches.length, loadedForUniverse, locale]);
 
   // Reset popular searches when universe changes (to force reload)
   useEffect(() => {
@@ -177,6 +193,15 @@ export function MobileHeaderSearch({ universe, className }: MobileHeaderSearchPr
       setPopularSearches([]);
     }
   }, [universe, loadedForUniverse]);
+
+  // Compute temporal suggestions
+  useEffect(() => {
+    if (searchInput.length >= 2) {
+      setTemporalSuggestions(getTemporalSuggestions(searchInput, locale));
+    } else {
+      setTemporalSuggestions([]);
+    }
+  }, [searchInput, locale]);
 
   // Prevent body scroll when modal is open and keep scroll position
   useEffect(() => {
@@ -238,17 +263,20 @@ export function MobileHeaderSearch({ universe, className }: MobileHeaderSearchPr
       return;
     }
 
-    setQuery(suggestion.displayLabel);
+    const intent = parseTemporalIntent(suggestion.term, locale);
+    setQuery(intent.cleanQuery || suggestion.displayLabel);
     setIsSearchModalOpen(false);
 
-    // Navigate to results
     const params = new URLSearchParams();
     if (city) params.set("city", city);
-    params.set("q", suggestion.term);
+    params.set("q", intent.cleanQuery || suggestion.term);
     if (universe && universe !== "restaurants") {
       params.set("universe", universe);
     }
-    navigate(`/results?${params.toString()}`);
+    if (intent.date) params.set("date", intent.date.toISOString().split("T")[0]);
+    if (intent.timeRange) { params.set("time_from", intent.timeRange.from); params.set("time_to", intent.timeRange.to); }
+    if (intent.persons) params.set("persons", String(intent.persons));
+    navigate(`/results?${params.toString()}`, { state: { fromSearch: true } });
   };
 
   const handleSelectPopular = (search: { term: string; displayLabel: string }) => {
@@ -261,17 +289,37 @@ export function MobileHeaderSearch({ universe, className }: MobileHeaderSearchPr
     if (universe && universe !== "restaurants") {
       params.set("universe", universe);
     }
-    navigate(`/results?${params.toString()}`);
+    navigate(`/results?${params.toString()}`, { state: { fromSearch: true } });
   };
 
   const handleSearch = () => {
+    const intent = parseTemporalIntent(query, locale);
     const params = new URLSearchParams();
     if (city) params.set("city", city);
-    if (query) params.set("q", query);
+    if (intent.cleanQuery) params.set("q", intent.cleanQuery);
     if (universe && universe !== "restaurants") {
       params.set("universe", universe);
     }
-    navigate(`/results?${params.toString()}`);
+    if (intent.date) params.set("date", intent.date.toISOString().split("T")[0]);
+    if (intent.timeRange) { params.set("time_from", intent.timeRange.from); params.set("time_to", intent.timeRange.to); }
+    if (intent.persons) params.set("persons", String(intent.persons));
+    navigate(`/results?${params.toString()}`, { state: { fromSearch: true } });
+  };
+
+  const handleSelectTemporalSuggestion = (suggestion: TemporalSuggestion) => {
+    const { intent } = suggestion;
+    setQuery(intent.cleanQuery);
+    setIsSearchModalOpen(false);
+    const params = new URLSearchParams();
+    if (city) params.set("city", city);
+    if (intent.cleanQuery) params.set("q", intent.cleanQuery);
+    if (universe && universe !== "restaurants") {
+      params.set("universe", universe);
+    }
+    if (intent.date) params.set("date", intent.date.toISOString().split("T")[0]);
+    if (intent.timeRange) { params.set("time_from", intent.timeRange.from); params.set("time_to", intent.timeRange.to); }
+    if (intent.persons) params.set("persons", String(intent.persons));
+    navigate(`/results?${params.toString()}`, { state: { fromSearch: true } });
   };
 
   const displayCity = city || "Ville";
@@ -351,7 +399,7 @@ export function MobileHeaderSearch({ universe, className }: MobileHeaderSearchPr
               <button
                 onClick={handleSelectNearMe}
                 disabled={isRequestingLocation}
-                className="w-full flex items-center gap-4 px-4 py-4 bg-primary/5 hover:bg-primary/10 rounded-xl transition text-left"
+                className="w-full flex items-center gap-4 px-4 py-4 bg-primary/5 hover:bg-primary/10 rounded-xl transition text-start"
               >
                 <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
                   {isRequestingLocation ? (
@@ -421,7 +469,7 @@ export function MobileHeaderSearch({ universe, className }: MobileHeaderSearchPr
                     key={cityItem.id}
                     onClick={() => handleSelectCity(cityItem.name)}
                     className={cn(
-                      "w-full flex items-center gap-4 px-4 py-3 rounded-xl transition text-left mb-1",
+                      "w-full flex items-center gap-4 px-4 py-3 rounded-xl transition text-start mb-1",
                       city === cityItem.name ? "bg-primary/5" : "hover:bg-slate-50"
                     )}
                   >
@@ -484,6 +532,24 @@ export function MobileHeaderSearch({ universe, className }: MobileHeaderSearchPr
 
           {/* Content - scrollable */}
           <div className="flex-1 overflow-y-auto">
+            {/* Temporal suggestions */}
+            {temporalSuggestions.length > 0 && (
+              <div className="px-4 pt-3 pb-1">
+                {temporalSuggestions.map((ts) => (
+                  <button
+                    key={ts.label}
+                    onClick={() => handleSelectTemporalSuggestion(ts)}
+                    className="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-amber-50 transition text-start mb-1 border-b border-amber-100"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                      <Clock className="w-5 h-5 text-amber-600" />
+                    </div>
+                    <span className="text-base font-medium text-amber-800">{ts.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
             {/* Show suggestions if searching */}
             {searchInput.length >= 2 && suggestions.length > 0 && (
               <div className="px-4 py-3">
@@ -491,7 +557,7 @@ export function MobileHeaderSearch({ universe, className }: MobileHeaderSearchPr
                   <button
                     key={suggestion.id}
                     onClick={() => handleSelectSuggestion(suggestion)}
-                    className="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-slate-50 transition text-left mb-1"
+                    className="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-slate-50 transition text-start mb-1"
                   >
                     <div className={cn(
                       "w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0",
@@ -536,7 +602,7 @@ export function MobileHeaderSearch({ universe, className }: MobileHeaderSearchPr
                   <button
                     key={`${search.term}-${index}`}
                     onClick={() => handleSelectPopular(search)}
-                    className="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-slate-50 transition text-left mb-1"
+                    className="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-slate-50 transition text-start mb-1"
                   >
                     <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0">
                       {CATEGORY_ICONS[search.category] || <Hash className="w-5 h-5 text-slate-400" />}

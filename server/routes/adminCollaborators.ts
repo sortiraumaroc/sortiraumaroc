@@ -801,6 +801,16 @@ export const updateMyProfile: RequestHandler = async (req, res) => {
 
   const update: Record<string, unknown> = {};
 
+  // Allow updating firstName, lastName, function
+  const firstName = asString(body.firstName);
+  if (firstName !== undefined && firstName !== "") update.first_name = firstName;
+
+  const lastName = asString(body.lastName);
+  if (lastName !== undefined) update.last_name = lastName;
+
+  const fn = asString(body.function);
+  if (fn !== undefined) update.function = fn || null;
+
   // Allow updating email, displayName, and avatarUrl for self-service
   const email = asString(body.email)?.toLowerCase();
   if (email !== undefined && email !== "") {

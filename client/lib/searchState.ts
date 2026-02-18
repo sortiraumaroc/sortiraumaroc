@@ -3,6 +3,7 @@ import type { ActivityCategory } from "@/lib/taxonomy";
 export type SearchState = {
   city?: string;
   cityId?: string;
+  query?: string;           // Free-text search query (e.g. "restaurant italien")
   typeValue?: string;
   restaurantCategory?: string;
   shoppingStoreType?: string;
@@ -17,6 +18,8 @@ export type SearchState = {
   pickupTime?: string;
   dropoffTime?: string;
   vehicleType?: string;
+  driverAge?: string;
+  promoCode?: string;
 };
 
 const STORAGE_KEY = "sam_search_state_v1";

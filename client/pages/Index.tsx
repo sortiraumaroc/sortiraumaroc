@@ -11,18 +11,20 @@ import { CitiesSection } from "@/components/home/CitiesSection";
 import { HomeVideosSection } from "@/components/home/HomeVideosSection";
 import { HomeTakeoverBanner } from "@/components/home/HomeTakeoverBanner";
 import { IconButton } from "@/components/ui/icon-button";
-import { applySeo, clearJsonLd, setJsonLd } from "@/lib/seo";
+import { applySeo, clearJsonLd, setJsonLd, buildI18nSeoFields } from "@/lib/seo";
 import { getPublicHomeFeed, getPublicUniverses, getPublicHomeSettings, getFeaturedPack, trackAdImpression, trackAdClick, type PublicHomeFeedItem, type PublicUniverse, type PublicHomeSettings, type FeaturedPackItem } from "@/lib/publicApi";
 import { listPublicBlogArticles, isPublicBlogListItemV2, type PublicBlogListItem } from "@/lib/blog";
 import { useI18n } from "@/lib/i18n";
 import type { ActivityCategory } from "@/lib/taxonomy";
-import { readSearchState } from "@/lib/searchState";
+import { readSearchState, patchSearchState } from "@/lib/searchState";
 import { useDetectedCity } from "@/hooks/useDetectedCity";
 import { getVisitSessionId } from "@/lib/pro/visits";
 import { isAuthed, openAuthModal } from "@/lib/auth";
 import { useScrollContext } from "@/lib/scrollContext";
 import { buildEstablishmentUrl } from "@/lib/establishmentUrl";
 import { getFavorites, addFavorite, removeFavorite, type FavoriteItem } from "@/lib/userData";
+import { FeaturedPacksCarousel } from "@/components/packs/FeaturedPacksCarousel";
+import { CeHomeFeedSection } from "@/components/ce/CeHomeFeedSection";
 
 // Fallback universes in case API fails
 const FALLBACK_UNIVERSES = [
@@ -36,7 +38,7 @@ const FALLBACK_UNIVERSES = [
 
 // Helper to get Lucide icon by name
 function getLucideIcon(iconName: string): React.FC<{ className?: string }> {
-  const Icon = (LucideIcons as Record<string, React.FC<{ className?: string }>>)[iconName];
+  const Icon = (LucideIcons as unknown as Record<string, React.FC<{ className?: string }>>)[iconName];
   return Icon ?? LucideIcons.Circle;
 }
 
@@ -148,6 +150,8 @@ type HomeCard = {
   bookingEnabled: boolean;
   distanceKm?: number | null;
   curated?: boolean;
+  rating?: number;
+  reviews?: number;
 };
 
 function formatNextSlotLabel(startsAtIso: string | null): string | null {
@@ -231,8 +235,18 @@ function HomeCardTile({
   return (
     <div className="flex-shrink-0 w-56 md:w-60 rounded-xl overflow-hidden hover:shadow-lg transition flex flex-col bg-white">
       {/* Image container - aspect ratio like TheFork */}
-      <div className="relative aspect-[4/3] overflow-hidden rounded-xl group">
-        <img src={item.image} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
+      <div className="relative aspect-[4/3] overflow-hidden rounded-xl group bg-slate-100">
+        <img
+          src={item.image}
+          alt={item.name}
+          className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+          loading="lazy"
+          onError={(e) => {
+            const target = e.currentTarget;
+            target.onerror = null;
+            target.src = "/placeholder.svg";
+          }}
+        />
 
         <Link to={href} className="absolute inset-0 z-10" aria-label={item.name} />
 
@@ -244,7 +258,7 @@ function HomeCardTile({
             e.stopPropagation();
             onToggleFavorite();
           }}
-          className="absolute top-2 right-2 z-20 w-8 h-8 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center shadow-sm hover:bg-white transition"
+          className="absolute top-2 end-2 z-20 w-8 h-8 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center shadow-sm hover:bg-white transition"
           aria-label={isFavorite ? t("results.favorite.remove") : t("results.favorite.add")}
         >
           <Heart className={`w-4 h-4 transition ${isFavorite ? "fill-red-500 text-red-500" : "text-slate-400"}`} />
@@ -252,7 +266,7 @@ function HomeCardTile({
 
         {/* Promo badge */}
         {item.promoPercent > 0 ? (
-          <div className="absolute top-2 left-2 z-20">
+          <div className="absolute top-2 start-2 z-20">
             <span className="bg-primary text-white px-2 py-0.5 rounded text-[11px] font-bold shadow-sm">
               -{item.promoPercent}%
             </span>
@@ -261,7 +275,7 @@ function HomeCardTile({
 
         {/* Curated badge */}
         {item.curated ? (
-          <div className="absolute bottom-2 left-2 z-20">
+          <div className="absolute bottom-2 start-2 z-20">
             <span className="bg-black/70 text-white px-2 py-0.5 rounded text-[10px] font-medium">
               {t("home.cards.curated_badge")}
             </span>
@@ -270,24 +284,37 @@ function HomeCardTile({
       </div>
 
       {/* Content */}
-      <div className="py-3 px-1 flex flex-col flex-grow">
-        <h3 className="font-semibold text-sm text-slate-900 leading-tight line-clamp-2 mb-1">
+      <div className="pt-2 pb-2 px-1 flex flex-col flex-grow">
+        <h3 className="font-semibold text-sm text-slate-900 leading-tight truncate mb-0.5">
           <Link to={href} className="hover:text-primary transition">
             {item.name}
           </Link>
         </h3>
 
-        <div className="text-xs text-slate-500 flex items-center gap-1.5 mb-1">
-          {item.category ? <span>{item.category}</span> : null}
-          {item.category && item.neighborhood ? <span>·</span> : null}
-          {item.neighborhood ? <span className="truncate">{item.neighborhood}</span> : null}
-        </div>
+        <p className="text-xs text-slate-500 truncate">
+          {[
+            item.category,
+            item.neighborhood,
+            showDistance && typeof item.distanceKm === "number" && Number.isFinite(item.distanceKm)
+              ? `${item.distanceKm.toFixed(1)} km`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </p>
 
-        {showDistance && typeof item.distanceKm === "number" && Number.isFinite(item.distanceKm) ? (
-          <p className="text-xs text-slate-400">{item.distanceKm.toFixed(1)} km</p>
+        {typeof item.rating === "number" && (
+          <p className="text-xs mt-0.5 truncate">
+            <span className="text-amber-600 font-semibold">★ {item.rating.toFixed(1)}</span>
+            {typeof item.reviews === "number" && (
+              <span className="text-slate-400"> ({t("home.cards.reviews_count", { count: item.reviews.toLocaleString() })})</span>
+            )}
+          </p>
+        )}
+
+        {item.reservations30d > 0 ? (
+          <p className="text-xs text-slate-400 mt-1">{`${i18nMonthLabel}: ${item.reservations30d}`}</p>
         ) : null}
-
-        <p className="text-xs text-slate-400 mt-auto">{`${i18nMonthLabel}: ${item.reservations30d}`}</p>
       </div>
     </div>
   );
@@ -303,13 +330,14 @@ function FeaturedPackCard({
   href: string;
   onAdClick: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="flex-shrink-0 w-56 md:w-60 rounded-xl overflow-hidden hover:shadow-lg transition flex flex-col bg-white relative">
       {/* Sponsored badge */}
-      <div className="absolute top-2 left-2 z-20">
+      <div className="absolute top-2 start-2 z-20">
         <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-full border border-amber-200">
           <Sparkles className="w-3 h-3" />
-          <em className="not-italic">Sponsorisé</em>
+          <em className="not-italic">{t("home.sponsored")}</em>
         </span>
       </div>
 
@@ -336,7 +364,7 @@ function FeaturedPackCard({
           </Link>
         </h3>
         <div className="text-xs text-slate-500 flex items-center gap-1.5 mb-1">
-          {item.establishment.subcategory && <span>{item.establishment.subcategory}</span>}
+          {item.establishment.subcategory && <span>{item.establishment.subcategory.includes("/") ? item.establishment.subcategory.split("/").pop()?.trim() : item.establishment.subcategory}</span>}
           {item.establishment.subcategory && item.establishment.city && <span>·</span>}
           {item.establishment.city && <span className="truncate">{item.establishment.city}</span>}
         </div>
@@ -370,6 +398,7 @@ function formatBlogDate(dateStr: string | null | undefined, locale: string): str
 }
 
 function BlogArticleCard({ item, locale }: { item: PublicBlogListItem; locale: string }) {
+  const { t } = useI18n();
   const title = isPublicBlogListItemV2(item) ? String(item.resolved.title || "").trim() : String(item.title || "").trim();
   const excerpt = isPublicBlogListItemV2(item)
     ? String(item.resolved.excerpt || "").trim()
@@ -404,7 +433,7 @@ function BlogArticleCard({ item, locale }: { item: PublicBlogListItem; locale: s
             </div>
           )}
           {category && (
-            <span className="absolute top-3 left-3 bg-primary text-white text-xs font-medium px-2 py-1 rounded">
+            <span className="absolute top-3 start-3 bg-primary text-white text-xs font-medium px-2 py-1 rounded">
               {category}
             </span>
           )}
@@ -427,7 +456,7 @@ function BlogArticleCard({ item, locale }: { item: PublicBlogListItem; locale: s
               </span>
             )}
             <span className="inline-flex items-center gap-1 font-semibold text-primary group-hover:gap-1.5 transition-all">
-              {locale === "en" ? "Read" : "Lire"}
+              {t("home.blog.read")}
               <ArrowRight className="h-3.5 w-3.5" />
             </span>
           </div>
@@ -443,27 +472,32 @@ function BlogCarouselSection({
   scrollRef,
   onScrollLeft,
   onScrollRight,
+  isLoading,
 }: {
   items: PublicBlogListItem[];
   locale: string;
   scrollRef: RefObject<HTMLDivElement>;
   onScrollLeft: () => void;
   onScrollRight: () => void;
+  isLoading?: boolean;
 }) {
-  if (items.length === 0) return null;
+  const { t } = useI18n();
+
+  // After loading, hide if no items
+  if (!isLoading && items.length === 0) return null;
 
   return (
     <section className="relative bg-gradient-to-r from-primary to-[#6a000f] -mx-4 px-4 py-6 md:py-10">
       <div className="container mx-auto relative">
         {/* Header avec contrôles en haut à droite */}
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl md:text-2xl font-bold text-white">Blog</h2>
-          <div className="flex items-center gap-1.5 -mr-1">
+          <h2 className="text-xl md:text-2xl font-bold text-white">{t("home.blog.title")}</h2>
+          <div className="flex items-center gap-1.5 -me-1">
             <Link
               to="/blog"
-              className="text-white/90 text-xs font-medium hover:text-white transition mr-1"
+              className="text-white/90 text-xs font-medium hover:text-white transition me-1"
             >
-              {locale === "en" ? "See more" : "Voir plus"}
+              {t("home.blog.see_more")}
             </Link>
             <button
               type="button"
@@ -490,13 +524,44 @@ function BlogCarouselSection({
             className="flex gap-4 overflow-x-auto pb-2 scroll-smooth scrollbar-hide"
             style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
           >
-            {items.map((item) => (
-              <BlogArticleCard key={item.slug} item={item} locale={locale} />
-            ))}
+            {isLoading && items.length === 0 ? (
+              Array.from({ length: 4 }, (_, i) => (
+                <div key={`blog-skel-${i}`} className="flex-shrink-0 w-[240px] md:w-80">
+                  <div className="rounded-xl overflow-hidden bg-white/10 h-full flex flex-col">
+                    <div className="aspect-[16/9] bg-white/10 animate-pulse" />
+                    <div className="p-4 flex flex-col gap-2">
+                      <div className="h-4 w-3/4 rounded bg-white/15 animate-pulse" />
+                      <div className="h-3 w-full rounded bg-white/10 animate-pulse" />
+                      <div className="h-3 w-2/3 rounded bg-white/10 animate-pulse" />
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              items.map((item) => (
+                <BlogArticleCard key={item.slug} item={item} locale={locale} />
+              ))
+            )}
           </div>
         </div>
       </div>
     </section>
+  );
+}
+
+/** Skeleton card matching HomeCardTile dimensions (w-56/w-60, aspect-[4/3] image + content) */
+function HomeCardSkeleton() {
+  return (
+    <div className="flex-shrink-0 w-56 md:w-60 rounded-xl overflow-hidden flex flex-col bg-white">
+      {/* Image placeholder — matches aspect-[4/3] */}
+      <div className="relative aspect-[4/3] rounded-xl bg-slate-200 animate-pulse" />
+      {/* Content */}
+      <div className="pt-2 pb-2 px-1 flex flex-col gap-1.5">
+        <div className="h-4 w-3/4 rounded bg-slate-200 animate-pulse" />
+        <div className="h-3 w-1/2 rounded bg-slate-200 animate-pulse" />
+        <div className="h-3 w-2/5 rounded bg-slate-200 animate-pulse" />
+      </div>
+    </div>
   );
 }
 
@@ -514,6 +579,7 @@ function HomeCarouselSection({
   tMonthLabel,
   featuredPack,
   onFeaturedClick,
+  isLoading,
 }: {
   title: string;
   viewAllHref: string;
@@ -528,8 +594,13 @@ function HomeCarouselSection({
   tMonthLabel: string;
   featuredPack?: FeaturedPackItem | null;
   onFeaturedClick?: (campaignId: string, destinationUrl: string) => void;
+  isLoading?: boolean;
 }) {
   const { t } = useI18n();
+
+  // After loading, hide the section if no items AND no featured pack
+  if (!isLoading && items.length === 0 && !featuredPack) return null;
+
   return (
     <section className="mb-8 md:mb-10">
       <div className="flex items-center justify-between mb-4 md:mb-5">
@@ -548,63 +619,74 @@ function HomeCarouselSection({
           className="flex gap-3 md:gap-4 overflow-x-auto pb-2 scroll-smooth scrollbar-hide"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
-          {/* Featured Pack (Sponsored) card at the beginning */}
-          {featuredPack && (
-            <FeaturedPackCard
-              item={featuredPack}
-              href={buildDetailsHref({
-                id: featuredPack.establishment.id,
-                slug: featuredPack.establishment.slug,
-                name: featuredPack.establishment.name,
-                universe: featuredPack.establishment.universe ?? "restaurants",
-                category: featuredPack.establishment.subcategory ?? undefined,
-                location: featuredPack.establishment.city ?? undefined,
-                city: selectedCity,
-              })}
-              onAdClick={() =>
-                onFeaturedClick?.(
-                  featuredPack.campaign_id,
-                  buildDetailsHref({
+          {/* Loading state: show skeleton cards */}
+          {isLoading && items.length === 0 ? (
+            <>
+              {Array.from({ length: 5 }, (_, i) => (
+                <HomeCardSkeleton key={`skel-${i}`} />
+              ))}
+            </>
+          ) : (
+            <>
+              {/* Featured Pack (Sponsored) card at the beginning */}
+              {featuredPack && (
+                <FeaturedPackCard
+                  item={featuredPack}
+                  href={buildDetailsHref({
                     id: featuredPack.establishment.id,
                     slug: featuredPack.establishment.slug,
                     name: featuredPack.establishment.name,
                     universe: featuredPack.establishment.universe ?? "restaurants",
-                  })
-                )
-              }
-            />
+                    category: featuredPack.establishment.subcategory ?? undefined,
+                    location: featuredPack.establishment.city ?? undefined,
+                    city: selectedCity,
+                  })}
+                  onAdClick={() =>
+                    onFeaturedClick?.(
+                      featuredPack.campaign_id,
+                      buildDetailsHref({
+                        id: featuredPack.establishment.id,
+                        slug: featuredPack.establishment.slug,
+                        name: featuredPack.establishment.name,
+                        universe: featuredPack.establishment.universe ?? "restaurants",
+                      })
+                    )
+                  }
+                />
+              )}
+
+              {items.map((card) => {
+                const href = buildDetailsHref({
+                  id: card.id,
+                  slug: card.slug,
+                  name: card.name,
+                  universe: card.universe,
+                  category: card.category,
+                  location: card.neighborhood,
+                  city: selectedCity,
+                });
+
+                return (
+                  <HomeCardTile
+                    key={card.id}
+                    item={card}
+                    href={href}
+                    isFavorite={favoriteIds.has(card.id)}
+                    onToggleFavorite={() => onToggleFavorite(card.id, card.name, card.universe)}
+                    showDistance={showDistance}
+                    i18nMonthLabel={tMonthLabel}
+                  />
+                );
+              })}
+            </>
           )}
-
-          {items.map((card) => {
-            const href = buildDetailsHref({
-              id: card.id,
-              slug: card.slug,
-              name: card.name,
-              universe: card.universe,
-              category: card.category,
-              location: card.neighborhood,
-              city: selectedCity,
-            });
-
-            return (
-              <HomeCardTile
-                key={card.id}
-                item={card}
-                href={href}
-                isFavorite={favoriteIds.has(card.id)}
-                onToggleFavorite={() => onToggleFavorite(card.id, card.name, card.universe)}
-                showDistance={showDistance}
-                i18nMonthLabel={tMonthLabel}
-              />
-            );
-          })}
         </div>
 
         {/* Navigation arrows - hidden on mobile, visible on hover on desktop */}
         <button
           type="button"
           onClick={onScrollLeft}
-          className="hidden md:flex absolute left-0 top-1/3 -translate-x-3 z-10 w-10 h-10 rounded-full bg-white shadow-md border border-slate-200 items-center justify-center opacity-0 group-hover/carousel:opacity-100 transition-opacity hover:bg-slate-50"
+          className="hidden md:flex absolute start-0 top-1/3 -translate-x-3 z-10 w-10 h-10 rounded-full bg-white shadow-md border border-slate-200 items-center justify-center opacity-0 group-hover/carousel:opacity-100 transition-opacity hover:bg-slate-50"
           aria-label={t("common.prev")}
         >
           <ChevronLeft className="w-5 h-5 text-slate-700" />
@@ -612,7 +694,7 @@ function HomeCarouselSection({
         <button
           type="button"
           onClick={onScrollRight}
-          className="hidden md:flex absolute right-0 top-1/3 translate-x-3 z-10 w-10 h-10 rounded-full bg-white shadow-md border border-slate-200 items-center justify-center opacity-0 group-hover/carousel:opacity-100 transition-opacity hover:bg-slate-50"
+          className="hidden md:flex absolute end-0 top-1/3 translate-x-3 z-10 w-10 h-10 rounded-full bg-white shadow-md border border-slate-200 items-center justify-center opacity-0 group-hover/carousel:opacity-100 transition-opacity hover:bg-slate-50"
           aria-label={t("common.next")}
         >
           <ChevronRight className="w-5 h-5 text-slate-700" />
@@ -709,8 +791,8 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dynamicUniverses]); // t is stable once locale is set
 
-  // Only show universe selector/tabs if more than one universe is active
-  const showUniverseSelector = displayUniverses.length > 1;
+  // Only show universe selector/tabs if more than one universe is active AND data is loaded
+  const showUniverseSelector = universesLoaded && displayUniverses.length > 1;
 
   // Determine the default universe: if only one exists, use it; otherwise prefer "restaurants" or first one
   const defaultUniverse = useMemo(() => {
@@ -735,22 +817,15 @@ export default function Home() {
     const title = t("seo.home.title");
     const description = t("seo.home.description");
 
-    const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
-    const hreflangs: Record<string, string> = {};
-    if (baseUrl) {
-      hreflangs.fr = baseUrl + "/";
-      hreflangs.en = baseUrl + "/en/";
-      hreflangs["x-default"] = baseUrl + "/";
-    }
-
     applySeo({
       title,
       description,
       ogType: "website",
       keywords: t("seo.home.keywords"),
-      hreflangs: Object.keys(hreflangs).length > 0 ? hreflangs : undefined,
+      ...buildI18nSeoFields(locale),
     });
 
+    const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
     setJsonLd("home", {
       "@context": "https://schema.org",
       "@type": "Organization",
@@ -814,9 +889,15 @@ export default function Home() {
     });
   }, [favorites]);
 
-  const selectedCity = useMemo(() => {
-    const stored = readSearchState(selectedUniverse);
+  const [selectedCity, setSelectedCity] = useState<string | null>(() => {
+    const stored = readSearchState(selectedUniverse as ActivityCategory);
     return stored.city ? stored.city : null;
+  });
+
+  // Re-sync selectedCity when universe tab changes
+  useEffect(() => {
+    const stored = readSearchState(selectedUniverse as ActivityCategory);
+    setSelectedCity(stored.city ? stored.city : null);
   }, [selectedUniverse]);
 
   const visitSessionId = useMemo(() => {
@@ -838,11 +919,12 @@ export default function Home() {
   // Unified search state - utilise la ville sauvegardée en attendant la géolocalisation
   const [searchCity, setSearchCity] = useState(() => selectedCity ?? "");
   const [searchQuery, setSearchQuery] = useState("");
-  // Track whether city was manually changed by user (not by geolocation)
-  const [cityManuallySet, setCityManuallySet] = useState(false);
+  // Track whether user already has a city preference (from previous search or manual change)
+  const [cityManuallySet, setCityManuallySet] = useState(() => !!selectedCity);
 
   // Mettre à jour la ville de recherche quand la détection est terminée
-  // La géolocalisation prime toujours sauf si l'utilisateur a manuellement changé la ville
+  // La géolocalisation ne s'applique QUE si l'utilisateur n'a pas déjà une ville choisie
+  // (soit via une recherche précédente sauvegardée, soit via un changement manuel)
   useEffect(() => {
     if (detectedCityStatus === "detected" && detectedCity && !cityManuallySet) {
       setSearchCity(detectedCity);
@@ -856,16 +938,43 @@ export default function Home() {
     }
   }, [detectedCoordinates, userLocation]);
 
+  // Store geo coords from "Autour de moi" so handleUnifiedSearch can forward them
+  const nearMeCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
+
   // Quand l'utilisateur change manuellement la ville
   const handleCityChange = useCallback((city: string) => {
+    // Detect geo:lat,lng format from "Autour de moi"
+    const geoMatch = city.match(/^geo:([-\d.]+),([-\d.]+)$/);
+    if (geoMatch) {
+      const lat = parseFloat(geoMatch[1]);
+      const lng = parseFloat(geoMatch[2]);
+      nearMeCoordsRef.current = { lat, lng };
+      setSearchCity("Autour de moi");
+      setCityManuallySet(true);
+      patchSearchState(selectedUniverse as ActivityCategory, { city: "Autour de moi" });
+      setSelectedCity("Autour de moi");
+      return;
+    }
+    nearMeCoordsRef.current = null;
     setSearchCity(city);
     setCityManuallySet(true);
-  }, []);
+    // Persist to searchState & update selectedCity so the home feed reloads
+    patchSearchState(selectedUniverse as ActivityCategory, { city });
+    setSelectedCity(city || null);
+  }, [selectedUniverse]);
 
   const handleUnifiedSearch = useCallback(
-    (params: { city: string; query: string; category?: string }) => {
+    (params: { city: string; query: string; category?: string; date?: string; timeFrom?: string; timeTo?: string; persons?: number }) => {
       const qs = new URLSearchParams();
-      if (params.city) qs.set("city", params.city);
+      // Check if "Autour de moi" mode with stored coords
+      const geoCoords = nearMeCoordsRef.current;
+      if (geoCoords && (params.city === "Autour de moi" || params.city.startsWith("geo:"))) {
+        qs.set("nearme", "1");
+        qs.set("lat", geoCoords.lat.toFixed(6));
+        qs.set("lng", geoCoords.lng.toFixed(6));
+      } else if (params.city) {
+        qs.set("city", params.city);
+      }
       if (params.query) qs.set("q", params.query);
       if (selectedUniverse && selectedUniverse !== "restaurants") {
         qs.set("universe", selectedUniverse);
@@ -874,7 +983,12 @@ export default function Home() {
       if (params.category && params.category !== "establishment") {
         qs.set("category", params.category);
       }
-      navigate(`/results?${qs.toString()}`);
+      // Forward temporal params from NLP parser
+      if (params.date) qs.set("date", params.date);
+      if (params.timeFrom) qs.set("time_from", params.timeFrom);
+      if (params.timeTo) qs.set("time_to", params.timeTo);
+      if (params.persons) qs.set("persons", String(params.persons));
+      navigate(`/results?${qs.toString()}`, { state: { fromSearch: true } });
     },
     [navigate, selectedUniverse]
   );
@@ -886,7 +1000,14 @@ export default function Home() {
     selected_for_you: PublicHomeFeedItem[];
     near_you: PublicHomeFeedItem[];
     most_booked: PublicHomeFeedItem[];
+    open_now: PublicHomeFeedItem[];
+    trending: PublicHomeFeedItem[];
+    new_establishments: PublicHomeFeedItem[];
+    top_rated: PublicHomeFeedItem[];
+    deals: PublicHomeFeedItem[];
+    themed: PublicHomeFeedItem[];
   }>(null);
+  const [homeTheme, setHomeTheme] = useState<string | null>(null);
 
   const requestUserLocation = useCallback(() => {
     if (!navigator.geolocation) return;
@@ -934,11 +1055,12 @@ export default function Home() {
       .then((payload) => {
         if (cancelled) return;
         setLists(payload.lists);
+        setHomeTheme(payload.meta.theme ?? null);
       })
       .catch(() => {
         if (cancelled) return;
         setHomeError(t("common.error.load_failed"));
-        setLists({ best_deals: [], selected_for_you: [], near_you: [], most_booked: [] });
+        setLists({ best_deals: [], selected_for_you: [], near_you: [], most_booked: [], open_now: [], trending: [], new_establishments: [], top_rated: [], deals: [], themed: [] });
       })
       .finally(() => {
         if (cancelled) return;
@@ -961,8 +1083,8 @@ export default function Home() {
           slug: item.slug,
           name,
           universe: (item.universe ?? universeFallback).toString(),
-          category: item.subcategory ?? undefined,
-          neighborhood: item.address ?? item.city ?? undefined,
+          category: (item.subcategory && item.subcategory !== "general") ? (item.subcategory.includes("/") ? item.subcategory.split("/").pop()?.trim() : item.subcategory) : undefined,
+          neighborhood: [item.neighborhood, item.city].filter(Boolean).join(", ") || item.city || undefined,
           image: item.cover_url ?? "/placeholder.svg",
           nextAvailability: formatNextSlotLabel(item.next_slot_at ?? null) ?? undefined,
           promoPercent: typeof item.promo_percent === "number" ? item.promo_percent : 0,
@@ -970,6 +1092,8 @@ export default function Home() {
           reservations30d: typeof item.reservations_30d === "number" ? item.reservations_30d : 0,
           distanceKm: typeof item.distance_km === "number" ? item.distance_km : null,
           curated: item.curated === true,
+          rating: typeof item.google_rating === "number" ? item.google_rating : undefined,
+          reviews: typeof item.google_review_count === "number" ? item.google_review_count : undefined,
         };
       });
     },
@@ -988,17 +1112,43 @@ export default function Home() {
     [lists?.most_booked, mapToCards, selectedUniverse],
   );
 
+  // New smart section card mappings
+  const openNowCards = useMemo(() => mapToCards(lists?.open_now ?? [], selectedUniverse), [lists?.open_now, mapToCards, selectedUniverse]);
+  const trendingCards = useMemo(() => mapToCards(lists?.trending ?? [], selectedUniverse), [lists?.trending, mapToCards, selectedUniverse]);
+  const newEstCards = useMemo(() => mapToCards(lists?.new_establishments ?? [], selectedUniverse), [lists?.new_establishments, mapToCards, selectedUniverse]);
+  const topRatedCards = useMemo(() => mapToCards(lists?.top_rated ?? [], selectedUniverse), [lists?.top_rated, mapToCards, selectedUniverse]);
+  const dealsCards = useMemo(() => mapToCards(lists?.deals ?? [], selectedUniverse), [lists?.deals, mapToCards, selectedUniverse]);
+  const themedCards = useMemo(() => mapToCards(lists?.themed ?? [], selectedUniverse), [lists?.themed, mapToCards, selectedUniverse]);
+
+  const themedSectionTitle = useMemo(() => {
+    switch (homeTheme) {
+      case "romantic": return t("home.sections.themed.romantic");
+      case "brunch": return t("home.sections.themed.brunch");
+      case "lunch": return t("home.sections.themed.lunch");
+      case "ftour_shour": return t("home.sections.themed.ramadan");
+      default: return "";
+    }
+  }, [homeTheme, t]);
+
   const offersCarouselRef = useRef<HTMLDivElement>(null);
   const selectedCarouselRef = useRef<HTMLDivElement>(null);
   const nearbyCarouselRef = useRef<HTMLDivElement>(null);
   const mostBookedCarouselRef = useRef<HTMLDivElement>(null);
+  const openNowCarouselRef = useRef<HTMLDivElement>(null);
+  const trendingCarouselRef = useRef<HTMLDivElement>(null);
+  const newEstCarouselRef = useRef<HTMLDivElement>(null);
+  const topRatedCarouselRef = useRef<HTMLDivElement>(null);
+  const dealsCarouselRef = useRef<HTMLDivElement>(null);
+  const themedCarouselRef = useRef<HTMLDivElement>(null);
   const blogCarouselRef = useRef<HTMLDivElement>(null);
 
   // Blog articles state
   const [blogArticles, setBlogArticles] = useState<PublicBlogListItem[]>([]);
+  const [blogLoading, setBlogLoading] = useState(true);
 
   // Load blog articles
   useEffect(() => {
+    setBlogLoading(true);
     listPublicBlogArticles({ locale, limit: 6 })
       .then((items) => {
         const published = items.filter((it) =>
@@ -1008,6 +1158,9 @@ export default function Home() {
       })
       .catch(() => {
         setBlogArticles([]);
+      })
+      .finally(() => {
+        setBlogLoading(false);
       });
   }, [locale]);
 
@@ -1111,8 +1264,8 @@ export default function Home() {
     ref.current.scrollBy({ left: direction === "left" ? -scrollAmount : scrollAmount, behavior: "smooth" });
   };
 
-  const viewAllOffersHref = buildResultsHref({ universe: selectedUniverse, promo: true, city: selectedCity });
-  const viewAllUniverseHref = buildResultsHref({ universe: selectedUniverse, city: selectedCity });
+  const viewAllOffersHref = buildResultsHref({ universe: selectedUniverse as ActivityCategory, promo: true, city: selectedCity });
+  const viewAllUniverseHref = buildResultsHref({ universe: selectedUniverse as ActivityCategory, city: selectedCity });
 
   return (
     <div className="min-h-screen bg-white">
@@ -1162,10 +1315,10 @@ export default function Home() {
         {/* Title */}
         <div className="text-center px-6 pb-4">
           <h1 className="text-xl font-bold mb-1 tracking-tight">
-            {homeSettings?.hero.title || t("home.hero.title")}
+            {t("home.hero.title")}
           </h1>
           <p className="text-xs text-white/80">
-            {homeSettings?.hero.subtitle || t("home.hero.subtitle")}
+            {t("home.hero.subtitle")}
           </p>
         </div>
 
@@ -1197,24 +1350,33 @@ export default function Home() {
           </div>
         )}
 
-        {/* Search Form - unified search like TheFork */}
+        {/* Search Form - adaptive per universe */}
         <div ref={mobileSearchFormRef} className="px-4 pb-8">
-          <UnifiedSearchInput
-            city={searchCity}
-            onCityChange={handleCityChange}
-            query={searchQuery}
-            onQueryChange={setSearchQuery}
-            universe={selectedUniverse}
-            onSearch={handleUnifiedSearch}
-            placeholder={
-              selectedUniverse === "restaurants"
-                ? "Cuisine, restaurant, plat..."
-                : selectedUniverse === "hebergement"
-                ? "Hôtel, type, équipement..."
-                : "Activité, lieu..."
-            }
-            compact={false}
-          />
+          {selectedUniverse === "rentacar" ? (
+            <AdaptiveSearchForm
+              selectedUniverse={selectedUniverse as ActivityCategory}
+              onUniverseChange={handleUniverseChange}
+              onSearch={() => {}}
+              mobileStackedLayout
+            />
+          ) : (
+            <UnifiedSearchInput
+              city={searchCity}
+              onCityChange={handleCityChange}
+              query={searchQuery}
+              onQueryChange={setSearchQuery}
+              universe={selectedUniverse}
+              onSearch={handleUnifiedSearch}
+              placeholder={
+                selectedUniverse === "restaurants"
+                  ? t("home.search.placeholder.restaurants")
+                  : selectedUniverse === "hebergement"
+                  ? t("home.search.placeholder.accommodation")
+                  : t("home.search.placeholder.activities")
+              }
+              compact={false}
+            />
+          )}
         </div>
       </section>
 
@@ -1246,10 +1408,10 @@ export default function Home() {
         <div className="container mx-auto px-4 relative z-50">
           <div className="text-center mb-9 md:mb-10">
             <h1 className="text-3xl md:text-5xl font-bold mb-4 tracking-tight">
-              {homeSettings?.hero.title || t("home.hero.title")}
+              {t("home.hero.title")}
             </h1>
             <p className="text-lg text-white/90 max-w-2xl mx-auto">
-              {homeSettings?.hero.subtitle || t("home.hero.subtitle")}
+              {t("home.hero.subtitle")}
             </p>
           </div>
 
@@ -1260,29 +1422,58 @@ export default function Home() {
             </div>
           )}
 
-          {/* Search bar - aligned with universe selector width */}
-          <div ref={desktopSearchFormRef} className="mx-auto max-w-5xl">
-            <UnifiedSearchInput
-              city={searchCity}
-              onCityChange={handleCityChange}
-              query={searchQuery}
-              onQueryChange={setSearchQuery}
-              universe={selectedUniverse}
-              onSearch={handleUnifiedSearch}
-              placeholder={
-                selectedUniverse === "restaurants"
-                  ? "Cuisine, nom de restaurant, plat..."
-                  : selectedUniverse === "hebergement"
-                  ? "Nom d'hôtel, type, équipement..."
-                  : "Activité, lieu, type..."
-              }
-            />
+          {/* Search bar - adaptive per universe */}
+          <div ref={desktopSearchFormRef} className={`mx-auto ${selectedUniverse === "rentacar" ? "max-w-7xl" : "max-w-5xl"}`}>
+            {selectedUniverse === "rentacar" ? (
+              <AdaptiveSearchForm
+                selectedUniverse={selectedUniverse as ActivityCategory}
+                onUniverseChange={handleUniverseChange}
+                onSearch={() => {}}
+              />
+            ) : (
+              <UnifiedSearchInput
+                city={searchCity}
+                onCityChange={handleCityChange}
+                query={searchQuery}
+                onQueryChange={setSearchQuery}
+                universe={selectedUniverse}
+                onSearch={handleUnifiedSearch}
+                placeholder={
+                  selectedUniverse === "restaurants"
+                    ? t("home.search.placeholder.restaurants_detailed")
+                    : selectedUniverse === "hebergement"
+                    ? t("home.search.placeholder.accommodation_detailed")
+                    : t("home.search.placeholder.activities_detailed")
+                }
+              />
+            )}
           </div>
         </div>
       </section>
 
       <main className="container mx-auto px-4 pt-0 pb-[2px]">
         {homeError ? <div className="mt-6 text-sm text-red-600">{homeError}</div> : null}
+
+        {/* CE advantages carousel — only for active CE employees */}
+        <CeHomeFeedSection />
+
+        {/* Spécial Ramadan — promoted to top of page when Ramadan is active */}
+        {homeTheme === "ftour_shour" && themedCards.length > 0 && (
+          <HomeCarouselSection
+            title={t("home.sections.ramadan.title")}
+            viewAllHref="/results?tags=ftour"
+            items={themedCards}
+            favoriteIds={favorites}
+            onToggleFavorite={toggleFavorite}
+            scrollRef={themedCarouselRef}
+            onScrollLeft={() => scrollCarousel("left", themedCarouselRef)}
+            onScrollRight={() => scrollCarousel("right", themedCarouselRef)}
+            selectedCity={selectedCity}
+            showDistance={userLocation != null}
+            tMonthLabel={t("chart.label.reservations_30d")}
+            isLoading={homeLoading}
+          />
+        )}
 
         <HomeCarouselSection
           title={t("home.sections.best_offers.title")}
@@ -1294,10 +1485,11 @@ export default function Home() {
           onScrollLeft={() => scrollCarousel("left", offersCarouselRef)}
           onScrollRight={() => scrollCarousel("right", offersCarouselRef)}
           selectedCity={selectedCity}
-          showDistance={false}
+          showDistance={userLocation != null}
           tMonthLabel={t("chart.label.reservations_30d")}
           featuredPack={featuredPacks.best_offers}
           onFeaturedClick={handleFeaturedPackClick}
+          isLoading={homeLoading}
         />
 
         <HomeCarouselSection
@@ -1310,10 +1502,11 @@ export default function Home() {
           onScrollLeft={() => scrollCarousel("left", selectedCarouselRef)}
           onScrollRight={() => scrollCarousel("right", selectedCarouselRef)}
           selectedCity={selectedCity}
-          showDistance={false}
+          showDistance={userLocation != null}
           tMonthLabel={t("chart.label.reservations_30d")}
           featuredPack={featuredPacks.selected_for_you}
           onFeaturedClick={handleFeaturedPackClick}
+          isLoading={homeLoading}
         />
 
         <HomeCarouselSection
@@ -1330,6 +1523,7 @@ export default function Home() {
           tMonthLabel={t("chart.label.reservations_30d")}
           featuredPack={featuredPacks.nearby}
           onFeaturedClick={handleFeaturedPackClick}
+          isLoading={homeLoading}
         />
 
         <HomeCarouselSection
@@ -1342,22 +1536,127 @@ export default function Home() {
           onScrollLeft={() => scrollCarousel("left", mostBookedCarouselRef)}
           onScrollRight={() => scrollCarousel("right", mostBookedCarouselRef)}
           selectedCity={selectedCity}
-          showDistance={false}
+          showDistance={userLocation != null}
           tMonthLabel={t("chart.label.reservations_30d")}
           featuredPack={featuredPacks.most_booked}
           onFeaturedClick={handleFeaturedPackClick}
+          isLoading={homeLoading}
         />
 
-        {/* Blog Section */}
-        {blogArticles.length > 0 && (
-          <BlogCarouselSection
-            items={blogArticles}
-            locale={locale}
-            scrollRef={blogCarouselRef}
-            onScrollLeft={() => scrollCarousel("left", blogCarouselRef)}
-            onScrollRight={() => scrollCarousel("right", blogCarouselRef)}
+        {/* Open Now */}
+        {openNowCards.length > 0 && (
+          <HomeCarouselSection
+            title={t("home.sections.open_now.title")}
+            viewAllHref={`${viewAllUniverseHref}&open_now=1`}
+            items={openNowCards}
+            favoriteIds={favorites}
+            onToggleFavorite={toggleFavorite}
+            scrollRef={openNowCarouselRef}
+            onScrollLeft={() => scrollCarousel("left", openNowCarouselRef)}
+            onScrollRight={() => scrollCarousel("right", openNowCarouselRef)}
+            selectedCity={selectedCity}
+            showDistance={userLocation != null}
+            tMonthLabel={t("chart.label.reservations_30d")}
           />
         )}
+
+        {/* Trending */}
+        {trendingCards.length > 0 && (
+          <HomeCarouselSection
+            title={t("home.sections.trending.title")}
+            viewAllHref={`${viewAllUniverseHref}&sort=reservations_30d`}
+            items={trendingCards}
+            favoriteIds={favorites}
+            onToggleFavorite={toggleFavorite}
+            scrollRef={trendingCarouselRef}
+            onScrollLeft={() => scrollCarousel("left", trendingCarouselRef)}
+            onScrollRight={() => scrollCarousel("right", trendingCarouselRef)}
+            selectedCity={selectedCity}
+            showDistance={userLocation != null}
+            tMonthLabel={t("chart.label.reservations_30d")}
+          />
+        )}
+
+        {/* New Establishments */}
+        {newEstCards.length > 0 && (
+          <HomeCarouselSection
+            title={t("home.sections.new.title")}
+            viewAllHref={`${viewAllUniverseHref}&sort=newest`}
+            items={newEstCards}
+            favoriteIds={favorites}
+            onToggleFavorite={toggleFavorite}
+            scrollRef={newEstCarouselRef}
+            onScrollLeft={() => scrollCarousel("left", newEstCarouselRef)}
+            onScrollRight={() => scrollCarousel("right", newEstCarouselRef)}
+            selectedCity={selectedCity}
+            showDistance={userLocation != null}
+            tMonthLabel={t("chart.label.reservations_30d")}
+          />
+        )}
+
+        {/* Top Rated */}
+        {topRatedCards.length > 0 && (
+          <HomeCarouselSection
+            title={t("home.sections.top_rated.title")}
+            viewAllHref={`${viewAllUniverseHref}&sort=rating`}
+            items={topRatedCards}
+            favoriteIds={favorites}
+            onToggleFavorite={toggleFavorite}
+            scrollRef={topRatedCarouselRef}
+            onScrollLeft={() => scrollCarousel("left", topRatedCarouselRef)}
+            onScrollRight={() => scrollCarousel("right", topRatedCarouselRef)}
+            selectedCity={selectedCity}
+            showDistance={userLocation != null}
+            tMonthLabel={t("chart.label.reservations_30d")}
+          />
+        )}
+
+        {/* Deals */}
+        {dealsCards.length > 0 && (
+          <HomeCarouselSection
+            title={t("home.sections.deals.title")}
+            viewAllHref={`${viewAllUniverseHref}&promo=1`}
+            items={dealsCards}
+            favoriteIds={favorites}
+            onToggleFavorite={toggleFavorite}
+            scrollRef={dealsCarouselRef}
+            onScrollLeft={() => scrollCarousel("left", dealsCarouselRef)}
+            onScrollRight={() => scrollCarousel("right", dealsCarouselRef)}
+            selectedCity={selectedCity}
+            showDistance={userLocation != null}
+            tMonthLabel={t("chart.label.reservations_30d")}
+          />
+        )}
+
+        {/* Themed — skip if Ramadan (already shown at top) */}
+        {themedCards.length > 0 && themedSectionTitle && homeTheme !== "ftour_shour" && (
+          <HomeCarouselSection
+            title={themedSectionTitle}
+            viewAllHref={viewAllUniverseHref}
+            items={themedCards}
+            favoriteIds={favorites}
+            onToggleFavorite={toggleFavorite}
+            scrollRef={themedCarouselRef}
+            onScrollLeft={() => scrollCarousel("left", themedCarouselRef)}
+            onScrollRight={() => scrollCarousel("right", themedCarouselRef)}
+            selectedCity={selectedCity}
+            showDistance={userLocation != null}
+            tMonthLabel={t("chart.label.reservations_30d")}
+          />
+        )}
+
+        {/* Featured Packs Carousel */}
+        <FeaturedPacksCarousel className="mb-8 md:mb-10" />
+
+        {/* Blog Section */}
+        <BlogCarouselSection
+          items={blogArticles}
+          locale={locale}
+          scrollRef={blogCarouselRef}
+          onScrollLeft={() => scrollCarousel("left", blogCarouselRef)}
+          onScrollRight={() => scrollCarousel("right", blogCarouselRef)}
+          isLoading={blogLoading}
+        />
 
         {/* Cities Section */}
         <CitiesSection className="pt-8 pb-4" />
@@ -1369,12 +1668,12 @@ export default function Home() {
         {(() => {
           // Default items if not customized in admin
           const defaultHowItWorks = {
-            title: "Comment ça marche ?",
+            title: t("home.how_it_works.title"),
             items: [
-              { icon: "BadgePercent", title: "Offres exclusives", description: "Profitez de réductions et avantages uniques chez nos établissements partenaires au Maroc." },
-              { icon: "Award", title: "Le meilleur choix", description: "Une sélection rigoureuse d'établissements pour toutes vos envies : restaurants, loisirs, bien-être..." },
-              { icon: "Star", title: "Avis vérifiés", description: "Des recommandations authentiques de notre communauté pour vous guider dans vos choix." },
-              { icon: "CalendarCheck", title: "Réservation facile", description: "Réservez instantanément, gratuitement, partout et à tout moment. 24h/24, 7j/7." },
+              { icon: "BadgePercent", title: t("home.how_it_works.default.exclusive_offers.title"), description: t("home.how_it_works.default.exclusive_offers.description") },
+              { icon: "Award", title: t("home.how_it_works.default.best_choice.title"), description: t("home.how_it_works.default.best_choice.description") },
+              { icon: "Star", title: t("home.how_it_works.default.verified_reviews.title"), description: t("home.how_it_works.default.verified_reviews.description") },
+              { icon: "CalendarCheck", title: t("home.how_it_works.default.easy_booking.title"), description: t("home.how_it_works.default.easy_booking.description") },
             ],
           };
           const howItWorks = homeSettings?.how_it_works?.items?.length
@@ -1402,9 +1701,7 @@ export default function Home() {
           );
         })()}
 
-        <CategorySelector universe={selectedUniverse} city={selectedCity} />
-
-        {homeLoading ? <div className="py-6 text-sm text-slate-500">{t("common.loading")}</div> : null}
+        <CategorySelector universe={selectedUniverse as ActivityCategory} city={selectedCity} />
       </main>
     </div>
   );

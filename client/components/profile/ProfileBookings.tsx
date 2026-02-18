@@ -115,7 +115,7 @@ export function ProfileBookings({ bookings }: { bookings: BookingRecord[] }) {
                   {formatMoneyMad(breakdown.unitMad)} × {breakdown.partySize}
                 </div>
               </div>
-              <div className="text-right">
+              <div className="text-end">
                 <div className="text-[11px] text-slate-500">{t("profile.bookings.amount_paid")}</div>
                 <div className="text-sm font-extrabold text-foreground tabular-nums">{formatMoneyMad(breakdown.totalMad)}</div>
               </div>

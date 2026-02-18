@@ -263,14 +263,16 @@ export const previewNewsletter: RequestHandler = async (req, res) => {
   const bodyHtml = renderNewsletterBlocks(blocks, design_settings, lang, variables);
 
   // Use the existing email renderer
-  const result = renderSambookingEmail({
+  const result = await renderSambookingEmail({
+    emailId: `preview-${Date.now()}`,
+    fromKey: "hello",
+    to: [],
     subject,
     bodyText: bodyHtml,
     ctaLabel: null,
     ctaUrl: null,
     variables: variables as Record<string, string | number | null | undefined>,
-    marketingUnsubscribeUrl: null,
-    bodyIsHtml: true,
+    tracking: { marketingUnsubscribeUrl: null },
   });
 
   return res.json({ ok: true, html: result.html, text: result.text });

@@ -218,7 +218,7 @@ export const listProPrestataires: RequestHandler = async (req, res) => {
         .select("prestataire_id")
         .eq("establishment_id", establishmentId)
         .eq("statut", "CONVERTIE")
-        .not("prestataire_id", "is", null),
+        .not("prestataire_id", "is", null) as any,
     )
     .order("nom_legal");
 

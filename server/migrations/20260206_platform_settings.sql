@@ -64,7 +64,7 @@ insert into public.platform_settings (key, value, value_type, label, description
   -- Branding
   ('BRAND_NAME', 'Sortir Au Maroc', 'string', 'Nom de Marque', 'Nom principal de la plateforme', 'branding'),
   ('BRAND_SHORT', 'SAM', 'string', 'Nom Court', 'Acronyme/nom court de la plateforme', 'branding'),
-  ('BRAND_DOMAIN', 'sortiraumaroc.ma', 'string', 'Domaine Principal', 'Domaine web principal', 'branding')
+  ('BRAND_DOMAIN', 'sam.ma', 'string', 'Domaine Principal', 'Domaine web principal', 'branding')
 
 on conflict (key) do nothing;
 

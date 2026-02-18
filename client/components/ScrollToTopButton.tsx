@@ -40,7 +40,7 @@ export function ScrollToTopButton() {
         "transition-all duration-300 ease-in-out",
         "hover:bg-primary/90 active:scale-95",
         // Position: bottom right, above the sticky booking bar
-        "bottom-36 right-4",
+        "bottom-36 end-4",
         // Only show on mobile (hidden on md and up)
         "md:hidden",
         // Visibility based on scroll

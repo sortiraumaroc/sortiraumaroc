@@ -231,6 +231,7 @@ export async function verifyCode(
       headers: {
         "Content-Type": "application/json",
       },
+      credentials: "include", // Allow trust cookie to be set
       body: JSON.stringify({
         phoneNumber: formattedPhone,
         code: code.trim(),

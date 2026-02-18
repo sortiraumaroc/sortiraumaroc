@@ -340,7 +340,7 @@ export function ProfileBilling({
                               {formatMoneyMad(p.unitMad)} × {p.quantity}
                             </div>
                           </div>
-                          <div className="text-right">
+                          <div className="text-end">
                             <div className="text-[11px] text-slate-500">Montant payé</div>
                             <div className="text-sm font-extrabold text-foreground tabular-nums">{formatMoneyMad(p.totalMad)}</div>
                           </div>

@@ -19,8 +19,24 @@ function getDemoBookingsSeedVersion(): number {
 
 export const USER_DATA_CHANGED_EVENT = "sam-user-data-changed";
 
+const USER_AVATAR_BACKUP_KEY = "sam_avatar_backup_v1";
+
 export function clearUserLocalData(): void {
   if (typeof window === "undefined") return;
+
+  // Preserve avatar across logout/login cycles — it's only stored client-side
+  try {
+    const profile = readJson(USER_PROFILE_STORAGE_KEY);
+    const avatar =
+      profile && typeof profile === "object" && "avatarDataUrl" in profile
+        ? (profile as Record<string, unknown>).avatarDataUrl
+        : undefined;
+    if (typeof avatar === "string" && avatar.startsWith("data:image/")) {
+      window.localStorage.setItem(USER_AVATAR_BACKUP_KEY, avatar);
+    }
+  } catch {
+    // ignore
+  }
 
   const keys = [
     USER_PROFILE_STORAGE_KEY,
@@ -86,9 +102,11 @@ const storedProfileSchema = z
     firstName: z.string().optional(),
     lastName: z.string().optional(),
     contact: z.string().optional(),
+    email: z.string().optional(),
     socio_professional_status: socioProfessionalStatusSchema.optional(),
     date_of_birth: z.string().optional(),
     city: z.string().optional(),
+    country: z.string().optional(),
     preferences: preferencesSchema,
     avatarDataUrl: z.string().max(750000).optional(),
     updatedAtIso: z.string().optional(),
@@ -97,7 +115,6 @@ const storedProfileSchema = z
     phoneVerifiedAtIso: z.string().optional(),
     emailVerified: z.boolean().optional(),
     emailVerifiedAtIso: z.string().optional(),
-    email: z.string().optional(),
   })
   .passthrough();
 
@@ -114,9 +131,11 @@ const profileInputSchema = z.object({
   firstName: optionalTrimmedString(60),
   lastName: optionalTrimmedString(60),
   contact: optionalTrimmedString(120).refine((v) => !v || v.length >= 3, { message: "Contact trop court" }),
+  email: optionalTrimmedString(200),
   socio_professional_status: socioProfessionalStatusSchema.optional(),
   date_of_birth: optionalDateYmd,
   city: optionalTrimmedString(80),
+  country: optionalTrimmedString(10),
   preferences: z
     .object({
       newsletter: z.boolean(),
@@ -134,6 +153,7 @@ export type UserProfile = {
   socio_professional_status?: SocioProfessionalStatus;
   date_of_birth?: string;
   city?: string;
+  country?: string;
   avatarDataUrl?: string;
   preferences: UserPreferences;
   updatedAtIso?: string;
@@ -321,6 +341,7 @@ export function getUserProfile(): UserProfile {
     socio_professional_status: p.socio_professional_status,
     date_of_birth: dateOfBirth,
     city: p.city?.trim() || undefined,
+    country: p.country?.trim() || undefined,
     avatarDataUrl: typeof p.avatarDataUrl === "string" && p.avatarDataUrl.startsWith("data:image/") ? p.avatarDataUrl : undefined,
     preferences: prefs,
     updatedAtIso: p.updatedAtIso,
@@ -377,6 +398,28 @@ export function saveUserAvatar(avatarDataUrl: string): { ok: true } | { ok: fals
   return { ok: true };
 }
 
+/**
+ * Restore avatar from backup (saved before logout) into the current profile.
+ * Called after login sync so the avatar survives logout/login cycles.
+ */
+export function restoreAvatarFromBackup(): void {
+  if (typeof window === "undefined") return;
+  try {
+    const backup = window.localStorage.getItem(USER_AVATAR_BACKUP_KEY);
+    if (!backup || !backup.startsWith("data:image/")) return;
+
+    // Only restore if the current profile doesn't already have an avatar
+    const profile = getUserProfile();
+    if (profile.avatarDataUrl) return;
+
+    saveUserAvatar(backup);
+    // Clean up backup after successful restore
+    window.localStorage.removeItem(USER_AVATAR_BACKUP_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 export function removeUserAvatar(): void {
   const existingParsed = storedProfileSchema.safeParse(readJson(USER_PROFILE_STORAGE_KEY));
   const existing = existingParsed.success ? existingParsed.data : {};
@@ -388,6 +431,13 @@ export function removeUserAvatar(): void {
   };
 
   writeJson(USER_PROFILE_STORAGE_KEY, next);
+
+  // Also clear the backup so it doesn't resurrect after next logout
+  try {
+    window.localStorage.removeItem(USER_AVATAR_BACKUP_KEY);
+  } catch {
+    // ignore
+  }
 }
 
 /**

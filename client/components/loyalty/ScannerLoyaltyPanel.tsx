@@ -174,7 +174,7 @@ export function ScannerLoyaltyPanel({
                 <Award className="w-5 h-5 text-primary" />
                 Fidélité
                 {hasActiveRewards && (
-                  <Badge className="bg-amber-500 text-white border-0 gap-1 ml-2">
+                  <Badge className="bg-amber-500 text-white border-0 gap-1 ms-2">
                     <Gift className="w-3 h-3" />
                     {loyaltyInfo?.active_rewards.length} récompense(s)
                   </Badge>
@@ -194,7 +194,7 @@ export function ScannerLoyaltyPanel({
             {loading ? (
               <div className="flex items-center justify-center py-4">
                 <Loader2 className="w-5 h-5 animate-spin text-primary" />
-                <span className="ml-2 text-sm text-slate-500">Chargement...</span>
+                <span className="ms-2 text-sm text-slate-500">Chargement...</span>
               </div>
             ) : error ? (
               <div className="text-sm text-red-600 p-3 bg-red-50 rounded-lg">
@@ -227,7 +227,7 @@ export function ScannerLoyaltyPanel({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="ml-auto h-6 w-6 p-0"
+                      className="ms-auto h-6 w-6 p-0"
                       onClick={() => setStampResult(null)}
                     >
                       <X className="w-3 h-3" />
@@ -403,7 +403,7 @@ export function ScannerLoyaltyBadge({
 
       {hasRewards ? (
         <span className="text-sm font-medium text-amber-700">
-          <Gift className="w-3 h-3 inline mr-1" />
+          <Gift className="w-3 h-3 inline me-1" />
           {loyaltyInfo.active_rewards.length} récompense(s) à utiliser
         </span>
       ) : hasCards ? (
@@ -416,7 +416,7 @@ export function ScannerLoyaltyBadge({
         </span>
       )}
 
-      <ChevronDown className="w-4 h-4 text-slate-400 ml-auto" />
+      <ChevronDown className="w-4 h-4 text-slate-400 ms-auto" />
     </div>
   );
 }

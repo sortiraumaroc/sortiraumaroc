@@ -1,6 +1,7 @@
 import * as React from "react";
 import { ChevronLeft, ChevronRight, Flag, Heart, Share2 } from "lucide-react";
 
+import { ImageLightbox } from "@/components/ImageLightbox";
 import { IconButton } from "@/components/ui/icon-button";
 import {
   Tooltip,
@@ -24,6 +25,8 @@ export function HotelGallery({ name, images, onReport }: HotelGalleryProps) {
   const [touchStartX, setTouchStartX] = React.useState(0);
   const [mouseStartX, setMouseStartX] = React.useState(0);
   const [isDragging, setIsDragging] = React.useState(false);
+  const isDraggingRef = React.useRef(false);
+  const [lightboxOpen, setLightboxOpen] = React.useState(false);
 
   const safeImages = Array.isArray(images) ? images.filter(Boolean) : [];
 
@@ -54,19 +57,25 @@ export function HotelGallery({ name, images, onReport }: HotelGalleryProps) {
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     setIsDragging(true);
+    isDraggingRef.current = true;
     setMouseStartX(e.clientX);
   };
 
   const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isDragging) return;
 
-    setIsDragging(false);
     const diff = mouseStartX - e.clientX;
     const minSwipeDistance = 50;
+    const wasDragged = Math.abs(diff) > minSwipeDistance;
 
-    if (Math.abs(diff) > minSwipeDistance) {
+    setIsDragging(false);
+    isDraggingRef.current = wasDragged;
+
+    if (wasDragged) {
       if (diff > 0) nextImage();
       else prevImage();
+      // Reset ref after a tick so the click handler sees the correct value
+      requestAnimationFrame(() => { isDraggingRef.current = false; });
     }
   };
 
@@ -144,22 +153,27 @@ export function HotelGallery({ name, images, onReport }: HotelGalleryProps) {
       onTouchEnd={handleTouchEnd}
       onMouseDown={handleMouseDown}
       onMouseUp={handleMouseUp}
-      onMouseLeave={() => setIsDragging(false)}
+      onMouseLeave={() => { setIsDragging(false); isDraggingRef.current = false; }}
     >
-      <img src={safeImages[currentImageIndex]} alt={name} className="w-full h-full object-cover" />
+      <img
+        src={safeImages[currentImageIndex]}
+        alt={name}
+        className="w-full h-full object-cover cursor-pointer"
+        onClick={() => !isDraggingRef.current && setLightboxOpen(true)}
+      />
 
       {safeImages.length > 1 ? (
         <>
           <IconButton
             onClick={prevImage}
-            className="absolute left-4 top-1/2 -translate-y-1/2 z-10"
+            className="absolute start-4 top-1/2 -translate-y-1/2 z-10"
             aria-label="Image précédente"
           >
             <ChevronLeft className="w-6 h-6" />
           </IconButton>
           <IconButton
             onClick={nextImage}
-            className="absolute right-4 top-1/2 -translate-y-1/2 z-10"
+            className="absolute end-4 top-1/2 -translate-y-1/2 z-10"
             aria-label="Image suivante"
           >
             <ChevronRight className="w-6 h-6" />
@@ -174,7 +188,7 @@ export function HotelGallery({ name, images, onReport }: HotelGalleryProps) {
               <button
                 key={img + idx}
                 type="button"
-                onClick={() => setCurrentImageIndex(idx)}
+                onClick={() => { setCurrentImageIndex(idx); setLightboxOpen(true); }}
                 className={`h-12 w-12 rounded overflow-hidden flex-shrink-0 border-2 ${idx === currentImageIndex ? "border-white" : "border-transparent"}`}
                 aria-label={`Voir l'image ${idx + 1}`}
               >
@@ -186,7 +200,7 @@ export function HotelGallery({ name, images, onReport }: HotelGalleryProps) {
       ) : null}
 
       <TooltipProvider>
-        <div className="absolute top-4 right-4 flex gap-2 z-20">
+        <div className="absolute top-4 end-4 flex gap-2 z-20">
           <Tooltip>
             <TooltipTrigger asChild>
               <IconButton
@@ -217,23 +231,23 @@ export function HotelGallery({ name, images, onReport }: HotelGalleryProps) {
             </Tooltip>
 
             {showShareMenu ? (
-              <div className="absolute top-full right-0 mt-2 bg-white rounded-lg shadow-lg border border-slate-200 z-50 min-w-52 overflow-hidden">
-                <button type="button" onClick={() => handleShare("facebook")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
+              <div className="absolute top-full end-0 mt-2 bg-white rounded-lg shadow-lg border border-slate-200 z-50 min-w-52 overflow-hidden">
+                <button type="button" onClick={() => handleShare("facebook")} className="w-full text-start px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
                   f Facebook
                 </button>
-                <button type="button" onClick={() => handleShare("x")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
+                <button type="button" onClick={() => handleShare("x")} className="w-full text-start px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
                   𝕏 X
                 </button>
-                <button type="button" onClick={() => handleShare("whatsapp")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
+                <button type="button" onClick={() => handleShare("whatsapp")} className="w-full text-start px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
                   💬 WhatsApp
                 </button>
-                <button type="button" onClick={() => handleShare("email")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
+                <button type="button" onClick={() => handleShare("email")} className="w-full text-start px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
                   ✉️ Email
                 </button>
                 <button
                   type="button"
                   onClick={() => handleShare("copy")}
-                  className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm border-t border-slate-200"
+                  className="w-full text-start px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm border-t border-slate-200"
                 >
                   🔗 Copier le lien
                 </button>
@@ -260,6 +274,15 @@ export function HotelGallery({ name, images, onReport }: HotelGalleryProps) {
           )}
         </div>
       </TooltipProvider>
+
+      {lightboxOpen && (
+        <ImageLightbox
+          images={safeImages}
+          initialIndex={currentImageIndex}
+          alt={name}
+          onClose={() => setLightboxOpen(false)}
+        />
+      )}
     </div>
   );
 }

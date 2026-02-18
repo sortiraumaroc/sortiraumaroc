@@ -114,7 +114,7 @@ export function CityInputWithNeighborhoods({
 
   return (
     <div className={cn("relative w-full group", className)} ref={containerRef}>
-      <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary w-5 h-5 pointer-events-none transition-colors z-10" />
+      <MapPin className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary w-5 h-5 pointer-events-none transition-colors z-10" />
       <input
         ref={inputRef}
         type="text"
@@ -131,7 +131,7 @@ export function CityInputWithNeighborhoods({
         className={
           inputClassName ??
           cn(
-            "w-full pl-10 pr-4 py-2 h-10 md:h-11 border border-slate-200 rounded-md text-sm text-slate-900 placeholder:text-slate-500 placeholder:font-normal transition-colors [font-family:Circular_Std,_sans-serif]",
+            "w-full ps-10 pe-4 py-2 h-10 md:h-11 border border-slate-200 rounded-md text-sm text-slate-900 placeholder:text-slate-500 placeholder:font-normal transition-colors [font-family:Circular_Std,_sans-serif]",
             disabled
               ? "bg-slate-200 text-slate-400 cursor-not-allowed"
               : cn(
@@ -144,13 +144,13 @@ export function CityInputWithNeighborhoods({
       />
 
       {isOpen && !isScrolledPastSearch && (
-        <div className="absolute top-full left-0 mt-2 bg-white rounded-lg shadow-lg border border-slate-200 z-40 flex max-h-[400px]">
+        <div className="absolute top-full start-0 mt-2 bg-white rounded-lg shadow-lg border border-slate-200 z-40 flex max-h-[400px]">
           {/* Cities column */}
-          <div className="w-[220px] border-r border-slate-100 overflow-y-auto">
+          <div className="w-[220px] border-e border-slate-100 overflow-y-auto">
             {/* Ma position */}
             <button
               onClick={handleGeolocation}
-              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-pink-50 active:bg-pink-100 transition text-left"
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-pink-50 active:bg-pink-100 transition text-start"
             >
               <Zap className="w-5 h-5 text-slate-400" />
               <div>
@@ -173,7 +173,7 @@ export function CityInputWithNeighborhoods({
                 onClick={() => handleSelectCity(city.name, city.id)}
                 onMouseEnter={() => setHoveredCity(city.id)}
                 className={cn(
-                  "w-full flex items-center justify-between px-4 py-3 transition text-left",
+                  "w-full flex items-center justify-between px-4 py-3 transition text-start",
                   hoveredCity === city.id ? "bg-pink-50" : "hover:bg-pink-50"
                 )}
               >
@@ -202,7 +202,7 @@ export function CityInputWithNeighborhoods({
                   onClick={() =>
                     handleSelectNeighborhood(neighborhood.name, neighborhood.id, hoveredCityData?.name || "")
                   }
-                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-pink-50 active:bg-pink-100 transition text-left"
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-pink-50 active:bg-pink-100 transition text-start"
                 >
                   <MapPin className="w-4 h-4 text-slate-300" />
                   <span className="text-sm text-gray-700">{neighborhood.name}</span>

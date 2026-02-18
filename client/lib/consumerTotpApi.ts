@@ -118,51 +118,93 @@ function extractErrorMessage(payload: unknown): string | null {
   return msg && msg.trim() ? msg : null;
 }
 
+/** Maximum number of retries on transient network errors */
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 800;
+
+function wait(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 async function requestAuthedJson<T>(
   path: string,
   init?: RequestInit
 ): Promise<T> {
-  const token = await getConsumerAccessToken();
-  if (!token) throw new ConsumerTotpApiError("Not authenticated", 401);
-
-  let res: Response;
+  // ── 1. Get access token ────────────────────────────────────────────
+  let token: string | null = null;
   try {
-    res = await fetch(path, {
-      ...init,
-      headers: {
-        ...(init?.headers ?? {}),
-        authorization: `Bearer ${token}`,
-        ...(init?.body ? { "content-type": "application/json" } : {}),
-      },
-    });
-  } catch (e) {
-    console.error("[consumerTotpApi] Network error on", path, e);
+    token = await getConsumerAccessToken();
+  } catch (tokenErr) {
+    console.error("[consumerTotpApi] Error getting access token:", tokenErr);
     throw new ConsumerTotpApiError(
-      "Impossible de contacter le serveur. Vérifiez votre connexion et réessayez.",
-      0,
-      e
+      "Impossible de récupérer votre session. Veuillez vous reconnecter.",
+      401,
+      tokenErr,
     );
   }
 
-  let payload: unknown = null;
-  const contentType = res.headers.get("content-type") ?? "";
-  if (contentType.includes("application/json")) {
-    payload = await res.json().catch(() => null);
-  } else {
-    // Server returned non-JSON (e.g. HTML 404 page from Vite middleware)
-    const text = await res.text().catch(() => "");
-    payload = text;
-    if (!res.ok) {
-      console.error("[consumerTotpApi] Non-JSON response on", path, "status:", res.status, "body:", typeof text === "string" ? text.slice(0, 200) : text);
+  if (!token) {
+    throw new ConsumerTotpApiError("Not authenticated", 401);
+  }
+
+  // ── 2. Fetch with retry (network errors only) ─────────────────────
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      console.warn(`[consumerTotpApi] Retry ${attempt}/${MAX_RETRIES} for ${path}`);
+      await wait(RETRY_DELAY_MS * attempt);
     }
+
+    let res: Response;
+    try {
+      res = await fetch(path, {
+        ...init,
+        headers: {
+          ...(init?.headers ?? {}),
+          authorization: `Bearer ${token}`,
+          ...(init?.body ? { "content-type": "application/json" } : {}),
+        },
+      });
+    } catch (e) {
+      lastError = e;
+      console.error(`[consumerTotpApi] Network error on ${path} (attempt ${attempt + 1}):`, e);
+      // Retry on network errors
+      continue;
+    }
+
+    // ── 3. Parse response ──────────────────────────────────────────
+    let payload: unknown = null;
+    const contentType = res.headers.get("content-type") ?? "";
+    if (contentType.includes("application/json")) {
+      payload = await res.json().catch(() => null);
+    } else {
+      const text = await res.text().catch(() => "");
+      payload = text;
+      if (!res.ok) {
+        console.error(
+          "[consumerTotpApi] Non-JSON response on", path,
+          "status:", res.status,
+          "body:", typeof text === "string" ? text.slice(0, 200) : text,
+        );
+      }
+    }
+
+    if (!res.ok) {
+      const msg = extractErrorMessage(payload) || `Erreur serveur (${res.status})`;
+      throw new ConsumerTotpApiError(msg, res.status, payload);
+    }
+
+    return payload as T;
   }
 
-  if (!res.ok) {
-    const msg = extractErrorMessage(payload) || `Erreur serveur (${res.status})`;
-    throw new ConsumerTotpApiError(msg, res.status, payload);
-  }
-
-  return payload as T;
+  // ── 4. All retries exhausted ───────────────────────────────────────
+  console.error("[consumerTotpApi] All retries exhausted for", path, lastError);
+  throw new ConsumerTotpApiError(
+    "Impossible de contacter le serveur. Vérifiez votre connexion et réessayez.",
+    0,
+    lastError,
+  );
 }
 
 // ============================================================================

@@ -37,7 +37,7 @@ type ResolvedSender = {
 
 const DEFAULT_BRAND_COLOR = "#a3001d";
 // Logo URL for emails - white logo on red header background
-const DEFAULT_LOGO_URL = "https://sam.ma/logo-white.png";
+const DEFAULT_LOGO_URL = "https://sam.ma/api/public/assets/email-logo.png";
 
 type EmailBrandingSettings = {
   logo_url: string | null;
@@ -55,7 +55,7 @@ let brandingCache: { at: number; value: EmailBrandingSettings } | null = null;
 
 function getPublicBaseUrl(): string {
   const v = asString(process.env.PUBLIC_BASE_URL);
-  return v || "https://sortiraumaroc.ma";
+  return v || "https://sam.ma";
 }
 
 async function getEmailBrandingSettings(): Promise<EmailBrandingSettings> {
@@ -70,9 +70,9 @@ async function getEmailBrandingSettings(): Promise<EmailBrandingSettings> {
     from_name: asString(process.env.EMAIL_FROM_NAME) || "Sortir Au Maroc",
     contact_email: `hello@${asString(process.env.EMAIL_DOMAIN) || "sortiraumaroc.ma"}`,
     legal_links: {
-      legal: "https://sortiraumaroc.ma/mentions-legales",
-      terms: "https://sortiraumaroc.ma/cgu",
-      privacy: "https://sortiraumaroc.ma/politique-de-confidentialite",
+      legal: "https://sam.ma/mentions-legales",
+      terms: "https://sam.ma/cgu",
+      privacy: "https://sam.ma/politique-de-confidentialite",
     },
     signature_fr: "L'équipe Sortir Au Maroc",
     signature_en: "The Sortir Au Maroc team",
@@ -246,9 +246,9 @@ export async function renderSAMEmail(
   const openPixelUrl = `${baseUrl}/api/public/email/open?email_id=${encodeURIComponent(input.emailId)}${input.tracking?.campaignId ? `&campaign_id=${encodeURIComponent(String(input.tracking.campaignId))}` : ""}${input.tracking?.recipientId ? `&recipient_id=${encodeURIComponent(String(input.tracking.recipientId))}` : ""}`;
 
   const legalLinks = (branding.legal_links ?? {}) as any;
-  const legalUrl = asString(legalLinks.legal) || "https://sortiraumaroc.ma/mentions-legales";
-  const termsUrl = asString(legalLinks.terms) || "https://sortiraumaroc.ma/cgu";
-  const privacyUrl = asString(legalLinks.privacy) || "https://sortiraumaroc.ma/politique-de-confidentialite";
+  const legalUrl = asString(legalLinks.legal) || "https://sam.ma/mentions-legales";
+  const termsUrl = asString(legalLinks.terms) || "https://sam.ma/cgu";
+  const privacyUrl = asString(legalLinks.privacy) || "https://sam.ma/politique-de-confidentialite";
 
   const footerLines = [
     `Sortir Au Maroc (SAM)`,

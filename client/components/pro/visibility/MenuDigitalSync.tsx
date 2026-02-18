@@ -201,12 +201,12 @@ export function MenuDigitalSync({ establishmentId, establishmentName }: Props) {
           <div className="flex items-center gap-2">
             {planInfo && (
               <Badge className={`${planInfo.color} text-white`}>
-                <Crown className="w-3 h-3 mr-1" />
+                <Crown className="w-3 h-3 me-1" />
                 {planInfo.label}
               </Badge>
             )}
             <Badge variant="default" className="bg-emerald-500">
-              <CheckCircle2 className="w-3 h-3 mr-1" />
+              <CheckCircle2 className="w-3 h-3 me-1" />
               Activé
             </Badge>
           </div>
@@ -319,12 +319,12 @@ export function MenuDigitalSync({ establishmentId, establishmentName }: Props) {
           >
             {syncing ? (
               <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                <Loader2 className="w-4 h-4 me-2 animate-spin" />
                 Synchronisation...
               </>
             ) : (
               <>
-                <RefreshCw className="w-4 h-4 mr-2" />
+                <RefreshCw className="w-4 h-4 me-2" />
                 Synchroniser le menu
               </>
             )}

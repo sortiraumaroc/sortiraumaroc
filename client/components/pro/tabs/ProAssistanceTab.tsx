@@ -42,7 +42,7 @@ export function ProAssistanceTab({ establishment, role }: Props) {
               <HelpCircle className="w-4 h-4 text-primary" />
               Conseils pour un support efficace
             </div>
-            <ul className="list-disc pl-5 text-sm text-slate-700 space-y-1">
+            <ul className="list-disc ps-5 text-sm text-slate-700 space-y-1">
               <li>Consultez d'abord la FAQ avant de créer un ticket</li>
               <li>Indiquez le nom de l'établissement et la date/heure du problème</li>
               <li>Ajoutez la référence de réservation si disponible</li>
@@ -80,7 +80,7 @@ export function ProAssistanceTab({ establishment, role }: Props) {
       </Card>
 
       {/* FAQ Section */}
-      <FaqSection defaultCategory="all" />
+      <FaqSection defaultCategory="all" audience="pro" />
 
       {/* Chat Section */}
       <SupportChatPanel enabled />

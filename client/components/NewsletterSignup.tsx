@@ -25,6 +25,14 @@ export function NewsletterSignup() {
 
       const data = await response.json();
 
+      if (response.status === 409) {
+        // Already subscribed — treat as success
+        setStatus("success");
+        setEmail("");
+        setTimeout(() => setStatus("idle"), 5000);
+        return;
+      }
+
       if (!response.ok) {
         setStatus("error");
         setErrorMessage(data.error || t("newsletter.error.generic"));
@@ -56,13 +64,13 @@ export function NewsletterSignup() {
         <form onSubmit={handleSubmit} className="flex flex-col gap-2">
           <div className="flex gap-2">
             <div className="relative flex-1">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Mail className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder={t("newsletter.placeholder")}
-                className="w-full pl-9 pr-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder:text-gray-500 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                className="w-full ps-9 pe-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder:text-gray-500 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                 disabled={status === "loading"}
                 required
               />

@@ -5,7 +5,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
-import { localizePath, type AppLocale } from "@/lib/i18n/types";
+import { localizePath, LOCALE_NAMES, SUPPORTED_APP_LOCALES, type AppLocale } from "@/lib/i18n/types";
 
 import {
   DropdownMenu,
@@ -24,17 +24,14 @@ export type LanguageSwitcherProps = {
   className?: string;
 };
 
-function localeLabel(locale: AppLocale, t: (k: string) => string): string {
-  return locale === "en" ? t("language.english") : t("language.french");
-}
-
-function localeCode(locale: AppLocale): string {
-  return locale.toUpperCase();
-}
-
 function localeFlag(locale: AppLocale): string {
-  // Use emoji flags to avoid adding assets.
-  return locale === "en" ? "🇬🇧" : "🇫🇷";
+  switch (locale) {
+    case "en": return "🇬🇧";
+    case "es": return "🇪🇸";
+    case "it": return "🇮🇹";
+    case "ar": return "🇲🇦";
+    default: return "🇫🇷";
+  }
 }
 
 export function LanguageSwitcher({
@@ -70,11 +67,12 @@ export function LanguageSwitcher({
   const effectiveDevice = deviceType ?? (isMobile ? "mobile" : "desktop");
 
   const options = useMemo(
-    () => [
-      { locale: "fr" as const, label: localeLabel("fr", t) },
-      { locale: "en" as const, label: localeLabel("en", t) },
-    ],
-    [t],
+    () =>
+      SUPPORTED_APP_LOCALES.map((loc) => ({
+        locale: loc,
+        label: LOCALE_NAMES[loc],
+      })),
+    [],
   );
 
   const isInverted = variant === "header-inverted";
@@ -97,9 +95,8 @@ export function LanguageSwitcher({
   const showLocaleCode = variant !== "inline-booking" && variant !== "header" && variant !== "header-inverted";
   const showFlag = variant === "header" || variant === "header-inverted" || variant === "inline-booking";
 
-  const dropdownContentClassName = cn("w-44", effectiveDevice === "mobile" ? "mr-1" : "");
+  const dropdownContentClassName = cn("w-48", effectiveDevice === "mobile" ? "me-1" : "");
 
-  // Pop-up dropdown (desktop + mobile)
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -111,7 +108,7 @@ export function LanguageSwitcher({
           ) : (
             <Globe className="h-4 w-4" />
           )}
-          {showLocaleCode ? <span className="text-xs font-bold tracking-wide">{localeCode(activeLocale)}</span> : null}
+          {showLocaleCode ? <span className="text-xs font-bold tracking-wide">{activeLocale.toUpperCase()}</span> : null}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className={dropdownContentClassName}>

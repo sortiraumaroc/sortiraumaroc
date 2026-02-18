@@ -26,15 +26,15 @@ function asStringArray(value: unknown): string[] | null {
 }
 
 function requireSuperadmin(
-  req: { headers: { "x-admin-key"?: string; "x-admin-role"?: string } },
-  res: { status: (code: number) => { json: (body: unknown) => void } }
+  req: Parameters<RequestHandler>[0],
+  res: Parameters<RequestHandler>[1]
 ): boolean {
-  const adminKey = req.headers["x-admin-key"];
+  const adminKey = req.headers["x-admin-key"] as string | undefined;
   if (!adminKey || adminKey !== process.env.ADMIN_KEY) {
     res.status(401).json({ error: "Non autorisé" });
     return false;
   }
-  const role = req.headers["x-admin-role"];
+  const role = req.headers["x-admin-role"] as string | undefined;
   if (role !== "superadmin" && role !== "admin") {
     res.status(403).json({ error: "Accès superadmin requis" });
     return false;

@@ -39,7 +39,7 @@ function scrollToId(id: string, behavior: ScrollBehavior = "smooth") {
 
 function SectionTitle(props: { kicker?: string; title: string; subtitle?: string; center?: boolean }) {
   return (
-    <div className={cn("space-y-3", props.center ? "text-center" : "text-left")}>
+    <div className={cn("space-y-3", props.center ? "text-center" : "text-start")}>
       {props.kicker ? (
         <div className={cn("text-xs font-extrabold tracking-[0.2em] uppercase", props.center ? "justify-center" : "")}
           style={{ color: BRAND.gold }}
@@ -65,7 +65,7 @@ function FloatingWhatsAppButton() {
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="fixed bottom-5 right-5 z-50"
+      className="fixed bottom-5 end-5 z-50"
       aria-label="Contacter Sortir Au Maroc sur WhatsApp"
       title="WhatsApp"
     >
@@ -103,7 +103,7 @@ function CTAInline(props: { label?: string; to?: string }) {
           }}
         >
           {props.label ?? "Ajouter mon établissement maintenant"}
-          <ArrowRight className="ml-2 h-4 w-4" />
+          <ArrowRight className="ms-2 h-4 w-4" />
         </a>
       </Button>
     );
@@ -116,7 +116,7 @@ function CTAInline(props: { label?: string; to?: string }) {
     >
       <Link to={to}>
         {props.label ?? "Ajouter mon établissement maintenant"}
-        <ArrowRight className="ml-2 h-4 w-4" />
+        <ArrowRight className="ms-2 h-4 w-4" />
       </Link>
     </Button>
   );

@@ -46,7 +46,7 @@ export async function billClick(
       .from('pro_campaigns')
       .select('id, establishment_id, remaining_cents, spent_cents, daily_spent_cents, daily_budget_cents')
       .eq('id', campaignId)
-      .single();
+      .single() as { data: any; error: any };
 
     if (campaignError || !campaign) {
       return { success: false, amount_charged_cents: 0, new_balance_cents: 0, error: 'Campagne introuvable' };
@@ -57,7 +57,7 @@ export async function billClick(
       .from('ad_wallets')
       .select('id, balance_cents')
       .eq('establishment_id', campaign.establishment_id)
-      .single();
+      .single() as { data: any; error: any };
 
     if (walletError || !wallet) {
       return { success: false, amount_charged_cents: 0, new_balance_cents: 0, error: 'Wallet introuvable' };
@@ -79,21 +79,21 @@ export async function billClick(
     }
 
     // 6. Débiter le wallet (utilise la fonction SQL)
-    const { data: debitResult, error: debitError } = await supabase.rpc('debit_ad_wallet', {
+    const { data: debitResult, error: debitError } = await (supabase.rpc as any)('debit_ad_wallet', {
       p_wallet_id: wallet.id,
       p_amount_cents: costCents,
       p_description: `Clic campagne ${campaign.id}`,
       p_reference_type: 'campaign_click',
       p_reference_id: clickId,
-    });
+    }) as { data: any; error: any };
 
     if (debitError || !debitResult) {
       return { success: false, amount_charged_cents: 0, new_balance_cents: wallet.balance_cents, error: 'Échec du débit' };
     }
 
     // 7. Mettre à jour les compteurs de la campagne
-    await supabase
-      .from('pro_campaigns')
+    await (supabase
+      .from('pro_campaigns') as any)
       .update({
         spent_cents: campaign.spent_cents + costCents,
         remaining_cents: campaign.remaining_cents - costCents,
@@ -103,8 +103,8 @@ export async function billClick(
       .eq('id', campaignId);
 
     // 8. Marquer le clic comme facturé
-    await supabase
-      .from('ad_clicks')
+    await (supabase
+      .from('ad_clicks') as any)
       .update({ cost_cents: costCents, is_billable: true })
       .eq('id', clickId);
 
@@ -113,7 +113,7 @@ export async function billClick(
       .from('ad_wallets')
       .select('balance_cents')
       .eq('id', wallet.id)
-      .single();
+      .single() as { data: any; error: any };
 
     return {
       success: true,
@@ -146,7 +146,7 @@ export async function billImpressions(
       .from('pro_campaigns')
       .select('id, establishment_id, cpm_cents, remaining_cents, spent_cents, daily_spent_cents, daily_budget_cents')
       .eq('id', campaignId)
-      .single();
+      .single() as { data: any; error: any };
 
     if (campaignError || !campaign) {
       return { success: false, amount_charged_cents: 0, new_balance_cents: 0, error: 'Campagne introuvable' };
@@ -165,7 +165,7 @@ export async function billImpressions(
       .from('ad_wallets')
       .select('id, balance_cents')
       .eq('establishment_id', campaign.establishment_id)
-      .single();
+      .single() as { data: any; error: any };
 
     if (walletError || !wallet) {
       return { success: false, amount_charged_cents: 0, new_balance_cents: 0, error: 'Wallet introuvable' };
@@ -181,21 +181,21 @@ export async function billImpressions(
     }
 
     // 5. Débiter
-    const { data: debitResult, error: debitError } = await supabase.rpc('debit_ad_wallet', {
+    const { data: debitResult, error: debitError } = await (supabase.rpc as any)('debit_ad_wallet', {
       p_wallet_id: wallet.id,
       p_amount_cents: costCents,
       p_description: `${impressionCount} impressions campagne ${campaign.id}`,
       p_reference_type: 'campaign_impressions',
       p_reference_id: campaignId,
-    });
+    }) as { data: any; error: any };
 
     if (debitError || !debitResult) {
       return { success: false, amount_charged_cents: 0, new_balance_cents: wallet.balance_cents, error: 'Échec du débit' };
     }
 
     // 6. Mettre à jour la campagne
-    await supabase
-      .from('pro_campaigns')
+    await (supabase
+      .from('pro_campaigns') as any)
       .update({
         spent_cents: campaign.spent_cents + costCents,
         remaining_cents: campaign.remaining_cents - costCents,
@@ -208,7 +208,7 @@ export async function billImpressions(
       .from('ad_wallets')
       .select('balance_cents')
       .eq('id', wallet.id)
-      .single();
+      .single() as { data: any; error: any };
 
     return {
       success: true,
@@ -237,7 +237,7 @@ export async function checkCampaignBudget(
     .from('pro_campaigns')
     .select('remaining_cents, daily_spent_cents, daily_budget_cents, status')
     .eq('id', campaignId)
-    .single();
+    .single() as { data: any; error: any };
 
   if (error || !campaign) {
     return { hasbudget: false, remaining_cents: 0, reason: 'Campagne introuvable' };
@@ -268,12 +268,12 @@ export async function checkCampaignBudget(
 export async function pauseExhaustedCampaigns(
   supabase: ReturnType<typeof createClient>
 ): Promise<number> {
-  const { data, error } = await supabase
-    .from('pro_campaigns')
+  const { data, error } = await (supabase
+    .from('pro_campaigns') as any)
     .update({ status: 'paused' })
     .eq('status', 'active')
     .lte('remaining_cents', 0)
-    .select('id');
+    .select('id') as { data: any[] | null; error: any };
 
   if (error) {
     console.error('[billing] Error pausing exhausted campaigns:', error);
@@ -294,15 +294,15 @@ export async function pauseExhaustedCampaigns(
 export async function resetDailyBudgets(
   supabase: ReturnType<typeof createClient>
 ): Promise<number> {
-  const { data, error } = await supabase
-    .from('pro_campaigns')
+  const { data, error } = await (supabase
+    .from('pro_campaigns') as any)
     .update({
       daily_spent_cents: 0,
       last_daily_reset: new Date().toISOString(),
     })
     .not('daily_budget_cents', 'is', null)
     .or('last_daily_reset.is.null,last_daily_reset.lt.' + new Date().toISOString().split('T')[0])
-    .select('id');
+    .select('id') as { data: any[] | null; error: any };
 
   if (error) {
     console.error('[billing] Error resetting daily budgets:', error);
@@ -326,13 +326,13 @@ export async function creditWallet(
   paymentReference: string
 ): Promise<BillingResult> {
   try {
-    const { data, error } = await supabase.rpc('credit_ad_wallet', {
+    const { data, error } = await (supabase.rpc as any)('credit_ad_wallet', {
       p_establishment_id: establishmentId,
       p_amount_cents: amountCents,
       p_description: 'Recharge wallet publicitaire',
       p_reference_type: 'payment',
       p_reference_id: paymentReference,
-    });
+    }) as { data: any; error: any };
 
     if (error) {
       return { success: false, amount_charged_cents: 0, new_balance_cents: 0, error: error.message };

@@ -30,6 +30,7 @@ import {
   Zap,
   FileImage,
   TrendingUp,
+  Store,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -72,8 +73,8 @@ import { loadAdminSessionToken } from "@/lib/adminApi";
 // Constants
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB (server will compress)
 const MAX_GALLERY_PHOTOS = 10;
-const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
-const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
+const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "image/avif", "image/gif", "image/bmp", "image/tiff"];
+const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".avif", ".gif", ".bmp", ".tiff"];
 
 type Props = {
   establishmentId: string;
@@ -231,6 +232,10 @@ export function AdminGalleryManager({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Logo
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [uploadingLogo, setUploadingLogo] = useState<UploadingFile | null>(null);
+
   // Cover photo
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [coverMeta, setCoverMeta] = useState<PhotoMeta>({});
@@ -271,6 +276,7 @@ export function AdminGalleryManager({
         `/api/admin/establishments/${encodeURIComponent(establishmentId)}/gallery`
       );
 
+      setLogoUrl(data.logo_url || null);
       setCoverUrl(data.cover_url || null);
       setCoverMeta(data.cover_meta || {});
       setGalleryPhotos(
@@ -292,10 +298,77 @@ export function AdminGalleryManager({
     void loadGallery();
   }, [loadGallery]);
 
+  // Upload logo
+  const handleLogoUpload = async (file: File) => {
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      toast({ title: "Format non accepté", description: "Utilisez JPG, PNG, WebP, HEIC ou AVIF", variant: "destructive" });
+      return;
+    }
+    if (file.size > MAX_FILE_SIZE) {
+      toast({ title: "Fichier trop volumineux", description: "Maximum 10 MB", variant: "destructive" });
+      return;
+    }
+
+    const id = `logo-${Date.now()}`;
+    const previewUrl = URL.createObjectURL(file);
+
+    setUploadingLogo({ id, file, progress: 0, status: "uploading", previewUrl });
+
+    try {
+      const result = await adminUploadGalleryImage({
+        establishmentId,
+        file,
+        type: "logo" as any,
+        onProgress: (percent) => {
+          setUploadingLogo((prev) => (prev ? { ...prev, progress: percent } : null));
+        },
+        onCompressing: () => {
+          setUploadingLogo((prev) => (prev ? { ...prev, status: "compressing" } : null));
+        },
+      });
+
+      await adminApiFetch(
+        `/api/admin/establishments/${encodeURIComponent(establishmentId)}/gallery`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ logo_url: result.url }),
+        }
+      );
+
+      setLogoUrl(result.url);
+
+      if (result.compression) {
+        setTotalSaved((prev) => prev + (result.compression!.originalSize - result.compression!.compressedSize));
+      }
+      toast({ title: "Logo mis à jour" });
+
+      setUploadingLogo(null);
+      URL.revokeObjectURL(previewUrl);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Erreur";
+      toast({ title: "Erreur d'upload", description: errorMsg, variant: "destructive" });
+      setUploadingLogo(null);
+      URL.revokeObjectURL(previewUrl);
+    }
+  };
+
+  const handleDeleteLogo = async () => {
+    try {
+      await adminApiFetch(
+        `/api/admin/establishments/${encodeURIComponent(establishmentId)}/gallery`,
+        { method: "PATCH", body: JSON.stringify({ logo_url: null }) }
+      );
+      setLogoUrl(null);
+      toast({ title: "Logo supprimé" });
+    } catch (err) {
+      toast({ title: "Erreur", description: err instanceof Error ? err.message : "Erreur", variant: "destructive" });
+    }
+  };
+
   // Upload cover photo
   const handleCoverUpload = async (file: File) => {
     if (!ALLOWED_TYPES.includes(file.type)) {
-      toast({ title: "Format non accepté", description: "Utilisez JPG, PNG ou WebP", variant: "destructive" });
+      toast({ title: "Format non accepté", description: "Utilisez JPG, PNG, WebP, HEIC ou AVIF", variant: "destructive" });
       return;
     }
     if (file.size > MAX_FILE_SIZE) {
@@ -373,7 +446,7 @@ export function AdminGalleryManager({
 
     for (const file of filesToUpload) {
       if (!ALLOWED_TYPES.includes(file.type)) {
-        toast({ title: "Format non accepté", description: `${file.name}: Utilisez JPG, PNG ou WebP`, variant: "destructive" });
+        toast({ title: "Format non accepté", description: `${file.name}: Utilisez JPG, PNG, WebP, HEIC ou AVIF`, variant: "destructive" });
         continue;
       }
       if (file.size > MAX_FILE_SIZE) {
@@ -579,8 +652,15 @@ export function AdminGalleryManager({
   };
 
   // File inputs
+  const logoInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
+
+  const handleLogoInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) void handleLogoUpload(file);
+    e.target.value = "";
+  };
 
   const handleCoverInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -740,11 +820,66 @@ export function AdminGalleryManager({
 
         {loading ? (
           <div className="flex items-center justify-center py-6 text-slate-500 text-sm">
-            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+            <Loader2 className="w-4 h-4 animate-spin me-2" />
             Chargement...
           </div>
         ) : (
-          <div className="flex gap-4">
+          <div className="space-y-3">
+            {/* Logo Section */}
+            <div className="flex items-center gap-3 p-2 rounded-lg bg-slate-50/50 border border-slate-100">
+              <div className="shrink-0">
+                <div className="text-[10px] font-medium text-slate-500 mb-1 flex items-center gap-1">
+                  <Store className="w-2.5 h-2.5 text-primary" />
+                  Logo
+                </div>
+
+                {logoUrl || uploadingLogo ? (
+                  <div className="relative group">
+                    {uploadingLogo ? (
+                      <div className="w-[64px] h-[64px] rounded-lg bg-slate-100 border border-slate-200 flex flex-col items-center justify-center">
+                        <Loader2 className="w-3 h-3 animate-spin text-primary mb-0.5" />
+                        <span className="text-[8px] text-slate-500">
+                          {uploadingLogo.status === "compressing" ? "..." : `${uploadingLogo.progress}%`}
+                        </span>
+                      </div>
+                    ) : (
+                      <>
+                        <img
+                          src={logoUrl!}
+                          alt={`Logo ${establishmentName}`}
+                          className="w-[64px] h-[64px] object-cover rounded-lg border border-slate-200"
+                        />
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center gap-1">
+                          <Button size="sm" variant="secondary" className="h-5 w-5 p-0" onClick={() => logoInputRef.current?.click()}>
+                            <Upload className="w-2.5 h-2.5" />
+                          </Button>
+                          <Button size="sm" variant="destructive" className="h-5 w-5 p-0" onClick={() => void handleDeleteLogo()}>
+                            <Trash2 className="w-2.5 h-2.5" />
+                          </Button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div
+                    onClick={() => logoInputRef.current?.click()}
+                    className="w-[64px] h-[64px] rounded-lg border-2 border-dashed border-slate-200 bg-white flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors"
+                  >
+                    <Plus className="w-3 h-3 text-slate-400 mb-0.5" />
+                    <span className="text-[8px] text-slate-500">Ajouter</span>
+                  </div>
+                )}
+                <input ref={logoInputRef} type="file" accept={ALLOWED_EXTENSIONS.join(",")} onChange={handleLogoInputChange} className="hidden" />
+              </div>
+              <div className="text-[10px] text-slate-500 leading-relaxed">
+                <p className="font-medium text-slate-700">Logo de l&apos;établissement</p>
+                <p>Utilisé sur le profil pro, les cartes de fidélité et la page publique.</p>
+                <p className="text-slate-400">Format carré recommandé (200×200 px min) · PNG transparent idéal</p>
+              </div>
+            </div>
+
+            {/* Cover + Gallery Row */}
+            <div className="flex gap-4">
             {/* LEFT: Cover Photo */}
             <div className="shrink-0">
               <div className="text-[10px] font-medium text-slate-500 mb-1 flex items-center gap-1">
@@ -772,7 +907,7 @@ export function AdminGalleryManager({
                         className="w-[180px] h-[120px] object-cover rounded-lg border border-slate-200"
                       />
                       {/* Meta indicators */}
-                      <div className="absolute bottom-1 left-1 flex gap-0.5">
+                      <div className="absolute bottom-1 start-1 flex gap-0.5">
                         {coverMeta?.alt && (
                           <div className="bg-emerald-500 text-white text-[7px] px-1 rounded">ALT</div>
                         )}
@@ -821,7 +956,7 @@ export function AdminGalleryManager({
                 </span>
                 {canAddMorePhotos && (
                   <Button size="sm" variant="ghost" className="h-5 text-[9px] px-1.5" onClick={() => galleryInputRef.current?.click()}>
-                    <Plus className="w-2.5 h-2.5 mr-0.5" />
+                    <Plus className="w-2.5 h-2.5 me-0.5" />
                     Ajouter
                   </Button>
                 )}
@@ -842,12 +977,12 @@ export function AdminGalleryManager({
                     <img src={photo.url} alt={photo.meta?.alt || `Photo ${index + 1}`} className="w-full h-full object-cover" />
 
                     {/* Index */}
-                    <div className="absolute top-0 left-0 bg-black/60 text-white text-[7px] px-0.5 rounded-br">{index + 1}</div>
+                    <div className="absolute top-0 start-0 bg-black/60 text-white text-[7px] px-0.5 rounded-br">{index + 1}</div>
 
                     {/* Meta indicators */}
-                    <div className="absolute bottom-0 left-0 flex">
+                    <div className="absolute bottom-0 start-0 flex">
                       {photo.meta?.alt && <div className="bg-emerald-500 w-1 h-1 rounded-tr" />}
-                      {photo.meta?.geo?.lat && <div className="bg-blue-500 w-1 h-1 rounded-tr ml-px" />}
+                      {photo.meta?.geo?.lat && <div className="bg-blue-500 w-1 h-1 rounded-tr ms-px" />}
                     </div>
 
                     {/* Actions */}
@@ -902,18 +1037,14 @@ export function AdminGalleryManager({
               <p className="text-[8px] text-slate-400 mt-1">Glissez pour réorganiser • Jusqu'à 10 MB (auto-compressé)</p>
             </div>
           </div>
+          </div>
         )}
       </CardContent>
 
       {/* Preview Dialog */}
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent className="max-w-4xl p-0 overflow-hidden">
-          <div className="relative">
-            <Button variant="ghost" size="sm" className="absolute top-2 right-2 z-10 bg-black/50 hover:bg-black/70 text-white" onClick={() => setPreviewOpen(false)}>
-              <X className="w-4 h-4" />
-            </Button>
-            {previewUrl && <img src={previewUrl} alt="Preview" className="w-full h-auto max-h-[80vh] object-contain bg-black" />}
-          </div>
+          {previewUrl && <img src={previewUrl} alt="Preview" className="w-full h-auto max-h-[80vh] object-contain bg-black" />}
         </DialogContent>
       </Dialog>
 
@@ -933,11 +1064,11 @@ export function AdminGalleryManager({
           <Tabs defaultValue="seo" className="w-full">
             <TabsList className="grid w-full grid-cols-2 h-8">
               <TabsTrigger value="seo" className="text-xs">
-                <Globe className="w-3 h-3 mr-1" />
+                <Globe className="w-3 h-3 me-1" />
                 SEO
               </TabsTrigger>
               <TabsTrigger value="geo" className="text-xs">
-                <MapPin className="w-3 h-3 mr-1" />
+                <MapPin className="w-3 h-3 me-1" />
                 GEO
               </TabsTrigger>
             </TabsList>
@@ -1046,7 +1177,7 @@ export function AdminGalleryManager({
                     },
                   })}
                 >
-                  <MapPin className="w-3 h-3 mr-1" />
+                  <MapPin className="w-3 h-3 me-1" />
                   Utiliser la position de l'établissement
                 </Button>
               )}

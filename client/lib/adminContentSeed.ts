@@ -64,7 +64,7 @@ function pageSchema(args: { name: string; url: string; inLanguage: string }) {
     isPartOf: {
       "@type": "WebSite",
       name: "Sortir Au Maroc",
-      url: "https://sortiraumaroc.ma/",
+      url: "https://sam.ma/",
     },
   };
 }
@@ -175,8 +175,8 @@ const SEED_PAGES: readonly SeedPage[] = [
     og_description_en:
       "A simple, reliable platform to book the best experiences in Morocco.",
     og_image_url: null,
-    canonical_url_fr: "https://sortiraumaroc.ma/content/decouvrir",
-    canonical_url_en: "https://sortiraumaroc.ma/en/content/discover",
+    canonical_url_fr: "https://sam.ma/content/decouvrir",
+    canonical_url_en: "https://sam.ma/en/content/discover",
     robots: baseRobots(),
     show_toc: false,
     related_links: [
@@ -187,8 +187,8 @@ const SEED_PAGES: readonly SeedPage[] = [
         label_en: "Contact",
       },
     ],
-    schema_jsonld_fr: pageSchema({ name: "Découvrir Sortir Au Maroc", url: "https://sortiraumaroc.ma/content/decouvrir", inLanguage: "fr-MA" }),
-    schema_jsonld_en: pageSchema({ name: "Discover Sortir Au Maroc", url: "https://sortiraumaroc.ma/en/content/discover", inLanguage: "en" }),
+    schema_jsonld_fr: pageSchema({ name: "Découvrir Sortir Au Maroc", url: "https://sam.ma/content/decouvrir", inLanguage: "fr-MA" }),
+    schema_jsonld_en: pageSchema({ name: "Discover Sortir Au Maroc", url: "https://sam.ma/en/content/discover", inLanguage: "en" }),
     blocks: [
       heading({ anchor: "what", fr: "Qu’est-ce que Sortir Au Maroc ?", en: "What is Sortir Au Maroc?" }),
       paragraph({
@@ -237,8 +237,8 @@ const SEED_PAGES: readonly SeedPage[] = [
     og_description_fr: "Une plateforme internationale pensée pour simplifier les réservations au Maroc.",
     og_description_en: "An international platform designed to simplify bookings in Morocco.",
     og_image_url: null,
-    canonical_url_fr: "https://sortiraumaroc.ma/content/a-propos",
-    canonical_url_en: "https://sortiraumaroc.ma/en/content/about",
+    canonical_url_fr: "https://sam.ma/content/a-propos",
+    canonical_url_en: "https://sam.ma/en/content/about",
     robots: baseRobots(),
     show_toc: false,
     related_links: [
@@ -255,8 +255,8 @@ const SEED_PAGES: readonly SeedPage[] = [
         label_en: "Contact",
       },
     ],
-    schema_jsonld_fr: pageSchema({ name: "À propos", url: "https://sortiraumaroc.ma/content/a-propos", inLanguage: "fr-MA" }),
-    schema_jsonld_en: pageSchema({ name: "About", url: "https://sortiraumaroc.ma/en/content/about", inLanguage: "en" }),
+    schema_jsonld_fr: pageSchema({ name: "À propos", url: "https://sam.ma/content/a-propos", inLanguage: "fr-MA" }),
+    schema_jsonld_en: pageSchema({ name: "About", url: "https://sam.ma/en/content/about", inLanguage: "en" }),
     blocks: [
       heading({ anchor: "mission", fr: "Notre mission", en: "Our mission" }),
       paragraph({
@@ -296,13 +296,13 @@ const SEED_PAGES: readonly SeedPage[] = [
     og_description_fr: "Support, questions et réclamations.",
     og_description_en: "Support, questions and complaints.",
     og_image_url: null,
-    canonical_url_fr: "https://sortiraumaroc.ma/content/contact",
-    canonical_url_en: "https://sortiraumaroc.ma/en/content/contact",
+    canonical_url_fr: "https://sam.ma/content/contact",
+    canonical_url_en: "https://sam.ma/en/content/contact",
     robots: baseRobots(),
     show_toc: false,
     related_links: [],
-    schema_jsonld_fr: pageSchema({ name: "Contact", url: "https://sortiraumaroc.ma/content/contact", inLanguage: "fr-MA" }),
-    schema_jsonld_en: pageSchema({ name: "Contact", url: "https://sortiraumaroc.ma/en/content/contact", inLanguage: "en" }),
+    schema_jsonld_fr: pageSchema({ name: "Contact", url: "https://sam.ma/content/contact", inLanguage: "fr-MA" }),
+    schema_jsonld_en: pageSchema({ name: "Contact", url: "https://sam.ma/en/content/contact", inLanguage: "en" }),
     blocks: [
       heading({ anchor: "support", fr: "Support Sortir Au Maroc", en: "Sortir Au Maroc support" }),
       paragraph({
@@ -350,8 +350,8 @@ const SEED_PAGES: readonly SeedPage[] = [
     og_description_fr: "Guides et conseils pour réserver vos meilleures sorties.",
     og_description_en: "Guides and tips to book your best experiences.",
     og_image_url: null,
-    canonical_url_fr: "https://sortiraumaroc.ma/content/blog",
-    canonical_url_en: "https://sortiraumaroc.ma/en/content/blog",
+    canonical_url_fr: "https://sam.ma/content/blog",
+    canonical_url_en: "https://sam.ma/en/content/blog",
     robots: baseRobots(),
     show_toc: false,
     related_links: [
@@ -362,8 +362,8 @@ const SEED_PAGES: readonly SeedPage[] = [
         label_en: "View articles",
       },
     ],
-    schema_jsonld_fr: pageSchema({ name: "Blog", url: "https://sortiraumaroc.ma/content/blog", inLanguage: "fr-MA" }),
-    schema_jsonld_en: pageSchema({ name: "Blog", url: "https://sortiraumaroc.ma/en/content/blog", inLanguage: "en" }),
+    schema_jsonld_fr: pageSchema({ name: "Blog", url: "https://sam.ma/content/blog", inLanguage: "fr-MA" }),
+    schema_jsonld_en: pageSchema({ name: "Blog", url: "https://sam.ma/en/content/blog", inLanguage: "en" }),
     blocks: [
       heading({ anchor: "coming", fr: "Le blog arrive", en: "The blog is coming" }),
       paragraph({
@@ -395,8 +395,8 @@ const SEED_PAGES: readonly SeedPage[] = [
     og_description_fr: "Construisons ensemble une expérience de réservation fiable.",
     og_description_en: "Let’s build a reliable booking experience together.",
     og_image_url: null,
-    canonical_url_fr: "https://sortiraumaroc.ma/content/carrieres",
-    canonical_url_en: "https://sortiraumaroc.ma/en/content/careers",
+    canonical_url_fr: "https://sam.ma/content/carrieres",
+    canonical_url_en: "https://sam.ma/en/content/careers",
     robots: baseRobots(),
     show_toc: false,
     related_links: [
@@ -407,8 +407,8 @@ const SEED_PAGES: readonly SeedPage[] = [
         label_en: "Contact us",
       },
     ],
-    schema_jsonld_fr: pageSchema({ name: "Carrières", url: "https://sortiraumaroc.ma/content/carrieres", inLanguage: "fr-MA" }),
-    schema_jsonld_en: pageSchema({ name: "Careers", url: "https://sortiraumaroc.ma/en/content/careers", inLanguage: "en" }),
+    schema_jsonld_fr: pageSchema({ name: "Carrières", url: "https://sam.ma/content/carrieres", inLanguage: "fr-MA" }),
+    schema_jsonld_en: pageSchema({ name: "Careers", url: "https://sam.ma/en/content/careers", inLanguage: "en" }),
     blocks: [
       heading({ anchor: "join", fr: "Rejoindre Sortir Au Maroc", en: "Join Sortir Au Maroc" }),
       paragraph({
@@ -446,8 +446,8 @@ const SEED_PAGES: readonly SeedPage[] = [
     og_description_fr: "Cadre juridique d’utilisation de la plateforme Sortir Au Maroc.",
     og_description_en: "Legal framework for using the Sortir Au Maroc platform.",
     og_image_url: null,
-    canonical_url_fr: "https://sortiraumaroc.ma/content/conditions-utilisation",
-    canonical_url_en: "https://sortiraumaroc.ma/en/content/terms-of-use",
+    canonical_url_fr: "https://sam.ma/content/conditions-utilisation",
+    canonical_url_en: "https://sam.ma/en/content/terms-of-use",
     robots: baseRobots(),
     show_toc: true,
     related_links: [
@@ -472,12 +472,12 @@ const SEED_PAGES: readonly SeedPage[] = [
     ],
     schema_jsonld_fr: pageSchema({
       name: "Conditions d’utilisation — Sortir Au Maroc",
-      url: "https://sortiraumaroc.ma/content/conditions-utilisation",
+      url: "https://sam.ma/content/conditions-utilisation",
       inLanguage: "fr-MA",
     }),
     schema_jsonld_en: pageSchema({
       name: "Terms of Use — Sortir Au Maroc",
-      url: "https://sortiraumaroc.ma/en/content/terms-of-use",
+      url: "https://sam.ma/en/content/terms-of-use",
       inLanguage: "en",
     }),
     blocks: [
@@ -639,8 +639,8 @@ const SEED_PAGES: readonly SeedPage[] = [
     og_description_fr: "Cadre de traitement des données personnelles sur Sortir Au Maroc.",
     og_description_en: "Framework for processing personal data on Sortir Au Maroc.",
     og_image_url: null,
-    canonical_url_fr: "https://sortiraumaroc.ma/content/politique-confidentialite",
-    canonical_url_en: "https://sortiraumaroc.ma/en/content/privacy-policy",
+    canonical_url_fr: "https://sam.ma/content/politique-confidentialite",
+    canonical_url_en: "https://sam.ma/en/content/privacy-policy",
     robots: baseRobots(),
     show_toc: true,
     related_links: [
@@ -659,12 +659,12 @@ const SEED_PAGES: readonly SeedPage[] = [
     ],
     schema_jsonld_fr: pageSchema({
       name: "Politique de confidentialité — Sortir Au Maroc",
-      url: "https://sortiraumaroc.ma/content/politique-confidentialite",
+      url: "https://sam.ma/content/politique-confidentialite",
       inLanguage: "fr-MA",
     }),
     schema_jsonld_en: pageSchema({
       name: "Privacy Policy — Sortir Au Maroc",
-      url: "https://sortiraumaroc.ma/en/content/privacy-policy",
+      url: "https://sam.ma/en/content/privacy-policy",
       inLanguage: "en",
     }),
     blocks: [
@@ -814,15 +814,15 @@ const SEED_PAGES: readonly SeedPage[] = [
     og_description_fr: "Informations générales sur Sortir Au Maroc.",
     og_description_en: "General information about Sortir Au Maroc.",
     og_image_url: null,
-    canonical_url_fr: "https://sortiraumaroc.ma/content/mentions-legales",
-    canonical_url_en: "https://sortiraumaroc.ma/en/content/legal-notice",
+    canonical_url_fr: "https://sam.ma/content/mentions-legales",
+    canonical_url_en: "https://sam.ma/en/content/legal-notice",
     robots: baseRobots(),
     show_toc: true,
     related_links: [
       { href_fr: "/content/contact", href_en: "/content/contact", label_fr: "Contact", label_en: "Contact" },
     ],
-    schema_jsonld_fr: pageSchema({ name: "Mentions légales", url: "https://sortiraumaroc.ma/content/mentions-legales", inLanguage: "fr-MA" }),
-    schema_jsonld_en: pageSchema({ name: "Legal notice", url: "https://sortiraumaroc.ma/en/content/legal-notice", inLanguage: "en" }),
+    schema_jsonld_fr: pageSchema({ name: "Mentions légales", url: "https://sam.ma/content/mentions-legales", inLanguage: "fr-MA" }),
+    schema_jsonld_en: pageSchema({ name: "Legal notice", url: "https://sam.ma/en/content/legal-notice", inLanguage: "en" }),
     blocks: [
       toc(),
       heading({ anchor: "editor", fr: "1. Éditeur du Service", en: "1. Service publisher" }),
@@ -862,15 +862,15 @@ const SEED_PAGES: readonly SeedPage[] = [
     og_description_fr: "Engagements des partenaires sur Sortir Au Maroc.",
     og_description_en: "Partner commitments on Sortir Au Maroc.",
     og_image_url: null,
-    canonical_url_fr: "https://sortiraumaroc.ma/content/charte-etablissements",
-    canonical_url_en: "https://sortiraumaroc.ma/en/content/partner-venue-charter",
+    canonical_url_fr: "https://sam.ma/content/charte-etablissements",
+    canonical_url_en: "https://sam.ma/en/content/partner-venue-charter",
     robots: baseRobots(),
     show_toc: true,
     related_links: [
       { href_fr: "/content/contact", href_en: "/content/contact", label_fr: "Contact", label_en: "Contact" },
     ],
-    schema_jsonld_fr: pageSchema({ name: "Charte des établissements", url: "https://sortiraumaroc.ma/content/charte-etablissements", inLanguage: "fr-MA" }),
-    schema_jsonld_en: pageSchema({ name: "Partner venue charter", url: "https://sortiraumaroc.ma/en/content/partner-venue-charter", inLanguage: "en" }),
+    schema_jsonld_fr: pageSchema({ name: "Charte des établissements", url: "https://sam.ma/content/charte-etablissements", inLanguage: "fr-MA" }),
+    schema_jsonld_en: pageSchema({ name: "Partner venue charter", url: "https://sam.ma/en/content/partner-venue-charter", inLanguage: "en" }),
     blocks: [
       toc(),
       heading({ anchor: "scope", fr: "1. Objet", en: "1. Purpose" }),
@@ -923,16 +923,16 @@ const SEED_PAGES: readonly SeedPage[] = [
     og_description_fr: "Cadre de remboursement des dépôts et frais.",
     og_description_en: "Refund framework for deposits and fees.",
     og_image_url: null,
-    canonical_url_fr: "https://sortiraumaroc.ma/content/politique-remboursement",
-    canonical_url_en: "https://sortiraumaroc.ma/en/content/refund-policy",
+    canonical_url_fr: "https://sam.ma/content/politique-remboursement",
+    canonical_url_en: "https://sam.ma/en/content/refund-policy",
     robots: baseRobots(),
     show_toc: true,
     related_links: [
       { href_fr: "/content/conditions-utilisation", href_en: "/content/terms-of-use", label_fr: "Conditions d’utilisation", label_en: "Terms of Use" },
       { href_fr: "/content/contact", href_en: "/content/contact", label_fr: "Contact", label_en: "Contact" },
     ],
-    schema_jsonld_fr: pageSchema({ name: "Politique de remboursement", url: "https://sortiraumaroc.ma/content/politique-remboursement", inLanguage: "fr-MA" }),
-    schema_jsonld_en: pageSchema({ name: "Refund policy", url: "https://sortiraumaroc.ma/en/content/refund-policy", inLanguage: "en" }),
+    schema_jsonld_fr: pageSchema({ name: "Politique de remboursement", url: "https://sam.ma/content/politique-remboursement", inLanguage: "fr-MA" }),
+    schema_jsonld_en: pageSchema({ name: "Refund policy", url: "https://sam.ma/en/content/refund-policy", inLanguage: "en" }),
     blocks: [
       toc(),
       callout({
@@ -1015,16 +1015,16 @@ const SEED_PAGES: readonly SeedPage[] = [
     og_description_fr: "Prévention et sanctions graduelles en cas de no-show.",
     og_description_en: "Prevention and graduated sanctions for no-shows.",
     og_image_url: null,
-    canonical_url_fr: "https://sortiraumaroc.ma/content/politique-anti-no-show",
-    canonical_url_en: "https://sortiraumaroc.ma/en/content/anti-no-show-policy",
+    canonical_url_fr: "https://sam.ma/content/politique-anti-no-show",
+    canonical_url_en: "https://sam.ma/en/content/anti-no-show-policy",
     robots: baseRobots(),
     show_toc: true,
     related_links: [
       { href_fr: "/content/conditions-utilisation", href_en: "/content/terms-of-use", label_fr: "Conditions d’utilisation", label_en: "Terms of Use" },
       { href_fr: "/content/contact", href_en: "/content/contact", label_fr: "Contact", label_en: "Contact" },
     ],
-    schema_jsonld_fr: pageSchema({ name: "Politique anti no-show", url: "https://sortiraumaroc.ma/content/politique-anti-no-show", inLanguage: "fr-MA" }),
-    schema_jsonld_en: pageSchema({ name: "Anti no-show policy", url: "https://sortiraumaroc.ma/en/content/anti-no-show-policy", inLanguage: "en" }),
+    schema_jsonld_fr: pageSchema({ name: "Politique anti no-show", url: "https://sam.ma/content/politique-anti-no-show", inLanguage: "fr-MA" }),
+    schema_jsonld_en: pageSchema({ name: "Anti no-show policy", url: "https://sam.ma/en/content/anti-no-show-policy", inLanguage: "en" }),
     blocks: [
       toc(),
       callout({

@@ -31,6 +31,19 @@ export interface PlatformSettingsSnapshot {
     short: string;
     domain: string;
   };
+  footer: {
+    social_instagram: string;
+    social_tiktok: string;
+    social_facebook: string;
+    social_youtube: string;
+    social_snapchat: string;
+    social_linkedin: string;
+  };
+  ramadan: {
+    enabled: boolean;
+    start_date: string;
+    end_date: string;
+  };
 }
 
 interface PlatformSettingsContextValue {
@@ -63,7 +76,20 @@ const defaultSnapshot: PlatformSettingsSnapshot = {
   branding: {
     name: "Sortir Au Maroc",
     short: "SAM",
-    domain: "sortiraumaroc.ma",
+    domain: "sam.ma",
+  },
+  footer: {
+    social_instagram: "",
+    social_tiktok: "",
+    social_facebook: "",
+    social_youtube: "",
+    social_snapchat: "",
+    social_linkedin: "",
+  },
+  ramadan: {
+    enabled: false,
+    start_date: "",
+    end_date: "",
   },
 };
 

@@ -267,7 +267,7 @@ export function AdminMediaFactoryComptaPage() {
                 <TableHead>Montant</TableHead>
                 <TableHead>Statut</TableHead>
                 <TableHead>Demandé</TableHead>
-                <TableHead className="text-right">Action</TableHead>
+                <TableHead className="text-end">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -277,7 +277,7 @@ export function AdminMediaFactoryComptaPage() {
                     colSpan={7}
                     className="py-8 text-center text-sm text-slate-600"
                   >
-                    <Loader2 className="inline h-4 w-4 animate-spin mr-2" />
+                    <Loader2 className="inline h-4 w-4 animate-spin me-2" />
                     Chargement…
                   </TableCell>
                 </TableRow>
@@ -307,7 +307,7 @@ export function AdminMediaFactoryComptaPage() {
                       <TableCell className="text-xs text-slate-600">
                         {formatDateTimeShort(req.requested_at)}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-end">
                         {req.status !== "paid" && req.status !== "rejected" ? (
                           <Button
                             size="sm"

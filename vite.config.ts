@@ -22,7 +22,33 @@ if (analyze) {
 
 const isVitest = String(process.env.VITEST ?? "") !== "";
 
-const plugins: PluginOption[] = [react()];
+const plugins: PluginOption[] = [
+  react(),
+  // PWA (vite-plugin-pwa) has been removed — it caused "Vous êtes hors ligne"
+  // offline pages and stale cache issues after deployments. The site works fine
+  // as a regular SPA. Firebase push notifications remain via firebase-messaging-sw.js.
+
+  // Strip `crossorigin` from Vite-generated <script> and <link rel="stylesheet"> tags.
+  // Vite adds `crossorigin` by default for ES module scripts which forces CORS mode
+  // on all dynamic imports. On our Plesk/Nginx setup the server doesn't serve CORS
+  // headers for same-origin static files, causing "Failed to fetch dynamically
+  // imported module" errors and a white page in production.
+  // NOTE: We preserve `crossorigin` on <link rel="preconnect"> (needed for Google Fonts).
+  {
+    name: "remove-crossorigin",
+    enforce: "post" as const,
+    transformIndexHtml(html: string) {
+      return html.replace(
+        /(<(?:script|link)\b[^>]*?)(\s+crossorigin)([^>]*>)/gi,
+        (match, before: string, _co: string, after: string) => {
+          // Keep crossorigin on preconnect links (Google Fonts etc.)
+          if (before.includes('rel="preconnect"')) return match;
+          return before + after;
+        },
+      );
+    },
+  },
+];
 
 // Vitest uses Vite's dev server internally; mounting the Express middleware during tests
 // can trigger SSR module runner transport errors after the suite completes.
@@ -57,18 +83,15 @@ export default defineConfig({
     cssCodeSplit: true,
     write: !noWrite,
     minify: "esbuild",
+    chunkSizeWarningLimit: 1600,
     rollupOptions: {
       // Rollup can be quite aggressive with parallel filesystem work during "rendering chunks".
       // Limiting it helps stability on constrained CI runners.
       maxParallelFileOps: 4,
-      output: {
-        manualChunks(id) {
-          // Keep chunking extremely simple for reliability in constrained CI environments.
-          // Aggressive splitting can dramatically increase Rollup work during the
-          // "rendering chunks" phase and has been observed to fail silently here.
-          if (id.includes("node_modules")) return "vendor";
-        },
-      },
+      // NOTE: manualChunks was removed because it caused ESM initialisation-order
+      // issues (e.g. "Cannot access 'X' before initialization", "Cannot read
+      // properties of undefined (reading 'useLayoutEffect')"). Vite's default
+      // automatic code-splitting handles circular dependencies correctly.
     },
   },
   plugins,

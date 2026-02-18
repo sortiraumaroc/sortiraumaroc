@@ -92,7 +92,7 @@ export function ReservationBanner(props: {
           className={cn(
             "w-full rounded-xl",
             "h-12 md:h-14 text-base font-bold",
-            "bg-[#a3001d] hover:bg-[#a3001d]/90 text-white",
+            "bg-sam-primary hover:bg-sam-primary-hover text-white",
           )}
           onClick={openDrawer}
         >

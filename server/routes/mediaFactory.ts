@@ -1,5 +1,3 @@
-import { createHash, randomBytes } from "crypto";
-
 import { createHash, randomBytes } from "node:crypto";
 
 import type { RequestHandler } from "express";
@@ -15,6 +13,7 @@ import {
   notifyDeliverableUploaded,
   notifyDeliverableReviewed,
   notifyInvoiceRequested,
+  notifyJobDelivered,
 } from "../mediaFactoryNotifications";
 
 type ProUser = { id: string; email?: string | null };
@@ -642,9 +641,6 @@ export const reviewAdminDeliverable: RequestHandler = async (req, res) => {
           });
 
           // Notify Pro that job is ready (best-effort)
-          const { notifyJobDelivered } = await import(
-            "../mediaFactoryNotifications"
-          );
           notifyJobDelivered({ jobId: data.job_id }).catch(() => {});
         }
       }
@@ -2048,7 +2044,7 @@ export const generateAdminMediaBriefPdf: RequestHandler = async (req, res) => {
   // Generate QR code as data URL
   let qrDataUrl = "";
   if (checkinToken && !checkinToken.startsWith("(")) {
-    const checkinUrl = `${process.env.VITE_SUPABASE_URL ? "https://sortiraumaroc.ma" : "http://localhost:3000"}/media/checkin?token=${encodeURIComponent(checkinToken)}`;
+    const checkinUrl = `${process.env.VITE_SUPABASE_URL ? "https://sam.ma" : "http://localhost:3000"}/media/checkin?token=${encodeURIComponent(checkinToken)}`;
     try {
       qrDataUrl = await QRCode.toDataURL(checkinUrl, { width: 200, margin: 1 });
     } catch {
@@ -4298,7 +4294,7 @@ async function uploadMessageAttachment(
 export const getAttachmentUrl: RequestHandler = async (req, res) => {
   const user = await getUserFromBearerToken(req);
   // Allow either authenticated user or admin key
-  const isAdmin = !user && requireAdminKey(req, res, true);
+  const isAdmin = !user && requireAdminKey(req, res);
   if (!user && !isAdmin) {
     return res.status(401).json({ error: "unauthorized" });
   }
@@ -4387,7 +4383,7 @@ export const getAttachmentUrl: RequestHandler = async (req, res) => {
 // Get attachments for a message
 export const getMessageAttachments: RequestHandler = async (req, res) => {
   const user = await getUserFromBearerToken(req);
-  const isAdmin = !user && requireAdminKey(req, res, true);
+  const isAdmin = !user && requireAdminKey(req, res);
   if (!user && !isAdmin) {
     return res.status(401).json({ error: "unauthorized" });
   }
@@ -4547,10 +4543,10 @@ export const adminSendMessageWithAttachments: RequestHandler = async (
 
   for (const att of attachments) {
     const result = await uploadMessageAttachment(supabase, msg.id, att);
-    if (result.ok) {
-      uploadedAttachments.push(result.attachment);
-    } else {
+    if ('error' in result) {
       failedAttachments.push(`${att.originalName}: ${result.error}`);
+    } else {
+      uploadedAttachments.push(result.attachment);
     }
   }
 
@@ -4624,7 +4620,7 @@ export const proSendMessageWithAttachments: RequestHandler = async (
   }
 
   const check = await ensureProMembership({ userId: pro.id, establishmentId });
-  if (!check.ok) return res.status(check.status).json({ error: check.error });
+  if ('error' in check) return res.status(check.status).json({ error: check.error });
 
   const body = asString((req.body as any).body);
   const topic = normalizeMessageTopic((req.body as any).topic);
@@ -4694,10 +4690,10 @@ export const proSendMessageWithAttachments: RequestHandler = async (
 
   for (const att of attachments) {
     const result = await uploadMessageAttachment(supabase, msg.id, att, pro.id);
-    if (result.ok) {
-      uploadedAttachments.push(result.attachment);
-    } else {
+    if ('error' in result) {
       failedAttachments.push(`${att.originalName}: ${result.error}`);
+    } else {
+      uploadedAttachments.push(result.attachment);
     }
   }
 
@@ -4840,10 +4836,10 @@ export const partnerSendMessageWithAttachments: RequestHandler = async (
       att,
       user.id,
     );
-    if (result.ok) {
-      uploadedAttachments.push(result.attachment);
-    } else {
+    if ('error' in result) {
       failedAttachments.push(`${att.originalName}: ${result.error}`);
+    } else {
+      uploadedAttachments.push(result.attachment);
     }
   }
 

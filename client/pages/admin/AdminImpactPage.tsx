@@ -392,12 +392,12 @@ export function AdminImpactPage() {
           <div className="overflow-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs text-slate-500 border-b">
-                  <th className="py-2 pr-4">Activité</th>
-                  <th className="py-2 pr-4">No-show (Avant)</th>
-                  <th className="py-2 pr-4">No-show (Après)</th>
-                  <th className="py-2 pr-4">Δ</th>
-                  <th className="py-2 pr-4">Protégées (Après)</th>
+                <tr className="text-start text-xs text-slate-500 border-b">
+                  <th className="py-2 pe-4">Activité</th>
+                  <th className="py-2 pe-4">No-show (Avant)</th>
+                  <th className="py-2 pe-4">No-show (Après)</th>
+                  <th className="py-2 pe-4">Δ</th>
+                  <th className="py-2 pe-4">Protégées (Après)</th>
                 </tr>
               </thead>
               <tbody>
@@ -407,11 +407,11 @@ export function AdminImpactPage() {
                     const a = toSafeMetricBlock(r.after ?? undefined);
                     return (
                       <tr key={r.universe} className="border-b last:border-b-0">
-                        <td className="py-2 pr-4 font-semibold text-slate-900">{r.universe}</td>
-                        <td className="py-2 pr-4 tabular-nums">{formatPercent(b.no_show_rate)} <span className="text-xs text-slate-500">({b.no_shows}/{b.eligible})</span></td>
-                        <td className="py-2 pr-4 tabular-nums">{formatPercent(a.no_show_rate)} <span className="text-xs text-slate-500">({a.no_shows}/{a.eligible})</span></td>
-                        <td className="py-2 pr-4 tabular-nums">{formatDeltaPct(a.no_show_rate, b.no_show_rate)}</td>
-                        <td className="py-2 pr-4 tabular-nums">{a.protected} <span className="text-xs text-slate-500">({formatPercent(a.protected_share)})</span></td>
+                        <td className="py-2 pe-4 font-semibold text-slate-900">{r.universe}</td>
+                        <td className="py-2 pe-4 tabular-nums">{formatPercent(b.no_show_rate)} <span className="text-xs text-slate-500">({b.no_shows}/{b.eligible})</span></td>
+                        <td className="py-2 pe-4 tabular-nums">{formatPercent(a.no_show_rate)} <span className="text-xs text-slate-500">({a.no_shows}/{a.eligible})</span></td>
+                        <td className="py-2 pe-4 tabular-nums">{formatDeltaPct(a.no_show_rate, b.no_show_rate)}</td>
+                        <td className="py-2 pe-4 tabular-nums">{a.protected} <span className="text-xs text-slate-500">({formatPercent(a.protected_share)})</span></td>
                       </tr>
                     );
                   })

@@ -1,5 +1,5 @@
 -- Establishment Usernames (Custom Short URLs)
--- Allows establishments to have @username URLs like sortiraumaroc.ma/@nomdutilisateur
+-- Allows establishments to have @username URLs like sam.ma/@nomdutilisateur
 -- Usernames require moderation and can only be changed every 180 days
 
 BEGIN;

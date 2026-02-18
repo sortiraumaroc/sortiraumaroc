@@ -218,7 +218,7 @@ function CodeShareSection({ partner }: { partner: ReferralPartner }) {
         {/* Share link */}
         <div className="flex items-center gap-2">
           <div className="flex-1 bg-muted/50 rounded-lg p-3 text-sm truncate">
-            <Link2 className="inline h-4 w-4 mr-2 text-muted-foreground" />
+            <Link2 className="inline h-4 w-4 me-2 text-muted-foreground" />
             <span className="text-muted-foreground">{shareUrl}</span>
           </div>
           <Button
@@ -238,11 +238,11 @@ function CodeShareSection({ partner }: { partner: ReferralPartner }) {
         {/* Share buttons */}
         <div className="flex gap-2 pt-2">
           <Button onClick={handleShare} className="flex-1">
-            <Share2 className="h-4 w-4 mr-2" />
+            <Share2 className="h-4 w-4 me-2" />
             Partager
           </Button>
           <Button variant="outline" disabled>
-            <QrCode className="h-4 w-4 mr-2" />
+            <QrCode className="h-4 w-4 me-2" />
             QR Code
           </Button>
         </div>
@@ -305,7 +305,7 @@ function ReferreesList() {
             <TableHead>Filleul</TableHead>
             <TableHead>Date</TableHead>
             <TableHead>Source</TableHead>
-            <TableHead className="text-right">Commissions</TableHead>
+            <TableHead className="text-end">Commissions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -327,7 +327,7 @@ function ReferreesList() {
               <TableCell>
                 <Badge variant="outline">{referree.source}</Badge>
               </TableCell>
-              <TableCell className="text-right">
+              <TableCell className="text-end">
                 <div className="font-medium">
                   {formatCentsToDH(referree.commissions.total)}
                 </div>
@@ -467,7 +467,7 @@ function CommissionsList() {
                   <TableCell className="font-semibold text-green-600">
                     +{formatCentsToDH(commission.final_commission_cents)}
                     {commission.commission_rate_percent && (
-                      <span className="text-xs text-muted-foreground ml-1">
+                      <span className="text-xs text-muted-foreground ms-1">
                         ({commission.commission_rate_percent}%)
                       </span>
                     )}
@@ -716,7 +716,7 @@ export function ReferralDashboard({ onApply }: Props) {
           </ul>
           <Button onClick={onApply} className="w-full">
             Demander un compte parrain
-            <ChevronRight className="h-4 w-4 ml-2" />
+            <ChevronRight className="h-4 w-4 ms-2" />
           </Button>
         </CardContent>
       </Card>
@@ -789,7 +789,7 @@ export function ReferralDashboard({ onApply }: Props) {
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={loadData}>
-          <RefreshCw className="h-4 w-4 mr-2" />
+          <RefreshCw className="h-4 w-4 me-2" />
           Actualiser
         </Button>
       </div>

@@ -193,8 +193,8 @@ function KpiCard({
               isNeutral && "bg-slate-50 text-slate-600 border-slate-200"
             )}
           >
-            {isPositive && <ArrowUpRight className="h-3 w-3 mr-0.5" />}
-            {isNegative && <ArrowDownRight className="h-3 w-3 mr-0.5" />}
+            {isPositive && <ArrowUpRight className="h-3 w-3 me-0.5" />}
+            {isNegative && <ArrowDownRight className="h-3 w-3 me-0.5" />}
             {delta}
           </Badge>
         )}

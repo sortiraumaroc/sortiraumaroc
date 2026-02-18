@@ -1010,7 +1010,7 @@ export function AdminInventoryManager({
         {/* Current inventory display */}
         {loading ? (
           <div className="flex items-center justify-center py-8 text-slate-500">
-            <Loader2 className="w-5 h-5 animate-spin mr-2" />
+            <Loader2 className="w-5 h-5 animate-spin me-2" />
             Chargement...
           </div>
         ) : items.length === 0 ? (
@@ -1248,7 +1248,7 @@ export function AdminInventoryManager({
 
               <div className="text-sm text-slate-500 bg-slate-50 rounded-lg p-3">
                 <div className="font-medium text-slate-700 mb-1">
-                  <Sparkles className="w-4 h-4 inline mr-1" />
+                  <Sparkles className="w-4 h-4 inline me-1" />
                   L'IA va extraire automatiquement :
                 </div>
                 <ul className="list-disc list-inside space-y-1 text-xs">
@@ -1316,7 +1316,7 @@ export function AdminInventoryManager({
                               <div key={i} className="truncate">
                                 • {dup.title}
                                 {dup.priceDiff && (
-                                  <span className="ml-1 text-amber-500">
+                                  <span className="ms-1 text-amber-500">
                                     (prix différent: {dup.extractedPrice?.toFixed(2)} vs {dup.existingPrice?.toFixed(2)} MAD)
                                   </span>
                                 )}

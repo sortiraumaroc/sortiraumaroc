@@ -365,12 +365,12 @@ export function AdminMessagesPage() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Rechercher..."
-            className="h-8 w-48 text-xs pl-3 pr-8"
+            className="h-8 w-48 text-xs ps-3 pe-8"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              className="absolute end-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -385,12 +385,12 @@ export function AdminMessagesPage() {
           className="h-8 text-xs"
         >
           <RefreshCw
-            className={`w-3.5 h-3.5 mr-1.5 ${loadingThreads ? "animate-spin" : ""}`}
+            className={`w-3.5 h-3.5 me-1.5 ${loadingThreads ? "animate-spin" : ""}`}
           />
           Actualiser
         </Button>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ms-auto flex items-center gap-2">
           <Badge variant="outline" className="text-xs">
             {filteredThreads.length} conversation
             {filteredThreads.length > 1 ? "s" : ""}

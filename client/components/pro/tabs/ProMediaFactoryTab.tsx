@@ -336,7 +336,7 @@ export function ProMediaFactoryTab(props: Props) {
                 <TableHead>Titre</TableHead>
                 <TableHead>Statut</TableHead>
                 <TableHead>Créé</TableHead>
-                <TableHead className="text-right">Action</TableHead>
+                <TableHead className="text-end">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -346,7 +346,7 @@ export function ProMediaFactoryTab(props: Props) {
                     colSpan={5}
                     className="py-8 text-center text-sm text-slate-600"
                   >
-                    <Loader2 className="inline h-4 w-4 animate-spin mr-2" />
+                    <Loader2 className="inline h-4 w-4 animate-spin me-2" />
                     Chargement…
                   </TableCell>
                 </TableRow>
@@ -365,7 +365,7 @@ export function ProMediaFactoryTab(props: Props) {
                     <TableCell className="text-xs text-slate-700">
                       {formatDateTimeShort(j.created_at)}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-end">
                       <Button
                         size="sm"
                         variant="outline"
@@ -435,7 +435,7 @@ export function ProMediaFactoryTab(props: Props) {
 
           {jobLoading ? (
             <div className="py-10 text-center text-sm text-slate-600">
-              <Loader2 className="inline h-4 w-4 animate-spin mr-2" />
+              <Loader2 className="inline h-4 w-4 animate-spin me-2" />
               Chargement du job…
             </div>
           ) : jobDetails ? (
@@ -555,11 +555,11 @@ export function ProMediaFactoryTab(props: Props) {
                   {/* Statut */}
                   <div className="text-xs text-slate-500 pt-2 border-t">
                     Statut brief:{" "}
-                    <Badge variant="outline" className="ml-1">
+                    <Badge variant="outline" className="ms-1">
                       {String((jobDetails.brief as any)?.status ?? "draft")}
                     </Badge>
                     {jobDetails.brief?.submitted_at ? (
-                      <span className="ml-2">
+                      <span className="ms-2">
                         Soumis le{" "}
                         {formatDateTimeShort(
                           (jobDetails.brief as any).submitted_at,
@@ -567,7 +567,7 @@ export function ProMediaFactoryTab(props: Props) {
                       </span>
                     ) : null}
                     {(jobDetails.brief as any)?.approved_at ? (
-                      <span className="ml-2 text-emerald-600">
+                      <span className="ms-2 text-emerald-600">
                         ✓ Validé le{" "}
                         {formatDateTimeShort(
                           (jobDetails.brief as any).approved_at,
@@ -669,7 +669,7 @@ export function ProMediaFactoryTab(props: Props) {
                           <TableHead>Début</TableHead>
                           <TableHead>Fin</TableHead>
                           <TableHead>Lieu</TableHead>
-                          <TableHead className="text-right">Action</TableHead>
+                          <TableHead className="text-end">Action</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -684,7 +684,7 @@ export function ProMediaFactoryTab(props: Props) {
                             <TableCell className="text-sm text-slate-700">
                               {slot.location_text || slot.address || "—"}
                             </TableCell>
-                            <TableCell className="text-right">
+                            <TableCell className="text-end">
                               <Button
                                 size="sm"
                                 variant="default"
@@ -762,7 +762,7 @@ export function ProMediaFactoryTab(props: Props) {
                           <TableHead>Statut</TableHead>
                           <TableHead>Version</TableHead>
                           <TableHead>Commentaire</TableHead>
-                          <TableHead className="text-right">Fichier</TableHead>
+                          <TableHead className="text-end">Fichier</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -785,7 +785,7 @@ export function ProMediaFactoryTab(props: Props) {
                             <TableCell className="text-xs text-slate-600 max-w-[200px] truncate">
                               {d.review_comment || "—"}
                             </TableCell>
-                            <TableCell className="text-right">
+                            <TableCell className="text-end">
                               {d.file_url ? (
                                 <Button
                                   size="sm"

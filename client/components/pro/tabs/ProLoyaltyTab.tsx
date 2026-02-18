@@ -2,13 +2,16 @@
 // PRO LOYALTY TAB - Gestion des programmes de fidélité
 // =============================================================================
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Award, ChevronRight, Clock, Coffee, CreditCard, Crown, Edit3, Eye, Gift,
-  Heart, History, Loader2, MoreVertical, Palette, Percent, Plus, QrCode, Save,
-  Settings, Sparkles, Star, Tag, Target, Trash2, TrendingUp, Upload, Users,
-  X, Zap,
+  Award, Baby, Beer, Bike, Cake, Car, ChevronRight, Clock, Coffee, Cookie,
+  CreditCard, Crown, Dumbbell, Edit3, Eye, Flame, Flower2, Gamepad2, Gem, Gift,
+  Heart, History, IceCream, Image, Leaf, Loader2, Moon, MoreVertical, Music,
+  Palette, Palmtree, PawPrint, Percent, Pizza, Plane, Plus, QrCode, Save,
+  Scissors, Settings, Shirt, Sparkles, Star, Sun, Tag, Target, Trash2,
+  TrendingUp, Upload, Users, Utensils, Wine, X, Zap,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,6 +39,7 @@ import {
 import type { LoyaltyProgram, LoyaltyMember, CardDesign, RewardType } from "@/lib/loyalty/types";
 import { CARD_DESIGN_PRESETS, STAMP_ICONS } from "@/lib/loyalty/types";
 import type { Establishment } from "@/lib/pro/types";
+import { uploadProInventoryImage } from "@/lib/pro/api";
 import { cn } from "@/lib/utils";
 
 // =============================================================================
@@ -120,7 +124,7 @@ export function ProLoyaltyTab({ establishment, role }: Props) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-6 h-6 animate-spin text-primary" />
-        <span className="ml-2 text-slate-600">Chargement...</span>
+        <span className="ms-2 text-slate-600">Chargement...</span>
       </div>
     );
   }
@@ -312,6 +316,7 @@ export function ProLoyaltyTab({ establishment, role }: Props) {
                       stampsRequired={program.stamps_required}
                       rewardDescription={program.reward_description}
                       establishmentName={establishment.name ?? "Mon Établissement"}
+                      establishmentLogo={establishment.logo_url ?? establishment.cover_url}
                     />
                   </div>
 
@@ -338,12 +343,12 @@ export function ProLoyaltyTab({ establishment, role }: Props) {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem onClick={() => setEditingProgram(program)}>
-                              <Edit3 className="w-4 h-4 mr-2" />
+                              <Edit3 className="w-4 h-4 me-2" />
                               Modifier
                             </DropdownMenuItem>
                             {program.allow_retroactive_stamps && (
                               <DropdownMenuItem onClick={() => handleApplyRetroactive(program)}>
-                                <History className="w-4 h-4 mr-2" />
+                                <History className="w-4 h-4 me-2" />
                                 Appliquer rétroactif
                               </DropdownMenuItem>
                             )}
@@ -351,7 +356,7 @@ export function ProLoyaltyTab({ establishment, role }: Props) {
                               className="text-red-600"
                               onClick={() => handleDeleteProgram(program)}
                             >
-                              <Trash2 className="w-4 h-4 mr-2" />
+                              <Trash2 className="w-4 h-4 me-2" />
                               Supprimer
                             </DropdownMenuItem>
                           </DropdownMenuContent>
@@ -423,7 +428,7 @@ export function ProLoyaltyTab({ establishment, role }: Props) {
                       <div className="flex items-center gap-2">
                         {member.cards.some((c) => c.has_pending_reward) && (
                           <Badge className="bg-amber-100 text-amber-700 border-0">
-                            <Gift className="w-3 h-3 mr-1" />
+                            <Gift className="w-3 h-3 me-1" />
                             Récompense
                           </Badge>
                         )}
@@ -446,8 +451,7 @@ export function ProLoyaltyTab({ establishment, role }: Props) {
           setEditingProgram(null);
         }}
         program={editingProgram}
-        establishmentId={establishment.id}
-        establishmentName={establishment.name ?? "Mon Établissement"}
+        establishment={establishment}
         onSaved={loadData}
       />
 
@@ -534,17 +538,17 @@ function ProgramFormDialog({
   open,
   onClose,
   program,
-  establishmentId,
-  establishmentName,
+  establishment,
   onSaved,
 }: {
   open: boolean;
   onClose: () => void;
   program: LoyaltyProgram | null;
-  establishmentId: string;
-  establishmentName: string;
+  establishment: Establishment;
   onSaved: () => void;
 }) {
+  const establishmentId = establishment.id;
+  const establishmentName = establishment.name ?? "Mon Établissement";
   const isEdit = !!program;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -575,6 +579,11 @@ function ProgramFormDialog({
   const [stampIcon, setStampIcon] = useState(
     (program?.card_design as CardDesign)?.stamp_icon ?? "coffee"
   );
+  const [backgroundUrl, setBackgroundUrl] = useState<string | null>(
+    (program?.card_design as CardDesign)?.background_url ?? null
+  );
+  const [uploadingBg, setUploadingBg] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   // Reset form when program changes
   useEffect(() => {
@@ -596,6 +605,7 @@ function ProgramFormDialog({
       setPrimaryColor(design?.primary_color ?? "#6366f1");
       setSecondaryColor(design?.secondary_color ?? "#8b5cf6");
       setStampIcon(design?.stamp_icon ?? "coffee");
+      setBackgroundUrl(design?.background_url ?? null);
     } else {
       // Reset to defaults
       setName("");
@@ -613,6 +623,7 @@ function ProgramFormDialog({
       setPrimaryColor("#6366f1");
       setSecondaryColor("#8b5cf6");
       setStampIcon("coffee");
+      setBackgroundUrl(null);
     }
   }, [program, open]);
 
@@ -643,6 +654,7 @@ function ProgramFormDialog({
         secondary_color: secondaryColor,
         stamp_icon: stampIcon,
         logo_url: null,
+        background_url: backgroundUrl,
       },
     };
 
@@ -845,12 +857,85 @@ function ProgramFormDialog({
                 primary_color: primaryColor,
                 secondary_color: secondaryColor,
                 stamp_icon: stampIcon,
+                background_url: backgroundUrl,
               }}
               programName={name || "Mon Programme"}
               stampsRequired={stampsRequired}
               rewardDescription={rewardDescription || "Récompense"}
               establishmentName={establishmentName}
+              establishmentLogo={establishment.cover_url}
             />
+
+            {/* Image d'arrière-plan */}
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <Image className="w-4 h-4" />
+                Image d'arrière-plan
+              </Label>
+              {backgroundUrl ? (
+                <div className="relative rounded-lg overflow-hidden border">
+                  <img
+                    src={backgroundUrl}
+                    alt="Arrière-plan"
+                    className="w-full h-24 object-cover"
+                  />
+                  <button
+                    type="button"
+                    className="absolute top-1 end-1 p-1 bg-black/60 rounded-full text-white hover:bg-black/80 transition-colors"
+                    onClick={() => setBackgroundUrl(null)}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <label
+                  className={cn(
+                    "flex flex-col items-center justify-center gap-2 p-4 border-2 border-dashed rounded-lg cursor-pointer transition-colors",
+                    uploadingBg ? "border-primary/50 bg-primary/5" : "border-slate-300 hover:border-primary/50 hover:bg-slate-50"
+                  )}
+                >
+                  {uploadingBg ? (
+                    <>
+                      <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                      <span className="text-xs text-slate-500">{uploadProgress}%</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-6 h-6 text-slate-400" />
+                      <span className="text-xs text-slate-500">Cliquez pour ajouter une image</span>
+                      <span className="text-[10px] text-slate-400">JPG, PNG ou WebP — 800×400px recommandé — max 5 Mo</span>
+                    </>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    disabled={uploadingBg}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setUploadingBg(true);
+                      setUploadProgress(0);
+                      try {
+                        const result = await uploadProInventoryImage({
+                          establishmentId,
+                          file,
+                          onProgress: (p) => setUploadProgress(p),
+                        });
+                        setBackgroundUrl(result.url);
+                      } catch (err: any) {
+                        console.error("Upload failed:", err);
+                        const msg = err?.message || "Échec de l'upload";
+                        alert(`Erreur : ${msg}`);
+                      } finally {
+                        setUploadingBg(false);
+                        e.target.value = "";
+                      }
+                    }}
+                  />
+                </label>
+              )}
+            </div>
 
             {/* Style */}
             <div className="space-y-2">
@@ -935,15 +1020,17 @@ function ProgramFormDialog({
               <Label>Icône des tampons</Label>
               <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-2 border rounded-lg">
                 {STAMP_ICONS.map((icon) => {
-                  const IconComponent = {
-                    coffee: Coffee,
-                    star: Star,
-                    heart: Heart,
-                    gift: Gift,
-                    crown: Crown,
-                    sparkles: Sparkles,
-                    zap: Zap,
-                  }[icon] ?? Star;
+                  const STAMP_ICON_MAP: Record<string, LucideIcon> = {
+                    coffee: Coffee, pizza: Pizza, utensils: Utensils, wine: Wine,
+                    beer: Beer, cake: Cake, "ice-cream": IceCream, cookie: Cookie,
+                    scissors: Scissors, sparkles: Sparkles, star: Star, heart: Heart,
+                    crown: Crown, gem: Gem, gift: Gift, award: Award,
+                    zap: Zap, flame: Flame, sun: Sun, moon: Moon,
+                    music: Music, "gamepad-2": Gamepad2, dumbbell: Dumbbell, bike: Bike,
+                    car: Car, plane: Plane, palmtree: Palmtree, flower: Flower2,
+                    leaf: Leaf, "paw-print": PawPrint, baby: Baby, shirt: Shirt,
+                  };
+                  const IconComponent = STAMP_ICON_MAP[icon] ?? Star;
 
                   return (
                     <button

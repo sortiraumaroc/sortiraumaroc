@@ -181,7 +181,7 @@ export function PartnerAvatarEditor({
               {initials || <User className="w-8 h-8" />}
             </AvatarFallback>
           </Avatar>
-          <div className="absolute -bottom-1 -right-1 rounded-full border-2 border-white bg-[#a3001d] text-white p-1.5 shadow-sm group-hover:bg-[#8a0018] transition-colors">
+          <div className="absolute -bottom-1 -end-1 rounded-full border-2 border-white bg-[#a3001d] text-white p-1.5 shadow-sm group-hover:bg-[#8a0018] transition-colors">
             <Camera className="h-3.5 w-3.5" />
           </div>
         </div>
@@ -274,7 +274,7 @@ export function PartnerAvatarEditor({
               disabled={busy || !draft}
               className="bg-[#a3001d] hover:bg-[#8a0018]"
             >
-              {busy && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              {busy && <Loader2 className="h-4 w-4 animate-spin me-2" />}
               Enregistrer
             </Button>
           </DialogFooter>

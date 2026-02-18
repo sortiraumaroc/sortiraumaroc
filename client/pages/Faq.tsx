@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { HelpCircle, Phone } from "lucide-react";
 
@@ -7,10 +7,59 @@ import { FaqSection } from "@/components/support/FaqSection";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n";
 import { isAuthed } from "@/lib/auth";
+import { applySeo, setJsonLd, clearJsonLd, generateFaqSchema, generateBreadcrumbSchema, buildI18nSeoFields } from "@/lib/seo";
+import { listPublicFaqArticles } from "@/lib/faq";
 
 export default function Faq() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const authed = useMemo(() => isAuthed(), []);
+
+  // ── SEO ──────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+
+    applySeo({
+      title: "FAQ — Sortir Au Maroc",
+      description: "Trouvez les réponses à vos questions sur SAM.ma : réservations, annulations, programme de fidélité, paiements et plus.",
+      ogType: "website",
+      canonicalStripQuery: true,
+      ...buildI18nSeoFields(locale),
+    });
+
+    setJsonLd(
+      "breadcrumb",
+      generateBreadcrumbSchema([
+        { name: "Accueil", url: `${baseUrl}/` },
+        { name: "FAQ", url: `${baseUrl}/faq` },
+      ]),
+    );
+
+    // Load FAQ items and generate FAQPage schema
+    let active = true;
+    listPublicFaqArticles(locale === "en" ? "en" : "fr", "consumer")
+      .then((items) => {
+        if (!active) return;
+        const faqs = items
+          .filter((it) => it.resolved.question.trim() && it.resolved.answer_html.trim())
+          .slice(0, 50)
+          .map((it) => ({
+            question: it.resolved.question,
+            answer: it.resolved.answer_html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim(),
+          }));
+        if (faqs.length > 0) {
+          setJsonLd("faq", generateFaqSchema(faqs));
+        }
+      })
+      .catch(() => {
+        // Silently skip FAQ schema on error
+      });
+
+    return () => {
+      active = false;
+      clearJsonLd("faq");
+      clearJsonLd("breadcrumb");
+    };
+  }, [locale]);
 
   return (
     <div className="min-h-screen bg-white">
@@ -56,7 +105,7 @@ export default function Faq() {
             </div>
 
             <div className="p-6 md:p-8">
-              <FaqSection />
+              <FaqSection audience="consumer" />
             </div>
           </div>
         </div>

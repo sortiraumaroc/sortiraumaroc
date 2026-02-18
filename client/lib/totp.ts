@@ -78,13 +78,13 @@ function base32Decode(encoded: string): Uint8Array {
 async function hmacSha1(key: Uint8Array, message: Uint8Array): Promise<Uint8Array> {
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
-    key,
+    key as BufferSource,
     { name: "HMAC", hash: "SHA-1" },
     false,
     ["sign"]
   );
 
-  const signature = await crypto.subtle.sign("HMAC", cryptoKey, message);
+  const signature = await crypto.subtle.sign("HMAC", cryptoKey, message as BufferSource);
   return new Uint8Array(signature);
 }
 

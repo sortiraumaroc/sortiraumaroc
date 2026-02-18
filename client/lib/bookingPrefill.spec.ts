@@ -13,6 +13,10 @@ describe("buildBookingPrefillPatch", () => {
         last_name: "Eddine",
         phone: "+212600000000",
         email: "salah@example.com",
+        date_of_birth: null,
+        city: null,
+        country: null,
+        socio_professional_status: null,
       },
     });
 
@@ -28,7 +32,7 @@ describe("buildBookingPrefillPatch", () => {
     const patch = buildBookingPrefillPatch({
       current: { firstName: "", lastName: "", email: "", phone: "" },
       touched: { firstName: false, lastName: false, email: false, phone: false },
-      me: { id: "u1", first_name: "Salah", last_name: "Eddine", phone: "+2126", email: null },
+      me: { id: "u1", first_name: "Salah", last_name: "Eddine", phone: "+2126", email: null, date_of_birth: null, city: null, country: null, socio_professional_status: null },
     });
 
     expect(patch).toEqual({ firstName: "Salah", lastName: "Eddine", phone: "+2126" });
@@ -44,6 +48,10 @@ describe("buildBookingPrefillPatch", () => {
         last_name: "Eddine",
         phone: "+212600000000",
         email: "salah@example.com",
+        date_of_birth: null,
+        city: null,
+        country: null,
+        socio_professional_status: null,
       },
     });
 
@@ -61,6 +69,10 @@ describe("buildBookingPrefillPatch", () => {
         last_name: "Eddine",
         phone: "+212600000000",
         email: "salah@example.com",
+        date_of_birth: null,
+        city: null,
+        country: null,
+        socio_professional_status: null,
       },
     });
 

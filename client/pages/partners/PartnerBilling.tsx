@@ -260,25 +260,25 @@ export function PartnerBilling() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
-                  <th className="text-left px-3 py-2 text-xs font-medium text-slate-600">
+                  <th className="text-start px-3 py-2 text-xs font-medium text-slate-600">
                     Mission
                   </th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-slate-600">
+                  <th className="text-start px-3 py-2 text-xs font-medium text-slate-600">
                     Rôle
                   </th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-slate-600">
+                  <th className="text-start px-3 py-2 text-xs font-medium text-slate-600">
                     Date demande
                   </th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-slate-600">
+                  <th className="text-start px-3 py-2 text-xs font-medium text-slate-600">
                     Montant
                   </th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-slate-600">
+                  <th className="text-start px-3 py-2 text-xs font-medium text-slate-600">
                     Statut
                   </th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-slate-600">
+                  <th className="text-start px-3 py-2 text-xs font-medium text-slate-600">
                     Date paiement
                   </th>
-                  <th className="text-right px-3 py-2 text-xs font-medium text-slate-600">
+                  <th className="text-end px-3 py-2 text-xs font-medium text-slate-600">
                     Actions
                   </th>
                 </tr>
@@ -331,7 +331,7 @@ export function PartnerBilling() {
                       <td className="px-3 py-2 text-slate-600 whitespace-nowrap">
                         {formatDate(req.paid_at)}
                       </td>
-                      <td className="px-3 py-2 text-right">
+                      <td className="px-3 py-2 text-end">
                         {req.status === "paid" && (
                           <Button
                             variant="ghost"

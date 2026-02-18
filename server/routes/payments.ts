@@ -20,6 +20,7 @@ import { parseLacaissePayWebhook } from "./lacaissepay";
 import { createWalletRechargeInvoice } from "../ads/invoicing";
 import { ensureSubscriptionForOrder } from "../subscriptions/usernameSubscription";
 import { sendUsernameSubscriptionInvoiceEmail, orderContainsUsernameSubscription } from "../subscriptions/usernameInvoicing";
+import { generateWalletTopupReceipt, generateProServiceReceipt, generateDepositReceipt } from "../vosfactures/documents";
 
 import { formatLeJjMmAaAHeure } from "../../shared/datetime";
 import { NotificationEventType } from "../../shared/notifications";
@@ -226,7 +227,7 @@ function appendTransactionIdToMeta(meta: unknown, transactionId: string): Record
 }
 
 function getPublicBaseUrl(): string {
-  return asString(process.env.PUBLIC_BASE_URL) || "https://sortiraumaroc.ma";
+  return asString(process.env.PUBLIC_BASE_URL) || "https://sam.ma";
 }
 
 function listInternalVisibilityOrderEmails(): string[] {
@@ -567,6 +568,33 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
           console.error("[PaymentsWebhook] Failed to create invoice:", invoiceErr);
           // Don't fail the webhook, invoice generation is best-effort
         }
+
+        // VosFactures receipt (best-effort)
+        void (async () => {
+          try {
+            // Fetch pro owner info for receipt
+            const { data: members } = await supabase
+              .from("pro_establishment_memberships")
+              .select("pro_user_id, pro_users!inner(email, company_name, ice)")
+              .eq("establishment_id", establishmentId)
+              .eq("role", "owner")
+              .limit(1);
+            const owner = (members?.[0] as any)?.pro_users;
+            if (owner?.email) {
+              await generateWalletTopupReceipt({
+                walletTransactionId: (pendingTx as any)?.id ?? lacaisse.operationId,
+                proUserName: owner.company_name || owner.email,
+                proEmail: owner.email,
+                proIce: owner.ice || undefined,
+                amountCents,
+                paymentMethod: "card",
+              });
+              console.log("[PaymentsWebhook] VosFactures wallet receipt generated");
+            }
+          } catch (vfErr) {
+            console.error("[PaymentsWebhook] VosFactures wallet receipt failed:", vfErr);
+          }
+        })();
       }
 
       console.log("[PaymentsWebhook] Wallet recharge completed:", {
@@ -985,6 +1013,61 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
           issuedAtIso: event.paid_at ?? null,
         });
 
+        // VosFactures receipt for visibility/service order (best-effort)
+        void (async () => {
+          try {
+            const orderId = String((existing as any).id);
+            const establishmentId = asString((existing as any).establishment_id);
+            const totalCents = typeof event.amount_total_cents === "number" ? event.amount_total_cents : (existing as any).total_cents ?? 0;
+
+            // Fetch pro owner info
+            const { data: members } = await supabase
+              .from("pro_establishment_memberships")
+              .select("pro_user_id, pro_users!inner(email, company_name, ice)")
+              .eq("establishment_id", establishmentId)
+              .eq("role", "owner")
+              .limit(1);
+            const owner = (members?.[0] as any)?.pro_users;
+
+            // Fetch order items
+            const { data: orderItems } = await supabase
+              .from("visibility_order_items")
+              .select("id, title, quantity, unit_price_cents, total_cents")
+              .eq("order_id", orderId);
+
+            const items = (orderItems ?? []).map((item: any) => ({
+              name: item.title || "Service de visibilité",
+              quantity: item.quantity ?? 1,
+              totalPriceCents: item.total_cents ?? item.unit_price_cents ?? 0,
+            }));
+
+            // Fallback: single line item if no items found
+            if (items.length === 0) {
+              items.push({ name: "Commande de visibilité sam.ma", quantity: 1, totalPriceCents: totalCents });
+            }
+
+            // Get establishment name
+            const { data: estab } = await supabase.from("establishments").select("name").eq("id", establishmentId).maybeSingle();
+
+            if (owner?.email && totalCents > 0) {
+              await generateProServiceReceipt({
+                orderId,
+                orderType: "visibility_order",
+                proUserName: owner.company_name || owner.email,
+                proEmail: owner.email,
+                proIce: owner.ice || undefined,
+                establishmentName: (estab as any)?.name || "",
+                totalCents,
+                items,
+                paymentMethod: "card",
+              });
+              console.log(`[PaymentsWebhook] VosFactures visibility order receipt generated for order ${orderId}`);
+            }
+          } catch (vfErr) {
+            console.error("[PaymentsWebhook] VosFactures visibility order receipt failed:", vfErr);
+          }
+        })();
+
         // Handle username subscription activation if order contains subscription item
         try {
           await ensureSubscriptionForOrder((existing as any).id, actor);
@@ -1251,20 +1334,22 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
       );
 
       // Log this security event
-      await supabase.from("system_logs").insert({
-        actor_user_id: null,
-        actor_role: "system:payments_webhook",
-        action: "payment.amount_mismatch_rejected",
-        entity_type: "reservation",
-        entity_id: existing.id,
-        payload: {
-          expected_cents: expectedDepositCents,
-          received_cents: webhookAmountCents,
-          difference_cents: webhookAmountCents - expectedDepositCents,
-          transaction_id: transactionId || null,
-          provider: event.provider,
-        },
-      }).catch(() => { /* ignore logging errors */ });
+      try {
+        await supabase.from("system_logs").insert({
+          actor_user_id: null,
+          actor_role: "system:payments_webhook",
+          action: "payment.amount_mismatch_rejected",
+          entity_type: "reservation",
+          entity_id: existing.id,
+          payload: {
+            expected_cents: expectedDepositCents,
+            received_cents: webhookAmountCents,
+            difference_cents: webhookAmountCents - expectedDepositCents,
+            transaction_id: transactionId || null,
+            provider: event.provider,
+          },
+        });
+      } catch { /* ignore logging errors */ }
 
       return res.status(400).json({
         ok: false,
@@ -1648,6 +1733,46 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
         idempotencyKey: invKey,
         issuedAtIso: event.paid_at ?? null,
       });
+
+      // VosFactures deposit receipt (best-effort)
+      void (async () => {
+        try {
+          const depositCents = typeof event.amount_total_cents === "number" ? event.amount_total_cents : (existing as any).amount_total ?? 0;
+          const consumerUserId = asString((existing as any).user_id);
+          const establishmentId = asString((existing as any).establishment_id);
+          const bookingRef = asString((existing as any).booking_reference) || String(existing.id);
+          const startsAt = asString((existing as any).starts_at);
+          const partySize = typeof (existing as any).party_size === "number" ? (existing as any).party_size : 1;
+          const dateStr = startsAt ? startsAt.split("T")[0] : new Date().toISOString().split("T")[0];
+
+          // Get consumer info
+          const { data: authUser } = await supabase.auth.admin.getUserById(consumerUserId);
+          const userMeta = (authUser?.user as any)?.user_metadata ?? {};
+          const buyerName = [userMeta.first_name, userMeta.last_name].filter(Boolean).join(" ") || userMeta.full_name || "Client";
+          const buyerEmail = (authUser?.user as any)?.email;
+
+          // Get establishment name
+          const { data: estab } = await supabase.from("establishments").select("name").eq("id", establishmentId).maybeSingle();
+          const establishmentName = (estab as any)?.name || "";
+
+          if (buyerEmail && depositCents > 0) {
+            await generateDepositReceipt({
+              reservationId: String(existing.id),
+              bookingReference: bookingRef,
+              establishmentName,
+              buyerName,
+              buyerEmail,
+              depositCents,
+              partySize,
+              dateStr,
+              paymentMethod: "card",
+            });
+            console.log(`[PaymentsWebhook] VosFactures deposit receipt generated for reservation ${existing.id}`);
+          }
+        } catch (vfErr) {
+          console.error("[PaymentsWebhook] VosFactures deposit receipt failed:", vfErr);
+        }
+      })();
     }
 
     if (nextPaymentStatus === "refunded") {

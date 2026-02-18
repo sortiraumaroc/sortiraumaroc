@@ -208,17 +208,17 @@ export function ReferralApplyForm({ onSuccess, onCancel }: Props) {
                         }}
                         className={
                           codeValid === true
-                            ? "border-green-500 pr-10"
+                            ? "border-green-500 pe-10"
                             : codeValid === false
-                            ? "border-red-500 pr-10"
+                            ? "border-red-500 pe-10"
                             : ""
                         }
                       />
                       {codeChecking && (
-                        <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+                        <Loader2 className="absolute end-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
                       )}
                       {!codeChecking && codeValid === true && (
-                        <Check className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-green-500" />
+                        <Check className="absolute end-3 top-1/2 -translate-y-1/2 h-4 w-4 text-green-500" />
                       )}
                     </div>
                   </FormControl>
@@ -378,7 +378,7 @@ export function ReferralApplyForm({ onSuccess, onCancel }: Props) {
               <Button type="submit" disabled={submitting || codeChecking} className="flex-1">
                 {submitting ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Loader2 className="me-2 h-4 w-4 animate-spin" />
                     Envoi en cours...
                   </>
                 ) : (

@@ -28,10 +28,10 @@ export function SuccessScreen({
           <CheckCircle2 className="w-10 h-10 text-green-600" />
         </div>
         {/* Celebration particles */}
-        <div className="absolute -top-2 -left-2 text-2xl animate-bounce" style={{ animationDelay: "0ms" }}>
+        <div className="absolute -top-2 -start-2 text-2xl animate-bounce" style={{ animationDelay: "0ms" }}>
           🎉
         </div>
-        <div className="absolute -top-2 -right-2 text-2xl animate-bounce" style={{ animationDelay: "200ms" }}>
+        <div className="absolute -top-2 -end-2 text-2xl animate-bounce" style={{ animationDelay: "200ms" }}>
           ✨
         </div>
         <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 text-2xl animate-bounce" style={{ animationDelay: "400ms" }}>

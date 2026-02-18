@@ -8,6 +8,7 @@ import { buildEstablishmentUrl } from "@/lib/establishmentUrl";
 import { IconButton } from "@/components/ui/icon-button";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 
 type HomeVideosSectionProps = {
   className?: string;
@@ -38,6 +39,7 @@ type VideoPlayerModalProps = {
 };
 
 function VideoPlayerModal({ videoId, title, onClose, isFullscreen = false }: VideoPlayerModalProps) {
+  const { t } = useI18n();
   const [showFullscreen, setShowFullscreen] = useState(isFullscreen);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -90,10 +92,10 @@ function VideoPlayerModal({ videoId, title, onClose, isFullscreen = false }: Vid
           className={cn(
             "absolute z-10 flex items-center justify-center transition-opacity hover:opacity-80",
             showFullscreen
-              ? "top-4 right-4 w-12 h-12 bg-red-600 rounded-full shadow-lg"
-              : "top-2 right-2 w-8 h-8 bg-black/50 rounded-full"
+              ? "top-4 end-4 w-12 h-12 bg-red-600 rounded-full shadow-lg"
+              : "top-2 end-2 w-8 h-8 bg-black/50 rounded-full"
           )}
-          aria-label="Fermer"
+          aria-label={t("home.videos.close")}
         >
           <X className={cn("text-white", showFullscreen ? "w-6 h-6" : "w-5 h-5")} />
         </button>
@@ -103,9 +105,9 @@ function VideoPlayerModal({ videoId, title, onClose, isFullscreen = false }: Vid
           <button
             type="button"
             onClick={() => setShowFullscreen(true)}
-            className="absolute top-2 left-2 z-10 px-3 py-1.5 bg-black/50 rounded text-white text-sm hover:bg-black/70 transition hidden md:block"
+            className="absolute top-2 start-2 z-10 px-3 py-1.5 bg-black/50 rounded text-white text-sm hover:bg-black/70 transition hidden md:block"
           >
-            Plein ecran
+            {t("home.videos.fullscreen")}
           </button>
         )}
 
@@ -131,6 +133,7 @@ type VideoCardProps = {
 };
 
 function VideoCard({ video, onClick, onReserve }: VideoCardProps) {
+  const { t } = useI18n();
   const videoId = getYoutubeVideoId(video.youtube_url);
   const [isHovering, setIsHovering] = useState(false);
 
@@ -182,17 +185,17 @@ function VideoCard({ video, onClick, onReserve }: VideoCardProps) {
               isHovering && "scale-110"
             )}
           >
-            <Play className="w-7 h-7 text-white fill-white ml-1" />
+            <Play className="w-7 h-7 text-white fill-white ms-1" />
           </div>
         </div>
 
         {/* Title overlay */}
         <div className="absolute bottom-0 left-0 right-0 p-4">
-          <h3 className="text-white font-semibold text-sm md:text-base line-clamp-2 text-left drop-shadow-lg">
+          <h3 className="text-white font-semibold text-sm md:text-base line-clamp-2 text-start drop-shadow-lg">
             {video.title}
           </h3>
           {video.description && (
-            <p className="text-white/80 text-xs mt-1 line-clamp-1 text-left">
+            <p className="text-white/80 text-xs mt-1 line-clamp-1 text-start">
               {video.description}
             </p>
           )}
@@ -225,7 +228,7 @@ function VideoCard({ video, onClick, onReserve }: VideoCardProps) {
                 className="gap-1.5 bg-primary hover:bg-primary/90 text-white text-xs h-8 px-3"
               >
                 <CalendarPlus className="w-3.5 h-3.5" />
-                Réserver
+                {t("home.videos.book")}
               </Button>
             </Link>
           )}
@@ -236,6 +239,7 @@ function VideoCard({ video, onClick, onReserve }: VideoCardProps) {
 }
 
 export function HomeVideosSection({ className }: HomeVideosSectionProps) {
+  const { t } = useI18n();
   const [videos, setVideos] = useState<PublicHomeVideo[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedVideo, setSelectedVideo] = useState<PublicHomeVideo | null>(null);
@@ -320,8 +324,8 @@ export function HomeVideosSection({ className }: HomeVideosSectionProps) {
     setSelectedVideo(null);
   }, []);
 
-  // Don't render if no videos or loading
-  if (loading || videos.length === 0) {
+  // After loading, don't render if no videos
+  if (!loading && videos.length === 0) {
     return null;
   }
 
@@ -329,7 +333,7 @@ export function HomeVideosSection({ className }: HomeVideosSectionProps) {
     <section className={className}>
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl md:text-3xl font-bold text-foreground">
-          Vidéos
+          {t("home.videos.title")}
         </h2>
         <div className="flex items-center gap-2">
           <IconButton
@@ -358,13 +362,25 @@ export function HomeVideosSection({ className }: HomeVideosSectionProps) {
         className="flex gap-4 overflow-x-auto scrollbar-hide scroll-smooth pb-2"
         style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
       >
-        {videos.map((video) => (
-          <VideoCard
-            key={video.id}
-            video={video}
-            onClick={() => handleVideoClick(video)}
-          />
-        ))}
+        {loading ? (
+          /* Video card skeletons — 16:9 aspect ratio matching real cards */
+          Array.from({ length: 4 }, (_, i) => (
+            <div key={`vid-skel-${i}`} className="flex-shrink-0 w-64 sm:w-72 md:w-80">
+              <div className="w-full aspect-video rounded-xl bg-slate-200 animate-pulse" />
+              <div className="mt-2 flex items-center gap-2">
+                <div className="h-3 w-2/3 rounded bg-slate-200 animate-pulse" />
+              </div>
+            </div>
+          ))
+        ) : (
+          videos.map((video) => (
+            <VideoCard
+              key={video.id}
+              video={video}
+              onClick={() => handleVideoClick(video)}
+            />
+          ))
+        )}
       </div>
 
       {/* Video player modal */}

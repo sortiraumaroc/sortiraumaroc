@@ -72,6 +72,8 @@ export function useConsumerQR(): UseConsumerQRReturn {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Cleanup intervals on unmount
   useEffect(() => {
@@ -80,6 +82,7 @@ export function useConsumerQR(): UseConsumerQRReturn {
       mountedRef.current = false;
       if (intervalRef.current) clearInterval(intervalRef.current);
       if (countdownRef.current) clearInterval(countdownRef.current);
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
     };
   }, []);
 
@@ -150,12 +153,16 @@ export function useConsumerQR(): UseConsumerQRReturn {
         return;
       }
 
+      // Success — reset retry counter
+      retryCountRef.current = 0;
       setSecret(secretData);
       await generateQRFromSecret(secretData);
     } catch (err: unknown) {
       console.error("[useConsumerQR] Error loading secret:", err);
       if (mountedRef.current) {
         let message = "Erreur de chargement";
+        let isTransient = false;
+
         if (err && typeof err === "object" && "status" in err) {
           const apiErr = err as { status: number; message: string };
           if (apiErr.status === 401) {
@@ -166,13 +173,32 @@ export function useConsumerQR(): UseConsumerQRReturn {
             message = "Compte non actif. Contactez le support.";
           } else if (apiErr.status === 0) {
             message = "Impossible de contacter le serveur. Vérifiez votre connexion et réessayez.";
+            isTransient = true;
+          } else if (apiErr.status >= 500) {
+            message = apiErr.message || `Erreur serveur (${apiErr.status})`;
+            isTransient = true;
           } else {
             message = apiErr.message || `Erreur serveur (${apiErr.status})`;
           }
         } else if (err instanceof Error) {
           message = err.message;
+          // TypeError from safeFetch = network error → transient
+          if (err instanceof TypeError) isTransient = true;
         }
+
         setError(message);
+
+        // Auto-retry for transient errors (max 3 attempts with exponential backoff)
+        if (isTransient && retryCountRef.current < 3 && mountedRef.current) {
+          retryCountRef.current += 1;
+          const delayMs = Math.min(2000 * retryCountRef.current, 6000);
+          console.log(`[useConsumerQR] Auto-retry ${retryCountRef.current}/3 in ${delayMs}ms`);
+          retryTimerRef.current = setTimeout(() => {
+            if (mountedRef.current) {
+              void loadSecret();
+            }
+          }, delayMs);
+        }
       }
     } finally {
       if (mountedRef.current) {

@@ -177,7 +177,7 @@ export function AdminKeyGate(props: {
         />
       )}
 
-      <div className="absolute top-4 right-4">
+      <div className="absolute top-4 end-4">
         <Button variant="outline" size="sm" asChild className="gap-2 bg-white/80 backdrop-blur">
           <Link to="/" aria-label="Revenir à l'accueil">
             <ArrowLeft className="h-4 w-4" />
@@ -238,13 +238,13 @@ export function AdminKeyGate(props: {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Votre mot de passe"
                 autoComplete="current-password"
-                className="pr-11 !bg-white border-red-200 focus:border-red-300 focus:ring-red-100 autofill:!bg-white autofill:shadow-[inset_0_0_0px_1000px_white]"
+                className="pe-11 !bg-white border-red-200 focus:border-red-300 focus:ring-red-100 autofill:!bg-white autofill:shadow-[inset_0_0_0px_1000px_white]"
               />
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 text-slate-600 hover:text-slate-900"
+                className="absolute end-1 top-1/2 h-8 w-8 -translate-y-1/2 text-slate-600 hover:text-slate-900"
                 aria-label={peekPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
                 title={peekPassword ? "Masquer" : "Afficher"}
                 onPointerDown={(e) => {

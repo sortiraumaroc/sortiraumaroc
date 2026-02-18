@@ -539,6 +539,7 @@ export function AuthModal({ isOpen, onClose, onAuthed, contextTitle, contextSubt
       const signupResponse = await fetch("/api/consumer/auth/email/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include", // Allow trust cookie to be set
         body: JSON.stringify({
           email: normalizedEmail,
           password,
@@ -631,7 +632,7 @@ export function AuthModal({ isOpen, onClose, onAuthed, contextTitle, contextSubt
         className="w-[min(520px,calc(100vw-32px))] p-0 overflow-hidden"
         style={{ fontFamily: "Circular Std, sans-serif" }}
       >
-        <DialogHeader className="px-6 pt-6 pb-4 text-left">
+        <DialogHeader className="px-6 pt-6 pb-4 text-start">
           {/* Logo et tagline */}
           <div className="flex flex-col items-center mb-4">
             <img
@@ -708,7 +709,7 @@ export function AuthModal({ isOpen, onClose, onAuthed, contextTitle, contextSubt
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
-                    className={`${inputBaseClassName} pr-12`}
+                    className={`${inputBaseClassName} pe-12`}
                     style={{ fontFamily: "Circular Std, sans-serif" }}
                     autoComplete="current-password"
                     required
@@ -716,7 +717,7 @@ export function AuthModal({ isOpen, onClose, onAuthed, contextTitle, contextSubt
                   <button
                     type="button"
                     aria-label={showPassword ? t("auth.password.hide") : t("auth.password.show")}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-md hover:bg-slate-200/60 transition"
+                    className="absolute end-2 top-1/2 -translate-y-1/2 p-2 rounded-md hover:bg-slate-200/60 transition"
                     onPointerDown={(e) => {
                       e.preventDefault();
                       setShowPassword(true);
@@ -865,7 +866,7 @@ export function AuthModal({ isOpen, onClose, onAuthed, contextTitle, contextSubt
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
-                    className={`${inputBaseClassName} pr-12`}
+                    className={`${inputBaseClassName} pe-12`}
                     style={{ fontFamily: "Circular Std, sans-serif" }}
                     autoComplete="new-password"
                     required
@@ -873,7 +874,7 @@ export function AuthModal({ isOpen, onClose, onAuthed, contextTitle, contextSubt
                   <button
                     type="button"
                     aria-label={showPassword ? t("auth.password.hide") : t("auth.password.show")}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-md hover:bg-slate-200/60 transition"
+                    className="absolute end-2 top-1/2 -translate-y-1/2 p-2 rounded-md hover:bg-slate-200/60 transition"
                     onPointerDown={(e) => {
                       e.preventDefault();
                       setShowPassword(true);
@@ -907,10 +908,10 @@ export function AuthModal({ isOpen, onClose, onAuthed, contextTitle, contextSubt
                     value={referralCode}
                     onChange={(e) => setReferralCode(e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 20))}
                     placeholder="Ex: SAMIRA123"
-                    className={`${inputBaseClassName} pr-10`}
+                    className={`${inputBaseClassName} pe-10`}
                     style={{ fontFamily: "Circular Std, sans-serif" }}
                   />
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <div className="absolute end-3 top-1/2 -translate-y-1/2">
                     {referralCodeChecking ? (
                       <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
                     ) : referralCodeValid === true ? (

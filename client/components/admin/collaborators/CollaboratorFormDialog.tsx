@@ -210,7 +210,7 @@ export function CollaboratorFormDialog({ open, onOpenChange, collaborator, roles
               <Input
                 value={form.firstName}
                 onChange={(e) => setForm((p) => ({ ...p, firstName: e.target.value }))}
-                placeholder="Jean"
+                placeholder="Amina"
               />
             </div>
             <div className="space-y-2">
@@ -218,7 +218,7 @@ export function CollaboratorFormDialog({ open, onOpenChange, collaborator, roles
               <Input
                 value={form.lastName}
                 onChange={(e) => setForm((p) => ({ ...p, lastName: e.target.value }))}
-                placeholder="Dupont"
+                placeholder="Benali"
               />
             </div>
           </div>

@@ -5,10 +5,14 @@
  * 1. Reset daily ad budgets at midnight
  * 2. Pause campaigns with exhausted budgets
  * 3. Reactivate paused campaigns at new day
+ * 4. Recalculate quality scores (daily)
+ * 5. Bill CPM impressions (hourly)
+ * 6. Generate monthly campaign invoices (1st of month)
  */
 
 import type { Request, Response } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createCampaignInvoice } from "../ads/invoicing";
 
 // ---------------------------------------------------------------------------
 // Helper functions
@@ -305,6 +309,142 @@ export async function cronAdsBillImpressions(req: Request, res: Response) {
     });
   } catch (err) {
     console.error("[adsCron] Impressions billing error:", err);
+    return res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/admin/cron/ads-recalculate-quality
+// Recalculate quality scores for all active campaigns
+// Should be called daily at 03:00
+// ---------------------------------------------------------------------------
+
+export async function cronAdsRecalculateQuality(req: Request, res: Response) {
+  if (!verifyCronSecret(req)) {
+    return res.status(401).json({ ok: false, error: "Invalid cron secret" });
+  }
+
+  try {
+    const { recalculateQualityScores } = await import("../ads/qualityScore");
+    const supabase = getAdminSupabase();
+    const result = await recalculateQualityScores(supabase);
+
+    console.log(`[adsCron] Quality scores recalculated: ${result.updated} updated, ${result.errors} errors`);
+
+    return res.json({
+      ok: true,
+      message: "Quality scores recalculated",
+      ...result,
+      executed_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error("[adsCron] Quality score recalculation error:", err);
+    return res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/admin/cron/ads-generate-invoices
+// Generate invoices for campaigns with unbilled spending from previous month
+// Should be called on the 1st of each month at 06:00
+// ---------------------------------------------------------------------------
+
+export async function cronAdsGenerateInvoices(req: Request, res: Response) {
+  if (!verifyCronSecret(req)) {
+    return res.status(401).json({ ok: false, error: "Invalid cron secret" });
+  }
+
+  const supabase = getAdminSupabase();
+  const now = new Date();
+
+  // Calculate previous month date range
+  const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+  const periodLabel = `${prevMonth.toLocaleString("fr-FR", { month: "long", year: "numeric" })}`;
+
+  let invoicedCount = 0;
+  let totalInvoicedCents = 0;
+  const errors: string[] = [];
+
+  try {
+    // Find campaigns that have spent money (completed or active with spending)
+    const { data: campaigns } = await supabase
+      .from("pro_campaigns")
+      .select("id, establishment_id, title, type, spent_cents, billing_model")
+      .gt("spent_cents", 0)
+      .in("status", ["active", "paused", "completed"]);
+
+    if (!campaigns || campaigns.length === 0) {
+      return res.json({
+        ok: true,
+        message: "No campaigns to invoice",
+        invoiced_count: 0,
+        period: periodLabel,
+        executed_at: now.toISOString(),
+      });
+    }
+
+    for (const campaign of campaigns) {
+      const campaignId = (campaign as any).id;
+      const establishmentId = (campaign as any).establishment_id;
+      const spentCents = (campaign as any).spent_cents ?? 0;
+      const campaignTitle = (campaign as any).title;
+      const campaignType = (campaign as any).type as string;
+
+      if (spentCents <= 0) continue;
+
+      // Check if we already generated an invoice for this campaign this month
+      const { count: existingCount } = await supabase
+        .from("ad_invoices")
+        .select("*", { count: "exact", head: true })
+        .eq("reference_id", campaignId)
+        .eq("reference_type", "campaign")
+        .gte("issued_at", prevMonth.toISOString())
+        .lte("issued_at", prevMonthEnd.toISOString());
+
+      if (existingCount && existingCount > 0) continue;
+
+      // Map campaign type to invoice type
+      let invoiceType: "sponsored_result" | "featured_pack" | "home_takeover" | "push_notification" | "email_campaign" = "sponsored_result";
+      if (campaignType === "featured_pack") invoiceType = "featured_pack";
+      else if (campaignType === "home_takeover") invoiceType = "home_takeover";
+      else if (campaignType === "push_notification") invoiceType = "push_notification";
+      else if (campaignType === "email_campaign") invoiceType = "email_campaign";
+
+      try {
+        const invoice = await createCampaignInvoice({
+          establishmentId,
+          campaignId,
+          campaignType: invoiceType,
+          amountCents: spentCents,
+          campaignTitle: `${campaignTitle} — ${periodLabel}`,
+        });
+
+        if (invoice) {
+          invoicedCount++;
+          totalInvoicedCents += spentCents;
+          console.log(`[adsCron] Invoice generated for campaign ${campaignId}: ${(spentCents / 100).toFixed(2)} MAD`);
+        }
+      } catch (err) {
+        const msg = `Failed to invoice campaign ${campaignId}: ${err instanceof Error ? err.message : "unknown"}`;
+        errors.push(msg);
+        console.error(`[adsCron] ${msg}`);
+      }
+    }
+
+    console.log(`[adsCron] Monthly invoicing: ${invoicedCount} invoices, total ${(totalInvoicedCents / 100).toFixed(2)} MAD`);
+
+    return res.json({
+      ok: true,
+      message: "Monthly campaign invoicing completed",
+      invoiced_count: invoicedCount,
+      total_invoiced_cents: totalInvoicedCents,
+      period: periodLabel,
+      errors: errors.length > 0 ? errors : undefined,
+      executed_at: now.toISOString(),
+    });
+  } catch (err) {
+    console.error("[adsCron] Monthly invoicing error:", err);
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 }

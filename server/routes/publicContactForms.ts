@@ -2,6 +2,72 @@ import type { RequestHandler } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { emitAdminNotification } from "../adminNotifications";
 import { sendLoggedEmail } from "../emailService";
+import { sanitizePlain } from "../sanitizeV2";
+
+// =============================================================================
+// Security helpers
+// =============================================================================
+
+/** Escape HTML entities to prevent XSS in emails */
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#x27;");
+}
+
+/**
+ * Sanitize all string values in form submission data.
+ * Strips dangerous patterns (script tags, event handlers, etc.)
+ * but does NOT HTML-encode — data is stored as plain text.
+ */
+function sanitizeFormData(
+  data: Record<string, unknown>,
+  validFieldIds: Set<string>,
+): Record<string, unknown> {
+  const cleaned: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(data)) {
+    // Only allow keys that match actual field IDs (prevent arbitrary data injection)
+    if (!validFieldIds.has(key)) continue;
+
+    if (typeof value === "string") {
+      // Sanitize text — strip dangerous patterns, limit 10 000 chars
+      cleaned[key] = sanitizePlain(value, 10_000);
+    } else if (Array.isArray(value)) {
+      // For checkbox/multi-select: sanitize each value
+      cleaned[key] = value.map((v) =>
+        typeof v === "string" ? sanitizePlain(v, 1000) : v,
+      );
+    } else if (typeof value === "number" || typeof value === "boolean") {
+      cleaned[key] = value;
+    }
+    // Silently drop anything else (objects, functions, etc.)
+  }
+
+  return cleaned;
+}
+
+/**
+ * Check if a regex pattern is safe (not vulnerable to ReDoS).
+ * Rejects patterns with nested quantifiers like (a+)+ or (a*)*
+ */
+function isSafeRegexPattern(pattern: string): boolean {
+  // Reject obviously dangerous patterns (nested quantifiers)
+  if (/(\+|\*|\{)\s*\)(\+|\*|\{|\?)/.test(pattern)) return false;
+  if (/\(\?[^)]*(\+|\*|\{)\s*\)(\+|\*|\{|\?)/.test(pattern)) return false;
+  // Reject patterns longer than 200 chars
+  if (pattern.length > 200) return false;
+  // Try compiling with a timeout
+  try {
+    new RegExp(pattern);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Get public form by slug (for display)
@@ -87,8 +153,13 @@ export const getPublicContactForm: RequestHandler = async (req, res) => {
 export const submitPublicContactForm: RequestHandler = async (req, res) => {
   try {
     const { slug } = req.params;
-    const { data: formData, utm_source, utm_medium, utm_campaign } = req.body;
+    const { data: rawFormData, utm_source, utm_medium, utm_campaign } = req.body;
     const supabase = getAdminSupabase();
+
+    // Basic input validation
+    if (!rawFormData || typeof rawFormData !== "object" || Array.isArray(rawFormData)) {
+      return res.status(400).json({ error: "Invalid form data" });
+    }
 
     // Get form
     const { data: form, error: formError } = await supabase
@@ -112,6 +183,10 @@ export const submitPublicContactForm: RequestHandler = async (req, res) => {
       return res.status(500).json({ error: "Failed to get form fields" });
     }
 
+    // SECURITY: Sanitize form data — strip dangerous patterns, allow only known field IDs
+    const validFieldIds = new Set(fields.map((f) => f.id));
+    const formData = sanitizeFormData(rawFormData, validFieldIds);
+
     // Validate required fields
     const errors: Record<string, string> = {};
     for (const field of fields) {
@@ -131,9 +206,13 @@ export const submitPublicContactForm: RequestHandler = async (req, res) => {
         if (field.max_length && value.length > field.max_length) {
           errors[field.id] = `${field.label} ne doit pas dépasser ${field.max_length} caractères`;
         }
-        // Pattern
-        if (field.pattern && !new RegExp(field.pattern).test(value)) {
-          errors[field.id] = `${field.label} n'est pas dans un format valide`;
+        // Pattern — with ReDoS protection
+        if (field.pattern) {
+          if (!isSafeRegexPattern(field.pattern)) {
+            console.warn(`[submitPublicContactForm] Skipping unsafe regex pattern for field ${field.id}: ${field.pattern}`);
+          } else if (!new RegExp(field.pattern).test(value)) {
+            errors[field.id] = `${field.label} n'est pas dans un format valide`;
+          }
         }
         // Email validation
         if (field.field_type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
@@ -155,7 +234,7 @@ export const submitPublicContactForm: RequestHandler = async (req, res) => {
       return res.status(400).json({ errors });
     }
 
-    // Extract contact info for quick search
+    // Extract contact info for quick search (from sanitized data)
     let email: string | null = null;
     let phone: string | null = null;
     let fullName: string | null = null;
@@ -175,12 +254,17 @@ export const submitPublicContactForm: RequestHandler = async (req, res) => {
       }
     }
 
+    // Sanitize UTM params
+    const safeUtmSource = utm_source ? sanitizePlain(String(utm_source), 200) : null;
+    const safeUtmMedium = utm_medium ? sanitizePlain(String(utm_medium), 200) : null;
+    const safeUtmCampaign = utm_campaign ? sanitizePlain(String(utm_campaign), 200) : null;
+
     // Get client info
     const ipAddress = req.ip || req.headers["x-forwarded-for"]?.toString().split(",")[0] || null;
     const userAgent = req.headers["user-agent"] || null;
     const referrer = req.headers["referer"] || null;
 
-    // Create submission
+    // Create submission (with sanitized data)
     const { data: submission, error: submitError } = await supabase
       .from("contact_form_submissions")
       .insert({
@@ -193,9 +277,9 @@ export const submitPublicContactForm: RequestHandler = async (req, res) => {
         ip_address: ipAddress,
         user_agent: userAgent,
         referrer: referrer,
-        utm_source: utm_source || null,
-        utm_medium: utm_medium || null,
-        utm_campaign: utm_campaign || null,
+        utm_source: safeUtmSource,
+        utm_medium: safeUtmMedium,
+        utm_campaign: safeUtmCampaign,
       })
       .select()
       .single();
@@ -210,7 +294,9 @@ export const submitPublicContactForm: RequestHandler = async (req, res) => {
           type: "contact_form_submission",
           title: `Nouvelle soumission : ${form.name}`,
           body: `De: ${fullName || email || phone || "Anonyme"}`,
-          link: `/admin/contact-forms/${form.id}/submissions/${submission.id}`,
+          data: {
+            link: `/admin/contact-forms/${form.id}/submissions/${submission.id}`,
+          },
         });
 
         // Store notification records for email sending
@@ -263,19 +349,21 @@ async function sendNotificationEmail(
 ) {
   const supabase = getAdminSupabase();
 
-  // Build email content
+  // Build email content — SECURITY: escape all user-provided values to prevent HTML injection
   const fieldsSummary = fields
     .map((f) => {
       const value = formData[f.id as string];
       if (!value) return null;
-      const displayValue = Array.isArray(value) ? value.join(", ") : String(value);
-      return `<strong>${f.label}:</strong> ${displayValue}`;
+      const rawDisplay = Array.isArray(value) ? value.join(", ") : String(value);
+      // Escape both label (admin-controlled but safe practice) and value (user-controlled)
+      return `<strong>${escapeHtml(String(f.label))}:</strong> ${escapeHtml(rawDisplay)}`;
     })
     .filter(Boolean)
     .join("<br>");
 
+  const safeFormName = escapeHtml(String(form.name));
   const emailBody = `
-    <p>Nouvelle soumission du formulaire <strong>${form.name}</strong></p>
+    <p>Nouvelle soumission du formulaire <strong>${safeFormName}</strong></p>
     <hr>
     ${fieldsSummary}
     <hr>
@@ -323,8 +411,10 @@ async function sendConfirmationEmail(
   userName: string,
   form: Record<string, unknown>
 ) {
-  const subject = String(form.confirmation_email_subject).replace("{{name}}", userName);
-  const body = String(form.confirmation_email_body).replace("{{name}}", userName);
+  // Sanitize user name for use in email subject/body (prevent header injection)
+  const safeName = sanitizePlain(userName, 100);
+  const subject = String(form.confirmation_email_subject).replace("{{name}}", safeName);
+  const body = String(form.confirmation_email_body).replace("{{name}}", safeName);
 
   await sendLoggedEmail({
     emailId: `form-confirm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

@@ -493,7 +493,7 @@ export function SupportTicketsPanel({ className, establishmentId }: Props) {
                     type="button"
                     onClick={() => setSelectedId(ticket.id)}
                     className={cn(
-                      "w-full text-left px-3 py-3 border-b border-slate-100 hover:bg-slate-50 transition",
+                      "w-full text-start px-3 py-3 border-b border-slate-100 hover:bg-slate-50 transition",
                       active ? "bg-primary/5" : "bg-white",
                       hasUnread && "bg-blue-50/50",
                     )}

@@ -262,9 +262,8 @@ BEGIN
     INSERT INTO public.admin_notifications (
       type,
       title,
-      message,
-      metadata,
-      priority
+      body,
+      data
     ) VALUES (
       'inventory_pending',
       'Modification inventaire en attente',
@@ -273,8 +272,7 @@ BEGIN
         'change_id', NEW.id,
         'establishment_id', NEW.establishment_id,
         'change_type', NEW.change_type
-      ),
-      'medium'
+      )
     );
   END IF;
 

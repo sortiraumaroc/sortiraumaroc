@@ -20,7 +20,7 @@ export type TicketCategory =
 
 export type TicketPriority = "low" | "normal" | "high" | "urgent";
 export type TicketStatus = "open" | "pending" | "in_progress" | "closed";
-export type MessageFrom = "user" | "pro" | "admin" | "system";
+export type MessageFrom = "user" | "pro" | "admin" | "system" | "client";
 
 export type TicketAttachment = {
   id: string;
@@ -301,4 +301,23 @@ export function isSupportOnline(now = new Date()): boolean {
 
 export function getSupportHoursLabel(): string {
   return "Service client disponible de 9h à 19h";
+}
+
+// ============================================================================
+// AGENT ONLINE (dynamic — fetches from server)
+// ============================================================================
+
+/**
+ * Check if any support agent is currently online (server-side check).
+ * Falls back to static schedule on network error.
+ */
+export async function checkAgentOnline(): Promise<boolean> {
+  try {
+    const res = await fetch("/api/support/agent-online");
+    if (!res.ok) return isSupportOnline();
+    const data = await res.json();
+    return Boolean(data.online);
+  } catch {
+    return isSupportOnline();
+  }
 }

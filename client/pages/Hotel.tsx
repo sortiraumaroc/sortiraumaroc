@@ -2,22 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
-  Aperture,
   ChevronLeft,
-  ExternalLink,
-  Facebook,
-  Globe,
-  Instagram,
   Clock,
-  Linkedin,
+  ExternalLink,
+  Globe,
   MapPin,
-  Music,
   Share2,
   Star,
   Tag,
-  Twitter,
-  Youtube,
 } from "lucide-react";
+import { getSocialIcon } from "@/components/ui/SocialIcons";
 
 import { Header } from "@/components/Header";
 import { ReservationBanner } from "@/components/booking/ReservationBanner";
@@ -26,12 +20,13 @@ import { Button } from "@/components/ui/button";
 import { isAuthed, openAuthModal } from "@/lib/auth";
 import { HotelGallery } from "@/components/hotel/HotelGallery";
 import { EstablishmentTabs } from "@/components/establishment/EstablishmentTabs";
-import { AmenitiesGrid, RatingStars, RoomsList, hotelAmenityPresets } from "@/components/hotel/HotelSections";
+import { CeAdvantageSection } from "@/components/ce/CeAdvantageSection";
+import { AmenitiesGrid, RatingStars, RoomsList, hotelAmenityPresets, type HotelAmenity } from "@/components/hotel/HotelSections";
 import { getHotelById, type HotelData } from "@/lib/hotels";
 import { getPublicEstablishment, type PublicEstablishment } from "@/lib/publicApi";
 import { buildEstablishmentUrl } from "@/lib/establishmentUrl";
 import { GOOGLE_MAPS_LOGO_URL, WAZE_LOGO_URL } from "@/lib/mapAppLogos";
-import { applySeo, clearJsonLd, setJsonLd, generateLocalBusinessSchema } from "@/lib/seo";
+import { applySeo, clearJsonLd, setJsonLd, generateLocalBusinessSchema, generateBreadcrumbSchema, buildI18nSeoFields } from "@/lib/seo";
 import { useGeocodedQuery } from "@/hooks/useGeocodedQuery";
 import { useUserLocation } from "@/hooks/useUserLocation";
 import { useTrackEstablishmentVisit } from "@/hooks/useTrackEstablishmentVisit";
@@ -51,31 +46,7 @@ type HotelReview = {
   helpful: number;
 };
 
-type SocialPlatform = "facebook" | "instagram" | "x" | "twitter" | "tiktok" | "snapchat" | "youtube" | "linkedin" | "website";
-
-function getSocialIcon(platform: string) {
-  const iconProps = "w-6 h-6 text-primary hover:text-primary/70 transition";
-  switch (platform as SocialPlatform) {
-    case "facebook":
-      return <Facebook className={iconProps} />;
-    case "instagram":
-      return <Instagram className={iconProps} />;
-    case "x":
-    case "twitter":
-      return <Twitter className={iconProps} />;
-    case "tiktok":
-      return <Music className={iconProps} />;
-    case "snapchat":
-      return <Aperture className={iconProps} />;
-    case "youtube":
-      return <Youtube className={iconProps} />;
-    case "linkedin":
-      return <Linkedin className={iconProps} />;
-    case "website":
-    default:
-      return <Globe className={iconProps} />;
-  }
-}
+const SOCIAL_ICON_CLASS = "w-6 h-6 text-primary hover:text-primary/70 transition";
 
 function buildMapsUrl(query: string): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
@@ -259,12 +230,12 @@ function buildHotelFromApi(establishment: PublicEstablishment): HotelData {
 
   // Parse amenities
   const amenitiesArr = Array.isArray(establishment.amenities) ? establishment.amenities : [];
-  const amenities = amenitiesArr.map((a) => {
+  const amenities: HotelAmenity[] = amenitiesArr.map((a) => {
     if (typeof a === "string") {
       const preset = hotelAmenityPresets[a as keyof typeof hotelAmenityPresets];
-      return preset ?? { label: a, icon: null };
+      return preset ?? { label: a, icon: null as any };
     }
-    return a as { label: string; icon: unknown };
+    return a as HotelAmenity;
   });
 
   // Images (using snake_case from API)
@@ -343,7 +314,7 @@ function buildHotelFromApi(establishment: PublicEstablishment): HotelData {
 }
 
 export default function Hotel() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -421,27 +392,17 @@ export default function Hotel() {
     const description = (hotel?.description ?? "").trim() || undefined;
     const ogImageUrl = Array.isArray(hotel?.images) && hotel.images.length ? String(hotel.images[0]) : undefined;
 
-    const canonicalUrl = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}` : "";
-    const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
-    const pathname = typeof window !== "undefined" ? window.location.pathname : "/";
-
     applySeo({
       title,
       description,
       ogType: "hotel",
       ogImageUrl,
-      canonicalUrl,
       canonicalStripQuery: true,
-      hreflangs: baseUrl
-        ? {
-            fr: `${baseUrl}${pathname}`,
-            en: `${baseUrl}/en${pathname}`,
-            "x-default": `${baseUrl}${pathname}`,
-          }
-        : undefined,
+      ...buildI18nSeoFields(locale),
     });
 
     const canonicalUrlForSchema = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}` : undefined;
+    const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
 
     const priceRange = (() => {
       const prices = (hotel?.rooms ?? [])
@@ -455,7 +416,7 @@ export default function Hotel() {
 
     setJsonLd("hotel", {
       "@context": "https://schema.org",
-      "@type": "Hotel",
+      "@type": "LodgingBusiness",
       name,
       url: canonicalUrlForSchema,
       telephone: hotel?.phone ?? undefined,
@@ -464,6 +425,7 @@ export default function Hotel() {
         "@type": "PostalAddress",
         streetAddress: hotel?.address ?? undefined,
         addressLocality: hotel?.city ?? undefined,
+        addressCountry: "MA",
       },
       ...(priceRange ? { priceRange } : {}),
       ...(hotel?.rating && typeof (hotel as any).rating?.value === "number" && typeof (hotel as any).rating?.reviewCount === "number"
@@ -477,7 +439,19 @@ export default function Hotel() {
         : {}),
     });
 
-    return () => clearJsonLd("hotel");
+    setJsonLd(
+      "breadcrumb",
+      generateBreadcrumbSchema([
+        { name: "Accueil", url: `${baseUrl}/` },
+        { name: "Hébergement", url: `${baseUrl}/results?universe=hebergement` },
+        { name, url: canonicalUrlForSchema || "" },
+      ]),
+    );
+
+    return () => {
+      clearJsonLd("hotel");
+      clearJsonLd("breadcrumb");
+    };
   }, [hotelId, hotel.name]);
 
   const [authOpen, setAuthOpen] = useState(false);
@@ -678,6 +652,8 @@ export default function Hotel() {
       <EstablishmentTabs universe="hotel" />
 
       <main className="container mx-auto px-4 pt-6 pb-8 space-y-10">
+        <CeAdvantageSection establishmentId={hotelId} />
+
         <section id="section-chambres" data-tab="chambres" className="scroll-mt-28 space-y-6">
           <div>
             <h2 className="text-xl font-bold mb-2">Chambres</h2>
@@ -732,7 +708,7 @@ export default function Hotel() {
                 <MapPin className="w-5 h-5 text-primary flex-shrink-0 mt-1" />
                 <div>
                   <p className="text-sm text-slate-600">Adresse</p>
-                  <a href={buildWazeUrl(hotel.address)} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:text-primary/70 transition">
+                  <a href={(publicEstablishment?.social_links as Record<string, string> | null)?.waze || buildWazeUrl(hotel.address)} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:text-primary/70 transition">
                     {hotel.address}
                   </a>
                 </div>
@@ -792,7 +768,7 @@ export default function Hotel() {
                         className="p-2 hover:bg-slate-100 rounded-lg transition"
                         title={social.platform}
                       >
-                        {getSocialIcon(social.platform)}
+                        {getSocialIcon(social.platform, SOCIAL_ICON_CLASS)}
                       </a>
                     ))}
                     <a
@@ -802,7 +778,7 @@ export default function Hotel() {
                       className="p-2 hover:bg-slate-100 rounded-lg transition"
                       title="Site officiel"
                     >
-                      {getSocialIcon("website")}
+                      {getSocialIcon("website", SOCIAL_ICON_CLASS)}
                     </a>
                   </div>
                 </div>
@@ -827,7 +803,7 @@ export default function Hotel() {
 
           <div className="flex gap-3 flex-wrap">
             <a
-              href={buildWazeUrl(hotel.address)}
+              href={(publicEstablishment?.social_links as Record<string, string> | null)?.waze || buildWazeUrl(hotel.address)}
               target="_blank"
               rel="noopener noreferrer"
               className="flex-1 min-w-32 px-4 py-3 bg-white border-2 border-slate-300 rounded-lg font-semibold hover:bg-slate-50 transition text-center flex items-center justify-center gap-2"

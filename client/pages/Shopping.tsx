@@ -1,26 +1,22 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
-  Aperture,
   ChevronLeft,
-  Facebook,
   Globe,
-  Instagram,
   MapPin,
-  Music,
   Phone,
   Share2,
   Star,
   Tag,
-  Twitter,
-  Youtube,
 } from "lucide-react";
+import { getSocialIcon } from "@/components/ui/SocialIcons";
 
 import { useGeocodedQuery } from "@/hooks/useGeocodedQuery";
 import { useUserLocation } from "@/hooks/useUserLocation";
 import { useTrackEstablishmentVisit } from "@/hooks/useTrackEstablishmentVisit";
 import { Header } from "@/components/Header";
 import { EstablishmentTabs } from "@/components/establishment/EstablishmentTabs";
+import { CeAdvantageSection } from "@/components/ce/CeAdvantageSection";
 import { HotelGallery } from "@/components/hotel/HotelGallery";
 import { OpeningHoursBlock } from "@/components/restaurant/OpeningHoursBlock";
 import { RestaurantMap } from "@/components/restaurant/RestaurantMap";
@@ -32,6 +28,8 @@ import { createRng, makeImageSet, makePhoneMa, makeWebsiteUrl, nextDaysYmd, pick
 import { cn } from "@/lib/utils";
 import { isAuthed, openAuthModal } from "@/lib/auth";
 import { ReportEstablishmentDialog } from "@/components/ReportEstablishmentDialog";
+import { applySeo, clearJsonLd, setJsonLd, generateLocalBusinessSchema, generateBreadcrumbSchema, hoursToOpeningHoursSpecification, buildI18nSeoFields } from "@/lib/seo";
+import { useI18n } from "@/lib/i18n";
 
 type Review = {
   id: string;
@@ -213,6 +211,7 @@ function buildFallbackShopping(args: {
 }
 
 export default function Shopping() {
+  const { locale } = useI18n();
   const params = useParams();
   useTrackEstablishmentVisit(params.id);
 
@@ -234,6 +233,60 @@ export default function Shopping() {
 
   const rating = clampRating(data?.rating ?? 0);
   const [showReportDialog, setShowReportDialog] = useState(false);
+
+  // ── SEO ──────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const name = data?.name?.trim();
+    if (!name) return;
+
+    const city = (data.city ?? "").trim();
+    const seoTitle = city ? `${name} à ${city} — Sortir Au Maroc` : `${name} — Sortir Au Maroc`;
+    const description = (data.description ?? "").trim() || undefined;
+    const ogImageUrl = data.images?.[0] ? String(data.images[0]) : undefined;
+
+    applySeo({
+      title: seoTitle,
+      description,
+      ogType: "place",
+      ogImageUrl,
+      canonicalStripQuery: true,
+      ...buildI18nSeoFields(locale),
+    });
+
+    const canonicalUrl = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}` : "";
+    const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+    const openingHoursSpecification = hoursToOpeningHoursSpecification(data.hours);
+    const schema = generateLocalBusinessSchema({
+      name,
+      url: canonicalUrl,
+      telephone: data.phone || undefined,
+      address: {
+        streetAddress: data.address || undefined,
+        addressLocality: data.city || undefined,
+        addressCountry: "MA",
+      },
+      images: (data.images ?? []).slice(0, 8),
+      description: data.description || undefined,
+      openingHoursSpecification,
+      aggregateRating: { ratingValue: data.rating, reviewCount: data.reviewCount },
+    });
+    (schema as any)["@type"] = "Store";
+    setJsonLd("shopping", schema);
+
+    setJsonLd(
+      "breadcrumb",
+      generateBreadcrumbSchema([
+        { name: "Accueil", url: `${baseUrl}/` },
+        { name: "Shopping", url: `${baseUrl}/results?universe=shopping` },
+        { name, url: canonicalUrl },
+      ]),
+    );
+
+    return () => {
+      clearJsonLd("shopping");
+      clearJsonLd("breadcrumb");
+    };
+  }, [data.name, data.description, data.images?.[0], data.city]);
 
   const { status: geoStatus, location: userLocation, request: requestUserLocation } = useUserLocation();
   const geocode = useGeocodedQuery(`${data.name} ${data.address}`);
@@ -340,6 +393,8 @@ export default function Shopping() {
       <EstablishmentTabs universe="shopping" />
 
       <main className="container mx-auto px-4 pt-6 pb-8 space-y-10">
+        <CeAdvantageSection establishmentId={id} />
+
         <section id="section-infos" data-tab="infos" className="scroll-mt-28">
           <div className="space-y-8">
             <section>
@@ -417,30 +472,10 @@ export default function Shopping() {
                     <p className="text-sm text-slate-600 mb-3">Réseaux sociaux</p>
                     <div className="flex gap-4 flex-wrap">
                       {(() => {
-                        const getSocialIcon = (platform: string) => {
-                          const iconProps = "w-6 h-6 text-primary hover:text-primary/70 transition";
-                          switch (platform) {
-                            case "facebook":
-                              return <Facebook className={iconProps} />;
-                            case "instagram":
-                              return <Instagram className={iconProps} />;
-                            case "twitter":
-                              return <Twitter className={iconProps} />;
-                            case "tiktok":
-                              return <Music className={iconProps} />;
-                            case "snapchat":
-                              return <Aperture className={iconProps} />;
-                            case "youtube":
-                              return <Youtube className={iconProps} />;
-                            case "website":
-                              return <Globe className={iconProps} />;
-                            default:
-                              return null;
-                          }
-                        };
+                        const iconClass = "w-6 h-6 text-primary hover:text-primary/70 transition";
 
                         const items = data.socialMedia
-                          .map((social) => ({ social, icon: getSocialIcon(social.platform) }))
+                          .map((social) => ({ social, icon: getSocialIcon(social.platform, iconClass) }))
                           .filter((x) => x.icon != null);
 
                         if (items.length === 0) {

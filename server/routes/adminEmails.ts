@@ -29,7 +29,7 @@ function isEmailAddress(value: string): boolean {
 
 function getPublicBaseUrl(): string {
   const env = asString(process.env.PUBLIC_BASE_URL);
-  return env || "https://sortiraumaroc.ma";
+  return env || "https://sam.ma";
 }
 
 function signUnsubToken(args: { email: string; campaignId: string }): string {

@@ -2947,6 +2947,18 @@ export async function adminUpsertSlots(
   );
 }
 
+export async function adminDeleteSlot(
+  adminKey: string | undefined,
+  establishmentId: string,
+  slotId: string,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/establishments/${encodeURIComponent(establishmentId)}/slots/${encodeURIComponent(slotId)}`,
+    adminKey,
+    { method: "DELETE" },
+  );
+}
+
 export async function listAdminEstablishmentPackBilling(
   adminKey: string | undefined,
   establishmentId: string,

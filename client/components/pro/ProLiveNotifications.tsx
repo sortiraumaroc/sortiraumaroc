@@ -5,7 +5,9 @@ import { toast } from "@/hooks/use-toast";
 import { listProOffers, listProPackBilling, listProReservations } from "@/lib/pro/api";
 import type { Establishment, Reservation } from "@/lib/pro/types";
 import { playProNotificationSound } from "@/lib/pro/notificationSound";
+import { getProNotificationPreferences } from "@/lib/pro/notificationPreferences";
 import { getGuestInfo, isReservationInPast } from "@/components/pro/reservations/reservationHelpers";
+import { proSupabase } from "@/lib/pro/supabase";
 
 import { formatLeJjMmAaAHeure } from "@shared/datetime";
 
@@ -34,6 +36,23 @@ function safeTitle(value: unknown): string {
   return typeof value === "string" && value.trim() ? value.trim() : "";
 }
 
+/**
+ * Plays notification sound only if user preference allows it.
+ */
+function playSoundIfEnabled(): void {
+  const prefs = getProNotificationPreferences();
+  if (prefs.soundEnabled) {
+    playProNotificationSound();
+  }
+}
+
+/**
+ * Checks if popup notifications are enabled.
+ */
+function arePopupsEnabled(): boolean {
+  return getProNotificationPreferences().popupsEnabled;
+}
+
 export function ProLiveNotifications(props: {
   userId: string;
   establishment: Establishment;
@@ -49,11 +68,13 @@ export function ProLiveNotifications(props: {
   const pollingKey = useMemo(() => `${props.userId}:${establishmentId}`, [props.userId, establishmentId]);
 
   const showReservationToast = (r: Reservation) => {
+    if (!arePopupsEnabled()) return;
+
     const guest = getGuestInfo(r);
     const when = formatDateTimeFr(r.starts_at);
     const party = typeof r.party_size === "number" ? `${r.party_size} pers.` : "";
 
-    playProNotificationSound();
+    playSoundIfEnabled();
 
     toast({
       title: "Nouvelle réservation",
@@ -72,6 +93,8 @@ export function ProLiveNotifications(props: {
   };
 
   const showPackPurchaseToast = async (p: PackPurchaseRow) => {
+    if (!arePopupsEnabled()) return;
+
     let packLabel = "Pack";
     try {
       const offers = await listProOffers(establishmentId);
@@ -87,7 +110,7 @@ export function ProLiveNotifications(props: {
     const buyer = (p.buyer_name || p.buyer_email || "Client").trim();
     const when = formatDateTimeFr(p.created_at);
 
-    playProNotificationSound();
+    playSoundIfEnabled();
 
     toast({
       title: "Nouveau pack acheté",
@@ -109,6 +132,28 @@ export function ProLiveNotifications(props: {
     });
   };
 
+  /**
+   * Show a generic notification toast from the pro_notifications table (Realtime).
+   */
+  const showGenericNotificationToast = (payload: {
+    title: string;
+    body: string;
+    category?: string;
+    data?: Record<string, unknown>;
+  }) => {
+    if (!arePopupsEnabled()) return;
+
+    playSoundIfEnabled();
+
+    toast({
+      title: payload.title,
+      description: (
+        <div className="text-sm text-slate-700">{payload.body}</div>
+      ),
+    });
+  };
+
+  // ─── Warmup: snapshot known IDs to avoid false positives ───
   useEffect(() => {
     initializedRef.current = false;
     knownReservationIdsRef.current = new Set();
@@ -148,6 +193,44 @@ export function ProLiveNotifications(props: {
     };
   }, [pollingKey, establishmentId]);
 
+  // ─── Supabase Realtime: listen to pro_notifications inserts ───
+  useEffect(() => {
+    const channelName = `pro-notif:${props.userId}:${establishmentId}`;
+
+    const channel = proSupabase
+      .channel(channelName)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "pro_notifications",
+          filter: `user_id=eq.${props.userId}`,
+        },
+        (payload) => {
+          const row = payload.new as Record<string, unknown> | undefined;
+          if (!row) return;
+
+          // Only show if matches this establishment (or no establishment_id)
+          const rowEstId = row.establishment_id;
+          if (rowEstId && rowEstId !== establishmentId) return;
+
+          showGenericNotificationToast({
+            title: typeof row.title === "string" ? row.title : "Notification",
+            body: typeof row.body === "string" ? row.body : "",
+            category: typeof row.category === "string" ? row.category : undefined,
+            data: typeof row.data === "object" && row.data ? (row.data as Record<string, unknown>) : undefined,
+          });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void proSupabase.removeChannel(channel);
+    };
+  }, [props.userId, establishmentId]);
+
+  // ─── Polling: reservations & pack purchases (30s, as supplementary) ───
   useEffect(() => {
     let disposed = false;
 
@@ -199,9 +282,10 @@ export function ProLiveNotifications(props: {
       }
     };
 
+    // Increased interval to 30s (Realtime handles pro_notifications instantly)
     const t = window.setInterval(() => {
       void poll();
-    }, 12_000);
+    }, 30_000);
 
     return () => {
       disposed = true;

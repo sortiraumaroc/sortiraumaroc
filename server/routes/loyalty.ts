@@ -998,7 +998,7 @@ export const getMyLoyaltyCards: RequestHandler = async (req, res) => {
     .select(`
       *,
       program:loyalty_programs(*),
-      establishment:establishments(id, name, slug, cover_url, city),
+      establishment:establishments(id, name, slug, logo_url, cover_url, city),
       stamps:loyalty_stamps(*)
     `)
     .eq("user_id", userResult.user.id)
@@ -1050,7 +1050,7 @@ export const getMyLoyaltyCardDetails: RequestHandler = async (req, res) => {
     .select(`
       *,
       program:loyalty_programs(*),
-      establishment:establishments(id, name, slug, cover_url, city, address),
+      establishment:establishments(id, name, slug, logo_url, cover_url, city, address),
       stamps:loyalty_stamps(*)
     `)
     .eq("id", cardId)

@@ -393,7 +393,7 @@ export function AdminUsernameSubscriptionsPage() {
                 variant="outline"
                 onClick={() => handleExtend(row)}
               >
-                <Plus className="w-3 h-3 mr-1" />
+                <Plus className="w-3 h-3 me-1" />
                 Prolonger
               </Button>
             )}
@@ -548,7 +548,7 @@ export function AdminUsernameSubscriptionsPage() {
               <DialogDescription>
                 {extendingItem.establishment_name || extendingItem.establishment_id.slice(0, 8)}
                 {extendingItem.username && (
-                  <span className="font-mono ml-2">@{extendingItem.username}</span>
+                  <span className="font-mono ms-2">@{extendingItem.username}</span>
                 )}
               </DialogDescription>
             </DialogHeader>
@@ -611,7 +611,7 @@ export function AdminUsernameSubscriptionsPage() {
               <DialogDescription>
                 {cancellingItem.establishment_name || cancellingItem.establishment_id.slice(0, 8)}
                 {cancellingItem.username && (
-                  <span className="font-mono ml-2">@{cancellingItem.username}</span>
+                  <span className="font-mono ms-2">@{cancellingItem.username}</span>
                 )}
               </DialogDescription>
             </DialogHeader>

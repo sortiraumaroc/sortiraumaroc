@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  Award,
   Camera,
   CheckCircle2,
   ChevronDown,
@@ -49,6 +50,7 @@ import { cn } from "@/lib/utils";
 
 import { listProQrScanLogs, scanProQrCode, checkinByUserId } from "@/lib/pro/api";
 import { ScannerLoyaltyPanel } from "@/components/loyalty/ScannerLoyaltyPanel";
+import { addLoyaltyStamp, getUserLoyaltyInfo } from "@/lib/loyalty/api";
 import { downloadQrScanLogsCsv, downloadQrScanLogsPdf } from "@/lib/pro/qrScansExport";
 import type { Establishment, ProRole } from "@/lib/pro/types";
 
@@ -450,7 +452,7 @@ function UserInfoCard({
             <div>
               <h3 className="font-bold text-lg">{userInfo.userName}</h3>
               <Badge className={cn("mt-1", reliability.className)}>
-                <Star className="h-3 w-3 mr-1" />
+                <Star className="h-3 w-3 me-1" />
                 {reliability.label}
               </Badge>
             </div>
@@ -627,6 +629,7 @@ function ScanResultOverlay({
   memberReservations,
   memberPacks,
   establishmentId,
+  loyaltyStampResult,
   onDismiss,
 }: {
   result: { success: boolean; message: string };
@@ -636,6 +639,7 @@ function ScanResultOverlay({
   memberReservations: MemberReservationInfo[];
   memberPacks: MemberPackInfo[];
   establishmentId: string;
+  loyaltyStampResult?: { stamped: boolean; stampMessage: string; rewardUnlocked: boolean } | null;
   onDismiss: () => void;
 }) {
   const typeInfo = getQRTypeLabel(qrType);
@@ -671,6 +675,32 @@ function ScanResultOverlay({
               <h2 className="text-4xl font-black text-white mb-2 drop-shadow-lg">ACCEPTÉ</h2>
               <p className="text-lg text-white/90">{result.message}</p>
             </div>
+
+            {/* Loyalty stamp result */}
+            {qrType === "member" && loyaltyStampResult && (
+              <div className={cn(
+                "rounded-xl p-4 text-center",
+                loyaltyStampResult.rewardUnlocked
+                  ? "bg-amber-400/90 text-amber-900"
+                  : loyaltyStampResult.stamped
+                    ? "bg-white/20 text-white"
+                    : "bg-red-500/20 text-white/80"
+              )}>
+                <div className="flex items-center justify-center gap-2 mb-1">
+                  {loyaltyStampResult.rewardUnlocked ? (
+                    <Gift className="h-5 w-5" />
+                  ) : loyaltyStampResult.stamped ? (
+                    <Award className="h-5 w-5" />
+                  ) : (
+                    <AlertTriangle className="h-5 w-5" />
+                  )}
+                  <span className="font-bold text-sm">
+                    {loyaltyStampResult.rewardUnlocked ? "Récompense débloquée !" : loyaltyStampResult.stamped ? "Fidélité" : "Fidélité"}
+                  </span>
+                </div>
+                <p className="text-sm">{loyaltyStampResult.stampMessage}</p>
+              </div>
+            )}
 
             {/* Info card based on type */}
             {qrType === "member" && userInfo && (
@@ -733,6 +763,11 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
     reservationInfo: ScanResultPayload["reservation"] | null;
     memberReservations: MemberReservationInfo[];
     memberPacks: MemberPackInfo[];
+    loyaltyStampResult?: {
+      stamped: boolean;
+      stampMessage: string;
+      rewardUnlocked: boolean;
+    } | null;
   } | null>(null);
   const [showResultOverlay, setShowResultOverlay] = useState(false);
 
@@ -816,6 +851,8 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
       let memberReservations: MemberReservationInfo[] = [];
       let memberPacks: MemberPackInfo[] = [];
 
+      let loyaltyStampResult: { stamped: boolean; stampMessage: string; rewardUnlocked: boolean } | null = null;
+
       if (qrType === "member") {
         // Validate member QR code
         const res = await validateMemberQRCode(establishment.id, trimmed);
@@ -830,6 +867,31 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
             userId: res.userInfo.userId,
             userName: res.userInfo.userName,
           });
+
+          // Auto-stamp loyalty cards for this member
+          try {
+            const stampRes = await addLoyaltyStamp(establishment.id, {
+              user_id: res.userInfo.userId,
+              source: "scan",
+            });
+            loyaltyStampResult = {
+              stamped: true,
+              stampMessage: stampRes.message ?? "Tampon ajouté",
+              rewardUnlocked: stampRes.reward_unlocked ?? false,
+            };
+          } catch (loyaltyErr) {
+            // If no active loyalty program, silently skip
+            const errMsg = loyaltyErr instanceof Error ? loyaltyErr.message : "";
+            if (errMsg.includes("No active loyalty programs") || errMsg.includes("Program not found")) {
+              loyaltyStampResult = null; // No program = nothing to stamp
+            } else {
+              loyaltyStampResult = {
+                stamped: false,
+                stampMessage: errMsg || "Erreur fidélité",
+                rewardUnlocked: false,
+              };
+            }
+          }
         }
       } else if (qrType === "reservation" || qrType === "pack") {
         // Validate reservation/pack QR code (backward compat for old QR codes)
@@ -864,6 +926,7 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
         reservationInfo,
         memberReservations,
         memberPacks,
+        loyaltyStampResult,
       });
       setShowResultOverlay(true);
 
@@ -889,6 +952,7 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
         reservationInfo: null,
         memberReservations: [],
         memberPacks: [],
+        loyaltyStampResult: null,
       });
       setShowResultOverlay(true);
     } finally {
@@ -900,8 +964,15 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
   const startCamera = useCallback(async () => {
     setCameraError(null);
 
+    // Check secure context first — camera requires HTTPS (or localhost)
+    const isSecure = typeof window !== "undefined" ? window.isSecureContext : false;
+    if (!isSecure) {
+      setCameraError("La caméra nécessite une connexion HTTPS sécurisée. Accédez au site via HTTPS pour utiliser le scanner.");
+      return;
+    }
+
     if (!navigator.mediaDevices?.getUserMedia) {
-      setCameraError("Caméra non disponible");
+      setCameraError("Votre navigateur ne supporte pas l'accès caméra. Essayez Chrome ou Safari.");
       return;
     }
 
@@ -1051,7 +1122,7 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
   }
 
   return (
-    <div className="space-y-4 p-4">
+    <div className="space-y-3 sm:space-y-4 p-2 sm:p-4">
       {/* Result Overlay */}
       {showResultOverlay && lastScanResult && (
         <ScanResultOverlay
@@ -1062,42 +1133,43 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
           memberReservations={lastScanResult.memberReservations}
           memberPacks={lastScanResult.memberPacks}
           establishmentId={establishment.id}
+          loyaltyStampResult={lastScanResult.loyaltyStampResult}
           onDismiss={() => setShowResultOverlay(false)}
         />
       )}
 
       {/* Header with stats */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold flex items-center gap-2">
-            <QrCode className="h-5 w-5" />
+          <h2 className="text-lg sm:text-xl font-bold flex items-center gap-2">
+            <QrCode className="h-5 w-5 flex-shrink-0" />
             Scanner QR
           </h2>
-          <p className="text-sm text-slate-500">
+          <p className="text-xs sm:text-sm text-slate-500">
             Réservations et membres
           </p>
         </div>
         <div className="flex items-center gap-4 text-sm">
           <div className="text-center">
-            <div className="text-2xl font-bold text-slate-900">{stats.today}</div>
-            <div className="text-xs text-slate-500">Aujourd'hui</div>
+            <div className="text-xl sm:text-2xl font-bold text-slate-900">{stats.today}</div>
+            <div className="text-[10px] sm:text-xs text-slate-500">Aujourd'hui</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-emerald-600">{stats.accepted}</div>
-            <div className="text-xs text-slate-500">Acceptés</div>
+            <div className="text-xl sm:text-2xl font-bold text-emerald-600">{stats.accepted}</div>
+            <div className="text-[10px] sm:text-xs text-slate-500">Acceptés</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-red-600">{stats.rejected}</div>
-            <div className="text-xs text-slate-500">Refusés</div>
+            <div className="text-xl sm:text-2xl font-bold text-red-600">{stats.rejected}</div>
+            <div className="text-[10px] sm:text-xs text-slate-500">Refusés</div>
           </div>
         </div>
       </div>
 
       {/* Scanner */}
       <Card>
-        <CardContent className="p-4">
+        <CardContent className="p-3 sm:p-4">
           {/* Camera viewport */}
-          <div className="relative aspect-square max-w-md mx-auto bg-slate-900 rounded-lg overflow-hidden">
+          <div className="relative aspect-[4/3] max-w-md mx-auto bg-slate-900 rounded-xl overflow-hidden">
             {/* Video element is ALWAYS in the DOM so videoRef is available when startCamera runs */}
             <video
               ref={videoRef}
@@ -1109,26 +1181,26 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
               <>
                 {/* Scan overlay */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="w-64 h-64 border-2 border-white/50 rounded-lg relative">
+                  <div className="w-48 h-48 sm:w-64 sm:h-64 border-2 border-white/50 rounded-lg relative">
                     <ScanLine className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-full w-full text-primary animate-pulse" />
                     {/* Corner markers */}
-                    <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg" />
-                    <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg" />
-                    <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg" />
-                    <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg" />
+                    <div className="absolute top-0 start-0 w-6 h-6 sm:w-8 sm:h-8 border-t-4 border-s-4 border-primary rounded-tl-lg" />
+                    <div className="absolute top-0 end-0 w-6 h-6 sm:w-8 sm:h-8 border-t-4 border-e-4 border-primary rounded-tr-lg" />
+                    <div className="absolute bottom-0 start-0 w-6 h-6 sm:w-8 sm:h-8 border-b-4 border-s-4 border-primary rounded-bl-lg" />
+                    <div className="absolute bottom-0 end-0 w-6 h-6 sm:w-8 sm:h-8 border-b-4 border-e-4 border-primary rounded-br-lg" />
                   </div>
                 </div>
                 {/* Processing indicator */}
                 {isProcessing && (
                   <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                    <Loader2 className="h-12 w-12 text-white animate-spin" />
+                    <Loader2 className="h-10 w-10 text-white animate-spin" />
                   </div>
                 )}
               </>
             ) : (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-white/70">
-                <Camera className="h-16 w-16 mb-4" />
-                <p className="text-center px-4">
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-white/70 px-6">
+                <Camera className="h-12 w-12 mb-3" />
+                <p className="text-center text-sm leading-relaxed">
                   {cameraError || "Appuyez sur Démarrer pour activer la caméra"}
                 </p>
               </div>
@@ -1136,15 +1208,15 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
           </div>
 
           {/* Controls */}
-          <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+          <div className="mt-3 flex items-center justify-center gap-2 sm:gap-3">
             {scanning ? (
-              <Button onClick={stopCamera} variant="destructive" size="lg">
-                <StopCircle className="h-5 w-5 mr-2" />
+              <Button onClick={stopCamera} variant="destructive" size="default">
+                <StopCircle className="h-4 w-4 me-1.5" />
                 Arrêter
               </Button>
             ) : (
-              <Button onClick={startCamera} size="lg" className="bg-primary">
-                <Camera className="h-5 w-5 mr-2" />
+              <Button onClick={startCamera} size="default" className="bg-primary">
+                <Camera className="h-4 w-4 me-1.5" />
                 Démarrer
               </Button>
             )}
@@ -1152,28 +1224,28 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
             <Button
               variant="outline"
               size="icon"
+              className="h-9 w-9"
               onClick={() => setSoundEnabled(!soundEnabled)}
               title={soundEnabled ? "Désactiver le son" : "Activer le son"}
             >
-              {soundEnabled ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
+              {soundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
             </Button>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <Checkbox
                 id="continuousMode"
                 checked={continuousMode}
                 onCheckedChange={(v) => setContinuousMode(!!v)}
               />
-              <Label htmlFor="continuousMode" className="text-sm cursor-pointer">
-                <Zap className="h-4 w-4 inline mr-1" />
+              <Label htmlFor="continuousMode" className="text-xs sm:text-sm cursor-pointer whitespace-nowrap">
+                <Zap className="h-3.5 w-3.5 inline me-0.5" />
                 Continu
               </Label>
             </div>
           </div>
 
           {/* Type indicators */}
-          <div className="mt-4 flex items-center justify-center gap-2 text-xs text-slate-500">
-            <span>Types supportés:</span>
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs text-slate-500">
             <Badge variant="outline" className="gap-1">
               <Ticket className="h-3 w-3" />
               Réservation
@@ -1193,8 +1265,8 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
           </div>
 
           {/* Manual input */}
-          <div className="mt-4 pt-4 border-t">
-            <Label className="text-sm text-slate-500 mb-2 block">
+          <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t">
+            <Label className="text-xs sm:text-sm text-slate-500 mb-1.5 block">
               Ou entrez le code manuellement:
             </Label>
             <div className="flex gap-2">
@@ -1330,7 +1402,7 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
                     establishmentName: establishment.name
                   })}
                 >
-                  <Download className="h-4 w-4 mr-2" />
+                  <Download className="h-4 w-4 me-2" />
                   CSV
                 </Button>
                 <Button
@@ -1341,7 +1413,7 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
                     establishmentName: establishment.name
                   })}
                 >
-                  <Download className="h-4 w-4 mr-2" />
+                  <Download className="h-4 w-4 me-2" />
                   PDF
                 </Button>
               </div>

@@ -244,7 +244,7 @@ export const applyAsReferralPartner: RequestHandler = async (req, res) => {
   }
 
   const userResult = await getConsumerUserFromBearerToken(token);
-  if (!userResult.ok) {
+  if ('error' in userResult) {
     return res.status(userResult.status).json({ error: userResult.error });
   }
 
@@ -360,7 +360,7 @@ export const getReferralPartnerMe: RequestHandler = async (req, res) => {
   }
 
   const userResult = await getConsumerUserFromBearerToken(token);
-  if (!userResult.ok) {
+  if ('error' in userResult) {
     return res.status(userResult.status).json({ error: userResult.error });
   }
 
@@ -414,7 +414,7 @@ export const updateReferralPartnerMe: RequestHandler = async (req, res) => {
   }
 
   const userResult = await getConsumerUserFromBearerToken(token);
-  if (!userResult.ok) {
+  if ('error' in userResult) {
     return res.status(userResult.status).json({ error: userResult.error });
   }
 
@@ -480,7 +480,7 @@ export const listMyReferrees: RequestHandler = async (req, res) => {
   }
 
   const userResult = await getConsumerUserFromBearerToken(token);
-  if (!userResult.ok) {
+  if ('error' in userResult) {
     return res.status(userResult.status).json({ error: userResult.error });
   }
 
@@ -598,7 +598,7 @@ export const listMyCommissions: RequestHandler = async (req, res) => {
   }
 
   const userResult = await getConsumerUserFromBearerToken(token);
-  if (!userResult.ok) {
+  if ('error' in userResult) {
     return res.status(userResult.status).json({ error: userResult.error });
   }
 
@@ -679,7 +679,7 @@ export const listMyPayouts: RequestHandler = async (req, res) => {
   }
 
   const userResult = await getConsumerUserFromBearerToken(token);
-  if (!userResult.ok) {
+  if ('error' in userResult) {
     return res.status(userResult.status).json({ error: userResult.error });
   }
 
@@ -763,7 +763,7 @@ export const listReferralPartners: RequestHandler = async (req, res) => {
   }
 
   const adminResult = await requireAdmin(token);
-  if (!adminResult.ok) {
+  if ('error' in adminResult) {
     return res.status(adminResult.status).json({ error: adminResult.error });
   }
 
@@ -838,7 +838,7 @@ export const updateReferralPartnerStatus: RequestHandler = async (req, res) => {
   }
 
   const adminResult = await requireAdmin(token);
-  if (!adminResult.ok) {
+  if ('error' in adminResult) {
     return res.status(adminResult.status).json({ error: adminResult.error });
   }
 
@@ -904,7 +904,7 @@ export const getReferralConfig: RequestHandler = async (req, res) => {
   }
 
   const adminResult = await requireAdmin(token);
-  if (!adminResult.ok) {
+  if ('error' in adminResult) {
     return res.status(adminResult.status).json({ error: adminResult.error });
   }
 
@@ -937,7 +937,7 @@ export const updateReferralConfig: RequestHandler = async (req, res) => {
   }
 
   const adminResult = await requireAdmin(token);
-  if (!adminResult.ok) {
+  if ('error' in adminResult) {
     return res.status(adminResult.status).json({ error: adminResult.error });
   }
 
@@ -1015,7 +1015,7 @@ export const upsertReferralConfigUniverse: RequestHandler = async (req, res) => 
   }
 
   const adminResult = await requireAdmin(token);
-  if (!adminResult.ok) {
+  if ('error' in adminResult) {
     return res.status(adminResult.status).json({ error: adminResult.error });
   }
 
@@ -1061,7 +1061,7 @@ export const listAllCommissions: RequestHandler = async (req, res) => {
   }
 
   const adminResult = await requireAdmin(token);
-  if (!adminResult.ok) {
+  if ('error' in adminResult) {
     return res.status(adminResult.status).json({ error: adminResult.error });
   }
 
@@ -1127,7 +1127,7 @@ export const createReferralPayout: RequestHandler = async (req, res) => {
   }
 
   const adminResult = await requireAdmin(token);
-  if (!adminResult.ok) {
+  if ('error' in adminResult) {
     return res.status(adminResult.status).json({ error: adminResult.error });
   }
 
@@ -1217,7 +1217,7 @@ export const updateReferralPayout: RequestHandler = async (req, res) => {
   }
 
   const adminResult = await requireAdmin(token);
-  if (!adminResult.ok) {
+  if ('error' in adminResult) {
     return res.status(adminResult.status).json({ error: adminResult.error });
   }
 
@@ -1291,7 +1291,7 @@ export const getReferralStats: RequestHandler = async (req, res) => {
   }
 
   const adminResult = await requireAdmin(token);
-  if (!adminResult.ok) {
+  if ('error' in adminResult) {
     return res.status(adminResult.status).json({ error: adminResult.error });
   }
 

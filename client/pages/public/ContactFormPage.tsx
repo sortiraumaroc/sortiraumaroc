@@ -548,7 +548,7 @@ function FieldRenderer({
         <div className="space-y-1.5">
           <Label>
             {field.label}
-            {field.is_required && <span className="text-red-500 ml-1">*</span>}
+            {field.is_required && <span className="text-red-500 ms-1">*</span>}
           </Label>
           <Input
             type="text"
@@ -571,7 +571,7 @@ function FieldRenderer({
         <div className="space-y-1.5">
           <Label>
             {field.label}
-            {field.is_required && <span className="text-red-500 ml-1">*</span>}
+            {field.is_required && <span className="text-red-500 ms-1">*</span>}
           </Label>
           <Textarea
             placeholder={field.placeholder || ""}
@@ -593,7 +593,7 @@ function FieldRenderer({
         <div className="space-y-1.5">
           <Label>
             {field.label}
-            {field.is_required && <span className="text-red-500 ml-1">*</span>}
+            {field.is_required && <span className="text-red-500 ms-1">*</span>}
           </Label>
           <Input
             type="email"
@@ -615,7 +615,7 @@ function FieldRenderer({
         <div className="space-y-1.5">
           <Label>
             {field.label}
-            {field.is_required && <span className="text-red-500 ml-1">*</span>}
+            {field.is_required && <span className="text-red-500 ms-1">*</span>}
           </Label>
           <div className="flex gap-2">
             <Select
@@ -653,12 +653,12 @@ function FieldRenderer({
         <div className="space-y-1.5">
           <Label>
             {field.label}
-            {field.is_required && <span className="text-red-500 ml-1">*</span>}
+            {field.is_required && <span className="text-red-500 ms-1">*</span>}
           </Label>
           <Input
             type="number"
             placeholder={field.placeholder || ""}
-            value={value ?? ""}
+            value={(value as string | number) ?? ""}
             onChange={(e) => onChange(e.target.value ? Number(e.target.value) : "")}
             className={inputClass}
             min={field.min_value ?? undefined}
@@ -676,7 +676,7 @@ function FieldRenderer({
         <div className="space-y-1.5">
           <Label>
             {field.label}
-            {field.is_required && <span className="text-red-500 ml-1">*</span>}
+            {field.is_required && <span className="text-red-500 ms-1">*</span>}
           </Label>
           <Select value={String(value ?? "")} onValueChange={onChange}>
             <SelectTrigger className={inputClass}>
@@ -702,7 +702,7 @@ function FieldRenderer({
         <div className="space-y-1.5">
           <Label>
             {field.label}
-            {field.is_required && <span className="text-red-500 ml-1">*</span>}
+            {field.is_required && <span className="text-red-500 ms-1">*</span>}
           </Label>
           <RadioGroup value={String(value ?? "")} onValueChange={onChange}>
             {field.options?.map((opt) => (
@@ -727,7 +727,7 @@ function FieldRenderer({
         <div className="space-y-1.5">
           <Label>
             {field.label}
-            {field.is_required && <span className="text-red-500 ml-1">*</span>}
+            {field.is_required && <span className="text-red-500 ms-1">*</span>}
           </Label>
           <div className="space-y-2">
             {field.options?.map((opt) => (
@@ -761,7 +761,7 @@ function FieldRenderer({
         <div className="space-y-1.5">
           <Label>
             {field.label}
-            {field.is_required && <span className="text-red-500 ml-1">*</span>}
+            {field.is_required && <span className="text-red-500 ms-1">*</span>}
           </Label>
           <Input
             type="date"
@@ -781,7 +781,7 @@ function FieldRenderer({
         <div className="space-y-1.5">
           <Label>
             {field.label}
-            {field.is_required && <span className="text-red-500 ml-1">*</span>}
+            {field.is_required && <span className="text-red-500 ms-1">*</span>}
           </Label>
           <Input
             type="time"
@@ -801,7 +801,7 @@ function FieldRenderer({
         <div className="space-y-1.5">
           <Label>
             {field.label}
-            {field.is_required && <span className="text-red-500 ml-1">*</span>}
+            {field.is_required && <span className="text-red-500 ms-1">*</span>}
           </Label>
           <Input
             type="datetime-local"
@@ -821,7 +821,7 @@ function FieldRenderer({
         <div className="space-y-1.5">
           <Label>
             {field.label}
-            {field.is_required && <span className="text-red-500 ml-1">*</span>}
+            {field.is_required && <span className="text-red-500 ms-1">*</span>}
           </Label>
           <Select value={String(value ?? "")} onValueChange={onChange}>
             <SelectTrigger className={inputClass}>
@@ -848,7 +848,7 @@ function FieldRenderer({
         <div className="space-y-1.5">
           <Label>
             {field.label}
-            {field.is_required && <span className="text-red-500 ml-1">*</span>}
+            {field.is_required && <span className="text-red-500 ms-1">*</span>}
           </Label>
           <div className="flex gap-1">
             {[1, 2, 3, 4, 5].map((star) => (
@@ -909,7 +909,7 @@ function FieldRenderer({
         <div className="space-y-1.5">
           <Label>
             {field.label}
-            {field.is_required && <span className="text-red-500 ml-1">*</span>}
+            {field.is_required && <span className="text-red-500 ms-1">*</span>}
           </Label>
           <Input
             type="text"

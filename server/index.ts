@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import multer from "multer";
+import { cacheMiddleware, buildCacheKey, normalizeQuery, flushCache, getCacheStats } from "./lib/cache";
 import { initSentry, captureException, sentryRequestHandler, sentryErrorHandler } from "./lib/sentry";
 import {
   acceptConsumerWaitlistOffer,
@@ -28,17 +29,26 @@ import {
   validatePasswordResetToken,
   completePasswordReset,
   changeConsumerPassword,
+  listConsumerTrustedDevices,
+  revokeConsumerTrustedDevice,
+  revokeAllConsumerTrustedDevices,
   getConsumerReservation,
   getConsumerReservationInvoice,
   getConsumerPackPurchaseInvoice,
   getPublicSitemapXml,
   getPublicEstablishment,
   listPublicEstablishments,
+  getPublicLandingPage,
+  getPublicLandingSlugMap,
   getPublicHomeFeed,
   getPublicCategoryImages,
   getPublicCategories,
   searchAutocomplete,
   getPopularSearches,
+  saveSearchHistory,
+  getSearchHistoryList,
+  deleteSearchHistory,
+  trackSearchClick,
   hideConsumerPackPurchase,
   listConsumerNotifications,
   getConsumerNotificationsUnreadCount,
@@ -84,6 +94,10 @@ import {
   verifyPhoneLogin,
   checkPhoneAuthStatus,
   lookupPhone,
+  loginPhonePassword,
+  forgotPhonePassword,
+  resetPhonePassword,
+  trustedDeviceLogin,
 } from "./routes/twilioAuth";
 import {
   sendEmailVerificationCode,
@@ -91,6 +105,7 @@ import {
   signupWithEmail,
   setPhoneUserEmailPassword,
 } from "./routes/emailVerification";
+import { syncGoogleRatings } from "./routes/googleRatingSync";
 import {
   createAdminEmailCampaign,
   duplicateAdminEmailTemplate,
@@ -137,7 +152,10 @@ import {
   adminHealth,
   adminProductionCheck,
   approveModerationItem,
+  batchUpdateEstablishmentStatus,
   createEstablishment,
+  createEstablishmentWizard,
+  updateEstablishmentWizard,
   deleteEstablishment,
   createProUser,
   getConsumerUser,
@@ -146,6 +164,8 @@ import {
   listAdminEstablishmentConversationMessages,
   listAdminEstablishmentConversations,
   listAdminEstablishmentOffers,
+  adminUpsertSlots,
+  adminDeleteSlot,
   listAdminEstablishmentPackBilling,
   listAdminEstablishmentQrLogs,
   listAdminEstablishmentReservations,
@@ -217,6 +237,8 @@ import {
   createAdminCity,
   updateAdminCity,
   deleteAdminCity,
+  listAdminNeighborhoods,
+  createAdminNeighborhood,
   listAdminCategories,
   createAdminCategory,
   updateAdminCategory,
@@ -347,7 +369,12 @@ import {
   listAdminClaimRequests,
   getAdminClaimRequest,
   updateAdminClaimRequest,
+  listAdminEstablishmentLeads,
+  updateAdminEstablishmentLead,
   detectDuplicateEstablishments,
+  searchEstablishmentsByName,
+  cronAuditLogCleanup,
+  purgeOldAuditLogs,
 } from "./routes/admin";
 
 import {
@@ -378,6 +405,7 @@ import { registerAdminImportChrRoutes } from "./routes/adminImportChr";
 import { registerAdminImportSqlRoutes } from "./routes/adminImportSql";
 import { registerProAdsRoutes } from "./routes/proAds";
 import { registerAdminAdsRoutes } from "./routes/adminAds";
+import { registerAdminActivityTrackingRoutes } from "./routes/adminActivityTracking";
 import {
   listLoyaltyPrograms,
   createLoyaltyProgram,
@@ -396,6 +424,41 @@ import {
 } from "./routes/loyalty";
 import { registerPublicAdsRoutes } from "./routes/publicAds";
 import { registerSponsoredNotificationRoutes } from "./routes/sponsoredNotifications";
+import { registerSocialRoutes } from "./routes/social";
+import { registerMessagingRoutes } from "./routes/messaging";
+import { registerReservationV2PublicRoutes } from "./routes/reservationV2Public";
+import { registerReservationV2ProRoutes } from "./routes/reservationV2Pro";
+import { registerReservationV2AdminRoutes } from "./routes/reservationV2Admin";
+import { registerReservationV2CronRoutes } from "./routes/reservationV2Cron";
+import { registerPacksPublicRoutes } from "./routes/packsPublic";
+import { registerPacksProRoutes } from "./routes/packsPro";
+import { registerPacksAdminRoutes } from "./routes/packsAdmin";
+import { registerPacksCronRoutes } from "./routes/packsCron";
+import { registerAdminSearchBoostRoutes } from "./routes/adminSearchBoost";
+import { registerPreferenceCronRoutes } from "./routes/preferenceCron";
+import { registerLoyaltyV2PublicRoutes } from "./routes/loyaltyV2Public";
+import { registerLoyaltyV2ProRoutes } from "./routes/loyaltyV2Pro";
+import { registerLoyaltyV2AdminRoutes } from "./routes/loyaltyV2Admin";
+import { registerLoyaltyV2CronRoutes } from "./routes/loyaltyV2Cron";
+import { registerRentalPublicRoutes } from "./routes/rentalPublic";
+import { registerRentalConsumerRoutes } from "./routes/rentalConsumer";
+import { registerRentalProRoutes } from "./routes/rentalPro";
+import { registerRentalAdminRoutes } from "./routes/rentalAdmin";
+import { registerNotificationPublicRoutes } from "./routes/notificationsPublic";
+import { registerBannerPublicRoutes } from "./routes/bannersPublic";
+import { registerPushCampaignAdminRoutes } from "./routes/pushCampaignAdmin";
+import { registerBannerAdminRoutes } from "./routes/bannersAdmin";
+import { registerWheelPublicRoutes } from "./routes/wheelPublic";
+import { registerWheelAdminRoutes } from "./routes/wheelAdmin";
+import { registerNotificationsCronRoutes } from "./routes/notificationsCron";
+import { registerSupportCronRoutes } from "./routes/supportCron";
+import { registerSamRoutes } from "./sam/chatEndpoint";
+import { registerSamVoiceRoutes } from "./sam/voice";
+import { registerCeAdminRoutes } from "./routes/ceAdmin";
+import { registerCeCompanyAdminRoutes } from "./routes/ceCompanyAdmin";
+import { registerCePublicRoutes } from "./routes/cePublic";
+import { registerCeProRoutes } from "./routes/cePro";
+import { getPlatformSettingsSnapshot } from "./platformSettings";
 import {
   listSupportTickets,
   createSupportTicket,
@@ -405,7 +468,16 @@ import {
   getOrCreateChatSession,
   sendChatMessage,
   getChatMessages,
+  checkAgentOnline,
+  toggleAgentStatus,
+  getClientProfile,
+  getEstablishmentProfile,
+  updateTicketInternalNotes,
+  listAdminChatSessions,
+  getAdminChatMessages,
+  sendAdminChatMessage,
 } from "./routes/support";
+import { submitBugReport } from "./routes/bugReports";
 import {
   approveAdminMediaBrief,
   assignAdminDeliverablePartner,
@@ -512,6 +584,7 @@ import {
   deleteAdminContactFormSubmission,
   exportAdminContactFormSubmissions,
   getAdminContactFormsUnreadCount,
+  uploadAdminContactFormImage,
 } from "./routes/adminContactForms";
 import {
   getPublicContactForm,
@@ -545,8 +618,62 @@ import {
   cronSendReviewInvitations,
   cronAutoPublishReviews,
 } from "./routes/reviewCron";
+import {
+  cronCreateInvitations,
+  cronSendInvitationEmails,
+  cronSendReminders,
+  cronExpireInvitations,
+  cronExpireProGestureDeadline,
+  cronExpireClientGesture,
+} from "./routes/reviewCronV2";
+import {
+  getReviewInvitationV2,
+  submitReviewV2,
+  respondToGestureV2,
+  voteReviewV2,
+  reportReviewV2,
+  listMyReviewsV2,
+  getGestureDetailsV2,
+} from "./routes/reviewsV2";
+import {
+  listAdminReviewsV2,
+  getReviewStatsV2,
+  getAdminReviewV2,
+  moderateReviewV2,
+  listPendingResponsesV2,
+  moderateResponseV2,
+  listReviewReportsV2,
+  resolveReviewReportV2,
+} from "./routes/adminReviewsV2";
+import {
+  listProEstablishmentReviewsV2,
+  getProReviewDetailV2,
+  proposeGestureV2,
+  submitProResponseV2,
+  getProReviewStatsV2,
+} from "./routes/proReviewsV2";
+import {
+  listPublicReviewsV2,
+  getPublicReviewSummaryV2,
+} from "./routes/publicReviewsV2";
+import {
+  reviewSubmitRateLimiter,
+  reviewVoteRateLimiter,
+  reviewReportRateLimiter,
+  reviewPublicReadRateLimiter,
+  gestureProposalRateLimiter,
+  proResponseRateLimiter,
+  messageSendRateLimiter,
+  messageReadRateLimiter,
+  messageAttachmentRateLimiter,
+  contactFormSubmitRateLimiter,
+  contactFormReadRateLimiter,
+  searchHistorySaveRateLimiter,
+  searchHistoryReadRateLimiter,
+} from "./middleware/rateLimiter";
+import { sanitizeReviewBody } from "./middleware/reviewSecurity";
 import { cronWaitlistExpireAndPromote } from "./routes/waitlistCron";
-import { cronAdsDailyReset, cronAdsCheckBudgets, cronAdsBillImpressions } from "./routes/adsCron";
+import { cronAdsDailyReset, cronAdsCheckBudgets, cronAdsBillImpressions, cronAdsRecalculateQuality, cronAdsGenerateInvoices } from "./routes/adsCron";
 import {
   cronSubscriptionsExpire,
   cronSubscriptionsReminders,
@@ -625,6 +752,7 @@ import {
   regenerateConsumerTOTPSecret,
   validateConsumerTOTPCode,
   getConsumerUserInfo,
+  consumerTotpHealthCheck,
 } from "./routes/consumerTotp";
 import {
   sendH3ConfirmationEmails,
@@ -646,6 +774,9 @@ import {
   updateProTeamMemberEmail,
   toggleProTeamMemberActive,
   resetProTeamMemberPassword,
+  getEstablishmentPermissions,
+  updateEstablishmentPermissions,
+  resetEstablishmentPermissions,
   activateProOwnerMembership,
   listProCampaigns,
   createProCampaign,
@@ -662,6 +793,8 @@ import {
   checkPasswordStatus,
   requestPasswordReset,
   changePassword,
+  getOnboardingWizardProgress,
+  saveOnboardingWizardProgress,
   listProConversationMessages,
   listProConversations,
   listProInventory,
@@ -675,6 +808,8 @@ import {
   markProNotificationRead,
   markAllProNotificationsRead,
   deleteProNotification,
+  getProNotificationPreferences,
+  updateProNotificationPreferences,
   upsertProSlots,
   deleteProSlot,
   createProPack,
@@ -702,6 +837,8 @@ import {
   sendProConversationMessage,
   listProClientHistory,
   markProMessagesRead,
+  markProConversationUnread,
+  uploadMessageAttachment,
   getProMessageReadReceipts,
   getProAutoReplySettings,
   updateProAutoReplySettings,
@@ -910,6 +1047,18 @@ export function createServer() {
   app.use(express.json({ limit: "2mb" }));
   app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 
+  // Ensure all JSON responses include charset=utf-8 to prevent encoding issues
+  app.use((_req, res, next) => {
+    const originalJson = res.json.bind(res);
+    res.json = (body: unknown) => {
+      if (!res.headersSent) {
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+      }
+      return originalJson(body);
+    };
+    next();
+  });
+
   const allowDemoRoutes =
     process.env.NODE_ENV !== "production" &&
     String(process.env.ALLOW_DEMO_ROUTES ?? "").toLowerCase() === "true";
@@ -924,6 +1073,34 @@ export function createServer() {
     );
   });
 
+  // Public email assets — served via /api/ so they bypass .htaccess protection
+  app.get("/api/public/assets/email-logo.png", async (_req, res) => {
+    try {
+      const { readFile } = await import("fs/promises");
+      const { fileURLToPath } = await import("url");
+      const { dirname, resolve } = await import("path");
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = dirname(__filename);
+      // In dev: server/index.ts → ../public/  |  In prod: dist/server/ → ../spa/
+      const candidates = [
+        resolve(__dirname, "../public/logo-white-red.png"),
+        resolve(process.cwd(), "public/logo-white-red.png"),
+        resolve(__dirname, "../spa/logo-white-red.png"),
+      ];
+      for (const p of candidates) {
+        try {
+          const buf = await readFile(p);
+          res.setHeader("Cache-Control", "public, max-age=2592000, immutable");
+          res.setHeader("Content-Type", "image/png");
+          return res.end(buf);
+        } catch { /* try next */ }
+      }
+      res.status(404).end();
+    } catch {
+      res.status(500).end();
+    }
+  });
+
   // Example API routes
   app.get("/sitemap.xml", getPublicSitemapXml);
 
@@ -934,17 +1111,77 @@ export function createServer() {
 
   // Public consumer API (read-only establishment data + booking creation)
   registerPublicAdsRoutes(app);
-  app.get("/api/public/establishments", listPublicEstablishments);
+  // Prompt 12: Bypass cache for personalized (authenticated) search requests
+  const establishmentSearchCache = cacheMiddleware(120, (req) =>
+    buildCacheKey("search", {
+      q: String(req.query.q ?? ""), universe: String(req.query.universe ?? ""),
+      city: String(req.query.city ?? ""), category: String(req.query.category ?? ""),
+      sort: String(req.query.sort ?? ""), promo: String(req.query.promo ?? req.query.promoOnly ?? ""),
+      cursor: String(req.query.cursor ?? ""), limit: String(req.query.limit ?? "12"),
+      swLat: String(req.query.swLat ?? ""), swLng: String(req.query.swLng ?? ""),
+      neLat: String(req.query.neLat ?? ""), neLng: String(req.query.neLng ?? ""),
+      lang: String(req.query.lang ?? "fr"),
+    }),
+  );
+  app.get("/api/public/establishments", (req, res, next) => {
+    const auth = String(req.headers.authorization ?? "");
+    const hasAuth = auth.toLowerCase().startsWith("bearer ");
+    const personalized = String(req.query.personalized ?? "1") !== "0";
+    // Skip cache for personalized (authenticated) requests
+    if (hasAuth && personalized) return next();
+    return establishmentSearchCache(req, res, next);
+  }, listPublicEstablishments);
+  // SEO Landing pages
+  app.get("/api/public/landing-slugs", getPublicLandingSlugMap);
+  app.get("/api/public/landing/:slug", cacheMiddleware(900, (req) =>
+    buildCacheKey("landing", {
+      slug: req.params.slug ?? "", cursor: String(req.query.cursor ?? ""),
+      limit: String(req.query.limit ?? "12"),
+      lang: String(req.query.lang ?? "fr"),
+    }),
+  ), getPublicLandingPage);
   // Direct booking by username (book.sam.ma/:username) - sets attribution cookie
   app.get("/api/public/establishments/by-username/:username", getPublicEstablishmentByUsername);
   app.get("/api/public/establishments/:ref", getPublicEstablishment);
   app.get("/api/public/establishments/:id/reviews", listPublicEstablishmentReviews);
+  // Reviews V2 public routes (with anti-scraping rate limit)
+  app.get("/api/public/v2/establishments/:ref/reviews", reviewPublicReadRateLimiter, listPublicReviewsV2);
+  app.get("/api/public/v2/establishments/:ref/reviews/summary", getPublicReviewSummaryV2);
   app.get("/api/public/establishments/:establishmentId/loyalty/programs", getPublicLoyaltyPrograms);
-  app.get("/api/public/home", getPublicHomeFeed);
+  app.get("/api/public/home", cacheMiddleware(300, (req) => {
+    const hourBucket = Math.floor(new Date().getHours() * 2 + (new Date().getMinutes() >= 30 ? 1 : 0));
+    const cityVal = String(req.query.city ?? "");
+    // Include lat/lng in cache key for "Autour de moi" geolocation-based results
+    const latRound = req.query.lat ? String(Math.round(parseFloat(String(req.query.lat)) * 10) / 10) : "";
+    const lngRound = req.query.lng ? String(Math.round(parseFloat(String(req.query.lng)) * 10) / 10) : "";
+    return buildCacheKey("homepage", {
+      universe: String(req.query.universe ?? ""),
+      city: cityVal,
+      geo: latRound && lngRound ? `${latRound},${lngRound}` : "",
+      hourBucket: String(hourBucket),
+    });
+  }), getPublicHomeFeed);
   app.get("/api/public/categories", getPublicCategories);
   app.get("/api/public/category-images", getPublicCategoryImages);
-  app.get("/api/public/search/autocomplete", searchAutocomplete);
-  app.get("/api/public/search/popular", getPopularSearches);
+  app.get("/api/public/search/autocomplete", cacheMiddleware(300, (req) =>
+    buildCacheKey("autocomplete", {
+      q: normalizeQuery(String(req.query.q ?? "")),
+      universe: String(req.query.universe ?? ""),
+      city: String(req.query.city ?? ""),
+      lang: String(req.query.lang ?? "fr"),
+    }),
+  ), searchAutocomplete);
+  app.get("/api/public/search/popular", cacheMiddleware(600, (req) =>
+    buildCacheKey("popular", {
+      universe: String(req.query.universe ?? "all"),
+      city: String(req.query.city ?? "all"),
+      lang: String(req.query.lang ?? "fr"),
+    }),
+  ), getPopularSearches);
+  app.post("/api/public/search/history", searchHistorySaveRateLimiter, saveSearchHistory);
+  app.get("/api/public/search/history", searchHistoryReadRateLimiter, getSearchHistoryList);
+  app.delete("/api/public/search/history", searchHistoryReadRateLimiter, deleteSearchHistory);
+  app.patch("/api/public/search/history/:id/click", searchHistorySaveRateLimiter, trackSearchClick);
   app.get("/api/public/content/pages/:slug", getPublicContentPage);
   app.get("/api/public/faq", listPublicFaqArticles);
   app.get("/api/public/blog", listPublicBlogArticles);
@@ -967,7 +1204,6 @@ export function createServer() {
   // Platform settings (public read-only snapshot for feature checks)
   app.get("/api/public/platform-settings", async (_req, res) => {
     try {
-      const { getPlatformSettingsSnapshot } = await import("./platformSettings");
       const snapshot = await getPlatformSettingsSnapshot();
       res.json({ ok: true, snapshot });
     } catch (error) {
@@ -988,7 +1224,15 @@ export function createServer() {
           },
           visibility: { orders_enabled: true },
           reservations: { free_enabled: true },
-          branding: { name: "Sortir Au Maroc", short: "SAM", domain: "sortiraumaroc.ma" },
+          branding: { name: "Sortir Au Maroc", short: "SAM", domain: "sam.ma" },
+          footer: {
+            social_instagram: "",
+            social_tiktok: "",
+            social_facebook: "",
+            social_youtube: "",
+            social_snapchat: "",
+            social_linkedin: "",
+          },
         },
       });
     }
@@ -1043,6 +1287,7 @@ export function createServer() {
   app.post("/api/totp/regenerate/:reservationId", regenerateTOTPSecret);
 
   // Consumer TOTP routes (personal user QR codes)
+  app.get("/api/consumer/totp/health", consumerTotpHealthCheck);
   app.get("/api/consumer/totp/secret", getConsumerTOTPSecret);
   app.get("/api/consumer/totp/code", generateConsumerTOTPCode);
   app.post("/api/consumer/totp/regenerate", regenerateConsumerTOTPSecret);
@@ -1092,6 +1337,23 @@ export function createServer() {
     }
   });
 
+  // Admin: Cache management
+  app.post("/api/admin/cache/flush", async (req, res) => {
+    const adminKey = req.headers["x-admin-key"];
+    if (adminKey !== process.env.ADMIN_API_KEY) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const flushed = flushCache();
+    res.json({ ok: true, flushed });
+  });
+  app.get("/api/admin/cache/stats", async (req, res) => {
+    const adminKey = req.headers["x-admin-key"];
+    if (adminKey !== process.env.ADMIN_API_KEY) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    res.json({ ok: true, ...getCacheStats() });
+  });
+
   // Admin/Cron: Trigger H-3 confirmation emails
   // Called by cron job every 5-10 minutes
   app.post("/api/admin/cron/h3-confirmation-emails", async (req, res) => {
@@ -1136,6 +1398,14 @@ export function createServer() {
   // Called every 5 minutes
   app.post("/api/admin/cron/review-auto-publish", cronAutoPublishReviews);
 
+  // ======= Reviews V2 Cron Jobs =======
+  app.post("/api/admin/cron/v2/review-create-invitations", cronCreateInvitations);       // every 30 min
+  app.post("/api/admin/cron/v2/review-send-invitations", cronSendInvitationEmails);      // every 15 min
+  app.post("/api/admin/cron/v2/review-send-reminders", cronSendReminders);               // every hour
+  app.post("/api/admin/cron/v2/review-expire-invitations", cronExpireInvitations);       // every hour
+  app.post("/api/admin/cron/v2/review-expire-pro-gesture", cronExpireProGestureDeadline); // every 5 min
+  app.post("/api/admin/cron/v2/review-expire-client-gesture", cronExpireClientGesture);   // every 5 min
+
   // Admin/Cron: Expire waitlist offers and auto-promote next in queue
   // Called every 5 minutes
   app.post("/api/admin/cron/waitlist-expire-promote", cronWaitlistExpireAndPromote);
@@ -1146,6 +1416,13 @@ export function createServer() {
   app.post("/api/admin/cron/ads-check-budgets", cronAdsCheckBudgets);
   // Admin/Cron: Bill CPM campaigns for impressions (every hour)
   app.post("/api/admin/cron/ads-bill-impressions", cronAdsBillImpressions);
+  // Admin/Cron: Recalculate quality scores (daily at 3h)
+  app.post("/api/admin/cron/ads-recalculate-quality", cronAdsRecalculateQuality);
+  // Admin/Cron: Generate monthly campaign invoices (1st of month at 6h)
+  app.post("/api/admin/cron/ads-generate-invoices", cronAdsGenerateInvoices);
+
+  // Admin/Cron: Purge audit logs older than 30 days (daily)
+  app.post("/api/admin/cron/audit-log-cleanup", cronAuditLogCleanup);
 
   // Username Subscription Cron Jobs
   // Expire trials and subscriptions past their end date (hourly)
@@ -1170,6 +1447,10 @@ export function createServer() {
   app.post("/api/consumer/auth/phone/verify-code", verifyPhoneCode);
   app.post("/api/consumer/auth/phone/verify-login", verifyPhoneLogin);
   app.post("/api/consumer/auth/phone/lookup", lookupPhone);
+  app.post("/api/consumer/auth/phone/login-password", loginPhonePassword);
+  app.post("/api/consumer/auth/phone/trusted-login", trustedDeviceLogin);
+  app.post("/api/consumer/auth/phone/forgot-password", forgotPhonePassword);
+  app.post("/api/consumer/auth/phone/reset-password", resetPhonePassword);
   app.get("/api/consumer/auth/phone/status", checkPhoneAuthStatus);
 
   // Email verification (for signup + onboarding)
@@ -1191,6 +1472,11 @@ export function createServer() {
   app.get("/api/consumer/account/password/validate-token", validatePasswordResetToken);
   app.post("/api/consumer/account/password/complete-reset", completePasswordReset);
   app.post("/api/consumer/account/password/change", changeConsumerPassword);
+
+  // Trusted device management
+  app.get("/api/consumer/account/trusted-devices", listConsumerTrustedDevices);
+  app.post("/api/consumer/account/trusted-devices/revoke-all", revokeAllConsumerTrustedDevices);
+  app.post("/api/consumer/account/trusted-devices/:deviceId/revoke", revokeConsumerTrustedDevice);
 
   // Push notifications (FCM tokens)
   app.post("/api/consumer/push/register", registerConsumerPushToken);
@@ -1259,10 +1545,12 @@ export function createServer() {
   );
   app.get(
     "/api/consumer/reservations/:id/messages",
+    messageReadRateLimiter,
     listConsumerReservationMessages,
   );
   app.post(
     "/api/consumer/reservations/:id/messages",
+    messageSendRateLimiter,
     sendConsumerReservationMessage,
   );
   app.post("/api/consumer/reservations/:id/update", updateConsumerReservation);
@@ -1271,6 +1559,18 @@ export function createServer() {
   app.get("/api/consumer/reviews/invitation/:token", getReviewInvitation);
   app.post("/api/consumer/reviews", submitReview);
   app.post("/api/consumer/reports", submitReport);
+
+  // Consumer reviews V2 (with rate limiting + sanitization)
+  app.get("/api/consumer/v2/reviews/invitation/:token", getReviewInvitationV2);
+  app.post("/api/consumer/v2/reviews", reviewSubmitRateLimiter, sanitizeReviewBody, submitReviewV2);
+  app.post("/api/consumer/v2/reviews/gesture/respond", respondToGestureV2);
+  app.post("/api/consumer/v2/reviews/vote", reviewVoteRateLimiter, voteReviewV2);
+  app.post("/api/consumer/v2/reviews/report", reviewReportRateLimiter, sanitizeReviewBody, reportReviewV2);
+  app.get("/api/consumer/v2/reviews/mine", listMyReviewsV2);
+  app.get("/api/consumer/v2/reviews/gesture/:gestureId", getGestureDetailsV2);
+
+  // Bug reports (public)
+  app.post("/api/bug-reports", submitBugReport);
 
   // Support tickets (consumer/pro)
   app.get("/api/support/tickets", listSupportTickets);
@@ -1283,6 +1583,9 @@ export function createServer() {
   app.post("/api/support/chat/session", getOrCreateChatSession);
   app.post("/api/support/chat/messages", sendChatMessage);
   app.get("/api/support/chat/:sessionId/messages", getChatMessages);
+
+  // Support agent online check (public)
+  app.get("/api/support/agent-online", checkAgentOnline);
 
   app.post("/api/admin/auth/login", adminLogin);
   app.post("/api/admin/auth/logout", adminLogout);
@@ -1299,6 +1602,9 @@ export function createServer() {
   // Dashboard stats routes
   registerAdminDashboardRoutes(app);
 
+  // Activity tracking routes (heartbeats + stats)
+  registerAdminActivityTrackingRoutes(app);
+
   // User management & marketing routes
   registerAdminUserManagementRoutes(app);
   registerAdminMarketingRoutes(app);
@@ -1311,7 +1617,57 @@ export function createServer() {
   // CHR Import routes
   registerAdminImportChrRoutes(app);
 
+  // Social features (posts, likes, comments, follows)
+  registerSocialRoutes(app);
 
+  // Direct messaging between users
+  registerMessagingRoutes(app);
+
+  // Reservation V2 routes
+  registerReservationV2PublicRoutes(app);
+  registerReservationV2ProRoutes(app);
+  registerReservationV2AdminRoutes(app);
+  registerReservationV2CronRoutes(app);
+
+  // Packs & Billing routes
+  registerPacksPublicRoutes(app);
+  registerPacksProRoutes(app);
+  registerPacksAdminRoutes(app);
+  registerPacksCronRoutes(app);
+  registerAdminSearchBoostRoutes(app);
+  registerPreferenceCronRoutes(app);
+
+  // Loyalty V2 routes
+  registerLoyaltyV2PublicRoutes(app);
+  registerLoyaltyV2ProRoutes(app);
+  registerLoyaltyV2AdminRoutes(app);
+  registerLoyaltyV2CronRoutes(app);
+
+  // Rental vehicles routes
+  registerRentalPublicRoutes(app);
+  registerRentalConsumerRoutes(app);
+  registerRentalProRoutes(app);
+  registerRentalAdminRoutes(app);
+
+  // Notifications, Banners, Wheel routes
+  registerNotificationPublicRoutes(app);
+  registerBannerPublicRoutes(app);
+  registerPushCampaignAdminRoutes(app);
+  registerBannerAdminRoutes(app);
+  registerWheelPublicRoutes(app);
+  registerWheelAdminRoutes(app);
+  registerNotificationsCronRoutes(app);
+  registerSupportCronRoutes(app);
+
+  // CE (Comité d'Entreprise) routes
+  registerCeAdminRoutes(app);
+  registerCeCompanyAdminRoutes(app);
+  registerCePublicRoutes(app);
+  registerCeProRoutes(app);
+
+  // Sam AI Assistant
+  registerSamRoutes(app);
+  registerSamVoiceRoutes(app);
 
   app.get("/api/admin/health", adminHealth);
   app.get("/api/admin/production-check", adminProductionCheck);
@@ -1456,6 +1812,9 @@ export function createServer() {
   app.post("/api/admin/settings/cities/:id/update", updateAdminCity);
   app.post("/api/admin/settings/cities/:id/delete", deleteAdminCity);
 
+  app.get("/api/admin/settings/neighborhoods", listAdminNeighborhoods);
+  app.post("/api/admin/settings/neighborhoods", createAdminNeighborhood);
+
   app.get("/api/admin/settings/categories", listAdminCategories);
   app.post("/api/admin/settings/categories", createAdminCategory);
   app.post("/api/admin/settings/categories/:id/update", updateAdminCategory);
@@ -1502,6 +1861,10 @@ export function createServer() {
   app.get("/api/admin/claim-requests", listAdminClaimRequests);
   app.get("/api/admin/claim-requests/:id", getAdminClaimRequest);
   app.post("/api/admin/claim-requests/:id", updateAdminClaimRequest);
+
+  // Establishment leads (demandes d'ajout d'établissement)
+  app.get("/api/admin/establishment-leads", listAdminEstablishmentLeads);
+  app.post("/api/admin/establishment-leads/:id", updateAdminEstablishmentLead);
 
   // Homepage curation
   app.get("/api/admin/home-curation", listAdminHomeCurationItems);
@@ -1581,6 +1944,19 @@ export function createServer() {
     "/api/admin/support/tickets/:id/messages",
     postAdminSupportTicketMessage,
   );
+  app.patch("/api/admin/support/tickets/:id/notes", updateTicketInternalNotes);
+
+  // Support agent status (admin)
+  app.post("/api/admin/support/agent-status", toggleAgentStatus);
+
+  // Support client/establishment profile (admin)
+  app.get("/api/admin/support/client-profile/:userId", getClientProfile);
+  app.get("/api/admin/support/establishment-profile/:establishmentId", getEstablishmentProfile);
+
+  // Support chat sessions (admin) — previously unregistered
+  app.get("/api/admin/support/chat/sessions", listAdminChatSessions);
+  app.get("/api/admin/support/chat/:sessionId/messages", getAdminChatMessages);
+  app.post("/api/admin/support/chat/:sessionId/messages", sendAdminChatMessage);
 
   // Content (CMS)
   app.get("/api/admin/content/pages", listAdminContentPages);
@@ -1697,13 +2073,30 @@ export function createServer() {
   app.post("/api/admin/reviews/:id/send-to-pro", sendReviewToPro);
   app.get("/api/admin/reports", listAdminReports);
   app.post("/api/admin/reports/:id/resolve", resolveReport);
+
+  // Admin Reviews V2
+  app.get("/api/admin/v2/reviews", listAdminReviewsV2);
+  app.get("/api/admin/v2/reviews/stats", getReviewStatsV2);
+  app.get("/api/admin/v2/reviews/responses", listPendingResponsesV2);
+  app.get("/api/admin/v2/reviews/reports", listReviewReportsV2);
+  app.get("/api/admin/v2/reviews/:id", getAdminReviewV2);
+  app.post("/api/admin/v2/reviews/:id/moderate", moderateReviewV2);
+  app.post("/api/admin/v2/reviews/responses/:id/moderate", moderateResponseV2);
+  app.post("/api/admin/v2/reviews/reports/:id/resolve", resolveReviewReportV2);
+  app.get("/api/admin/establishments/search", searchEstablishmentsByName);
   app.get("/api/admin/establishments", listEstablishments);
+  app.post("/api/admin/establishments/wizard", createEstablishmentWizard);
+  app.patch("/api/admin/establishments/wizard/:id", updateEstablishmentWizard);
   app.post("/api/admin/establishments", createEstablishment);
   app.get("/api/admin/establishments/:id", getEstablishment);
+  app.post("/api/admin/establishments/batch-status", batchUpdateEstablishmentStatus);
   app.post("/api/admin/establishments/:id/status", updateEstablishmentStatus);
   app.post("/api/admin/establishments/:id/flags", updateEstablishmentFlags);
   app.delete("/api/admin/establishments/:id", deleteEstablishment);
   app.get("/api/admin/establishments-duplicates", detectDuplicateEstablishments);
+
+  // Google rating sync cron
+  app.get("/api/admin/cron/sync-google-ratings", syncGoogleRatings);
 
   // PRO bank details (RIB) — Superadmin-only
   app.get(
@@ -1796,6 +2189,8 @@ export function createServer() {
     updateAdminEstablishmentReservation,
   );
   app.get("/api/admin/establishments/:id/offers", listAdminEstablishmentOffers);
+  app.put("/api/admin/establishments/:id/slots/upsert", adminUpsertSlots);
+  app.delete("/api/admin/establishments/:id/slots/:slotId", adminDeleteSlot);
   app.get(
     "/api/admin/establishments/:id/billing/packs",
     listAdminEstablishmentPackBilling,
@@ -2112,6 +2507,8 @@ export function createServer() {
   app.get("/api/pro/me/check-password-status", checkPasswordStatus);
   app.post("/api/pro/me/request-password-reset", requestPasswordReset);
   app.post("/api/pro/me/change-password", changePassword);
+  app.get("/api/pro/me/onboarding-wizard-progress", getOnboardingWizardProgress);
+  app.post("/api/pro/me/onboarding-wizard-progress", saveOnboardingWizardProgress);
 
   app.post("/api/pro/establishments", createProEstablishment);
   app.post("/api/pro/onboarding-request", createProOnboardingRequest);
@@ -2292,6 +2689,13 @@ export function createServer() {
   app.get("/api/pro/reviews/published", listProPublishedReviews);
   app.post("/api/pro/reviews/:id/respond", respondToReview);
   app.post("/api/pro/reviews/:id/public-response", addPublicResponse);
+
+  // Pro Reviews V2 (with rate limiting + sanitization on write routes)
+  app.get("/api/pro/v2/establishments/:eid/reviews", listProEstablishmentReviewsV2);
+  app.get("/api/pro/v2/establishments/:eid/reviews/stats", getProReviewStatsV2);
+  app.get("/api/pro/v2/establishments/:eid/reviews/:id", getProReviewDetailV2);
+  app.post("/api/pro/v2/establishments/:eid/reviews/:id/gesture", gestureProposalRateLimiter, sanitizeReviewBody, proposeGestureV2);
+  app.post("/api/pro/v2/establishments/:eid/reviews/:id/response", proResponseRateLimiter, sanitizeReviewBody, submitProResponseV2);
 
   app.post(
     "/api/pro/establishments/:establishmentId/slots/upsert",
@@ -2523,6 +2927,8 @@ export function createServer() {
     "/api/pro/establishments/:establishmentId/notifications/mark-all-read",
     markAllProNotificationsRead,
   );
+  app.get("/api/pro/notification-preferences", getProNotificationPreferences);
+  app.put("/api/pro/notification-preferences", updateProNotificationPreferences);
   app.get("/api/pro/establishments/:establishmentId/invoices", listProInvoices);
   app.get(
     "/api/pro/establishments/:establishmentId/invoices/:invoiceId/finance-invoice",
@@ -2637,38 +3043,65 @@ export function createServer() {
 
   app.get(
     "/api/pro/establishments/:establishmentId/conversations",
+    messageReadRateLimiter,
     listProConversations,
   );
   app.post(
     "/api/pro/establishments/:establishmentId/conversations/for-reservation",
+    messageSendRateLimiter,
     getOrCreateProConversationForReservation,
   );
   app.get(
     "/api/pro/establishments/:establishmentId/conversations/:conversationId/messages",
+    messageReadRateLimiter,
     listProConversationMessages,
   );
   app.post(
     "/api/pro/establishments/:establishmentId/conversations/:conversationId/messages",
+    messageSendRateLimiter,
     sendProConversationMessage,
   );
   app.post(
     "/api/pro/establishments/:establishmentId/conversations/:conversationId/mark-read",
+    messageReadRateLimiter,
     markProMessagesRead,
   );
+  app.post(
+    "/api/pro/establishments/:establishmentId/conversations/:conversationId/mark-unread",
+    messageReadRateLimiter,
+    markProConversationUnread,
+  );
+
+  // Message attachment upload
+  const messageAttachmentUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
+  });
+  app.post(
+    "/api/pro/establishments/:establishmentId/conversations/:conversationId/attachments",
+    messageAttachmentRateLimiter,
+    messageAttachmentUpload.single("file"),
+    uploadMessageAttachment,
+  );
+
   app.get(
     "/api/pro/establishments/:establishmentId/conversations/:conversationId/read-receipts",
+    messageReadRateLimiter,
     getProMessageReadReceipts,
   );
   app.get(
     "/api/pro/establishments/:establishmentId/clients/:clientUserId/history",
+    messageReadRateLimiter,
     listProClientHistory,
   );
   app.get(
     "/api/pro/establishments/:establishmentId/auto-reply",
+    messageReadRateLimiter,
     getProAutoReplySettings,
   );
   app.post(
     "/api/pro/establishments/:establishmentId/auto-reply",
+    messageSendRateLimiter,
     updateProAutoReplySettings,
   );
 
@@ -2700,6 +3133,20 @@ export function createServer() {
   app.post(
     "/api/pro/establishments/:establishmentId/activate-owner",
     activateProOwnerMembership,
+  );
+
+  // Permissions CRUD
+  app.get(
+    "/api/pro/establishments/:establishmentId/permissions",
+    getEstablishmentPermissions,
+  );
+  app.put(
+    "/api/pro/establishments/:establishmentId/permissions",
+    updateEstablishmentPermissions,
+  );
+  app.post(
+    "/api/pro/establishments/:establishmentId/permissions/reset",
+    resetEstablishmentPermissions,
   );
 
   app.get(
@@ -2778,11 +3225,18 @@ export function createServer() {
   // CONTACT FORMS (Formulaires de contact)
   // ==========================================================================
 
-  // Public routes (no auth)
-  app.get("/api/form/:slug", getPublicContactForm);
-  app.post("/api/form/:slug/submit", submitPublicContactForm);
+  // Public routes (no auth) — with rate limiting
+  app.get("/api/form/:slug", contactFormReadRateLimiter, getPublicContactForm);
+  app.post("/api/form/:slug/submit", contactFormSubmitRateLimiter, submitPublicContactForm);
   app.get("/api/public/countries-list", getPublicCountriesList);
   app.post("/api/public/claim-request", submitClaimRequest);
+
+  // Admin generic image upload (contact form hero/logo)
+  const contactFormImageUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 },
+  });
+  app.post("/api/admin/upload", contactFormImageUpload.single("file"), uploadAdminContactFormImage);
 
   // Admin routes
   app.get("/api/admin/contact-forms", listAdminContactForms);

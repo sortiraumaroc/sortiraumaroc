@@ -176,7 +176,7 @@ function MenuItemCard({ item }: { item: MenuItem }) {
         <div className="min-w-0">
           <div className="text-base sm:text-lg font-semibold text-slate-900 leading-snug">{item.name}</div>
         </div>
-        <div className="shrink-0 text-right">
+        <div className="shrink-0 text-end">
           <div className="text-base sm:text-lg font-semibold text-[#a3001d] tabular-nums whitespace-nowrap">{item.price}</div>
         </div>
       </div>
@@ -309,10 +309,10 @@ function PeoplePicker({ value, onChange, className }: { value: number; onChange:
 
   return (
     <div className={cn("relative w-full", className)}>
-      <Users className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 pointer-events-none" />
+      <Users className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 pointer-events-none" />
       <div
         className={cn(
-          "w-full h-10 md:h-11 pl-10 pr-2 bg-slate-100 border border-slate-200 rounded-md flex items-center justify-between",
+          "w-full h-10 md:h-11 ps-10 pe-2 bg-slate-100 border border-slate-200 rounded-md flex items-center justify-between",
           "focus-within:ring-2 focus-within:ring-primary",
         )}
       >
@@ -661,12 +661,12 @@ export function MenuSection({ establishmentId, categories, packs, legacyHours, c
 
   const searchBar = (
     <div className="relative">
-      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+      <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
       <input
         value={menuQuery}
         onChange={(e) => setMenuQuery(e.target.value)}
         placeholder={t("menu.search.placeholder")}
-        className="w-full h-10 md:h-11 pl-9 pr-3 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary text-sm font-[Circular_Std,_sans-serif]"
+        className="w-full h-10 md:h-11 ps-9 pe-3 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary text-sm font-[Circular_Std,_sans-serif]"
         type="search"
       />
     </div>
@@ -795,7 +795,7 @@ export function MenuSection({ establishmentId, categories, packs, legacyHours, c
                     type="button"
                     onClick={() => scrollToCategory(item.id)}
                     className={cn(
-                      "w-full text-left rounded-xl px-4 py-3 text-sm font-semibold border transition",
+                      "w-full text-start rounded-xl px-4 py-3 text-sm font-semibold border transition",
                       active
                         ? "bg-[#a3001d] text-white border-[#a3001d]"
                         : "bg-white text-slate-800 border-slate-200 hover:bg-slate-50",

@@ -101,7 +101,7 @@ export function NavigationResumeToast() {
 
   return (
     <div
-      className={`fixed bottom-20 left-4 right-4 md:left-auto md:right-6 md:bottom-6 md:max-w-md z-50 transition-all duration-300 ${
+      className={`fixed bottom-20 left-4 right-4 md:start-auto md:end-6 md:bottom-6 md:max-w-md z-50 transition-all duration-300 ${
         isExiting ? "opacity-0 translate-y-4" : "opacity-100 translate-y-0"
       }`}
     >

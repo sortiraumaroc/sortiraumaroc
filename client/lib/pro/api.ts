@@ -795,10 +795,13 @@ export async function upsertProSlots(args: {
 
   const payload = await res.json().catch(() => null);
   if (!res.ok) {
+    // Prefer human-readable "message" field over error code
     const msg =
-      isRecord(payload) && typeof payload.error === "string"
-        ? payload.error
-        : `HTTP ${res.status}`;
+      isRecord(payload) && typeof payload.message === "string"
+        ? payload.message
+        : isRecord(payload) && typeof payload.error === "string"
+          ? payload.error
+          : `HTTP ${res.status}`;
     if (res.status === 401 && isStaleProAuthError(msg)) {
       await resetProAuth();
       throw new Error("Session Pro expirée. Veuillez vous reconnecter.");
@@ -1582,6 +1585,11 @@ export async function getProDashboardMetrics(args: {
     reservations: unknown[];
     visits: unknown[];
     packPurchases: unknown[];
+    noShowCount?: number;
+    reviewCount?: number;
+    avgRating?: number;
+    newClientsCount?: number;
+    returningClientsCount?: number;
   };
 }
 
@@ -2688,6 +2696,115 @@ export async function resetProTeamMemberPassword(args: {
   return payload as { ok: true };
 }
 
+// =============================================================================
+// Permissions
+// =============================================================================
+
+import type { PermissionMatrix } from "../../../shared/permissionTypes";
+
+export async function getEstablishmentPermissions(
+  establishmentId: string,
+): Promise<PermissionMatrix> {
+  const token = await requireProAccessToken();
+
+  const res = await fetch(
+    apiUrl(
+      `/api/pro/establishments/${encodeURIComponent(establishmentId)}/permissions`,
+    ),
+    {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    },
+  );
+
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg =
+      isRecord(payload) && typeof payload.error === "string"
+        ? payload.error
+        : `HTTP ${res.status}`;
+    if (res.status === 401 && isStaleProAuthError(msg)) {
+      await resetProAuth();
+      throw new Error("Session Pro expirée. Veuillez vous reconnecter.");
+    }
+    throw new Error(msg);
+  }
+
+  return (payload as { permissions: PermissionMatrix }).permissions;
+}
+
+export async function updateEstablishmentPermissions(args: {
+  establishmentId: string;
+  role: string;
+  permissions: Record<string, boolean>;
+}): Promise<PermissionMatrix> {
+  const token = await requireProAccessToken();
+
+  const res = await fetch(
+    apiUrl(
+      `/api/pro/establishments/${encodeURIComponent(args.establishmentId)}/permissions`,
+    ),
+    {
+      method: "PUT",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ role: args.role, permissions: args.permissions }),
+    },
+  );
+
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg =
+      isRecord(payload) && typeof payload.error === "string"
+        ? payload.error
+        : `HTTP ${res.status}`;
+    if (res.status === 401 && isStaleProAuthError(msg)) {
+      await resetProAuth();
+      throw new Error("Session Pro expirée. Veuillez vous reconnecter.");
+    }
+    throw new Error(msg);
+  }
+
+  return (payload as { permissions: PermissionMatrix }).permissions;
+}
+
+export async function resetEstablishmentPermissions(
+  establishmentId: string,
+): Promise<PermissionMatrix> {
+  const token = await requireProAccessToken();
+
+  const res = await fetch(
+    apiUrl(
+      `/api/pro/establishments/${encodeURIComponent(establishmentId)}/permissions/reset`,
+    ),
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    },
+  );
+
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg =
+      isRecord(payload) && typeof payload.error === "string"
+        ? payload.error
+        : `HTTP ${res.status}`;
+    if (res.status === 401 && isStaleProAuthError(msg)) {
+      await resetProAuth();
+      throw new Error("Session Pro expirée. Veuillez vous reconnecter.");
+    }
+    throw new Error(msg);
+  }
+
+  return (payload as { permissions: PermissionMatrix }).permissions;
+}
+
 export async function listProCampaigns(
   establishmentId: string,
 ): Promise<ProCampaign[]> {
@@ -3266,6 +3383,87 @@ export async function getProMessageReadReceipts(args: {
   }
 
   return payload as { ok: true; messages: ProMessageReadReceipt[] };
+}
+
+// ---------------------------------------------------------------------------
+// Mark Conversation as Unread
+// ---------------------------------------------------------------------------
+
+export async function markProMessagesUnread(args: {
+  establishmentId: string;
+  conversationId: string;
+}): Promise<{ ok: true }> {
+  const token = await requireProAccessToken();
+
+  const res = await fetch(
+    `/api/pro/establishments/${encodeURIComponent(args.establishmentId)}/conversations/${encodeURIComponent(args.conversationId)}/mark-unread`,
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+    },
+  );
+
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg =
+      isRecord(payload) && typeof payload.error === "string"
+        ? payload.error
+        : `HTTP ${res.status}`;
+    if (res.status === 401 && isStaleProAuthError(msg)) {
+      await resetProAuth();
+      throw new Error("Session Pro expirée. Veuillez vous reconnecter.");
+    }
+    throw new Error(msg);
+  }
+
+  return payload as { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Message Attachment Upload
+// ---------------------------------------------------------------------------
+
+export type MessageAttachment = {
+  url: string | null;
+  path: string;
+  name: string;
+  size: number;
+  type: string;
+};
+
+export async function uploadMessageAttachment(args: {
+  establishmentId: string;
+  conversationId: string;
+  file: File;
+}): Promise<{ ok: true; attachment: MessageAttachment }> {
+  const token = await requireProAccessToken();
+
+  const formData = new FormData();
+  formData.append("file", args.file);
+
+  const res = await fetch(
+    `/api/pro/establishments/${encodeURIComponent(args.establishmentId)}/conversations/${encodeURIComponent(args.conversationId)}/attachments`,
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+      body: formData,
+    },
+  );
+
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg =
+      isRecord(payload) && typeof payload.error === "string"
+        ? payload.error
+        : `HTTP ${res.status}`;
+    if (res.status === 401 && isStaleProAuthError(msg)) {
+      await resetProAuth();
+      throw new Error("Session Pro expirée. Veuillez vous reconnecter.");
+    }
+    throw new Error(msg);
+  }
+
+  return payload as { ok: true; attachment: MessageAttachment };
 }
 
 // ---------------------------------------------------------------------------
@@ -5019,6 +5217,45 @@ export async function changeProPassword(args: {
 }
 
 // ---------------------------------------------------------------------------
+// Pro Onboarding Wizard
+// ---------------------------------------------------------------------------
+
+export async function getOnboardingWizardProgress(): Promise<{
+  progress: import("./types").OnboardingWizardProgress | null;
+}> {
+  const {
+    data: { session },
+  } = await proSupabase.auth.getSession();
+  if (!session?.access_token) throw new Error("Not authenticated");
+
+  const res = await fetch("/api/pro/me/onboarding-wizard-progress", {
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  });
+  if (!res.ok) throw new Error("Failed to fetch wizard progress");
+  return res.json();
+}
+
+export async function saveOnboardingWizardProgress(
+  progress: import("./types").OnboardingWizardProgress,
+): Promise<{ ok: boolean }> {
+  const {
+    data: { session },
+  } = await proSupabase.auth.getSession();
+  if (!session?.access_token) throw new Error("Not authenticated");
+
+  const res = await fetch("/api/pro/me/onboarding-wizard-progress", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ progress }),
+  });
+  if (!res.ok) throw new Error("Failed to save wizard progress");
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
 // Pro Reviews Management
 // ---------------------------------------------------------------------------
 
@@ -5980,4 +6217,114 @@ export async function cancelUsernameSubscription(
     message: payload.message ?? "Abonnement annule",
     subscription: payload.subscription,
   };
+}
+
+// ============================================
+// REVIEWS V2 — Pro API
+// ============================================
+
+export interface ProReviewV2 {
+  id: string;
+  user_id: string;
+  user_name: string;
+  rating_welcome: number;
+  rating_quality: number;
+  rating_value: number;
+  rating_ambiance: number;
+  rating_hygiene: number | null;
+  rating_organization: number | null;
+  rating_overall: number;
+  comment: string;
+  would_recommend: boolean | null;
+  photos: string[];
+  status: string;
+  commercial_gesture_status: string;
+  gesture_deadline: string | null;
+  client_gesture_deadline: string | null;
+  gesture_mention: boolean;
+  published_at: string | null;
+  created_at: string;
+  pro_response: { id: string; content: string; status: string; published_at: string | null } | null;
+  gesture: { id: string; message: string; status: string; discount_percent: number } | null;
+  votes: { useful_count: number; not_useful_count: number };
+}
+
+export interface ProReviewStatsV2 {
+  total_reviews: number;
+  avg_overall: number;
+  pending_gesture: number;
+  published: number;
+  response_rate: number;
+}
+
+export async function listProReviewsV2(
+  establishmentId: string,
+  filters?: {
+    status?: string;
+    sort_by?: string;
+    sort_order?: string;
+    page?: number;
+    limit?: number;
+  },
+): Promise<{ ok: true; items: ProReviewV2[]; total: number }> {
+  const qs = new URLSearchParams();
+  if (filters?.status && filters.status !== "all") qs.set("status", filters.status);
+  if (filters?.sort_by) qs.set("sort_by", filters.sort_by);
+  if (filters?.sort_order) qs.set("sort_order", filters.sort_order);
+  if (filters?.page) qs.set("page", String(filters.page));
+  if (filters?.limit) qs.set("limit", String(filters.limit));
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return proApiFetch(
+    `/api/pro/v2/establishments/${encodeURIComponent(establishmentId)}/reviews${suffix}`,
+  );
+}
+
+export async function getProReviewDetailV2(
+  establishmentId: string,
+  reviewId: string,
+): Promise<{ ok: true; review: ProReviewV2 }> {
+  return proApiFetch(
+    `/api/pro/v2/establishments/${encodeURIComponent(establishmentId)}/reviews/${encodeURIComponent(reviewId)}`,
+  );
+}
+
+export async function proposeGestureV2(
+  establishmentId: string,
+  data: {
+    review_id: string;
+    message: string;
+    discount_bps: number;
+    promo_code?: string;
+    starts_at?: string | null;
+    ends_at?: string | null;
+  },
+): Promise<{ ok: true; gesture_id: string }> {
+  return proApiFetch(
+    `/api/pro/v2/establishments/${encodeURIComponent(establishmentId)}/reviews/gesture`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+  );
+}
+
+export async function submitProResponseV2(
+  establishmentId: string,
+  data: { review_id: string; content: string },
+): Promise<{ ok: true; response_id: string }> {
+  return proApiFetch(
+    `/api/pro/v2/establishments/${encodeURIComponent(establishmentId)}/reviews/response`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+  );
+}
+
+export async function getProReviewStatsV2(
+  establishmentId: string,
+): Promise<{ ok: true; stats: ProReviewStatsV2 }> {
+  return proApiFetch(
+    `/api/pro/v2/establishments/${encodeURIComponent(establishmentId)}/reviews/stats`,
+  );
 }

@@ -154,6 +154,7 @@ export function SignupPhoneScreen({
       const res = await fetch("/api/consumer/auth/phone/verify-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include", // Allow trust cookie to be set
         body: JSON.stringify({
           phoneNumber: e164Phone,
           code: verificationCode.trim(),
@@ -209,7 +210,7 @@ export function SignupPhoneScreen({
         <button
           type="button"
           onClick={step === "phone" ? onBack : () => setStep("phone")}
-          className="p-1.5 -ml-1.5 rounded-full hover:bg-slate-100 transition-colors"
+          className="p-1.5 -ms-1.5 rounded-full hover:bg-slate-100 transition-colors"
           aria-label="Retour"
           disabled={isLoading}
         >
@@ -275,7 +276,7 @@ export function SignupPhoneScreen({
           <div className="space-y-1.5">
             <Label htmlFor="signup-phone-referral" className="text-sm font-medium text-slate-900">
               Code parrain
-              <span className="text-slate-400 font-normal ml-1">
+              <span className="text-slate-400 font-normal ms-1">
                 (optionnel)
               </span>
             </Label>
@@ -289,19 +290,19 @@ export function SignupPhoneScreen({
                 disabled={isLoading}
                 className={cn(
                   "h-10 rounded-lg text-sm uppercase",
-                  referralStatus.valid === true && "border-green-500 pr-10",
-                  referralStatus.valid === false && "border-red-500 pr-10"
+                  referralStatus.valid === true && "border-green-500 pe-10",
+                  referralStatus.valid === false && "border-red-500 pe-10"
                 )}
                 maxLength={20}
               />
               {referralStatus.checking && (
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 animate-spin">⏳</span>
+                <span className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 animate-spin">⏳</span>
               )}
               {!referralStatus.checking && referralStatus.valid === true && (
-                <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
+                <CheckCircle2 className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
               )}
               {!referralStatus.checking && referralStatus.valid === false && (
-                <XCircle className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-red-500" />
+                <XCircle className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-red-500" />
               )}
             </div>
             {referralStatus.valid && referralStatus.partnerName && (

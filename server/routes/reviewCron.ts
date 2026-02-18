@@ -200,8 +200,10 @@ export async function cronAutoPublishReviews(req: Request, res: Response) {
         type: "review_auto_published",
         title: "Avis auto-publié",
         body: `Un avis (${review.overall_rating}/5) a été auto-publié après 24h sans réponse du pro.`,
-        category: "reviews",
-        link: `/admin/reviews?id=${review.id}`,
+        data: {
+          category: "reviews",
+          link: `/admin/reviews?id=${review.id}`,
+        },
       });
 
       autoPublished++;

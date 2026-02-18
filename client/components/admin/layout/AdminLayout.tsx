@@ -3,11 +3,18 @@ import { useEffect, type ReactNode } from "react";
 import { AdminSidebar } from "@/components/admin/layout/AdminSidebar";
 import { AdminTopbar } from "@/components/admin/layout/AdminTopbar";
 import { cleanupStaleRadixScrollLock } from "@/lib/radixScrollLockCleanup";
+import { startTracking, stopTracking } from "@/lib/adminActivityTracker";
 
 export function AdminLayout(props: { children: ReactNode; onSignOut: () => void }) {
   // Cleanup any stale dialog overlays on initial mount
   useEffect(() => {
     cleanupStaleRadixScrollLock();
+  }, []);
+
+  // Track admin activity (heartbeats every 30s while user is active)
+  useEffect(() => {
+    startTracking();
+    return () => stopTracking();
   }, []);
 
   return (

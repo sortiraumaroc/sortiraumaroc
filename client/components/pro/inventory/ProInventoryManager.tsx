@@ -80,12 +80,45 @@ function flattenTree(nodes: CategoryNode[], depth = 0): Array<{ node: CategoryNo
   return out;
 }
 
-function universeTitle(est: Establishment): string {
+/** Labels adaptés à l'univers de l'établissement */
+export function universeTitle(est: Establishment): string {
   const u = (est.universe ?? "").toLowerCase();
   if (u === "restaurant") return "Menu";
   if (u === "hebergement") return "Hébergements";
   if (u === "loisir" || u === "sport" || u === "culture") return "Prestations";
-  return "Inventaire";
+  if (u === "beaute" || u === "bien-etre" || u === "sante") return "Soins & Prestations";
+  if (u === "rentacar" || u === "location") return "Flotte de véhicules";
+  return "Produits & Services";
+}
+
+export function universeSectionTitle(est: Establishment): string {
+  const u = (est.universe ?? "").toLowerCase();
+  if (u === "restaurant") return "Plats & Boissons";
+  if (u === "hebergement") return "Chambres & Formules";
+  if (u === "loisir" || u === "sport" || u === "culture") return "Activités & Prestations";
+  if (u === "beaute" || u === "bien-etre" || u === "sante") return "Soins & Prestations";
+  if (u === "rentacar" || u === "location") return "Véhicules & Tarifs";
+  return "Produits & Services";
+}
+
+export function universeDescription(est: Establishment): string {
+  const u = (est.universe ?? "").toLowerCase();
+  if (u === "restaurant") return "Catégories, plats, boissons, disponibilité et popularité.";
+  if (u === "hebergement") return "Catégories, chambres, formules, disponibilité et tarifs.";
+  if (u === "loisir" || u === "sport" || u === "culture") return "Catégories, activités, prestations, disponibilité et tarifs.";
+  if (u === "beaute" || u === "bien-etre" || u === "sante") return "Catégories, soins, prestations, disponibilité et tarifs.";
+  if (u === "rentacar" || u === "location") return "Catégories, véhicules, tarifs et disponibilité.";
+  return "Catégories, produits, services, disponibilité et tarifs.";
+}
+
+export function universeSidebarLabel(est: { universe?: string | null } | null): string {
+  const u = (est?.universe ?? "").toLowerCase();
+  if (u === "restaurant") return "Menu";
+  if (u === "hebergement") return "Hébergements";
+  if (u === "loisir" || u === "sport" || u === "culture") return "Prestations";
+  if (u === "beaute" || u === "bien-etre" || u === "sante") return "Soins";
+  if (u === "rentacar" || u === "location") return "Flotte";
+  return "Produits & Services";
 }
 
 function itemPriceLabel(item: ProInventoryItem) {
@@ -107,6 +140,7 @@ function itemStatusBadge(item: ProInventoryItem) {
 }
 
 export function ProInventoryManager({ establishment, role }: Props) {
+  const isRentacar = (establishment.universe ?? "").toLowerCase() === "rentacar";
   const [categories, setCategories] = useState<ProInventoryCategory[]>([]);
   const [items, setItems] = useState<ProInventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -301,7 +335,7 @@ export function ProInventoryManager({ establishment, role }: Props) {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <div className="text-lg font-extrabold text-slate-900">{universeTitle(establishment)}</div>
-          <div className="text-sm text-slate-600">Catégories, produits/services, disponibilité et popularité.</div>
+          <div className="text-sm text-slate-600">{universeDescription(establishment)}</div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -340,7 +374,7 @@ export function ProInventoryManager({ establishment, role }: Props) {
           <span className="text-sm text-slate-600">Mode réorganisation</span>
           <Switch checked={sortMode} onCheckedChange={setSortMode} />
           {sortMode && (
-            <span className="text-xs text-slate-500">Glissez les produits pour les réordonner</span>
+            <span className="text-xs text-slate-500">{isRentacar ? "Glissez les véhicules pour les réordonner" : "Glissez les produits pour les réordonner"}</span>
           )}
         </div>
       )}
@@ -355,12 +389,10 @@ export function ProInventoryManager({ establishment, role }: Props) {
           <CardHeader>
             <SectionHeader
               title="Catégories"
-              description="Organisez vos offres (catégories + sous-catégories)"
               icon={Tag}
               actions={
-                <Button type="button" variant="outline" className="gap-2" disabled={!canEdit} onClick={() => openCreateCategory(null)}>
+                <Button type="button" variant="outline" size="icon" disabled={!canEdit} onClick={() => openCreateCategory(null)}>
                   <Plus className="w-4 h-4" />
-                  Catégorie
                 </Button>
               }
             />
@@ -370,24 +402,26 @@ export function ProInventoryManager({ establishment, role }: Props) {
               type="button"
               onClick={() => setSelectedCategory("all")}
               className={
-                "w-full rounded-md border px-3 py-2 text-sm font-semibold text-left flex items-center justify-between " +
+                "w-full rounded-md border px-3 py-2 text-sm font-semibold text-start flex items-center justify-between " +
                 (selectedCategory === "all" ? "bg-primary text-white border-primary" : "bg-white border-slate-200 hover:bg-slate-50")
               }
             >
               <span>Toutes</span>
               <span className={"text-xs tabular-nums " + (selectedCategory === "all" ? "text-white/90" : "text-slate-500")}>{countsByCategory.total}</span>
             </button>
-            <button
-              type="button"
-              onClick={() => setSelectedCategory("none")}
-              className={
-                "w-full rounded-md border px-3 py-2 text-sm font-semibold text-left flex items-center justify-between " +
-                (selectedCategory === "none" ? "bg-primary text-white border-primary" : "bg-white border-slate-200 hover:bg-slate-50")
-              }
-            >
-              <span>Sans catégorie</span>
-              <span className={"text-xs tabular-nums " + (selectedCategory === "none" ? "text-white/90" : "text-slate-500")}>{countsByCategory.none}</span>
-            </button>
+            {flat.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelectedCategory("none")}
+                className={
+                  "w-full rounded-md border px-3 py-2 text-sm font-semibold text-start flex items-center justify-between " +
+                  (selectedCategory === "none" ? "bg-primary text-white border-primary" : "bg-white border-slate-200 hover:bg-slate-50")
+                }
+              >
+                <span>Sans catégorie</span>
+                <span className={"text-xs tabular-nums " + (selectedCategory === "none" ? "text-white/90" : "text-slate-500")}>{countsByCategory.none}</span>
+              </button>
+            )}
 
             <div className="pt-2 space-y-1">
               {flat.length ? (
@@ -400,7 +434,7 @@ export function ProInventoryManager({ establishment, role }: Props) {
                         type="button"
                         onClick={() => setSelectedCategory(node.id)}
                         className={
-                          "flex-1 rounded-md border px-3 py-2 text-sm font-semibold text-left flex items-center justify-between " +
+                          "flex-1 rounded-md border px-3 py-2 text-sm font-semibold text-start flex items-center justify-between " +
                           (isSelected ? "bg-primary text-white border-primary" : "bg-white border-slate-200 hover:bg-slate-50")
                         }
                       >
@@ -424,7 +458,7 @@ export function ProInventoryManager({ establishment, role }: Props) {
                           <AlertDialogHeader>
                             <AlertDialogTitle>Supprimer la catégorie ?</AlertDialogTitle>
                             <AlertDialogDescription>
-                              Les sous-catégories seront supprimées. Les produits/services resteront mais passeront en "Sans catégorie".
+                              Les sous-catégories seront supprimées. Les éléments resteront mais passeront en "Sans catégorie".
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
@@ -437,7 +471,7 @@ export function ProInventoryManager({ establishment, role }: Props) {
                   );
                 })
               ) : (
-                <div className="text-sm text-slate-600">Aucune catégorie.</div>
+                <p className="text-xs text-slate-500">Créez votre première catégorie avec le bouton ci-dessus.</p>
               )}
             </div>
           </CardContent>
@@ -446,8 +480,8 @@ export function ProInventoryManager({ establishment, role }: Props) {
         <Card className="lg:col-span-8">
           <CardHeader>
             <SectionHeader
-              title="Produits / Services"
-              description="Créez, mettez à jour, rendez visible/grisé, programmez une réactivation."
+              title={universeSectionTitle(establishment)}
+              description={isRentacar ? "Ajoutez vos véhicules, gérez la disponibilité et les tarifs." : "Créez, mettez à jour, rendez visible/grisé, programmez une réactivation."}
               actions={
                 <Badge variant="secondary" className="font-bold">
                   {selectedItems.length}
@@ -510,7 +544,7 @@ export function ProInventoryManager({ establishment, role }: Props) {
                               <Button type="button" variant="outline" size="icon" onClick={() => void thumbItem(it.id)} title="Pouce vert">
                                 <Leaf className="w-4 h-4 text-emerald-600" />
                               </Button>
-                              <div className="text-xs tabular-nums text-slate-600 w-10 text-right">{it.popularity ?? 0}</div>
+                              <div className="text-xs tabular-nums text-slate-600 w-10 text-end">{it.popularity ?? 0}</div>
 
                               <Button type="button" variant="outline" size="icon" disabled={!canEdit} onClick={() => openEditItem(it)}>
                                 <Edit3 className="w-4 h-4" />
@@ -524,7 +558,7 @@ export function ProInventoryManager({ establishment, role }: Props) {
                                 </AlertDialogTrigger>
                                 <AlertDialogContent>
                                   <AlertDialogHeader>
-                                    <AlertDialogTitle>Supprimer cette offre ?</AlertDialogTitle>
+                                    <AlertDialogTitle>{isRentacar ? "Supprimer ce véhicule ?" : "Supprimer cette offre ?"}</AlertDialogTitle>
                                     <AlertDialogDescription>Suppression définitive (variantes incluses).</AlertDialogDescription>
                                   </AlertDialogHeader>
                                   <AlertDialogFooter>
@@ -558,7 +592,7 @@ export function ProInventoryManager({ establishment, role }: Props) {
                 </div>
               )
             ) : (
-              <div className="text-sm text-slate-600">Aucun produit/service dans cette catégorie.</div>
+              <div className="text-sm text-slate-600">{isRentacar ? "Aucun véhicule dans cette catégorie." : "Aucun élément dans cette catégorie."}</div>
             )}
           </CardContent>
         </Card>
@@ -594,6 +628,7 @@ export function ProInventoryManager({ establishment, role }: Props) {
         items={items}
         canWrite={canEdit}
         onImportComplete={() => void load()}
+        itemLabel={universeSectionTitle(establishment)}
       />
 
       <CustomLabelsManager

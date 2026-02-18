@@ -10,6 +10,9 @@
 import type { Router, RequestHandler } from "express";
 import { randomUUID } from "node:crypto";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { notifyProMembers } from "../proNotifications";
+import { emitAdminNotification } from "../adminNotifications";
+import { createLacaissePaySessionInternal, buildLacaissePayCheckoutUrlServer } from "./lacaissepay";
 import {
   type AdCampaign,
   type AdCampaignTargeting,
@@ -309,9 +312,6 @@ export const initiateWalletRecharge: RequestHandler = async (req, res) => {
       declineUrl,
       notificationUrl,
     };
-
-    // Appeler l'endpoint interne de création de session LaCaissePay
-    const { createLacaissePaySessionInternal, buildLacaissePayCheckoutUrlServer } = await import("./lacaissepay");
 
     const session = await createLacaissePaySessionInternal({
       ...sessionPayload,
@@ -840,7 +840,17 @@ export const submitCampaign: RequestHandler = async (req, res) => {
       new_status: "pending_review",
     });
 
-    // TODO: Notifier les admins
+    // Notifier les admins qu'une campagne attend modération
+    void (async () => {
+      try {
+        emitAdminNotification({
+          type: "ad_campaign_submitted",
+          title: "Nouvelle campagne publicitaire à modérer",
+          body: `${updated.title} (${updated.type}) — ${(updated.budget_cents / 100).toFixed(0)} MAD`,
+          data: { campaign_id: campaignId, establishment_id: establishmentId },
+        });
+      } catch { /* best-effort */ }
+    })();
 
     return res.json({ ok: true, campaign: updated });
   } catch (error) {
@@ -1282,7 +1292,22 @@ export const reserveHomeTakeoverDay: RequestHandler = async (req, res) => {
             error: `Une enchère de ${(currentBid / 100).toFixed(2)} MAD existe déjà. Votre enchère doit être supérieure.`,
           });
         }
-        // TODO: Notifier l'ancien enchérisseur qu'il a été surenchéri
+        // Notifier l'ancien enchérisseur qu'il a été surenchéri
+        void (async () => {
+          try {
+            const prevEstId = (existingEntry as any).establishment_id;
+            if (prevEstId && prevEstId !== establishmentId) {
+              await notifyProMembers({
+                supabase,
+                establishmentId: prevEstId,
+                category: "ad",
+                title: "Home Takeover : enchère dépassée",
+                body: `Votre enchère pour le ${(existingEntry as any).date} a été dépassée. Vous pouvez surenchérir.`,
+                data: { date: (existingEntry as any).date },
+              });
+            }
+          } catch { /* best-effort */ }
+        })();
       }
     }
 

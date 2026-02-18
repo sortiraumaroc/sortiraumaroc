@@ -280,7 +280,7 @@ export function AdminContactInfoCard({ establishmentId }: Props) {
               <RefreshCw className="w-3.5 h-3.5" />
             </Button>
             <Button size="sm" onClick={handleSave} disabled={saving}>
-              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Save className="w-3.5 h-3.5 mr-1" />}
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin me-1" /> : <Save className="w-3.5 h-3.5 me-1" />}
               Enregistrer
             </Button>
           </div>
@@ -375,7 +375,7 @@ export function AdminContactInfoCard({ establishmentId }: Props) {
               <Label className="text-xs flex items-center gap-1 font-semibold">
                 <Mail className="w-3 h-3" />
                 Email (Réservation)
-                {!email && <span className="text-red-600 text-[10px] font-normal ml-1">REQUIS</span>}
+                {!email && <span className="text-red-600 text-[10px] font-normal ms-1">REQUIS</span>}
               </Label>
               <Input
                 type="email"

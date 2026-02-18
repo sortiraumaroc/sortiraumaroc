@@ -82,6 +82,11 @@ const STATUT_CONFIG: Record<
   PrestataireStatut,
   { label: string; icon: React.ReactNode; className: string }
 > = {
+  DEMANDE: {
+    label: "Demande",
+    icon: <Clock className="h-3 w-3" />,
+    className: "bg-blue-100 text-blue-700 border-blue-200",
+  },
   BROUILLON: {
     label: "Brouillon",
     icon: <Edit className="h-3 w-3" />,
@@ -146,12 +151,11 @@ const DEMANDE_STATUT_CONFIG: Record<
 };
 
 const TYPE_LABELS: Record<PrestataireType, string> = {
+  personne_physique: "Personne physique",
   auto_entrepreneur: "Auto-entrepreneur",
-  entreprise_individuelle: "Entreprise individuelle",
   sarl: "SARL",
   sa: "SA",
   sas: "SAS",
-  association: "Association",
   autre: "Autre",
 };
 
@@ -965,7 +969,7 @@ export function AdminPrestatairesPage() {
                   )
                 }
               >
-                <Check className="h-4 w-4 mr-1" />
+                <Check className="h-4 w-4 me-1" />
                 Convertir
               </Button>
               <Button
@@ -976,7 +980,7 @@ export function AdminPrestatairesPage() {
                   openProcessDialog(row.original.id, "refuse", row.original.nom)
                 }
               >
-                <XCircle className="h-4 w-4 mr-1" />
+                <XCircle className="h-4 w-4 me-1" />
                 Refuser
               </Button>
             </div>
@@ -1047,25 +1051,25 @@ export function AdminPrestatairesPage() {
           title="Validés"
           value={dashboard?.par_statut?.VALIDE ?? 0}
           icon={CheckCircle2}
-          className="border-l-4 border-l-emerald-500"
+          className="border-s-4 border-s-emerald-500"
         />
         <StatCard
           title="En validation"
           value={dashboard?.par_statut?.EN_VALIDATION ?? 0}
           icon={Clock}
-          className="border-l-4 border-l-amber-500"
+          className="border-s-4 border-s-amber-500"
         />
         <StatCard
           title="À risque"
           value={dashboard?.a_risque ?? 0}
           icon={AlertTriangle}
-          className="border-l-4 border-l-rose-500"
+          className="border-s-4 border-s-rose-500"
         />
         <StatCard
           title="Demandes en attente"
           value={dashboard?.demandes_en_attente ?? 0}
           icon={Briefcase}
-          className="border-l-4 border-l-blue-500"
+          className="border-s-4 border-s-blue-500"
         />
       </div>
 
@@ -1076,16 +1080,16 @@ export function AdminPrestatairesPage() {
             <div className="flex items-center justify-between">
               <TabsList>
                 <TabsTrigger value="liste">
-                  <Building className="h-4 w-4 mr-2" />
+                  <Building className="h-4 w-4 me-2" />
                   Prestataires ({items.length})
                 </TabsTrigger>
                 <TabsTrigger value="demandes">
-                  <Briefcase className="h-4 w-4 mr-2" />
+                  <Briefcase className="h-4 w-4 me-2" />
                   Demandes (
                   {demandes.filter((d) => d.statut === "NOUVELLE").length})
                 </TabsTrigger>
                 <TabsTrigger value="audit">
-                  <FileText className="h-4 w-4 mr-2" />
+                  <FileText className="h-4 w-4 me-2" />
                   Journal d'audit
                 </TabsTrigger>
               </TabsList>
@@ -1190,7 +1194,7 @@ export function AdminPrestatairesPage() {
                       className="text-emerald-600 border-emerald-200"
                       onClick={() => openBatchDialog("validate")}
                     >
-                      <ShieldCheck className="h-4 w-4 mr-1" />
+                      <ShieldCheck className="h-4 w-4 me-1" />
                       Valider
                     </Button>
                     <Button
@@ -1199,7 +1203,7 @@ export function AdminPrestatairesPage() {
                       className="text-rose-600 border-rose-200"
                       onClick={() => openBatchDialog("block")}
                     >
-                      <Ban className="h-4 w-4 mr-1" />
+                      <Ban className="h-4 w-4 me-1" />
                       Bloquer
                     </Button>
                     <Button
@@ -1207,7 +1211,7 @@ export function AdminPrestatairesPage() {
                       variant="outline"
                       onClick={() => openBatchDialog("archive")}
                     >
-                      <Archive className="h-4 w-4 mr-1" />
+                      <Archive className="h-4 w-4 me-1" />
                       Archiver
                     </Button>
                     <Button
@@ -1224,8 +1228,7 @@ export function AdminPrestatairesPage() {
               <AdminDataTable
                 columns={prestataireColumns}
                 data={items}
-                loading={loading}
-                emptyMessage="Aucun prestataire trouvé."
+                isLoading={loading}
               />
             </TabsContent>
 
@@ -1257,8 +1260,7 @@ export function AdminPrestatairesPage() {
               <AdminDataTable
                 columns={demandeColumns}
                 data={demandes}
-                loading={demandesLoading}
-                emptyMessage="Aucune demande trouvée."
+                isLoading={demandesLoading}
               />
             </TabsContent>
 
@@ -1266,8 +1268,7 @@ export function AdminPrestatairesPage() {
               <AdminDataTable
                 columns={auditColumns}
                 data={auditLogs}
-                loading={auditLoading}
-                emptyMessage="Aucun log d'audit."
+                isLoading={auditLoading}
               />
             </TabsContent>
           </Tabs>
@@ -1420,7 +1421,7 @@ export function AdminPrestatairesPage() {
             </Button>
             <Button onClick={handleCreate} disabled={creating}>
               {creating ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                <Loader2 className="h-4 w-4 animate-spin me-2" />
               ) : null}
               Créer le prestataire
             </Button>
@@ -1474,7 +1475,7 @@ export function AdminPrestatairesPage() {
                             )
                           }
                         >
-                          <ShieldCheck className="h-4 w-4 mr-2" />
+                          <ShieldCheck className="h-4 w-4 me-2" />
                           Valider
                         </Button>
                       )}
@@ -1487,7 +1488,7 @@ export function AdminPrestatairesPage() {
                             openStatusDialog(selectedPrestataire!.id, "block")
                           }
                         >
-                          <Ban className="h-4 w-4 mr-2" />
+                          <Ban className="h-4 w-4 me-2" />
                           Bloquer
                         </Button>
                       )}
@@ -1948,7 +1949,7 @@ export function AdminPrestatairesPage() {
             </Button>
             <Button onClick={handleSave} disabled={saving || detailLoading}>
               {saving ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                <Loader2 className="h-4 w-4 animate-spin me-2" />
               ) : null}
               Enregistrer
             </Button>
@@ -2006,7 +2007,7 @@ export function AdminPrestatairesPage() {
               }
             >
               {statusChanging ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                <Loader2 className="h-4 w-4 animate-spin me-2" />
               ) : null}
               Confirmer
             </Button>
@@ -2060,7 +2061,7 @@ export function AdminPrestatairesPage() {
               }
             >
               {processing ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                <Loader2 className="h-4 w-4 animate-spin me-2" />
               ) : null}
               {processAction?.action === "convert" ? "Convertir" : "Refuser"}
             </Button>
@@ -2116,7 +2117,7 @@ export function AdminPrestatairesPage() {
               }
             >
               {batchProcessing ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                <Loader2 className="h-4 w-4 animate-spin me-2" />
               ) : null}
               Confirmer ({selectedIds.size})
             </Button>

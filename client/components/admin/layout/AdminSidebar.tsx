@@ -64,6 +64,9 @@ export function AdminSidebar(props: { onNavigate?: () => void }) {
           <ul className="space-y-1">
             {filteredNav.map((item) => {
               if (item.type === "link") {
+                const extraActive = item.matchPaths?.some(
+                  (p) => location.pathname === p || location.pathname.startsWith(`${p}/`),
+                );
                 return (
                   <li key={item.to}>
                     <NavLink
@@ -72,7 +75,7 @@ export function AdminSidebar(props: { onNavigate?: () => void }) {
                       className={({ isActive }) =>
                         cn(
                           "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition",
-                          isActive ? "bg-primary text-white" : "text-slate-700 hover:bg-slate-100 hover:text-slate-900",
+                          (isActive || extraActive) ? "bg-primary text-white" : "text-slate-700 hover:bg-slate-100 hover:text-slate-900",
                         )
                       }
                       end={item.to === "/admin"}
@@ -102,7 +105,7 @@ export function AdminSidebar(props: { onNavigate?: () => void }) {
                       <button
                         type="button"
                         className={cn(
-                          "flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-extrabold transition",
+                          "flex w-full items-center gap-2 rounded-md px-3 py-2 text-start text-sm font-extrabold transition",
                           groupActive || open ? "text-primary" : "text-slate-800 hover:bg-slate-100",
                         )}
                         aria-expanded={open}
@@ -113,7 +116,7 @@ export function AdminSidebar(props: { onNavigate?: () => void }) {
                         </span>
                         <ChevronDown
                           className={cn(
-                            "ml-auto h-4 w-4 text-slate-500 transition-transform",
+                            "ms-auto h-4 w-4 text-slate-500 transition-transform",
                             open ? "rotate-180" : "rotate-0",
                           )}
                         />
@@ -121,7 +124,7 @@ export function AdminSidebar(props: { onNavigate?: () => void }) {
                     </CollapsibleTrigger>
 
                     <CollapsibleContent>
-                      <ul className="mt-1 ml-3 space-y-1 border-l border-slate-200 pl-3">
+                      <ul className="mt-1 ms-3 space-y-1 border-s border-slate-200 ps-3">
                         {item.children.map((child) => (
                           <li key={child.to}>
                             <NavLink

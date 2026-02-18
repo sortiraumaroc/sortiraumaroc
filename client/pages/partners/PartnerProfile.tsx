@@ -393,12 +393,12 @@ export function PartnerProfile() {
                 Email
               </Label>
               <div className="relative">
-                <Mail className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <Mail className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                 <Input
                   id="email"
                   value={profile.email ?? ""}
                   disabled
-                  className="mt-1 pl-8 bg-slate-50 h-9 text-sm"
+                  className="mt-1 ps-8 bg-slate-50 h-9 text-sm"
                 />
               </div>
             </div>
@@ -421,13 +421,13 @@ export function PartnerProfile() {
                 Ville <span className="text-red-500">*</span>
               </Label>
               <div className="relative">
-                <MapPin className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <MapPin className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                 <Input
                   id="city"
                   value={form.city}
                   onChange={(e) => handleChange("city", e.target.value)}
                   placeholder="Votre ville"
-                  className="mt-1 pl-8 h-9 text-sm"
+                  className="mt-1 ps-8 h-9 text-sm"
                 />
               </div>
             </div>
@@ -437,13 +437,13 @@ export function PartnerProfile() {
                 Téléphone
               </Label>
               <div className="relative">
-                <Phone className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <Phone className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                 <Input
                   id="phone"
                   value={form.phone}
                   onChange={(e) => handleChange("phone", e.target.value)}
                   placeholder="+212 6..."
-                  className="mt-1 pl-8 h-9 text-sm"
+                  className="mt-1 ps-8 h-9 text-sm"
                 />
               </div>
             </div>
@@ -511,7 +511,7 @@ export function PartnerProfile() {
                     ICE <span className="text-red-500">*</span>
                   </Label>
                   <div className="relative">
-                    <Hash className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                    <Hash className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                     <Input
                       id="ice"
                       value={form.ice}
@@ -520,7 +520,7 @@ export function PartnerProfile() {
                       }
                       placeholder="000000000000000"
                       maxLength={15}
-                      className="mt-1 pl-8 font-mono h-9 text-sm"
+                      className="mt-1 ps-8 font-mono h-9 text-sm"
                     />
                   </div>
                   <p className="text-[10px] text-slate-500 mt-1">
@@ -533,13 +533,13 @@ export function PartnerProfile() {
                     Registre de Commerce <span className="text-red-500">*</span>
                   </Label>
                   <div className="relative">
-                    <FileText className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                    <FileText className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                     <Input
                       id="rc"
                       value={form.rc}
                       onChange={(e) => handleChange("rc", e.target.value.toUpperCase())}
                       placeholder="123456"
-                      className="mt-1 pl-8 font-mono h-9 text-sm"
+                      className="mt-1 ps-8 font-mono h-9 text-sm"
                     />
                   </div>
                   <p className="text-[10px] text-slate-500 mt-1">
@@ -554,7 +554,7 @@ export function PartnerProfile() {
                 IBAN / RIB <span className="text-red-500">*</span>
               </Label>
               <div className="relative">
-                <CreditCard className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <CreditCard className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                 <Input
                   id="rib_iban"
                   value={form.rib_iban}
@@ -562,7 +562,7 @@ export function PartnerProfile() {
                     handleChange("rib_iban", e.target.value.toUpperCase())
                   }
                   placeholder="MA76 0000 0000 0000 0000 0000"
-                  className="mt-1 pl-8 font-mono h-9 text-sm"
+                  className="mt-1 ps-8 font-mono h-9 text-sm"
                 />
               </div>
               <p className="text-[10px] text-slate-500 mt-1">
@@ -714,7 +714,7 @@ export function PartnerProfile() {
                                   <div className="text-[10px] text-slate-500 truncate">
                                     {doc.name}
                                     {isExpired && (
-                                      <span className="text-amber-600 ml-1">(expiré - à renouveler)</span>
+                                      <span className="text-amber-600 ms-1">(expiré - à renouveler)</span>
                                     )}
                                   </div>
                                 ) : config.description && (

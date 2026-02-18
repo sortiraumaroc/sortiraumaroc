@@ -101,6 +101,9 @@ import {
   type CategoryImageAdmin,
   type CategoryAdmin,
   type CountryAdmin,
+  listPlatformSettings,
+  updatePlatformSetting,
+  type PlatformSetting,
 } from "@/lib/adminApi";
 import { useToast } from "@/hooks/use-toast";
 
@@ -636,7 +639,7 @@ const UNIVERSES = [
 
 export default function AdminHomePage() {
   const { toast } = useToast();
-  const [tab, setTab] = useState<"appearance" | "curation" | "universes" | "countries" | "cities" | "videos" | "categories">("appearance");
+  const [tab, setTab] = useState<"appearance" | "curation" | "universes" | "countries" | "cities" | "videos" | "categories" | "footer">("appearance");
 
   // ==================== APPEARANCE STATE ====================
   const [homeSettings, setHomeSettings] = useState<HomeSettings | null>(null);
@@ -750,6 +753,18 @@ export default function AdminHomePage() {
     EstablishmentListItemAdmin[]
   >([]);
   const [establishmentsLoaded, setEstablishmentsLoaded] = useState(false);
+
+  // ==================== FOOTER STATE ====================
+  const [footerSocials, setFooterSocials] = useState<Record<string, string>>({
+    FOOTER_SOCIAL_INSTAGRAM: "",
+    FOOTER_SOCIAL_TIKTOK: "",
+    FOOTER_SOCIAL_FACEBOOK: "",
+    FOOTER_SOCIAL_YOUTUBE: "",
+    FOOTER_SOCIAL_SNAPCHAT: "",
+    FOOTER_SOCIAL_LINKEDIN: "",
+  });
+  const [footerLoading, setFooterLoading] = useState(false);
+  const [footerSaving, setFooterSaving] = useState(false);
 
   // DnD sensors
   const sensors = useSensors(
@@ -2018,7 +2033,8 @@ export default function AdminHomePage() {
               alt={row.original.name}
               className="w-10 h-10 rounded-full object-cover border"
               onError={(e) => {
-                (e.target as HTMLImageElement).src = `https://via.placeholder.com/40x40/e2e8f0/64748b?text=${encodeURIComponent(row.original.name.charAt(0))}`;
+                const letter = encodeURIComponent(row.original.name.charAt(0));
+                (e.target as HTMLImageElement).src = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Crect width='40' height='40' fill='%23e2e8f0'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-family='sans-serif' font-size='16' fill='%2364748b'%3E${letter}%3C/text%3E%3C/svg%3E`;
               }}
             />
           </div>
@@ -2353,12 +2369,49 @@ export default function AdminHomePage() {
     [openEdit, handleDelete, universes],
   );
 
+  // ==================== FOOTER LOGIC ====================
+  const refreshFooterSettings = useCallback(async () => {
+    setFooterLoading(true);
+    try {
+      const { items } = await listPlatformSettings();
+      const footerItems = items.filter((s: PlatformSetting) => s.category === "footer");
+      const map: Record<string, string> = { ...footerSocials };
+      for (const item of footerItems) {
+        map[item.key] = item.value;
+      }
+      setFooterSocials(map);
+    } catch (e) {
+      toast({ title: "Erreur", description: humanAdminError(e), variant: "destructive" });
+    } finally {
+      setFooterLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === "footer") {
+      void refreshFooterSettings();
+    }
+  }, [tab, refreshFooterSettings]);
+
+  const saveFooterSocials = async () => {
+    setFooterSaving(true);
+    try {
+      for (const [key, value] of Object.entries(footerSocials)) {
+        await updatePlatformSetting(undefined, { key, value });
+      }
+      toast({ title: "Enregistré", description: "Liens sociaux du footer mis à jour." });
+    } catch (e) {
+      toast({ title: "Erreur", description: humanAdminError(e), variant: "destructive" });
+    } finally {
+      setFooterSaving(false);
+    }
+  };
+
   return (
     <div className="p-6 space-y-6">
       <AdminPageHeader
         title="Gestion de la page d'accueil"
         description="Configurez les sections et le contenu mis en avant sur la homepage"
-        icon={<Home className="w-6 h-6" />}
       />
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
@@ -2370,6 +2423,7 @@ export default function AdminHomePage() {
           <TabsTrigger value="cities">Villes</TabsTrigger>
           <TabsTrigger value="videos">Vidéos</TabsTrigger>
           <TabsTrigger value="categories">Catégories</TabsTrigger>
+          <TabsTrigger value="footer">Footer</TabsTrigger>
         </TabsList>
 
         {/* ==================== APPEARANCE TAB ==================== */}
@@ -2416,7 +2470,7 @@ export default function AdminHomePage() {
                       <Button
                         variant="destructive"
                         size="sm"
-                        className="absolute top-2 right-2 gap-1"
+                        className="absolute top-2 end-2 gap-1"
                         onClick={handleDeleteHeroImage}
                         disabled={heroDeleting}
                       >
@@ -3275,6 +3329,51 @@ export default function AdminHomePage() {
             </ul>
           </div>
         </TabsContent>
+
+        {/* ==================== FOOTER TAB ==================== */}
+        <TabsContent value="footer" className="space-y-4 mt-4">
+          <div className="rounded-lg border border-slate-200 bg-white p-6">
+            <h3 className="text-lg font-semibold text-slate-900 mb-4">
+              Réseaux sociaux du footer
+            </h3>
+            <p className="text-sm text-slate-600 mb-6">
+              Configurez les URLs de vos réseaux sociaux affichés dans le pied de page du site.
+              Laissez un champ vide pour masquer le réseau correspondant.
+            </p>
+
+            {footerLoading ? (
+              <div className="flex items-center gap-2 text-slate-500">
+                <Loader2 className="w-4 h-4 animate-spin" /> Chargement...
+              </div>
+            ) : (
+              <div className="space-y-4 max-w-xl">
+                {[
+                  { key: "FOOTER_SOCIAL_INSTAGRAM", label: "Instagram", placeholder: "https://instagram.com/sortiraumaroc" },
+                  { key: "FOOTER_SOCIAL_TIKTOK", label: "TikTok", placeholder: "https://tiktok.com/@sortiraumaroc" },
+                  { key: "FOOTER_SOCIAL_FACEBOOK", label: "Facebook", placeholder: "https://facebook.com/sortiraumaroc" },
+                  { key: "FOOTER_SOCIAL_YOUTUBE", label: "YouTube", placeholder: "https://youtube.com/@sortiraumaroc" },
+                  { key: "FOOTER_SOCIAL_SNAPCHAT", label: "Snapchat", placeholder: "https://snapchat.com/add/sortiraumaroc" },
+                  { key: "FOOTER_SOCIAL_LINKEDIN", label: "LinkedIn", placeholder: "https://linkedin.com/company/sortiraumaroc" },
+                ].map(({ key, label, placeholder }) => (
+                  <div key={key}>
+                    <Label htmlFor={key}>{label}</Label>
+                    <Input
+                      id={key}
+                      value={footerSocials[key] || ""}
+                      onChange={(e) => setFooterSocials((prev) => ({ ...prev, [key]: e.target.value }))}
+                      placeholder={placeholder}
+                      className="mt-1"
+                    />
+                  </div>
+                ))}
+                <Button onClick={() => void saveFooterSocials()} disabled={footerSaving}>
+                  {footerSaving ? <Loader2 className="w-4 h-4 animate-spin me-2" /> : <Save className="w-4 h-4 me-2" />}
+                  Enregistrer
+                </Button>
+              </div>
+            )}
+          </div>
+        </TabsContent>
       </Tabs>
 
       {/* ==================== CURATION EDITOR DIALOG ==================== */}
@@ -3360,7 +3459,7 @@ export default function AdminHomePage() {
                       <button
                         key={est.id}
                         type="button"
-                        className="w-full text-left px-3 py-2 hover:bg-slate-100 text-sm"
+                        className="w-full text-start px-3 py-2 hover:bg-slate-100 text-sm"
                         onClick={() => {
                           setEditor((prev) =>
                             prev
@@ -3661,7 +3760,7 @@ export default function AdminHomePage() {
                         }
                         className="text-red-600 hover:text-red-700 hover:bg-red-50"
                       >
-                        <X className="w-4 h-4 mr-1" />
+                        <X className="w-4 h-4 me-1" />
                         Supprimer l'image
                       </Button>
                     )}
@@ -4304,7 +4403,7 @@ export default function AdminHomePage() {
                     <Play className="w-12 h-12 text-white fill-white" />
                   </div>
                   {videoEditor.thumbnail_url && (
-                    <div className="absolute top-2 left-2 px-2 py-1 bg-green-600 text-white text-xs rounded">
+                    <div className="absolute top-2 start-2 px-2 py-1 bg-green-600 text-white text-xs rounded">
                       Couverture personnalisée
                     </div>
                   )}

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +17,8 @@ import { VerifyCodeInput, CountdownTimer } from "./VerifyCodeInput";
 interface OnboardingScreenProps {
   onComplete: () => void;
   authMethod?: "phone" | "email" | null;
+  prefillFirstName?: string;
+  prefillLastName?: string;
 }
 
 // Generate 6-digit verification code
@@ -26,7 +28,7 @@ function generateVerificationCode(): string {
 
 type OnboardingStep = "profile" | "email" | "password";
 
-export function OnboardingScreen({ onComplete, authMethod }: OnboardingScreenProps) {
+export function OnboardingScreen({ onComplete, authMethod, prefillFirstName, prefillLastName }: OnboardingScreenProps) {
   const isPhoneAuth = authMethod === "phone";
   const totalSteps = isPhoneAuth ? 3 : 1;
 
@@ -34,8 +36,8 @@ export function OnboardingScreen({ onComplete, authMethod }: OnboardingScreenPro
   const [currentStep, setCurrentStep] = useState<OnboardingStep>("profile");
 
   // ─── Step 1: Profile fields ───
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
+  const [firstName, setFirstName] = useState(prefillFirstName ?? "");
+  const [lastName, setLastName] = useState(prefillLastName ?? "");
   const [dateOfBirth, setDateOfBirth] = useState("");
   const [selectedCountryCode, setSelectedCountryCode] = useState("MA");
   const [city, setCity] = useState("");
@@ -61,6 +63,7 @@ export function OnboardingScreen({ onComplete, authMethod }: OnboardingScreenPro
   // ─── Shared state ───
   const [saving, setSaving] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const verifyingRef = useRef(false);
 
   // ─── Step number ───
   const stepNumber = currentStep === "profile" ? 1 : currentStep === "email" ? 2 : 3;
@@ -203,10 +206,15 @@ export function OnboardingScreen({ onComplete, authMethod }: OnboardingScreenPro
 
   // ─── Step 2: Verify email code ───
   const handleVerifyEmailCode = async (code: string) => {
+    // Guard against double invocation (onComplete + button click)
+    if (verifyingRef.current) return;
+    verifyingRef.current = true;
+
     setLocalError(null);
 
     if (code !== expectedCode) {
       setLocalError("Code incorrect");
+      verifyingRef.current = false;
       return;
     }
 
@@ -236,6 +244,7 @@ export function OnboardingScreen({ onComplete, authMethod }: OnboardingScreenPro
       setLocalError("Échec de la vérification");
     } finally {
       setSaving(false);
+      verifyingRef.current = false;
     }
   };
 
@@ -434,12 +443,12 @@ export function OnboardingScreen({ onComplete, authMethod }: OnboardingScreenPro
               <PopoverContent className="w-[280px] p-0" align="start">
                 <div className="p-2 border-b">
                   <div className="relative">
-                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+                    <Search className="absolute start-2.5 top-2.5 h-4 w-4 text-slate-400" />
                     <Input
                       placeholder="Rechercher un pays..."
                       value={countrySearchQuery}
                       onChange={(e) => setCountrySearchQuery(e.target.value)}
-                      className="pl-8 h-9"
+                      className="ps-8 h-9"
                     />
                   </div>
                 </div>
@@ -457,7 +466,7 @@ export function OnboardingScreen({ onComplete, authMethod }: OnboardingScreenPro
                         onClick={() => handleCountryChange(country.code)}
                       >
                         <span className="text-base">{country.flag}</span>
-                        <span className="flex-1 text-left truncate">{country.name}</span>
+                        <span className="flex-1 text-start truncate">{country.name}</span>
                       </button>
                     ))
                   )}
@@ -492,12 +501,12 @@ export function OnboardingScreen({ onComplete, authMethod }: OnboardingScreenPro
                 <PopoverContent className="w-[280px] p-0" align="start">
                   <div className="p-2 border-b">
                     <div className="relative">
-                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+                      <Search className="absolute start-2.5 top-2.5 h-4 w-4 text-slate-400" />
                       <Input
                         placeholder="Rechercher une ville..."
                         value={citySearchQuery}
                         onChange={(e) => setCitySearchQuery(e.target.value)}
-                        className="pl-8 h-9"
+                        className="ps-8 h-9"
                       />
                     </div>
                   </div>
@@ -518,7 +527,7 @@ export function OnboardingScreen({ onComplete, authMethod }: OnboardingScreenPro
                             setCitySearchQuery("");
                           }}
                         >
-                          <span className="flex-1 text-left">{cityName}</span>
+                          <span className="flex-1 text-start">{cityName}</span>
                         </button>
                       ))
                     )}
@@ -734,13 +743,13 @@ export function OnboardingScreen({ onComplete, authMethod }: OnboardingScreenPro
               onChange={(e) => setPassword(e.target.value)}
               placeholder="8 caractères minimum"
               disabled={saving}
-              className="h-10 rounded-lg text-sm pr-10"
+              className="h-10 rounded-lg text-sm pe-10"
               autoFocus
             />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
               tabIndex={-1}
             >
               {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -768,12 +777,12 @@ export function OnboardingScreen({ onComplete, authMethod }: OnboardingScreenPro
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Retapez votre mot de passe"
               disabled={saving}
-              className="h-10 rounded-lg text-sm pr-10"
+              className="h-10 rounded-lg text-sm pe-10"
             />
             <button
               type="button"
               onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
               tabIndex={-1}
             >
               {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}

@@ -7,9 +7,11 @@ import {
   ArrowUpRight,
   BadgeCheck,
   CalendarCheck,
+  Car,
   Eye,
   HandCoins,
   Info,
+  KeyRound,
   MessageCircle,
   Minus,
   Percent,
@@ -470,6 +472,7 @@ async function fetchAllPages<T>(
 
 export function ProDashboardTab({ establishment, user, onNavigateToTab }: Props) {
   const { isTestMode } = usePlatformSettings();
+  const isRentacar = (establishment.universe ?? "").toLowerCase() === "rentacar";
 
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [visits, setVisits] = useState<VisitRow[]>([]);
@@ -733,50 +736,55 @@ export function ProDashboardTab({ establishment, user, onNavigateToTab }: Props)
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 auto-rows-fr">
-        {/* Row 1: Common KPIs */}
-        <ProKpiCard
-          title="Statut établissement"
-          value={statusBadge.label}
-          icon={BadgeCheck}
-          tone={establishment.status === "active" ? "emerald" : establishment.status === "pending" ? "amber" : establishment.status === "suspended" ? "rose" : "slate"}
-          valueClassName={cn(
-            "!text-base sm:!text-lg md:!text-xl",
-            establishment.status === "active"
-              ? "text-emerald-800"
-              : establishment.status === "pending"
-                ? "text-amber-800"
-                : establishment.status === "suspended"
-                  ? "text-rose-700"
-                  : "text-slate-800"
-          )}
-          meta={!loadingMetrics ? <TrendPillFromTrend trend={statusTrend} /> : null}
-          metaPosition="inline"
-          footnote={periodLabel}
-        />
+      {/* ============ CATÉGORIE : ACTIVITÉ ============ */}
+      <div>
+        <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3">
+          {isRentacar ? "Activité location" : "Activité"}
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 auto-rows-fr">
+          <ProKpiCard
+            title={isRentacar ? "Statut agence" : "Statut établissement"}
+            value={statusBadge.label}
+            icon={isRentacar ? Car : BadgeCheck}
+            tone={establishment.status === "active" ? "emerald" : establishment.status === "pending" ? "amber" : establishment.status === "suspended" ? "rose" : "slate"}
+            valueClassName={cn(
+              "!text-base sm:!text-lg md:!text-xl",
+              establishment.status === "active"
+                ? "text-emerald-800"
+                : establishment.status === "pending"
+                  ? "text-amber-800"
+                  : establishment.status === "suspended"
+                    ? "text-rose-700"
+                    : "text-slate-800"
+            )}
+            meta={!loadingMetrics ? <TrendPillFromTrend trend={statusTrend} /> : null}
+            metaPosition="inline"
+            footnote={periodLabel}
+            onClick={() => onNavigateToTab?.("establishment")}
+          />
 
-        <ProKpiCard
-          title="Visites de fiche"
-          value={loadingMetrics ? "—" : selectedMetrics.visits}
-          icon={Eye}
-          tone="rose"
-          meta={!loadingMetrics ? <TrendPill current={selectedMetrics.visits} previous={comparisonMetrics.visits} /> : null}
-          metaPosition="inline"
-          footnote={periodLabel}
-        />
+          <ProKpiCard
+            title={isRentacar ? "Visites de page" : "Visites de fiche"}
+            value={loadingMetrics ? "—" : selectedMetrics.visits}
+            icon={Eye}
+            tone="rose"
+            meta={!loadingMetrics ? <TrendPill current={selectedMetrics.visits} previous={comparisonMetrics.visits} /> : null}
+            metaPosition="inline"
+            footnote={periodLabel}
+            onClick={() => onNavigateToTab?.("impact")}
+          />
 
-        <ProKpiCard
-          title="Réservations"
-          value={loadingMetrics ? "—" : selectedMetrics.reservations}
-          icon={CalendarCheck}
-          tone="amber"
-          meta={!loadingMetrics ? <TrendPill current={selectedMetrics.reservations} previous={comparisonMetrics.reservations} /> : null}
-          metaPosition="inline"
-          footnote={periodLabel}
-        />
+          <ProKpiCard
+            title={isRentacar ? "Locations" : "Réservations"}
+            value={loadingMetrics ? "—" : selectedMetrics.reservations}
+            icon={isRentacar ? KeyRound : CalendarCheck}
+            tone="amber"
+            meta={!loadingMetrics ? <TrendPill current={selectedMetrics.reservations} previous={comparisonMetrics.reservations} /> : null}
+            metaPosition="inline"
+            footnote={periodLabel}
+            onClick={() => onNavigateToTab?.("reservations")}
+          />
 
-        {/* 4th KPI - different per mode */}
-        {isTestMode() ? (
           <ProKpiCard
             title="Taux de conversion"
             value={loadingMetrics ? "—" : selectedMetrics.conversionRate !== null ? `${selectedMetrics.conversionRate}%` : "—"}
@@ -787,113 +795,120 @@ export function ProDashboardTab({ establishment, user, onNavigateToTab }: Props)
             ) : null}
             metaPosition="inline"
             footnote={periodLabel}
+            onClick={() => onNavigateToTab?.("impact")}
           />
-        ) : (
+        </div>
+      </div>
+
+      {/* ============ CATÉGORIE : CLIENTS ============ */}
+      <div>
+        <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3">
+          {isRentacar ? "Locataires" : "Clients"}
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 auto-rows-fr">
           <ProKpiCard
-            title="CA réservations"
-            value={loadingMetrics ? "—" : formatMoney(selectedMetrics.revenueReservations, "MAD")}
-            icon={Wallet}
-            tone="sky"
-            meta={!loadingMetrics ? (
-              <TrendPill current={selectedMetrics.revenueReservations} previous={comparisonMetrics.revenueReservations} />
+            title="Note moyenne"
+            value={loadingMetrics ? "—" : selectedMetrics.avgRating !== null ? `${selectedMetrics.avgRating.toFixed(1)}/5` : "—"}
+            icon={Star}
+            tone="amber"
+            meta={selectedMetrics.reviewCount > 0 ? (
+              <span className="text-xs text-slate-500">{selectedMetrics.reviewCount} avis</span>
             ) : null}
             metaPosition="inline"
             footnote={periodLabel}
+            onClick={() => onNavigateToTab?.("reviews")}
           />
-        )}
 
-        {/* Row 2: Mode-specific KPIs */}
-        {isTestMode() && (
-          <>
+          <ProKpiCard
+            title={isRentacar ? "Annulations" : "No-shows"}
+            value={loadingMetrics ? "—" : selectedMetrics.noShowCount}
+            icon={isRentacar ? XCircle : UserX}
+            tone={selectedMetrics.noShowCount > 0 ? "rose" : "slate"}
+            meta={!loadingMetrics ? <TrendPill current={selectedMetrics.noShowCount} previous={comparisonMetrics.noShowCount} invertColors /> : null}
+            metaPosition="inline"
+            footnote={periodLabel}
+            onClick={() => onNavigateToTab?.("reservations")}
+          />
+
+          <ProKpiCard
+            title={isRentacar ? "Nouveaux locataires" : "Nouveaux clients"}
+            value={loadingMetrics ? "—" : selectedMetrics.newClientsCount}
+            icon={UserPlus}
+            tone="emerald"
+            meta={!loadingMetrics ? <TrendPill current={selectedMetrics.newClientsCount} previous={comparisonMetrics.newClientsCount} /> : null}
+            metaPosition="inline"
+            footnote={periodLabel}
+            onClick={() => onNavigateToTab?.("impact")}
+          />
+
+          <ProKpiCard
+            title={isRentacar ? "Locataires fidèles" : "Clients fidèles"}
+            value={loadingMetrics ? "—" : selectedMetrics.returningClientsCount}
+            icon={RefreshCw}
+            tone="violet"
+            meta={!loadingMetrics ? <TrendPill current={selectedMetrics.returningClientsCount} previous={comparisonMetrics.returningClientsCount} /> : null}
+            metaPosition="inline"
+            footnote={periodLabel}
+            onClick={() => onNavigateToTab?.("loyalty")}
+          />
+        </div>
+      </div>
+
+      {/* ============ CATÉGORIE : REVENUS (mode commercial uniquement) ============ */}
+      {!isTestMode() && (
+        <div>
+          <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3">
+            {isRentacar ? "Revenus location" : "Revenus"}
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 auto-rows-fr">
             <ProKpiCard
-              title="Note moyenne"
-              value={loadingMetrics ? "—" : selectedMetrics.avgRating !== null ? `${selectedMetrics.avgRating.toFixed(1)}/5` : "—"}
-              icon={Star}
-              tone="amber"
-              meta={selectedMetrics.reviewCount > 0 ? (
-                <span className="text-xs text-slate-500">{selectedMetrics.reviewCount} avis</span>
+              title={isRentacar ? "CA locations" : "CA réservations"}
+              value={loadingMetrics ? "—" : formatMoney(selectedMetrics.revenueReservations, "MAD")}
+              icon={Wallet}
+              tone="sky"
+              meta={!loadingMetrics ? (
+                <TrendPill current={selectedMetrics.revenueReservations} previous={comparisonMetrics.revenueReservations} />
               ) : null}
               metaPosition="inline"
               footnote={periodLabel}
+              onClick={() => onNavigateToTab?.("billing")}
             />
 
             <ProKpiCard
-              title="No-shows"
-              value={loadingMetrics ? "—" : selectedMetrics.noShowCount}
-              icon={UserX}
-              tone={selectedMetrics.noShowCount > 0 ? "rose" : "slate"}
-              meta={!loadingMetrics ? <TrendPill current={selectedMetrics.noShowCount} previous={comparisonMetrics.noShowCount} invertColors /> : null}
-              metaPosition="inline"
-              footnote={periodLabel}
-            />
-
-            <ProKpiCard
-              title="Nouveaux clients"
-              value={loadingMetrics ? "—" : selectedMetrics.newClientsCount}
-              icon={UserPlus}
-              tone="emerald"
-              meta={!loadingMetrics ? <TrendPill current={selectedMetrics.newClientsCount} previous={comparisonMetrics.newClientsCount} /> : null}
-              metaPosition="inline"
-              footnote={periodLabel}
-            />
-
-            <ProKpiCard
-              title="Clients fidèles"
-              value={loadingMetrics ? "—" : selectedMetrics.returningClientsCount}
-              icon={RefreshCw}
-              tone="violet"
-              meta={!loadingMetrics ? <TrendPill current={selectedMetrics.returningClientsCount} previous={comparisonMetrics.returningClientsCount} /> : null}
-              metaPosition="inline"
-              footnote={periodLabel}
-            />
-          </>
-        )}
-
-        {/* Commercial Mode KPIs - Row 2 (hidden in test mode) */}
-        {!isTestMode() && (
-          <>
-            <ProKpiCard
-              title="CA packs vendus"
+              title={isRentacar ? "CA offres spéciales" : "CA packs vendus"}
               value={loadingMetrics ? "—" : formatMoney(selectedMetrics.revenuePacks, "MAD")}
               icon={ShoppingBag}
               tone="violet"
               meta={!loadingMetrics ? <TrendPill current={selectedMetrics.revenuePacks} previous={comparisonMetrics.revenuePacks} /> : null}
               metaPosition="inline"
               footnote={periodLabel}
+              onClick={() => onNavigateToTab?.("offers")}
             />
 
             <ProKpiCard
-              title="Acomptes générés"
+              title={isRentacar ? "Cautions collectées" : "Acomptes générés"}
               value={loadingMetrics ? "—" : formatMoney(selectedMetrics.deposits, "MAD")}
               icon={HandCoins}
               tone="emerald"
               meta={!loadingMetrics ? <TrendPill current={selectedMetrics.deposits} previous={comparisonMetrics.deposits} /> : null}
               metaPosition="inline"
               footnote={periodLabel}
+              onClick={() => onNavigateToTab?.("billing")}
             />
 
             <ProKpiCard
-              title="Nouveaux clients"
-              value={loadingMetrics ? "—" : selectedMetrics.newClientsCount}
-              icon={UserPlus}
-              tone="sky"
-              meta={!loadingMetrics ? <TrendPill current={selectedMetrics.newClientsCount} previous={comparisonMetrics.newClientsCount} /> : null}
+              title="Commission plateforme"
+              value={loadingMetrics ? "—" : formatMoney(selectedMetrics.commission, "MAD")}
+              icon={Percent}
+              tone="rose"
+              meta={!loadingMetrics ? <TrendPill current={selectedMetrics.commission} previous={comparisonMetrics.commission} invertColors /> : null}
               metaPosition="inline"
               footnote={periodLabel}
+              onClick={() => onNavigateToTab?.("billing")}
             />
-
-            <ProKpiCard
-              title="Clients fidèles"
-              value={loadingMetrics ? "—" : selectedMetrics.returningClientsCount}
-              icon={RefreshCw}
-              tone="amber"
-              meta={!loadingMetrics ? <TrendPill current={selectedMetrics.returningClientsCount} previous={comparisonMetrics.returningClientsCount} /> : null}
-              metaPosition="inline"
-              footnote={periodLabel}
-            />
-          </>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
 
       <Card>
         <CardHeader>
@@ -915,7 +930,7 @@ export function ProDashboardTab({ establishment, user, onNavigateToTab }: Props)
                   type="button"
                   onClick={() => handleAlertClick(p.targetTab)}
                   className={cn(
-                    "w-full text-left flex items-start gap-3 rounded-md border p-3 transition",
+                    "w-full text-start flex items-start gap-3 rounded-md border p-3 transition",
                     onNavigateToTab ? "hover:bg-slate-50 cursor-pointer" : "cursor-default",
                   )}
                 >

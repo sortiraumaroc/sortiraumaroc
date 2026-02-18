@@ -136,7 +136,7 @@ export function ReservationCalendar({ reservations, onDayClick }: Props) {
           <Button variant="outline" size="icon" className="h-8 w-8" onClick={nextMonth}>
             <ChevronRight className="h-4 w-4" />
           </Button>
-          <h2 className="text-lg font-semibold text-slate-900 capitalize ml-2">
+          <h2 className="text-lg font-semibold text-slate-900 capitalize ms-2">
             {formatMonthYear(currentDate)}
           </h2>
         </div>
@@ -190,8 +190,8 @@ export function ReservationCalendar({ reservations, onDayClick }: Props) {
               type="button"
               onClick={() => onDayClick?.(day, dayReservations)}
               className={`
-                min-h-[80px] p-1 border-b border-r border-slate-100
-                text-left transition-colors
+                min-h-[80px] p-1 border-b border-e border-slate-100
+                text-start transition-colors
                 ${isCurrentMonth ? "text-slate-900" : "text-slate-400 bg-slate-50/50"}
                 ${isToday ? "ring-2 ring-primary ring-inset" : ""}
                 ${colorClass}

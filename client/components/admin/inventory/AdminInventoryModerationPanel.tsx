@@ -252,7 +252,7 @@ export function AdminInventoryModerationPanel({ establishmentId, onChangeApplied
       <Card>
         <CardContent className="flex items-center justify-center py-8">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          <span className="ml-2 text-muted-foreground">Chargement...</span>
+          <span className="ms-2 text-muted-foreground">Chargement...</span>
         </CardContent>
       </Card>
     );
@@ -287,7 +287,7 @@ export function AdminInventoryModerationPanel({ establishmentId, onChangeApplied
           <CardTitle className="flex items-center gap-2">
             <Clock className="h-5 w-5" />
             Demandes de modération
-            <Badge variant="secondary" className="ml-2">
+            <Badge variant="secondary" className="ms-2">
               {pendingChanges.length}
             </Badge>
           </CardTitle>
@@ -317,7 +317,7 @@ export function AdminInventoryModerationPanel({ establishmentId, onChangeApplied
                     </div>
                     <div className="text-sm text-muted-foreground">
                       {change.establishments?.name && (
-                        <span className="mr-2">{change.establishments.name}</span>
+                        <span className="me-2">{change.establishments.name}</span>
                       )}
                       <span>{formatLeJjMmAaAHeure(change.submitted_at)}</span>
                     </div>
@@ -338,7 +338,7 @@ export function AdminInventoryModerationPanel({ establishmentId, onChangeApplied
                     onClick={() => openRejectDialog(change)}
                     disabled={actionLoading === change.id}
                   >
-                    <XCircle className="h-4 w-4 mr-1" />
+                    <XCircle className="h-4 w-4 me-1" />
                     Refuser
                   </Button>
                   <Button
@@ -350,7 +350,7 @@ export function AdminInventoryModerationPanel({ establishmentId, onChangeApplied
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <>
-                        <CheckCircle2 className="h-4 w-4 mr-1" />
+                        <CheckCircle2 className="h-4 w-4 me-1" />
                         Approuver
                       </>
                     )}
@@ -421,7 +421,7 @@ export function AdminInventoryModerationPanel({ establishmentId, onChangeApplied
                 if (selectedChange) openRejectDialog(selectedChange);
               }}
             >
-              <XCircle className="h-4 w-4 mr-1" />
+              <XCircle className="h-4 w-4 me-1" />
               Refuser
             </Button>
             <Button
@@ -435,7 +435,7 @@ export function AdminInventoryModerationPanel({ establishmentId, onChangeApplied
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <>
-                  <CheckCircle2 className="h-4 w-4 mr-1" />
+                  <CheckCircle2 className="h-4 w-4 me-1" />
                   Approuver
                 </>
               )}

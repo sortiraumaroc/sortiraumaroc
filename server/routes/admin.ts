@@ -5142,6 +5142,24 @@ export const adminUpsertSlots: RequestHandler = async (req, res) => {
   res.json({ ok: true, upserted: rows.length });
 };
 
+/**
+ * DELETE /api/admin/establishments/:id/slots/:slotId
+ * Delete a single slot for an establishment (admin version).
+ */
+export const adminDeleteSlot: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const establishmentId = typeof req.params.id === "string" ? req.params.id : "";
+  const slotId = typeof req.params.slotId === "string" ? req.params.slotId : "";
+  if (!establishmentId || !slotId) return res.status(400).json({ error: "establishmentId and slotId are required" });
+
+  const supabase = getAdminSupabase();
+  const { error } = await supabase.from("pro_slots").delete().eq("id", slotId).eq("establishment_id", establishmentId);
+  if (error) return res.status(500).json({ error: error.message });
+
+  res.json({ ok: true });
+};
+
 export const listAdminEstablishmentQrLogs: RequestHandler = async (
   req,
   res,

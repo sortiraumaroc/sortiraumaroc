@@ -2,25 +2,21 @@ import * as React from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import {
-  Aperture,
   ChevronLeft,
   ChevronRight,
   Clock,
-  Facebook,
   Flag,
   Globe,
   Heart,
-  Instagram,
   MapPin,
-  Music,
   Phone,
   Share2,
   Star,
   Tag,
-  Twitter,
-  Youtube,
 } from "lucide-react";
+import { getSocialIcon } from "@/components/ui/SocialIcons";
 
+import { ImageLightbox } from "@/components/ImageLightbox";
 import { Header } from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
@@ -41,6 +37,7 @@ import { getFavorites, addFavorite, removeFavorite, type FavoriteItem } from "@/
 import { ReservationBanner } from "@/components/booking/ReservationBanner";
 import { OpeningHoursBlock } from "@/components/restaurant/OpeningHoursBlock";
 import { MenuSection } from "@/components/restaurant/MenuSection";
+import { RentacarVehicleSection } from "@/components/establishment/RentacarVehicleSection";
 import { RestaurantMap } from "@/components/restaurant/RestaurantMap";
 import type { Pack, MenuCategory, MenuItem, MenuBadge } from "@/components/restaurant/MenuSection";
 import {
@@ -55,14 +52,15 @@ import {
   slugify,
   toYmd,
 } from "@/lib/mockData";
-import { GOOGLE_MAPS_LOGO_URL, WAZE_LOGO_URL } from "@/lib/mapAppLogos";
-import { applySeo, clearJsonLd, setJsonLd, generateLocalBusinessSchema, hoursToOpeningHoursSpecification } from "@/lib/seo";
+import { GOOGLE_MAPS_LOGO_URL, WAZE_LOGO_URL, TRIPADVISOR_LOGO_URL } from "@/lib/mapAppLogos";
+import { applySeo, clearJsonLd, setJsonLd, generateLocalBusinessSchema, generateBreadcrumbSchema, hoursToOpeningHoursSpecification, buildI18nSeoFields } from "@/lib/seo";
 import { useI18n } from "@/lib/i18n";
 import { EstablishmentTabs } from "@/components/establishment/EstablishmentTabs";
 import { EstablishmentSectionHeading } from "@/components/establishment/EstablishmentSectionHeading";
 import { EstablishmentReviewsSection } from "@/components/EstablishmentReviewsSection";
 import { ReportEstablishmentDialog } from "@/components/ReportEstablishmentDialog";
 import { ClaimEstablishmentDialog } from "@/components/ClaimEstablishmentDialog";
+import { CeAdvantageSection } from "@/components/ce/CeAdvantageSection";
 
 interface RestaurantReview {
   id: number;
@@ -915,6 +913,7 @@ export default function Restaurant() {
 
   const [canonicalEstablishmentId, setCanonicalEstablishmentId] = React.useState<string | null>(null);
   const [publicPayload, setPublicPayload] = React.useState<Awaited<ReturnType<typeof getPublicEstablishment>> | null>(null);
+  const [publicLoaded, setPublicLoaded] = React.useState(false);
 
   useTrackEstablishmentVisit(canonicalEstablishmentId ?? undefined);
 
@@ -934,6 +933,8 @@ export default function Restaurant() {
         if (!active) return;
         setPublicPayload(null);
         setCanonicalEstablishmentId(isUuid(ref) ? ref : null);
+      } finally {
+        if (active) setPublicLoaded(true);
       }
     };
 
@@ -944,11 +945,12 @@ export default function Restaurant() {
     };
   }, [id, title]);
 
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [bookingOpen, setBookingOpen] = React.useState(false);
   const [currentImageIndex, setCurrentImageIndex] = React.useState(0);
   const [isFavorited, setIsFavorited] = React.useState(false);
   const [showShareMenu, setShowShareMenu] = React.useState(false);
+  const [lightboxOpen, setLightboxOpen] = React.useState(false);
 
   // Initialize favorite state from localStorage when establishment ID is available
   React.useEffect(() => {
@@ -963,11 +965,14 @@ export default function Restaurant() {
   const [touchStartX, setTouchStartX] = React.useState(0);
   const [mouseStartX, setMouseStartX] = React.useState(0);
   const [isDragging, setIsDragging] = React.useState(false);
+  const isDraggingRef = React.useRef(false);
 
   const { status: geoStatus, location: userLocation, request: requestUserLocation } = useUserLocation();
 
   const restaurantId = id ?? "1";
   const bookingEstablishmentId = publicPayload?.establishment?.id ?? canonicalEstablishmentId ?? restaurantId;
+  const establishmentUniverse = publicPayload?.establishment?.universe ?? null;
+  const isRentacar = establishmentUniverse === "rentacar";
   // Booking is only enabled if the establishment has an email address registered
   const hasEstablishmentEmail = Boolean(publicPayload?.establishment?.email);
 
@@ -1013,26 +1018,152 @@ export default function Restaurant() {
   const dbGallery = Array.isArray(publicPayload?.establishment?.gallery_urls) ? publicPayload!.establishment.gallery_urls : [];
   const dbImages = [...dbCover, ...dbGallery].filter((u): u is string => Boolean(u && typeof u === "string"));
 
+  // Build social media links from DB social_links + google_maps_link
+  const dbSocialMedia: SocialMediaLink[] = React.useMemo(() => {
+    const links: SocialMediaLink[] = [];
+    const sl = publicPayload?.establishment?.social_links as Record<string, string> | null | undefined;
+    if (sl) {
+      for (const [platform, url] of Object.entries(sl)) {
+        if (url) links.push({ platform, url });
+      }
+    }
+    // Also add google_maps_link from the dedicated field if not already present
+    const gmLink = (publicPayload?.establishment as Record<string, unknown>)?.google_maps_link as string | undefined;
+    if (gmLink && !links.some((l) => l.platform === "google_maps")) {
+      links.push({ platform: "google_maps", url: gmLink });
+    }
+    return links;
+  }, [publicPayload?.establishment]);
+
+  // Compute price range from menu items (Fix 8)
+  const computedAvgPrice = React.useMemo(() => {
+    if (menuFromDb.length === 0) return "";
+    const prices: number[] = [];
+    for (const cat of menuFromDb) {
+      for (const item of cat.items) {
+        if (!item.price) continue;
+        const raw = String(item.price).replace(/[^\d.,]/g, "").replace(",", ".");
+        const n = parseFloat(raw);
+        if (Number.isFinite(n) && n > 0) prices.push(n);
+      }
+    }
+    if (prices.length === 0) return "";
+    const min = Math.min(...prices);
+    const max = Math.max(...prices);
+    if (min === max) return `${Math.round(min)} Dhs`;
+    return `${Math.round(min)}-${Math.round(max)} Dhs`;
+  }, [menuFromDb]);
+
+  // --- Build highlights from DB (Fix 12) ---
+  const dbHighlights: string[] = React.useMemo(() => {
+    const est = publicPayload?.establishment as Record<string, unknown> | null | undefined;
+    if (!est) return [];
+    // highlights is a separate JSONB column now
+    const hl = est.highlights;
+    if (Array.isArray(hl)) return hl.filter((h): h is string => typeof h === "string" && h.length > 0);
+    return [];
+  }, [publicPayload?.establishment]);
+
+  // --- Build neighborhood from DB (Fix 13) ---
+  const dbNeighborhood: string | null = React.useMemo(() => {
+    const est = publicPayload?.establishment as Record<string, unknown> | null | undefined;
+    if (!est) return null;
+    const n = est.neighborhood;
+    return typeof n === "string" && n.length > 0 ? n : null;
+  }, [publicPayload?.establishment]);
+
+  // --- Build category from DB subcategory ---
+  const dbCategory: string | null = React.useMemo(() => {
+    const est = publicPayload?.establishment as Record<string, unknown> | null | undefined;
+    if (!est) return null;
+    const sub = est.subcategory;
+    if (typeof sub === "string" && sub.length > 0 && sub !== "general") {
+      // If subcategory contains "/", take the last part (e.g. "restaurant/méditerranéen" → "méditerranéen")
+      const parts = sub.split("/");
+      return parts[parts.length - 1].trim();
+    }
+    // Fallback to category field
+    const cat = est.category;
+    return typeof cat === "string" && cat.length > 0 ? cat : null;
+  }, [publicPayload?.establishment]);
+
+  // --- Build rating/reviewCount from DB (Fix 18) ---
+  const dbRating: number = React.useMemo(() => {
+    const est = publicPayload?.establishment as Record<string, unknown> | null | undefined;
+    if (!est) return 0;
+    const r = est.google_rating;
+    return typeof r === "number" && Number.isFinite(r) ? r : 0;
+  }, [publicPayload?.establishment]);
+
+  const dbReviewCount: number = React.useMemo(() => {
+    const est = publicPayload?.establishment as Record<string, unknown> | null | undefined;
+    if (!est) return 0;
+    const c = est.google_review_count;
+    return typeof c === "number" && Number.isFinite(c) ? c : 0;
+  }, [publicPayload?.establishment]);
+
+  // --- Extract taxonomy data from DB for the Infos tab ---
+  const dbTaxonomy = React.useMemo(() => {
+    const est = publicPayload?.establishment as Record<string, unknown> | null | undefined;
+    if (!est) return { subcategory: null, specialties: [], cuisineTypes: [], ambianceTags: [], tags: [], amenities: [] };
+    const toArr = (v: unknown): string[] => Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.length > 0) : [];
+    return {
+      subcategory: typeof est.subcategory === "string" && est.subcategory.length > 0 ? est.subcategory : null,
+      specialties: toArr(est.specialties),
+      cuisineTypes: toArr(est.cuisine_types),
+      ambianceTags: toArr(est.ambiance_tags),
+      tags: toArr(est.tags),
+      amenities: toArr(est.amenities),
+    };
+  }, [publicPayload?.establishment]);
+
+  // While the public API hasn't responded yet, use neutral placeholders instead of
+  // demo/fallback data to prevent the "flash of demo content" (Fix 21 extended).
+  // Once publicLoaded is true we know whether we got a real establishment or not.
+  const hasDbData = publicLoaded && !!publicPayload?.establishment;
+  const isDemo = publicLoaded && !publicPayload?.establishment;
+
   const restaurant: RestaurantData = {
     ...baseRestaurant,
-    name: publicPayload?.establishment?.name ?? baseRestaurant.name,
-    address: publicPayload?.establishment?.address ?? baseRestaurant.address,
-    phone: publicPayload?.establishment?.phone ?? baseRestaurant.phone,
-    website: publicPayload?.establishment?.website ?? baseRestaurant.website,
-    description:
-      publicPayload?.establishment?.description_short ??
-      publicPayload?.establishment?.description_long ??
-      baseRestaurant.description,
-    images: dbImages.length ? dbImages : baseRestaurant.images,
-    availableSlots: (publicPayload?.offers?.availableSlots as unknown as DateSlots[] | undefined) ?? baseRestaurant.availableSlots,
-    packs: packsFromDb.length ? packsFromDb : baseRestaurant.packs,
-    menu: menuFromDb.length > 0 ? menuFromDb : baseRestaurant.menu,
+    // Category: use subcategory from DB instead of random fallback
+    category: hasDbData ? (dbCategory ?? baseRestaurant.category) : (!publicLoaded ? "" : baseRestaurant.category),
+    // Name: use the title query-param as a neutral placeholder while loading
+    name: hasDbData
+      ? (publicPayload.establishment.name ?? baseRestaurant.name)
+      : (searchParams.get("title") ?? baseRestaurant.name),
+    address: hasDbData ? (publicPayload.establishment.address ?? "") : (!publicLoaded ? "" : baseRestaurant.address),
+    phone: hasDbData ? (publicPayload.establishment.phone ?? "") : (!publicLoaded ? "" : baseRestaurant.phone),
+    website: hasDbData ? (publicPayload.establishment.website ?? "") : (!publicLoaded ? "" : baseRestaurant.website),
+    description: hasDbData
+      ? (publicPayload.establishment.description_long ?? publicPayload.establishment.description_short ?? "")
+      : (!publicLoaded ? "" : baseRestaurant.description),
+    images: !publicLoaded ? [] : dbImages.length > 0 ? dbImages : (isDemo ? baseRestaurant.images : []),
+    availableSlots: (publicPayload?.offers?.availableSlots as unknown as DateSlots[] | undefined) ?? (isDemo ? baseRestaurant.availableSlots : []),
+    packs: packsFromDb.length ? packsFromDb : (isDemo ? baseRestaurant.packs : []),
+    menu: menuFromDb.length > 0 ? menuFromDb : (isDemo ? baseRestaurant.menu : []),
+    socialMedia: dbSocialMedia.length > 0 ? dbSocialMedia : (isDemo ? baseRestaurant.socialMedia : []),
+    avgPrice: hasDbData ? (computedAvgPrice || "") : (!publicLoaded ? "" : baseRestaurant.avgPrice),
+    // Fix 12: highlights from DB
+    highlights: dbHighlights.length > 0 ? dbHighlights : (isDemo ? baseRestaurant.highlights : []),
+    // Fix 13: neighborhood from DB
+    neighborhood: hasDbData ? (dbNeighborhood ?? "") : (!publicLoaded ? "" : baseRestaurant.neighborhood),
+    // Fix 18: rating from Google (0 if no data yet — never show demo rating)
+    rating: hasDbData ? dbRating : (!publicLoaded ? 0 : baseRestaurant.rating),
+    reviewCount: hasDbData ? dbReviewCount : (!publicLoaded ? 0 : baseRestaurant.reviewCount),
   };
 
-  const geocode = useGeocodedQuery(`${restaurant.name} ${restaurant.address}`);
+  // Distance: use DB lat/lng if available, otherwise fallback to geocoding (Fix 9)
+  const dbLat = publicPayload?.establishment?.lat;
+  const dbLng = publicPayload?.establishment?.lng;
+  const hasDbCoords = typeof dbLat === "number" && typeof dbLng === "number"
+    && Number.isFinite(dbLat) && Number.isFinite(dbLng);
+  const geocode = useGeocodedQuery(hasDbCoords ? "" : `${restaurant.name} ${restaurant.address}`);
+  const restaurantCoords = hasDbCoords
+    ? { lat: dbLat!, lng: dbLng! }
+    : geocode.status === "success" ? geocode.coords : null;
   const distanceText =
-    userLocation && geocode.status === "success"
-      ? formatDistanceBetweenCoords(userLocation, geocode.coords)
+    userLocation && restaurantCoords
+      ? formatDistanceBetweenCoords(userLocation, restaurantCoords)
       : null;
 
   const normalizedAvailableSlots = React.useMemo(
@@ -1049,24 +1180,13 @@ export default function Restaurant() {
     const description = (restaurant.description ?? "").trim() || undefined;
     const ogImageUrl = restaurant.images?.[0] ? String(restaurant.images[0]) : undefined;
 
-    const canonicalUrl = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}` : "";
-    const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
-    const pathname = typeof window !== "undefined" ? window.location.pathname : "/";
-
     applySeo({
       title,
       description,
       ogType: "restaurant",
       ogImageUrl,
-      canonicalUrl,
       canonicalStripQuery: true,
-      hreflangs: baseUrl
-        ? {
-            fr: `${baseUrl}${pathname}`,
-            en: `${baseUrl}/en${pathname}`,
-            "x-default": `${baseUrl}${pathname}`,
-          }
-        : undefined,
+      ...buildI18nSeoFields(locale),
     });
 
     const est = publicPayload?.establishment;
@@ -1086,11 +1206,10 @@ export default function Restaurant() {
           : undefined;
 
       const canonicalUrl = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}` : "";
+      const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
       const openingHoursSpecification = hoursToOpeningHoursSpecification(restaurant.hours);
 
-      setJsonLd(
-        "restaurant",
-        generateLocalBusinessSchema({
+      const schema = generateLocalBusinessSchema({
           name: est.name || name,
           url: canonicalUrl,
           telephone: est.phone || undefined,
@@ -1099,7 +1218,7 @@ export default function Restaurant() {
             addressLocality: est.city || undefined,
             addressRegion: est.region || undefined,
             postalCode: est.postal_code || undefined,
-            addressCountry: est.country || undefined,
+            addressCountry: est.country || "MA",
           },
           images: (restaurant.images ?? []).slice(0, 8),
           description: restaurant.description || undefined,
@@ -1113,12 +1232,25 @@ export default function Restaurant() {
             typeof est.lat === "number" && typeof est.lng === "number"
               ? { latitude: est.lat, longitude: est.lng }
               : undefined,
-        }),
+      });
+      // Upgrade to Restaurant subtype + add reservation support
+      (schema as any)["@type"] = "Restaurant";
+      (schema as any).acceptsReservations = true;
+      setJsonLd("restaurant", schema);
+
+      setJsonLd(
+        "breadcrumb",
+        generateBreadcrumbSchema([
+          { name: "Accueil", url: `${baseUrl}/` },
+          { name: est.universe === "rentacar" ? "Location de voitures" : "Restaurants", url: `${baseUrl}/results?universe=${est.universe === "rentacar" ? "rentacar" : "restaurants"}` },
+          { name: est.name || name, url: canonicalUrl },
+        ]),
       );
     }
 
     return () => {
       clearJsonLd("restaurant");
+      clearJsonLd("breadcrumb");
     };
   }, [restaurant.name, restaurant.description, restaurant.images?.[0], publicPayload?.establishment?.id, publicPayload?.establishment?.city]);
 
@@ -1142,11 +1274,90 @@ export default function Restaurant() {
     );
   }
 
-  const policies = [
-    "Arrivez 10 minutes avant le créneau.",
-    "Annulation gratuite jusqu’à 6h avant.",
-    "Merci de signaler allergies ou grossesse dans le message.",
-  ];
+  // --- Format Moroccan phone number (Fix 14) ---
+  const formatMoroccanPhone = (raw: string): string => {
+    if (!raw) return "";
+    // Strip all non-digit except leading +
+    const cleaned = raw.replace(/[^\d+]/g, "");
+    let digits = cleaned.replace(/^\+/, "");
+
+    // If starts with 212, keep as-is
+    // If starts with 0, remove leading 0 and prepend 212
+    // If starts with 5,6,7 (9 digits), prepend 212
+    if (digits.startsWith("212")) {
+      digits = digits.slice(3);
+    } else if (digits.startsWith("0")) {
+      digits = digits.slice(1);
+    }
+    // digits should now be 9 chars like 680481070
+    if (digits.length === 9) {
+      return `+212 ${digits[0]} ${digits.slice(1, 3)} ${digits.slice(3, 5)} ${digits.slice(5, 7)} ${digits.slice(7, 9)}`;
+    }
+    // Fallback: return original with +212 prefix if not already
+    if (cleaned.startsWith("+")) return raw;
+    return `+212 ${raw}`;
+  };
+
+  const formattedPhone = formatMoroccanPhone(restaurant.phone);
+  const phoneHref = `tel:+212${restaurant.phone.replace(/[^\d]/g, "").replace(/^(212|0)/, "")}`;
+
+  // --- Full address with postal code + city (Fix 15) ---
+  const fullAddress = React.useMemo(() => {
+    const est = publicPayload?.establishment as Record<string, unknown> | null | undefined;
+    const addr = restaurant.address || "";
+    if (!est) return addr;
+    const postalCode = typeof est.postal_code === "string" ? est.postal_code.trim() : "";
+    const city = typeof est.city === "string" ? est.city.trim() : "";
+    const suffix = [postalCode, city].filter(Boolean).join(" ");
+    if (!suffix) return addr;
+    // Avoid duplicating if address already contains city
+    if (addr.toLowerCase().includes(city.toLowerCase()) && city.length > 2) return addr;
+    return `${addr}, ${suffix}`;
+  }, [restaurant.address, publicPayload?.establishment]);
+
+  // --- Dynamic booking policies (Fix 16) ---
+  const policies: string[] = React.useMemo(() => {
+    const bp = publicPayload?.booking_policy as Record<string, unknown> | null | undefined;
+    if (!bp) {
+      // Fallback for establishments without booking policy
+      return publicPayload?.establishment
+        ? ["Veuillez contacter l'établissement pour les conditions de réservation."]
+        : [
+            "Arrivez 10 minutes avant le créneau.",
+            "Annulation gratuite jusqu'à 6h avant.",
+            "Merci de signaler allergies ou grossesse dans le message.",
+          ];
+    }
+    const lines: string[] = [];
+    // Cancellation policy
+    if (bp.cancellation_enabled) {
+      const hours = typeof bp.free_cancellation_hours === "number" ? bp.free_cancellation_hours : 6;
+      const customText = typeof bp.cancellation_text_fr === "string" && bp.cancellation_text_fr.length > 0
+        ? bp.cancellation_text_fr
+        : null;
+      lines.push(customText ?? `Annulation gratuite jusqu'à ${hours}h avant.`);
+    }
+    // Modification policy
+    if (bp.modification_enabled) {
+      const hours = typeof bp.modification_hours === "number" ? bp.modification_hours : 6;
+      lines.push(`Modification possible jusqu'à ${hours}h avant.`);
+    }
+    // Custom policy text
+    const customPolicy = typeof bp.policy_text_fr === "string" && bp.policy_text_fr.length > 0
+      ? bp.policy_text_fr
+      : null;
+    if (customPolicy) lines.push(customPolicy);
+    // Arrival time
+    const arrivalMinutes = typeof bp.arrival_minutes_before === "number" ? bp.arrival_minutes_before : 10;
+    if (arrivalMinutes > 0) {
+      lines.push(`Arrivez ${arrivalMinutes} minutes avant le créneau.`);
+    }
+    // Fallback if no lines were generated
+    if (lines.length === 0) {
+      lines.push("Veuillez contacter l'établissement pour les conditions de réservation.");
+    }
+    return lines;
+  }, [publicPayload?.booking_policy, publicPayload?.establishment]);
 
   const nextImage = () => {
     setCurrentImageIndex((prev) =>
@@ -1180,23 +1391,28 @@ export default function Restaurant() {
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     setIsDragging(true);
+    isDraggingRef.current = true;
     setMouseStartX(e.clientX);
   };
 
   const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isDragging) return;
 
-    setIsDragging(false);
     const mouseEndX = e.clientX;
     const diff = mouseStartX - mouseEndX;
     const minSwipeDistance = 50;
+    const wasDragged = Math.abs(diff) > minSwipeDistance;
 
-    if (Math.abs(diff) > minSwipeDistance) {
+    setIsDragging(false);
+    isDraggingRef.current = wasDragged;
+
+    if (wasDragged) {
       if (diff > 0) {
         nextImage();
       } else {
         prevImage();
       }
+      requestAnimationFrame(() => { isDraggingRef.current = false; });
     }
   };
 
@@ -1269,18 +1485,19 @@ export default function Restaurant() {
         onTouchEnd={handleTouchEnd}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
-        onMouseLeave={() => setIsDragging(false)}
+        onMouseLeave={() => { setIsDragging(false); isDraggingRef.current = false; }}
       >
         <img
           src={restaurant.images[currentImageIndex]}
           alt={restaurant.name}
-          className="w-full h-full object-cover"
+          className="w-full h-full object-cover cursor-pointer"
+          onClick={() => !isDraggingRef.current && setLightboxOpen(true)}
         />
 
-        <IconButton onClick={prevImage} className="absolute left-4 top-1/2 -translate-y-1/2 z-10" aria-label="Image précédente">
+        <IconButton onClick={prevImage} className="absolute start-4 top-1/2 -translate-y-1/2 z-10" aria-label="Image précédente">
           <ChevronLeft className="w-6 h-6" />
         </IconButton>
-        <IconButton onClick={nextImage} className="absolute right-4 top-1/2 -translate-y-1/2 z-10" aria-label="Image suivante">
+        <IconButton onClick={nextImage} className="absolute end-4 top-1/2 -translate-y-1/2 z-10" aria-label="Image suivante">
           <ChevronRight className="w-6 h-6" />
         </IconButton>
 
@@ -1292,7 +1509,7 @@ export default function Restaurant() {
           {restaurant.images && restaurant.images.map((img, idx) => (
             <button
               key={idx}
-              onClick={() => setCurrentImageIndex(idx)}
+              onClick={() => { setCurrentImageIndex(idx); setLightboxOpen(true); }}
               className={`h-12 w-12 rounded overflow-hidden flex-shrink-0 border-2 ${
                 idx === currentImageIndex ? "border-white" : "border-transparent"
               }`}
@@ -1304,7 +1521,7 @@ export default function Restaurant() {
 
         {/* Action Buttons Overlay */}
         <TooltipProvider>
-          <div className="absolute top-4 right-4 flex gap-2 z-20">
+          <div className="absolute top-4 end-4 flex gap-2 z-20">
             <Tooltip>
               <TooltipTrigger asChild>
                 <IconButton
@@ -1360,23 +1577,23 @@ export default function Restaurant() {
 
               {/* Share Menu - Desktop only (mobile uses native share) */}
               {showShareMenu && (
-                <div className="absolute top-full right-0 mt-2 bg-white rounded-lg shadow-lg border border-slate-200 z-50 min-w-48">
-                  <button onClick={() => handleShare("facebook")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
+                <div className="absolute top-full end-0 mt-2 bg-white rounded-lg shadow-lg border border-slate-200 z-50 min-w-48">
+                  <button onClick={() => handleShare("facebook")} className="w-full text-start px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
                     f Facebook
                   </button>
-                  <button onClick={() => handleShare("twitter")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
+                  <button onClick={() => handleShare("twitter")} className="w-full text-start px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
                     𝕏 Twitter
                   </button>
-                  <button onClick={() => handleShare("whatsapp")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
+                  <button onClick={() => handleShare("whatsapp")} className="w-full text-start px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
                     💬 WhatsApp
                   </button>
-                  <button onClick={() => handleShare("sms")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
+                  <button onClick={() => handleShare("sms")} className="w-full text-start px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
                     💬 SMS
                   </button>
-                  <button onClick={() => handleShare("email")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
+                  <button onClick={() => handleShare("email")} className="w-full text-start px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
                     ✉️ Email
                   </button>
-                  <button onClick={() => handleShare("copy")} className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm border-t border-slate-200">
+                  <button onClick={() => handleShare("copy")} className="w-full text-start px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm border-t border-slate-200">
                     🔗 Copier le lien
                   </button>
                 </div>
@@ -1408,6 +1625,15 @@ export default function Restaurant() {
         </TooltipProvider>
       </div>
 
+      {lightboxOpen && (
+        <ImageLightbox
+          images={restaurant.images}
+          initialIndex={currentImageIndex}
+          alt={restaurant.name}
+          onClose={() => setLightboxOpen(false)}
+        />
+      )}
+
       {/* Report Dialog */}
       <ReportEstablishmentDialog
         open={showReportDialog}
@@ -1430,20 +1656,23 @@ export default function Restaurant() {
           <div className="md:grid md:grid-cols-[1fr,380px] md:items-start md:gap-8">
             <div className="min-w-0">
               <h1 className="text-2xl md:text-3xl font-bold text-foreground">{restaurant.name}</h1>
-              <div className="flex items-center gap-2 mt-2">
-                <div className="flex items-center gap-1">
-                  {[...Array(5)].map((_, i) => (
-                    <Star
-                      key={i}
-                      className={`w-4 h-4 ${
-                        i < Math.floor(restaurant.rating) ? "fill-yellow-400 text-yellow-400" : "text-slate-300"
-                      }`}
-                    />
-                  ))}
+              {/* Rating: only show if we have a real rating (Fix 18) */}
+              {restaurant.rating > 0 && (
+                <div className="flex items-center gap-2 mt-2">
+                  <div className="flex items-center gap-1">
+                    {[...Array(5)].map((_, i) => (
+                      <Star
+                        key={i}
+                        className={`w-4 h-4 ${
+                          i < Math.floor(restaurant.rating) ? "fill-yellow-400 text-yellow-400" : "text-slate-300"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                  <span className="font-bold text-sm">{restaurant.rating.toFixed(1)}</span>
+                  <span className="text-xs text-slate-500">({restaurant.reviewCount} avis)</span>
                 </div>
-                <span className="font-bold text-sm">{restaurant.rating.toFixed(1)}</span>
-                <span className="text-xs text-slate-500">({restaurant.reviewCount} avis)</span>
-              </div>
+              )}
 
               <div className="mt-3 flex flex-wrap gap-3 text-sm text-slate-600">
                 <span className="px-3 py-1 bg-slate-100 rounded">{restaurant.category}</span>
@@ -1453,15 +1682,17 @@ export default function Restaurant() {
                 </span>
                 {distanceText ? (
                   <span className="flex items-center gap-1">
-                    <span className="font-semibold">{distanceText}</span>
+                    <span className="font-semibold">à {distanceText}</span>
                   </span>
                 ) : null}
-                <span className="flex items-center gap-1">
-                  <span className="font-semibold text-primary">{restaurant.avgPrice}</span>
-                </span>
+                {restaurant.avgPrice ? (
+                  <span className="flex items-center gap-1">
+                    <span className="font-semibold text-primary">{restaurant.avgPrice}</span>
+                  </span>
+                ) : null}
               </div>
 
-              {!distanceText && geoStatus !== "available" ? (
+              {!distanceText && geoStatus === "idle" ? (
                 <button
                   type="button"
                   className="mt-2 text-xs text-slate-500 underline underline-offset-4 hover:text-slate-800"
@@ -1475,9 +1706,9 @@ export default function Restaurant() {
             <ReservationBanner
               className="mt-2 md:mt-0"
               establishmentId={bookingEstablishmentId}
-              universe="restaurants"
+              universe={isRentacar ? "rentacar" : "restaurants"}
               availableSlots={normalizedAvailableSlots}
-              avgPriceLabel={restaurant.avgPrice}
+              avgPriceLabel={restaurant.avgPrice || undefined}
               open={bookingOpen}
               onOpenChange={setBookingOpen}
               onViewMoreDates={() => setBookingOpen(true)}
@@ -1488,13 +1719,20 @@ export default function Restaurant() {
         </div>
       </div>
 
-      <EstablishmentTabs universe="restaurant" />
+      <EstablishmentTabs universe={isRentacar ? "rentacar" : "restaurant"} />
 
       {/* Content Sections */}
       <main className="container mx-auto px-4 pt-6 pb-8 space-y-10">
+        {/* CE Advantage — visible only to active CE employees */}
+        <CeAdvantageSection establishmentId={bookingEstablishmentId} />
+
         <section id="section-menu" data-tab="menu" className="scroll-mt-28 space-y-4">
-          <EstablishmentSectionHeading title="Menu" />
-          <MenuSection establishmentId={bookingEstablishmentId} categories={restaurant.menu || []} packs={restaurant.packs} legacyHours={restaurant.hours} />
+          <EstablishmentSectionHeading title={isRentacar ? "Nos véhicules" : "Menu"} />
+          {isRentacar ? (
+            <RentacarVehicleSection establishmentId={bookingEstablishmentId} />
+          ) : (
+            <MenuSection establishmentId={bookingEstablishmentId} categories={restaurant.menu || []} packs={restaurant.packs} legacyHours={restaurant.hours} />
+          )}
         </section>
 
         <section id="section-avis" data-tab="avis" className="scroll-mt-28 space-y-6">
@@ -1530,10 +1768,10 @@ export default function Restaurant() {
                 <div>
                   <p className="text-sm text-slate-600">Téléphone</p>
                   <a
-                    href={`tel:${restaurant.phone.replace(/\s+/g, "")}`}
+                    href={phoneHref}
                     className="font-medium text-primary hover:text-primary/70 transition"
                   >
-                    {restaurant.phone}
+                    {formattedPhone}
                   </a>
                 </div>
               </div>
@@ -1542,12 +1780,12 @@ export default function Restaurant() {
                 <div>
                   <p className="text-sm text-slate-600">Adresse</p>
                   <a
-                    href={`https://waze.com/ul?q=${encodeURIComponent(restaurant.address)}`}
+                    href={(publicPayload?.establishment?.social_links as Record<string, string> | null)?.waze || `https://waze.com/ul?q=${encodeURIComponent(fullAddress)}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="font-medium text-primary hover:text-primary/70 transition"
                   >
-                    {restaurant.address}
+                    {fullAddress}
                   </a>
                 </div>
               </div>
@@ -1558,23 +1796,67 @@ export default function Restaurant() {
                   <p className="font-medium text-primary">{restaurant.website}</p>
                 </div>
               </div>
-              <div className="flex gap-4 items-start pb-4 border-b">
-                <Tag className="w-5 h-5 text-primary flex-shrink-0 mt-1" />
-                <div className="w-full">
-                  <p className="text-sm text-slate-600 mb-3">Tag</p>
-                  <div className="flex gap-2 flex-wrap">
-                    {restaurant.category ? (
-                      <span className="px-3 py-1 bg-primary/10 text-primary rounded-full text-sm font-medium">{restaurant.category}</span>
-                    ) : null}
-                    {restaurant.taxonomy &&
-                      restaurant.taxonomy.map((item, idx) => (
-                        <span key={idx} className="px-3 py-1 bg-primary/10 text-primary rounded-full text-sm font-medium">
-                          {item}
-                        </span>
+              {/* --- Taxonomy tags by category --- */}
+              {(() => {
+                const sections: { label: string; color: string; items: string[] }[] = [];
+                // Catégorie principale (subcategory)
+                if (dbTaxonomy.subcategory) {
+                  sections.push({ label: "Catégorie", color: "bg-primary/10 text-primary", items: [dbTaxonomy.subcategory] });
+                }
+                if (dbTaxonomy.cuisineTypes.length > 0) {
+                  sections.push({ label: "Type de cuisine", color: "bg-orange-50 text-orange-700", items: dbTaxonomy.cuisineTypes });
+                }
+                if (dbTaxonomy.specialties.length > 0) {
+                  sections.push({ label: "Spécialités", color: "bg-emerald-50 text-emerald-700", items: dbTaxonomy.specialties });
+                }
+                if (dbTaxonomy.ambianceTags.length > 0) {
+                  sections.push({ label: "Ambiance", color: "bg-violet-50 text-violet-700", items: dbTaxonomy.ambianceTags });
+                }
+                if (dbTaxonomy.tags.length > 0) {
+                  sections.push({ label: "Tags", color: "bg-sky-50 text-sky-700", items: dbTaxonomy.tags });
+                }
+                if (dbTaxonomy.amenities.length > 0) {
+                  sections.push({ label: "Équipements", color: "bg-slate-100 text-slate-600", items: dbTaxonomy.amenities });
+                }
+                // Fallback: si pas de données DB, afficher l'ancien format
+                if (sections.length === 0 && (restaurant.category || restaurant.taxonomy?.length)) {
+                  return (
+                    <div className="flex gap-4 items-start pb-4 border-b">
+                      <Tag className="w-5 h-5 text-primary flex-shrink-0 mt-1" />
+                      <div className="w-full">
+                        <p className="text-sm text-slate-600 mb-3">Tag</p>
+                        <div className="flex gap-2 flex-wrap">
+                          {restaurant.category && (
+                            <span className="px-3 py-1 bg-primary/10 text-primary rounded-full text-sm font-medium">{restaurant.category}</span>
+                          )}
+                          {restaurant.taxonomy?.map((item, idx) => (
+                            <span key={idx} className="px-3 py-1 bg-primary/10 text-primary rounded-full text-sm font-medium">{item}</span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                return sections.length > 0 ? (
+                  <div className="flex gap-4 items-start pb-4 border-b">
+                    <Tag className="w-5 h-5 text-primary flex-shrink-0 mt-1" />
+                    <div className="w-full space-y-3">
+                      {sections.map((section) => (
+                        <div key={section.label}>
+                          <p className="text-sm text-slate-500 mb-1.5">{section.label}</p>
+                          <div className="flex gap-1.5 flex-wrap">
+                            {section.items.map((item) => (
+                              <span key={item} className={`px-2.5 py-1 rounded-full text-xs font-medium ${section.color}`}>
+                                {item}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
                       ))}
+                    </div>
                   </div>
-                </div>
-              </div>
+                ) : null;
+              })()}
 
               <div className="flex gap-4 items-start pb-4 border-b">
                 <Clock className="w-5 h-5 text-primary flex-shrink-0 mt-1" />
@@ -1597,26 +1879,9 @@ export default function Restaurant() {
                   <p className="text-sm text-slate-600 mb-3">Réseaux sociaux</p>
                   <div className="flex gap-4 flex-wrap">
                     {restaurant.socialMedia &&
-                      restaurant.socialMedia.map((social) => {
-                        const getSocialIcon = (platform: string) => {
-                          const iconProps = "w-6 h-6 text-primary hover:text-primary/70 transition";
-                          switch (platform) {
-                            case "facebook":
-                              return <Facebook className={iconProps} />;
-                            case "instagram":
-                              return <Instagram className={iconProps} />;
-                            case "twitter":
-                              return <Twitter className={iconProps} />;
-                            case "tiktok":
-                              return <Music className={iconProps} />;
-                            case "snapchat":
-                              return <Aperture className={iconProps} />;
-                            case "youtube":
-                              return <Youtube className={iconProps} />;
-                            default:
-                              return null;
-                          }
-                        };
+                      restaurant.socialMedia
+                        .filter((s) => s.platform !== "google_maps" && s.platform !== "tripadvisor" && s.platform !== "waze")
+                        .map((social) => {
 
                         return (
                           <a
@@ -1627,10 +1892,34 @@ export default function Restaurant() {
                             className="p-2 hover:bg-slate-100 rounded-lg transition"
                             title={social.platform}
                           >
-                            {getSocialIcon(social.platform)}
+                            {getSocialIcon(social.platform, "w-6 h-6 text-primary hover:text-primary/70 transition")}
                           </a>
                         );
                       })}
+                    {/* Google Maps link from social_links */}
+                    {restaurant.socialMedia?.find((s) => s.platform === "google_maps" && s.url) && (
+                      <a
+                        href={restaurant.socialMedia.find((s) => s.platform === "google_maps")!.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-1.5 hover:bg-slate-100 rounded-lg transition"
+                        title="Google Maps"
+                      >
+                        <img src={GOOGLE_MAPS_LOGO_URL} alt="Google Maps" className="h-7 w-auto" />
+                      </a>
+                    )}
+                    {/* TripAdvisor link from social_links */}
+                    {restaurant.socialMedia?.find((s) => s.platform === "tripadvisor" && s.url) && (
+                      <a
+                        href={restaurant.socialMedia.find((s) => s.platform === "tripadvisor")!.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-1.5 hover:bg-slate-100 rounded-lg transition"
+                        title="TripAdvisor"
+                      >
+                        <img src={TRIPADVISOR_LOGO_URL} alt="TripAdvisor" className="h-7 w-auto" />
+                      </a>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1657,7 +1946,10 @@ export default function Restaurant() {
 
         <section id="section-horaires" data-tab="horaires" className="scroll-mt-28 space-y-6">
           <EstablishmentSectionHeading title="Horaires" />
-          <OpeningHoursBlock legacyHours={restaurant.hours} />
+          <OpeningHoursBlock
+            openingHours={publicPayload?.establishment?.hours as any}
+            legacyHours={!publicPayload?.establishment?.hours ? restaurant.hours : undefined}
+          />
         </section>
 
         <section id="section-carte" data-tab="carte" className="scroll-mt-28 space-y-4">
@@ -1665,7 +1957,7 @@ export default function Restaurant() {
 
           <div className="flex gap-3 flex-wrap">
             <a
-              href={`https://waze.com/ul?q=${encodeURIComponent(restaurant.address)}`}
+              href={(publicPayload?.establishment?.social_links as Record<string, string> | null)?.waze || `https://waze.com/ul?q=${encodeURIComponent(restaurant.address)}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex-1 min-w-32 px-4 py-3 bg-white border-2 border-slate-300 rounded-lg font-semibold hover:bg-slate-50 transition text-center flex items-center justify-center gap-2"

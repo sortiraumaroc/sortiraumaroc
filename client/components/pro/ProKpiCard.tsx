@@ -64,6 +64,7 @@ export type ProKpiCardProps = {
   footnote?: string;
   valueClassName?: string;
   className?: string;
+  onClick?: () => void;
 };
 
 export function ProKpiCard({
@@ -76,11 +77,20 @@ export function ProKpiCard({
   footnote,
   valueClassName,
   className,
+  onClick,
 }: ProKpiCardProps) {
   const styles = toneStyles[tone];
 
   return (
-    <Card className={cn(kpiVariants({ tone }), "h-full", className)}>
+    <Card
+      className={cn(
+        kpiVariants({ tone }),
+        "h-full",
+        onClick && "cursor-pointer transition-shadow hover:shadow-md hover:ring-1 hover:ring-slate-200",
+        className,
+      )}
+      onClick={onClick}
+    >
       <div className="flex h-full min-h-[92px]">
         <div className={cn("flex w-16 shrink-0 items-center justify-center sm:w-20", styles.panel)}>
           <div className={cn("flex size-10 items-center justify-center rounded-full", styles.iconWrap)}>

@@ -66,9 +66,12 @@ export type PublicFaqArticle = {
   };
 };
 
-export async function listPublicFaqArticles(locale: AppLocale): Promise<PublicFaqArticle[]> {
+export type FaqAudience = "consumer" | "pro";
+
+export async function listPublicFaqArticles(locale: AppLocale, audience?: FaqAudience): Promise<PublicFaqArticle[]> {
   const qs = new URLSearchParams();
   qs.set("lang", locale === "en" ? "en" : "fr");
+  if (audience) qs.set("audience", audience);
 
   const res = await fetch(`/api/public/faq?${qs.toString()}`, { credentials: "omit" });
   if (!res.ok) throw new Error("Failed to load FAQ");

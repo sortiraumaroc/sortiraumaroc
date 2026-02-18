@@ -5,6 +5,7 @@ import type { BookingRecord, PackPurchase } from "@/lib/userData";
 import {
   Award,
   Bell,
+  Building2,
   Calendar,
   ChevronLeft,
   ChevronRight,
@@ -19,6 +20,7 @@ import {
   Settings,
   Shield,
   Sliders,
+  Gift,
   User2,
   X,
 } from "lucide-react";
@@ -59,6 +61,14 @@ import { ProfileAccountPrivacy } from "@/components/profile/ProfileAccountPrivac
 import { ProfileQRCodeTab } from "@/components/profile/ProfileQRCodeTab";
 import { ProfileLoyaltyTab } from "@/components/profile/ProfileLoyaltyTab";
 
+// V2 components
+import { MyReservationsV2 } from "@/components/reservationV2/MyReservationsV2";
+import { MyLoyaltySection } from "@/components/loyaltyV2/MyLoyaltySection";
+import { MyPacksSection } from "@/components/packs/MyPacksSection";
+import { MyWheelGifts } from "@/components/wheel/MyWheelGifts";
+import { ProfileCeTab } from "@/components/ce/ProfileCeTab";
+import { useCeStatus } from "@/hooks/useCeStatus";
+
 function getInitials(firstName?: string, lastName?: string): string {
   const a = (firstName ?? "").trim();
   const b = (lastName ?? "").trim();
@@ -77,7 +87,7 @@ export default function Profile() {
   const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const allowedTabs = useMemo(() => new Set(["qrcode", "infos", "bookings", "waitlist", "loyalty", "notifications", "billing", "packs", "favorites", "prefs", "privacy"]), []);
+  const allowedTabs = useMemo(() => new Set(["qrcode", "infos", "bookings", "waitlist", "loyalty", "notifications", "billing", "packs", "gains", "favorites", "prefs", "privacy", "ce"]), []);
   const tabParam = searchParams.get("tab");
   const [activeTab, setActiveTab] = useState(() => (tabParam && allowedTabs.has(tabParam) ? tabParam : "qrcode"));
 
@@ -88,6 +98,7 @@ export default function Profile() {
 
   const [authed, setAuthed] = useState(isAuthed());
   const [authOpen, setAuthOpen] = useState(false);
+  const { isCeEmployee } = useCeStatus();
 
   const [profile, setProfile] = useState(getUserProfile());
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
@@ -236,12 +247,14 @@ export default function Profile() {
     { id: "waitlist", label: t("profile.tabs.waitlist"), icon: ListChecks },
     { id: "loyalty", label: "Fidélité", icon: Award },
     { id: "packs", label: t("profile.tabs.packs"), icon: Package },
+    { id: "gains", label: "Mes gains", icon: Gift },
+    ...(isCeEmployee ? [{ id: "ce", label: "Avantages CE", icon: Building2 }] : []),
     { id: "notifications", label: "Notifications", icon: Bell },
     { id: "billing", label: t("profile.tabs.billing"), icon: CreditCard },
     { id: "favorites", label: t("profile.tabs.favorites"), icon: Heart },
     { id: "prefs", label: t("profile.tabs.preferences"), icon: Sliders },
     { id: "privacy", label: t("profile.tabs.privacy_account"), icon: Shield },
-  ], [t]);
+  ], [t, isCeEmployee]);
 
   const handleTabChange = (tabId: string) => {
     setActiveTab(tabId);
@@ -334,7 +347,7 @@ export default function Profile() {
             {/* Sidebar - Desktop */}
             <aside
               className={cn(
-                "hidden md:flex flex-col bg-white border-r border-slate-200 transition-all duration-300 sticky top-0 h-screen",
+                "hidden md:flex flex-col bg-white border-e border-slate-200 transition-all duration-300 sticky top-0 h-screen",
                 sidebarCollapsed ? "w-20" : "w-64"
               )}
             >
@@ -351,7 +364,7 @@ export default function Profile() {
                     <div className="flex-1 min-w-0">
                       <h2 className="font-bold text-foreground truncate">{displayName}</h2>
                       <p className="text-xs text-slate-500 truncate">
-                        {profile.contact || t("profile.contact.placeholder")}
+                        {profile.email || (profile.contact?.includes("@") ? profile.contact : "")}
                       </p>
                     </div>
                   </div>
@@ -368,10 +381,10 @@ export default function Profile() {
                       key={item.id}
                       onClick={() => handleTabChange(item.id)}
                       className={cn(
-                        "w-full flex items-center gap-3 px-4 py-3 text-left transition-colors",
+                        "w-full flex items-center gap-3 px-4 py-3 text-start transition-colors",
                         isActive
-                          ? "bg-primary/10 text-primary border-r-4 border-primary"
-                          : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+                          ? "bg-primary/10 text-primary border-e-4 border-primary"
+                          : "text-slate-900 hover:bg-slate-100",
                         sidebarCollapsed && "justify-center px-2"
                       )}
                       title={sidebarCollapsed ? item.label : undefined}
@@ -390,7 +403,7 @@ export default function Profile() {
                 <button
                   onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
                   className={cn(
-                    "w-full flex items-center gap-3 px-4 py-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors",
+                    "w-full flex items-center gap-3 px-4 py-2 text-slate-900 hover:bg-slate-100 rounded-lg transition-colors",
                     sidebarCollapsed && "justify-center px-2"
                   )}
                 >
@@ -420,14 +433,14 @@ export default function Profile() {
             {/* Sidebar - Mobile (Slide-in) */}
             <aside
               className={cn(
-                "fixed inset-y-0 left-0 z-50 w-72 bg-white shadow-xl transform transition-transform duration-300 ease-in-out md:hidden",
+                "fixed inset-y-0 start-0 z-50 w-72 bg-white shadow-xl transform transition-transform duration-300 ease-in-out md:hidden",
                 mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
               )}
             >
               {/* Close button */}
               <button
                 onClick={() => setMobileMenuOpen(false)}
-                className="absolute top-4 right-4 p-2 rounded-full hover:bg-slate-100"
+                className="absolute top-4 end-4 p-2 rounded-full hover:bg-slate-100"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -439,7 +452,7 @@ export default function Profile() {
                   <div className="flex-1 min-w-0">
                     <h2 className="font-bold text-lg text-foreground truncate">{displayName}</h2>
                     <p className="text-sm text-slate-500 truncate">
-                      {profile.contact || t("profile.contact.placeholder")}
+                      {profile.email || (profile.contact?.includes("@") ? profile.contact : "")}
                     </p>
                   </div>
                 </div>
@@ -471,10 +484,10 @@ export default function Profile() {
                       key={item.id}
                       onClick={() => handleTabChange(item.id)}
                       className={cn(
-                        "w-full flex items-center gap-4 px-6 py-4 text-left transition-colors",
+                        "w-full flex items-center gap-4 px-6 py-4 text-start transition-colors",
                         isActive
-                          ? "bg-primary/10 text-primary border-r-4 border-primary"
-                          : "text-slate-600 hover:bg-slate-50"
+                          ? "bg-primary/10 text-primary border-e-4 border-primary"
+                          : "text-slate-900 hover:bg-slate-50"
                       )}
                     >
                       <Icon className={cn("w-5 h-5", isActive && "text-primary")} />
@@ -503,7 +516,7 @@ export default function Profile() {
                 <div className="flex items-center gap-3">
                   <button
                     onClick={() => setMobileMenuOpen(true)}
-                    className="p-2 -ml-2 rounded-lg hover:bg-slate-100"
+                    className="p-2 -ms-2 rounded-lg hover:bg-slate-100"
                   >
                     <Menu className="w-6 h-6" />
                   </button>
@@ -554,56 +567,17 @@ export default function Profile() {
 
                 {activeTab === "infos" && <ProfileInfoForm profile={profile} />}
 
-                {activeTab === "bookings" && (
-                  <>
-                    {bookingsError ? <div className="mb-3 text-sm text-red-600">{bookingsError}</div> : null}
-                    {bookingsLoading ? <div className="mb-3 text-sm text-slate-600">{t("profile.bookings.loading")}</div> : null}
-                    <ProfileBookings bookings={bookings} />
-                    <div className="mt-4">
-                      <Button variant="outline" onClick={() => void reloadBookings()} disabled={bookingsLoading}>
-                        {t("common.refresh")}
-                      </Button>
-                    </div>
-                  </>
-                )}
+                {activeTab === "bookings" && <MyReservationsV2 />}
 
                 {activeTab === "waitlist" && (
                   <ProfileWaitlist items={waitlistItems} loading={waitlistLoading} error={waitlistError} onReload={() => void reloadWaitlist()} />
                 )}
 
-                {activeTab === "loyalty" && <ProfileLoyaltyTab />}
+                {activeTab === "loyalty" && <MyLoyaltySection />}
 
-                {activeTab === "packs" && (
-                  <>
-                    {packPurchasesError ? <div className="mb-3 text-sm text-red-600">{packPurchasesError}</div> : null}
-                    {packPurchasesLoading ? <div className="mb-3 text-sm text-slate-600">Chargement…</div> : null}
+                {activeTab === "packs" && <MyPacksSection />}
 
-                    <ProfilePacks
-                      packs={packPurchases}
-                      onRemove={(id) => {
-                        if (isDemoModeEnabled()) {
-                          removePackPurchase(id);
-                          setPackPurchases(getPackPurchases());
-                          return;
-                        }
-
-                        void (async () => {
-                          try {
-                            await hideMyConsumerPackPurchase(id);
-                          } finally {
-                            await reloadPackPurchases();
-                          }
-                        })();
-                      }}
-                    />
-
-                    <div className="mt-4">
-                      <Button variant="outline" onClick={() => void reloadPackPurchases()} disabled={packPurchasesLoading}>
-                        {t("common.refresh")}
-                      </Button>
-                    </div>
-                  </>
-                )}
+                {activeTab === "gains" && <MyWheelGifts />}
 
                 {activeTab === "notifications" && (
                   <ProfileNotifications bookings={bookings} packPurchases={packPurchases} />
@@ -624,6 +598,8 @@ export default function Profile() {
                 )}
 
                 {activeTab === "prefs" && <ProfilePreferences profile={profile} />}
+
+                {activeTab === "ce" && <ProfileCeTab />}
 
                 {activeTab === "privacy" && <ProfileAccountPrivacy />}
               </div>

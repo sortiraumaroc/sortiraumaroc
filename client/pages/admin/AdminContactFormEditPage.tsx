@@ -171,7 +171,7 @@ function ImageUploader({
               size="sm"
               onClick={() => fileInputRef.current?.click()}
             >
-              <ImagePlus className="w-4 h-4 mr-1" />
+              <ImagePlus className="w-4 h-4 me-1" />
               Changer
             </Button>
             <Button
@@ -180,7 +180,7 @@ function ImageUploader({
               size="sm"
               onClick={() => onChange(null)}
             >
-              <X className="w-4 h-4 mr-1" />
+              <X className="w-4 h-4 me-1" />
               Supprimer
             </Button>
           </div>
@@ -430,7 +430,7 @@ export default function AdminContactFormEditPage() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="ml-2 h-6"
+                className="ms-2 h-6"
                 onClick={() => {
                   navigator.clipboard.writeText(`https://sam.ma/form/${form.slug}`);
                   toast({ title: "Lien copié" });
@@ -446,14 +446,14 @@ export default function AdminContactFormEditPage() {
             variant="outline"
             onClick={() => window.open(`/form/${form.slug}`, "_blank")}
           >
-            <ExternalLink className="w-4 h-4 mr-2" />
+            <ExternalLink className="w-4 h-4 me-2" />
             Prévisualiser
           </Button>
           <Button
             onClick={handleSave}
             disabled={saving || Object.keys(formChanges).length === 0}
           >
-            <Save className="w-4 h-4 mr-2" />
+            <Save className="w-4 h-4 me-2" />
             {saving ? "Enregistrement..." : "Enregistrer"}
           </Button>
         </div>
@@ -462,15 +462,15 @@ export default function AdminContactFormEditPage() {
       <Tabs defaultValue="fields" className="space-y-4">
         <TabsList>
           <TabsTrigger value="fields">
-            <Settings className="w-4 h-4 mr-2" />
+            <Settings className="w-4 h-4 me-2" />
             Champs
           </TabsTrigger>
           <TabsTrigger value="appearance">
-            <Palette className="w-4 h-4 mr-2" />
+            <Palette className="w-4 h-4 me-2" />
             Apparence
           </TabsTrigger>
           <TabsTrigger value="settings">
-            <Bell className="w-4 h-4 mr-2" />
+            <Bell className="w-4 h-4 me-2" />
             Paramètres
           </TabsTrigger>
         </TabsList>
@@ -480,7 +480,7 @@ export default function AdminContactFormEditPage() {
           <div className="flex justify-between items-center">
             <h2 className="text-lg font-semibold">Champs du formulaire</h2>
             <Button onClick={() => setAddFieldOpen(true)}>
-              <Plus className="w-4 h-4 mr-2" />
+              <Plus className="w-4 h-4 me-2" />
               Ajouter un champ
             </Button>
           </div>
@@ -492,7 +492,7 @@ export default function AdminContactFormEditPage() {
                   Aucun champ ajouté. Commencez par ajouter des champs à votre formulaire.
                 </p>
                 <Button onClick={() => setAddFieldOpen(true)}>
-                  <Plus className="w-4 h-4 mr-2" />
+                  <Plus className="w-4 h-4 me-2" />
                   Ajouter un champ
                 </Button>
               </CardContent>
@@ -924,7 +924,7 @@ export default function AdminContactFormEditPage() {
                 onClick={() => handleFieldAdd(type.value)}
               >
                 {type.icon}
-                <span className="ml-2">{type.label}</span>
+                <span className="ms-2">{type.label}</span>
               </Button>
             ))}
           </div>

@@ -1,0 +1,53 @@
+# Sortir Au Maroc (SAM.ma)
+
+> Plateforme de reservation et decouverte d'etablissements au Maroc.
+
+SAM.ma permet aux utilisateurs de trouver, decouvrir et reserver des etablissements au Maroc : restaurants, hotels, riads, activites de loisirs, spas & wellness, sorties culturelles, shopping et location de voitures.
+
+## Services proposes
+- Reservation en ligne de restaurants avec choix de creneaux horaires
+- Reservation d'hebergements (hotels, riads, maisons d'hotes, villas, auberges, resorts)
+- Reservation d'activites de loisirs et sport
+- Reservation de soins spa et wellness
+- Reservation d'activites culturelles (musees, expositions, spectacles)
+- Decouverte de boutiques et shopping
+- Location de voitures
+- Disponible en francais et anglais
+
+## Couverture geographique
+Tout le Maroc, incluant les principales villes :
+Casablanca, Marrakech, Rabat, Tanger, Agadir, Fes, Meknes, Oujda, Essaouira, Chefchaouen, Ifrane, El Jadida, Kenitra, Tetouan, Nador, Beni Mellal, Safi, Dakhla
+
+## Donnees structurees
+Chaque fiche d'etablissement contient :
+- Nom, adresse, ville, telephone
+- Coordonnees GPS (latitude/longitude)
+- Horaires d'ouverture
+- Photos et description
+- Note moyenne et nombre d'avis
+- Fourchette de prix
+- Types Schema.org : Restaurant, LodgingBusiness, SportsActivityLocation, HealthAndBeautyBusiness, EntertainmentBusiness, Store
+
+## API publique (lecture seule)
+- Liste des etablissements : GET /api/public/establishments
+- Detail d'un etablissement : GET /api/public/establishments/:ref
+- Articles de blog : GET /api/public/blog
+- Detail article : GET /api/public/blog/:slug
+- Sitemap XML : GET /sitemap.xml
+
+## Navigation du site
+- Accueil : /
+- Resultats de recherche : /results
+- Fiche restaurant : /restaurant/:id
+- Fiche hotel : /hotel/:id
+- Fiche loisir : /loisir/:id
+- Fiche wellness : /wellness/:id
+- Fiche culture : /culture/:id
+- Fiche shopping : /shopping/:id
+- Blog : /blog
+- FAQ : /faq
+- Aide : /aide
+
+## Contact
+- Site web : https://sam.ma
+- Email : contact@sam.ma

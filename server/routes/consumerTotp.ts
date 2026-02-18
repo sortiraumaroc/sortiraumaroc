@@ -61,14 +61,25 @@ interface ConsumerUserStatsRow {
 async function getUserIdFromRequest(req: Request): Promise<string | null> {
   const auth = String(req.headers.authorization ?? "");
   const token = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7) : "";
-  if (!token) return null;
+  if (!token) {
+    console.warn("[consumerTotp] getUserIdFromRequest: no bearer token in request");
+    return null;
+  }
 
   try {
     const supabase = getAdminSupabase();
     const { data, error } = await supabase.auth.getUser(token);
-    if (error || !data.user) return null;
+    if (error) {
+      console.warn("[consumerTotp] getUserIdFromRequest: auth.getUser error:", error.message);
+      return null;
+    }
+    if (!data.user) {
+      console.warn("[consumerTotp] getUserIdFromRequest: no user in response");
+      return null;
+    }
     return typeof data.user.id === "string" ? data.user.id.trim() : null;
-  } catch {
+  } catch (e) {
+    console.error("[consumerTotp] getUserIdFromRequest: exception:", e);
     return null;
   }
 }
@@ -834,5 +845,66 @@ async function logValidation(
   } catch (error) {
     console.error("[consumerTotp] Error logging validation:", error);
     // Don't throw - logging failure shouldn't break validation
+  }
+}
+
+// ============================================================================
+// GET /api/consumer/totp/health
+// Quick health check — verifies DB tables exist and are accessible
+// No auth required (diagnostic endpoint)
+// ============================================================================
+
+export async function consumerTotpHealthCheck(
+  _req: Request,
+  res: Response,
+): Promise<void> {
+  try {
+    const supabase = getAdminSupabase();
+    const checks: Record<string, string> = {};
+
+    // Check consumer_users table
+    const { error: cuErr } = await supabase
+      .from("consumer_users")
+      .select("id")
+      .limit(1);
+    checks.consumer_users = cuErr ? `ERROR: ${cuErr.message}` : "OK";
+
+    // Check consumer_user_totp_secrets table
+    const { error: tsErr } = await supabase
+      .from("consumer_user_totp_secrets")
+      .select("id")
+      .limit(1);
+    checks.consumer_user_totp_secrets = tsErr ? `ERROR: ${tsErr.message}` : "OK";
+
+    // Check consumer_totp_validation_logs table
+    const { error: vlErr } = await supabase
+      .from("consumer_totp_validation_logs")
+      .select("id")
+      .limit(1);
+    checks.consumer_totp_validation_logs = vlErr ? `ERROR: ${vlErr.message}` : "OK";
+
+    // Check consumer_user_stats table
+    const { error: usErr } = await supabase
+      .from("consumer_user_stats")
+      .select("user_id")
+      .limit(1);
+    checks.consumer_user_stats = usErr ? `ERROR: ${usErr.message}` : "OK";
+
+    const allOk = Object.values(checks).every((v) => v === "OK");
+
+    res.status(allOk ? 200 : 503).json({
+      ok: allOk,
+      service: "consumer-totp",
+      checks,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("[consumerTotp] Health check failed:", error);
+    res.status(500).json({
+      ok: false,
+      service: "consumer-totp",
+      error: "Health check failed",
+      timestamp: new Date().toISOString(),
+    });
   }
 }

@@ -163,7 +163,7 @@ export function ReservationTimeline({ establishmentId, reservationId }: Props) {
                     )}
                   </div>
                 </div>
-                <div className="text-right shrink-0">
+                <div className="text-end shrink-0">
                   <div className="text-xs font-medium text-slate-600" title={formatDateTime(entry.created_at)}>
                     {formatRelative(entry.created_at)}
                   </div>

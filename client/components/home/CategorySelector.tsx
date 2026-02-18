@@ -111,14 +111,14 @@ export function CategorySelector({ universe, city }: CategorySelectorProps) {
 
         <IconButton
           onClick={() => scrollCarousel("left")}
-          className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-3 z-10 hidden md:flex"
+          className="absolute start-0 top-1/2 -translate-y-1/2 -translate-x-3 z-10 hidden md:flex"
           aria-label={t("common.prev")}
         >
           <ChevronLeft className="w-5 h-5 text-primary" />
         </IconButton>
         <IconButton
           onClick={() => scrollCarousel("right")}
-          className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-3 z-10 hidden md:flex"
+          className="absolute end-0 top-1/2 -translate-y-1/2 translate-x-3 z-10 hidden md:flex"
           aria-label={t("common.next")}
         >
           <ChevronRight className="w-5 h-5 text-primary" />
@@ -147,8 +147,9 @@ function CategoryCard({
             alt={category.name}
             className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
             onError={(e) => {
-              // Fallback to placeholder if image fails to load
-              (e.target as HTMLImageElement).src = `https://via.placeholder.com/96x96/e2e8f0/64748b?text=${encodeURIComponent(category.name.charAt(0))}`;
+              // Fallback to inline SVG placeholder (no external dependency)
+              const letter = encodeURIComponent(category.name.charAt(0));
+              (e.target as HTMLImageElement).src = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Crect width='96' height='96' fill='%23e2e8f0'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-family='sans-serif' font-size='36' fill='%2364748b'%3E${letter}%3C/text%3E%3C/svg%3E`;
             }}
           />
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-200" />

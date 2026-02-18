@@ -624,7 +624,7 @@ export default function Step1Selection() {
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
-                  className="w-full px-4 py-3 flex items-center justify-between gap-3 text-left hover:bg-slate-50"
+                  className="w-full px-4 py-3 flex items-center justify-between gap-3 text-start hover:bg-slate-50"
                 >
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-slate-900 truncate">{recapDateLabel ?? t("booking.step1.selected.date")}</div>
@@ -690,7 +690,7 @@ export default function Step1Selection() {
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
-                  className="w-full px-4 py-3 flex items-center justify-between gap-3 text-left hover:bg-slate-50"
+                  className="w-full px-4 py-3 flex items-center justify-between gap-3 text-start hover:bg-slate-50"
                 >
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-slate-900 truncate">{recapServiceLabel ?? t("booking.step1.selected.slot")}</div>
@@ -832,7 +832,7 @@ export default function Step1Selection() {
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
-                  className="w-full px-4 py-3 flex items-center justify-between gap-3 text-left hover:bg-slate-50"
+                  className="w-full px-4 py-3 flex items-center justify-between gap-3 text-start hover:bg-slate-50"
                 >
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-slate-900 truncate">

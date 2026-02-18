@@ -22,6 +22,10 @@ type CommonProps = {
   onOpenChange?: (open: boolean) => void;
   onClear?: () => void;
   clearLabel?: string;
+  /** Force popover mode even on mobile (useful when nested inside a Dialog) */
+  forcePopover?: boolean;
+  /** Controlled open state — when provided, the parent controls open/close */
+  open?: boolean;
 };
 
 export type AdaptivePickerDateProps = CommonProps & {
@@ -87,15 +91,21 @@ function DatePickerContent({
   onSelect: (date: Date) => void;
   availableDates?: Date[];
   disabledDates?: (date: Date) => boolean;
-  minDate?: Date;
+  minDate?: Date | null;
 }) {
+  const [month, setMonth] = React.useState<Date>(
+    () => value ?? minDate ?? new Date()
+  );
+
   return (
     <SamCalendar
       value={value}
       onChange={onSelect}
       availableDates={availableDates}
       disabledDates={disabledDates}
-      minDate={minDate}
+      minDate={minDate ?? undefined}
+      month={month}
+      onMonthChange={setMonth}
     />
   );
 }
@@ -139,6 +149,54 @@ function TimePickerContent({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Wrapper that stops wheel/touchmove events from propagating to document-level
+ * listeners (e.g. react-remove-scroll used by Radix Dialog).
+ * When the Popover is rendered in a Portal outside the Dialog DOM tree,
+ * react-remove-scroll sees wheel events as "outside" and calls preventDefault().
+ * By stopping propagation on the Popover content, we prevent this interception.
+ */
+function ScrollIsolator({ children, className }: { children: React.ReactNode; className?: string }) {
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const stopWheel = (e: WheelEvent) => {
+      // Only stop propagation if this element or a child can scroll
+      const target = e.target as HTMLElement;
+      const scrollable = target.closest("[data-scroll-isolate]") as HTMLElement | null;
+      if (scrollable && scrollable.scrollHeight > scrollable.clientHeight) {
+        e.stopPropagation();
+      }
+    };
+
+    const stopTouch = (e: TouchEvent) => {
+      const target = e.target as HTMLElement;
+      const scrollable = target.closest("[data-scroll-isolate]") as HTMLElement | null;
+      if (scrollable && scrollable.scrollHeight > scrollable.clientHeight) {
+        e.stopPropagation();
+      }
+    };
+
+    // Use bubble phase — the document listener from react-remove-scroll is also in bubble phase
+    el.addEventListener("wheel", stopWheel, { passive: true });
+    el.addEventListener("touchmove", stopTouch, { passive: true });
+
+    return () => {
+      el.removeEventListener("wheel", stopWheel);
+      el.removeEventListener("touchmove", stopTouch);
+    };
+  }, []);
+
+  return (
+    <div ref={ref} data-scroll-isolate className={className}>
+      {children}
     </div>
   );
 }
@@ -189,15 +247,18 @@ function PickerHeader({
 }
 
 export function AdaptivePicker(props: AdaptivePickerProps) {
-  const isMobile = useIsMobile();
-  const [open, setOpen] = React.useState(false);
+  const rawIsMobile = useIsMobile();
+  const isMobile = rawIsMobile && !props.forcePopover;
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  const isControlled = props.open !== undefined;
+  const open = isControlled ? props.open! : internalOpen;
 
   const setOpenSafe = React.useCallback(
     (next: boolean) => {
-      setOpen(next);
+      if (!isControlled) setInternalOpen(next);
       props.onOpenChange?.(next);
     },
-    [props],
+    [isControlled, props],
   );
 
   const trigger = React.useMemo(() => {
@@ -225,7 +286,7 @@ export function AdaptivePicker(props: AdaptivePickerProps) {
         <Drawer open={open} onOpenChange={setOpenSafe} dismissible shouldScaleBackground>
           <DrawerContent
             className={cn(
-              "rounded-t-3xl border border-slate-200 bg-white w-full max-h-[50dvh] h-auto overflow-hidden",
+              "rounded-t-3xl border border-slate-200 bg-white w-full max-h-[70dvh] h-auto overflow-hidden",
               props.contentClassName,
             )}
             aria-label={title}
@@ -235,11 +296,11 @@ export function AdaptivePicker(props: AdaptivePickerProps) {
               onClose={() => setOpenSafe(false)}
               onClear={props.onClear}
               clearLabel={props.clearLabel}
-              className="pl-[max(12px,env(safe-area-inset-left))] pr-[max(12px,env(safe-area-inset-right))] pt-2 pb-2"
+              className="ps-[max(12px,env(safe-area-inset-left))] pe-[max(12px,env(safe-area-inset-right))] pt-2 pb-2"
             />
             <div className="border-b border-slate-200" />
 
-            <div className="pl-[max(12px,env(safe-area-inset-left))] pr-[max(12px,env(safe-area-inset-right))] py-3 overflow-y-auto max-h-[calc(50dvh-88px)] pb-[max(12px,env(safe-area-inset-bottom))]">
+            <div data-vaul-no-drag className="ps-[max(12px,env(safe-area-inset-left))] pe-[max(12px,env(safe-area-inset-right))] py-3 overflow-y-auto max-h-[calc(70dvh-88px)] pb-[max(12px,env(safe-area-inset-bottom))]">
               {props.type === "date" ? (
                 <DatePickerContent
                   value={props.value}
@@ -282,7 +343,7 @@ export function AdaptivePicker(props: AdaptivePickerProps) {
         </PopoverPrimitive.Portal>
       ) : null}
 
-      <PopoverPrimitive.Portal>
+      {open ? <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
           align="start"
           side="bottom"
@@ -291,12 +352,12 @@ export function AdaptivePicker(props: AdaptivePickerProps) {
           collisionPadding={16}
           className={cn(
             "z-50 w-[min(420px,calc(100vw-24px))] rounded-2xl border border-slate-200 bg-white shadow-xl outline-none",
-            "max-h-[420px] overflow-hidden",
+            "max-h-[420px] flex flex-col",
             props.contentClassName,
           )}
           onEscapeKeyDown={() => setOpenSafe(false)}
-          onPointerDownOutside={() => setOpenSafe(false)}
-          onInteractOutside={() => setOpenSafe(false)}
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
         >
           <PopoverPrimitive.Arrow width={18} height={10} className="fill-white stroke-slate-200" />
 
@@ -309,7 +370,7 @@ export function AdaptivePicker(props: AdaptivePickerProps) {
           />
           <div className="border-b border-slate-200" />
 
-          <div className="p-4 overflow-auto max-h-[calc(420px-76px)]">
+          <ScrollIsolator className="p-4 overflow-y-auto overscroll-contain max-h-[calc(420px-76px)] flex-1 min-h-0">
             {props.type === "date" ? (
               <DatePickerContent
                 value={props.value}
@@ -331,9 +392,9 @@ export function AdaptivePicker(props: AdaptivePickerProps) {
                 }}
               />
             )}
-          </div>
+          </ScrollIsolator>
         </PopoverPrimitive.Content>
-      </PopoverPrimitive.Portal>
+      </PopoverPrimitive.Portal> : null}
     </PopoverPrimitive.Root>
   );
 }

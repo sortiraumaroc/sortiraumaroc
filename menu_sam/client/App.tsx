@@ -32,6 +32,7 @@ import ProPromos from "@/pages/pro/Promos";
 import ProReviews from "@/pages/pro/Reviews";
 import ProSettings from "@/pages/pro/Settings";
 import ProTables from "@/pages/pro/Tables";
+import ProVisibility from "@/pages/pro/Visibility";
 
 import SuperadminDashboard from "@/pages/superadmin/Dashboard";
 import SuperadminForcePassword from "@/pages/superadmin/ForcePassword";
@@ -141,6 +142,14 @@ export default function App() {
                     element={
                       <ProProtectedRoute>
                         <ProSettings />
+                      </ProProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/pro/visibility"
+                    element={
+                      <ProProtectedRoute>
+                        <ProVisibility />
                       </ProProtectedRoute>
                     }
                   />

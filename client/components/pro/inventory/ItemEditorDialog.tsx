@@ -499,7 +499,7 @@ export function ItemEditorDialog({ open, onOpenChange, establishmentId, universe
                         (canWrite ? "" : " opacity-60")
                       }
                     >
-                      <span className="mr-1">{l.emoji}</span>
+                      <span className="me-1">{l.emoji}</span>
                       {l.title}
                     </button>
                   );
@@ -627,7 +627,7 @@ export function ItemEditorDialog({ open, onOpenChange, establishmentId, universe
                   <div className="space-y-2">
                     <Label className="text-sm">
                       Allergènes présents
-                      <span className="ml-1 text-xs text-slate-400 font-normal">(14 allergènes majeurs UE)</span>
+                      <span className="ms-1 text-xs text-slate-400 font-normal">(14 allergènes majeurs UE)</span>
                     </Label>
                     <div className="flex flex-wrap gap-1">
                       {ALL_ALLERGENS.map((allergen) => {

@@ -190,7 +190,7 @@ export function ModerationQueuePanel(props: { adminKey?: string }) {
               <TableHead>Décidé</TableHead>
               <TableHead>Statut</TableHead>
               <TableHead>Motif</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead className="text-end">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -211,7 +211,7 @@ export function ModerationQueuePanel(props: { adminKey?: string }) {
                   <TableCell className="text-sm text-slate-600">
                     {reason ? <span title={reason}>{reason.length > 48 ? `${reason.slice(0, 48)}…` : reason}</span> : "—"}
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-end">
                     <div className="flex flex-col sm:flex-row gap-2 justify-end">
                       <Button
                         size="sm"

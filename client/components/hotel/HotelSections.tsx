@@ -74,7 +74,7 @@ export function RoomsList({ rooms }: { rooms: RoomType[] }) {
               <div className="mt-1 text-sm text-slate-600">{r.occupancy}</div>
             </div>
             {typeof r.priceFromMad === "number" ? (
-              <div className="text-right">
+              <div className="text-end">
                 <div className="text-xs text-slate-500">À partir de</div>
                 <div className="text-base font-extrabold text-[#a3001d] tabular-nums whitespace-nowrap">{formatMad(r.priceFromMad)} MAD</div>
                 <div className="text-[11px] text-slate-500">/ nuit (indicatif)</div>

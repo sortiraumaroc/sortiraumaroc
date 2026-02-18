@@ -13,6 +13,7 @@ import {
   getProNotificationPreferences,
   setProNotificationPreferences,
   subscribeToProNotificationPreferencesChanges,
+  loadProNotificationPreferencesFromBackend,
 } from "@/lib/pro/notificationPreferences";
 
 import {
@@ -87,6 +88,10 @@ export function ProNotificationsTab({ establishment, user, onNavigateToTab }: Pr
 
   useEffect(() => {
     void load();
+    // Sync preferences from backend on mount (best-effort)
+    void loadProNotificationPreferencesFromBackend().then((prefs) => {
+      setPreferences(prefs);
+    });
   }, [user.id, establishment.id]);
 
   useEffect(() => {
@@ -242,7 +247,7 @@ export function ProNotificationsTab({ establishment, user, onNavigateToTab }: Pr
                       <TableHead>Catégorie</TableHead>
                       <TableHead>Titre</TableHead>
                       <TableHead>Statut</TableHead>
-                      <TableHead className="text-right">Action</TableHead>
+                      <TableHead className="text-end">Action</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -264,9 +269,9 @@ export function ProNotificationsTab({ establishment, user, onNavigateToTab }: Pr
                             <NotificationBody body={n.body} className="text-xs text-slate-600" dateClassName="text-[0.7rem]" />
                           </TableCell>
                           <TableCell>{n.read_at ? "Lu" : "Non lu"}</TableCell>
-                          <TableCell className="text-right whitespace-nowrap">
+                          <TableCell className="text-end whitespace-nowrap">
                             {canNavigate ? (
-                              <Button variant="outline" size="sm" className="gap-2 mr-2" onClick={() => onNavigateToTab(targetTab)}>
+                              <Button variant="outline" size="sm" className="gap-2 me-2" onClick={() => onNavigateToTab(targetTab)}>
                                 <ExternalLink className="w-4 h-4" />
                                 Ouvrir
                               </Button>

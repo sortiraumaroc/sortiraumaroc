@@ -45,6 +45,19 @@ export interface PlatformSettingsSnapshot {
     short: string;
     domain: string;
   };
+  footer: {
+    social_instagram: string;
+    social_tiktok: string;
+    social_facebook: string;
+    social_youtube: string;
+    social_snapchat: string;
+    social_linkedin: string;
+  };
+  ramadan: {
+    enabled: boolean;
+    start_date: string;
+    end_date: string;
+  };
 }
 
 // Cache for settings (refreshed periodically)
@@ -154,7 +167,7 @@ const DEFAULT_SETTINGS: PlatformSetting[] = [
   },
   {
     key: "BRAND_DOMAIN",
-    value: "sortiraumaroc.ma",
+    value: "sam.ma",
     value_type: "string",
     label: "Domaine",
     description: "Domaine principal de la plateforme",
@@ -294,7 +307,20 @@ export async function getPlatformSettingsSnapshot(): Promise<PlatformSettingsSna
     branding: {
       name: getStr("BRAND_NAME", "Sortir Au Maroc"),
       short: getStr("BRAND_SHORT", "SAM"),
-      domain: getStr("BRAND_DOMAIN", "sortiraumaroc.ma"),
+      domain: getStr("BRAND_DOMAIN", "sam.ma"),
+    },
+    footer: {
+      social_instagram: getStr("FOOTER_SOCIAL_INSTAGRAM", ""),
+      social_tiktok: getStr("FOOTER_SOCIAL_TIKTOK", ""),
+      social_facebook: getStr("FOOTER_SOCIAL_FACEBOOK", ""),
+      social_youtube: getStr("FOOTER_SOCIAL_YOUTUBE", ""),
+      social_snapchat: getStr("FOOTER_SOCIAL_SNAPCHAT", ""),
+      social_linkedin: getStr("FOOTER_SOCIAL_LINKEDIN", ""),
+    },
+    ramadan: {
+      enabled: getBool("RAMADAN_ENABLED"),
+      start_date: getStr("RAMADAN_START_DATE", ""),
+      end_date: getStr("RAMADAN_END_DATE", ""),
     },
   };
 }
@@ -352,6 +378,34 @@ export async function listPlatformSettingsByCategory(
 // ============================================================================
 // Feature Check Helpers (for use throughout the codebase)
 // ============================================================================
+
+/**
+ * Check if Ramadan mode is currently active (enabled + within date range)
+ */
+export async function isRamadanActive(): Promise<boolean> {
+  const enabled = await getSettingBool("RAMADAN_ENABLED");
+  if (!enabled) return false;
+  const startStr = await getSetting("RAMADAN_START_DATE");
+  const endStr = await getSetting("RAMADAN_END_DATE");
+  if (!startStr || !endStr) return false;
+  const now = new Date();
+  const start = new Date(startStr + "T00:00:00");
+  const end = new Date(endStr + "T23:59:59");
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return false;
+  return now >= start && now <= end;
+}
+
+/**
+ * Get Ramadan configuration from platform settings
+ */
+export async function getRamadanConfig(): Promise<{ enabled: boolean; start_date: string; end_date: string }> {
+  const settings = await loadPlatformSettings();
+  return {
+    enabled: settings.get("RAMADAN_ENABLED")?.value === "true",
+    start_date: settings.get("RAMADAN_START_DATE")?.value || "",
+    end_date: settings.get("RAMADAN_END_DATE")?.value || "",
+  };
+}
 
 /**
  * Check if reservation payments are enabled

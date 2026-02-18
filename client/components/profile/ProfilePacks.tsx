@@ -104,7 +104,7 @@ export function ProfilePacks({ packs, onRemove }: { packs: PackPurchase[]; onRem
                   {formatShortDate(p.validFromIso)} → {formatShortDate(p.validUntilIso)}
                 </div>
               </div>
-              <div className="text-right">
+              <div className="text-end">
                 <div className="text-xs font-semibold text-slate-600">Montant payé</div>
                 <div className="text-sm font-extrabold text-foreground tabular-nums">{formatMoneyMad(totalMad)}</div>
                 <div className="text-xs text-slate-500">

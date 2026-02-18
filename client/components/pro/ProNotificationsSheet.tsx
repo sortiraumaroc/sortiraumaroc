@@ -229,7 +229,7 @@ export function ProNotificationsSheet({
       >
         <Bell className="w-5 h-5" />
         {unreadCount > 0 ? (
-          <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[11px] font-extrabold flex items-center justify-center border-2 border-primary">
+          <span className="absolute -top-1 -end-1 min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[11px] font-extrabold flex items-center justify-center border-2 border-primary">
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         ) : null}

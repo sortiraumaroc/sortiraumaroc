@@ -42,11 +42,11 @@ export function SportActivityInput({ value, onChange, className = "" }: SportAct
   return (
     <div className={`w-full ${className}`}>
       <div className="relative h-10 md:h-11">
-        <Activity className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5 pointer-events-none" />
+        <Activity className="absolute start-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5 pointer-events-none" />
         <button
           type="button"
           onClick={() => setIsModalOpen(true)}
-          className="w-full pl-10 pr-4 py-2 h-full bg-slate-100 border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-primary italic text-gray-700 text-left text-sm flex items-center justify-between [font-family:Circular_Std,_sans-serif]"
+          className="w-full ps-10 pe-4 py-2 h-full bg-slate-100 border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-primary italic text-gray-700 text-start text-sm flex items-center justify-between [font-family:Circular_Std,_sans-serif]"
         >
           <span className={value ? "text-gray-700 italic font-normal" : "text-gray-700 italic font-normal"}>
             {value || t("search.placeholder.sport_activity_type")}

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { Link, useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
-import { Map as MapIcon, List, SlidersHorizontal, Star, Heart, Users, Search, Utensils, Clock, Sparkles, CalendarDays, ChevronDown, Wine, X, Filter, MapPin, Car, Gamepad2, Dumbbell, Building2 } from "lucide-react";
+import { Map as MapIcon, List, SlidersHorizontal, Star, Heart, Users, Search, Utensils, Clock, Sparkles, BadgePercent, CalendarDays, ChevronDown, Wine, X, Filter, MapPin, Car, Gamepad2, Dumbbell, Building2, Check, Loader2, Zap, TreePalm, ParkingCircle, Wifi, Baby, Coins, Fuel, Gauge } from "lucide-react";
 import { Header } from "@/components/Header";
 import { CityInput } from "@/components/SearchInputs/CityInput";
 import { DatePickerInput } from "@/components/DatePickerInput";
@@ -11,11 +12,15 @@ import { PrestationInput } from "@/components/SearchInputs/PrestationInput";
 import { ActivityTypeInput } from "@/components/SearchInputs/ActivityTypeInput";
 import { LieuInput } from "@/components/SearchInputs/LieuInput";
 import { FiltersPanel, FilterState } from "@/components/FiltersPanel";
-import { ResultsMap } from "@/components/results/ResultsMap";
+import { buildEstablishmentUrl } from "@/lib/establishmentUrl";
+import { ResultsMap, type MapBounds, type ResultsMapItem } from "@/components/results/ResultsMap";
 import { EstablishmentCard } from "@/components/results/EstablishmentCard";
+import { EstablishmentCardSkeleton } from "@/components/results/EstablishmentCardSkeleton";
 import { VehicleCard } from "@/components/results/VehicleCard";
-import { ResultsFilterBottomSheet, type FilterTab } from "@/components/results/ResultsFilterBottomSheet";
+import { ResultsFilterBottomSheet, CalendarGrid, TimeGrid, PersonsGrid, type FilterTab } from "@/components/results/ResultsFilterBottomSheet";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { QuickFilterBottomSheet, type QuickFilterType } from "@/components/results/QuickFilterBottomSheet";
+import { SearchFallback } from "@/components/results/SearchFallback";
 import { CityBottomSheet } from "@/components/results/CityBottomSheet";
 import {
   CUISINE_TYPES,
@@ -30,7 +35,7 @@ import { cn } from "@/lib/utils";
 import type { ActivityCategory } from "@/lib/taxonomy";
 import { patchSearchState, readSearchState } from "@/lib/searchState";
 import { useI18n } from "@/lib/i18n";
-import { applySeo } from "@/lib/seo";
+import { applySeo, buildI18nSeoFields } from "@/lib/seo";
 import {
   listPublicEstablishments,
   type PublicEstablishmentListItem,
@@ -38,13 +43,18 @@ import {
   trackAdImpression,
   trackAdClick,
   type SponsoredResultItem,
+  saveSearchToServerHistory,
 } from "@/lib/publicApi";
 import { isAuthed, openAuthModal } from "@/lib/auth";
 import { useScrollContext } from "@/lib/scrollContext";
+import { getLandingSlugMap, findLandingSlug } from "@/lib/landingApi";
 import { saveNavigationState, buildNavigationDescription } from "@/lib/navigationState";
-import { useDebounce } from "@/hooks/useDebounce";
+import { useDebounce, useDebouncedCallback } from "@/hooks/useDebounce";
 import { useDetectedCity } from "@/hooks/useDetectedCity";
 import { getFavorites, addFavorite, removeFavorite, type FavoriteItem } from "@/lib/userData";
+import { formatTemporalChipLabel } from "@/lib/search/temporalParser";
+import { searchRentalVehicles, type RentalSearchResponse } from "@/lib/rentalApi";
+import type { RentalVehicle, RENTAL_VEHICLE_CATEGORIES } from "../../shared/rentalTypes";
 
 const parseSlotLabel = (
   label: string,
@@ -638,49 +648,128 @@ const SHOPPING = [
 ];
 
 export default function Results() {
-  const { t, intlLocale } = useI18n();
+  const { t, locale, intlLocale } = useI18n();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const universe = searchParams.get("universe") || "restaurants";
   const promotionsOnly = searchParams.get("promo") === "1";
+
+  // Prompt 12 — personalization
+  const [personalizationEnabled, setPersonalizationEnabled] = useState(() =>
+    typeof window !== "undefined" ? localStorage.getItem("sam_personalization") !== "off" : true,
+  );
+
+  // Prompt 11 — practical filters
+  const openNowFilter = searchParams.get("open_now") === "1";
+  const instantBookingFilter = searchParams.get("instant_booking") === "1";
+  const amenitiesParam = searchParams.get("amenities");
+  const activeAmenities = useMemo(() => amenitiesParam ? amenitiesParam.split(",").filter(Boolean) : [], [amenitiesParam]);
+  const priceRangeParam = searchParams.get("price_range");
+  const activePriceRange = useMemo(() => priceRangeParam ? priceRangeParam.split(",").map(Number).filter((n) => n >= 1 && n <= 4) : [], [priceRangeParam]);
+
   const categoryFilter = searchParams.get("category") || "";
   const searchQuery = searchParams.get("q") || "";
   const sortMode = searchParams.get("sort") || "";
+  const urlDate = searchParams.get("date") || "";
+  const urlTimeFrom = searchParams.get("time_from") || "";
+  const urlTimeTo = searchParams.get("time_to") || "";
+  const urlPersons = searchParams.get("persons") || "";
   const universeKey = universe as ActivityCategory;
 
-  // Register search bar ref for sticky header transformation
-  const { registerSearchFormRef } = useScrollContext();
-  const searchBarRef = useRef<HTMLDivElement>(null);
+  // On Results page: always show search bar in header (white bg at top, red on scroll)
+  const { setAlwaysShowSearchBar } = useScrollContext();
+  const filterBarRef = useRef<HTMLDivElement>(null);
+  const [stickyBarHeight, setStickyBarHeight] = useState(112); // header 64 + filter bar ~48
 
   useEffect(() => {
-    registerSearchFormRef(searchBarRef.current);
-    return () => registerSearchFormRef(null);
-  }, [registerSearchFormRef]);
+    setAlwaysShowSearchBar(true);
+    return () => setAlwaysShowSearchBar(false);
+  }, [setAlwaysShowSearchBar]);
+
+  // Measure the filter bar height for map positioning
+  useEffect(() => {
+    const el = filterBarRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        // 64px header + filter bar height
+        setStickyBarHeight(64 + entry.contentRect.height);
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const [mobileView, setMobileView] = useState<"list" | "map">("list");
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [selectedRestaurant, setSelectedRestaurant] = useState<string | null>(null);
   const [highlightedRestaurant, setHighlightedRestaurant] = useState<string | null>(null);
+  const [mobileBottomCard, setMobileBottomCard] = useState<ResultsMapItem | null>(null);
 
   // Bottom sheet state for mobile filters (TheFork style)
   const [showCityBottomSheet, setShowCityBottomSheet] = useState(false);
   const [showFilterBottomSheet, setShowFilterBottomSheet] = useState(false);
   const [filterBottomSheetTab, setFilterBottomSheetTab] = useState<FilterTab>("date");
-  const [filterDateValue, setFilterDateValue] = useState<Date | null>(null);
-  const [filterTimeValue, setFilterTimeValue] = useState<string | null>(null);
-  const [filterPersonsValue, setFilterPersonsValue] = useState(2);
+  const [filterDateValue, setFilterDateValue] = useState<Date | null>(() => {
+    if (urlDate) { const d = new Date(urlDate + "T00:00:00"); return isNaN(d.getTime()) ? null : d; }
+    return null;
+  });
+  const [filterTimeValue, setFilterTimeValue] = useState<string | null>(() => urlTimeFrom || null);
+  const [filterPersonsValue, setFilterPersonsValue] = useState(() => {
+    const p = parseInt(urlPersons, 10);
+    return p > 0 ? p : 2;
+  });
 
-  // Quick filter bottom sheets (cuisine, ambiance)
+  // Desktop popover state for Date/Time/Persons (TheFork-style dropdowns)
+  const [desktopDateOpen, setDesktopDateOpen] = useState(false);
+  const [desktopTimeOpen, setDesktopTimeOpen] = useState(false);
+  const [desktopPersonsOpen, setDesktopPersonsOpen] = useState(false);
+  const [desktopCuisineOpen, setDesktopCuisineOpen] = useState(false);
+  const [desktopAmbianceOpen, setDesktopAmbianceOpen] = useState(false);
+
+  // Quick filter bottom sheets (cuisine, ambiance) – mobile only
   const [showQuickFilterSheet, setShowQuickFilterSheet] = useState(false);
   const [quickFilterType, setQuickFilterType] = useState<QuickFilterType>("cuisine");
   const [selectedCuisineTypes, setSelectedCuisineTypes] = useState<string[]>([]);
   const [selectedAmbiances, setSelectedAmbiances] = useState<string[]>([]);
 
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [geoStatus, setGeoStatus] = useState<"idle" | "requesting" | "available" | "denied">("idle");
+  // Label adapté à l'univers pour le pill "Type de …"
+  const cuisinePillLabel = universe === "restaurants" ? "Spécialité"
+    : universe === "sport" || universe === "bien_etre" ? "Prestation"
+    : universe === "loisirs" ? "Type d'activité"
+    : universe === "hebergement" ? "Hébergement"
+    : universe === "culture" ? "Type de lieu"
+    : universe === "shopping" ? "Boutique"
+    : "Type";
 
-  const [visibleCount, setVisibleCount] = useState(10);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(() => {
+    if (searchParams.get("nearme") === "1") {
+      const lat = parseFloat(searchParams.get("lat") || "");
+      const lng = parseFloat(searchParams.get("lng") || "");
+      if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+    }
+    return null;
+  });
+  const [geoStatus, setGeoStatus] = useState<"idle" | "requesting" | "available" | "denied">(() =>
+    searchParams.get("nearme") === "1" ? "available" : "idle"
+  );
+
+  // Bounds state for map "search this area" (integrated into useInfiniteQuery queryKey)
+  // Initialize with nearme bounds if present in URL params
+  const [searchBounds, setSearchBounds] = useState<MapBounds | null>(() => {
+    if (searchParams.get("nearme") === "1") {
+      const lat = parseFloat(searchParams.get("lat") || "");
+      const lng = parseFloat(searchParams.get("lng") || "");
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        const RADIUS_KM = 5;
+        const latDelta = RADIUS_KM / 111.32;
+        const lngDelta = RADIUS_KM / (111.32 * Math.cos((lat * Math.PI) / 180));
+        return { north: lat + latDelta, south: lat - latDelta, east: lng + lngDelta, west: lng - lngDelta, center: { lat, lng } };
+      }
+    }
+    return null;
+  });
 
   // Initialize favorites from localStorage
   const [favorites, setFavorites] = useState<Set<string>>(() => {
@@ -731,6 +820,20 @@ export default function Results() {
     el.scrollIntoView({ behavior: "smooth", block: "center" });
   }, []);
 
+  // Debounced hover: map marker → list card (scroll into view with "nearest")
+  const debouncedMapHover = useDebouncedCallback((id: string | null) => {
+    setHighlightedRestaurant(id);
+    if (id) {
+      const el = cardRefs.current.get(id);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, 50);
+
+  // Debounced hover: list card → map marker
+  const debouncedListHover = useDebouncedCallback((id: string | null) => {
+    setHighlightedRestaurant(id);
+  }, 50);
+
   const [filters, setFilters] = useState({
     city: "",
     date: "",
@@ -740,6 +843,42 @@ export default function Results() {
     rating: "4",
     categories: ["Gastronomique", "Rooftop", "Casual", "International"],
   });
+
+  const dismissTemporalParams = useCallback((params: string[]) => {
+    const next = new URLSearchParams(searchParams);
+    for (const p of params) next.delete(p);
+    navigate(`/results?${next.toString()}`, { replace: true });
+    if (params.includes("date")) { setFilterDateValue(null); setSelectedDate(""); }
+    if (params.includes("time_from") || params.includes("time_to")) { setFilterTimeValue(null); setSelectedTime(""); }
+    if (params.includes("persons")) setFilterPersonsValue(2);
+  }, [searchParams, navigate]);
+
+  // Prompt 11 — toggle a filter URL param (boolean or comma-separated list)
+  const toggleFilterParam = useCallback((key: string, value?: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (value !== undefined) {
+      const existing = (next.get(key) || "").split(",").filter(Boolean);
+      const idx = existing.indexOf(value);
+      if (idx >= 0) existing.splice(idx, 1);
+      else existing.push(value);
+      if (existing.length > 0) next.set(key, existing.join(","));
+      else next.delete(key);
+    } else {
+      if (next.get(key) === "1") next.delete(key);
+      else next.set(key, "1");
+    }
+    navigate(`/results?${next.toString()}`);
+  }, [searchParams, navigate]);
+
+  const resetAllPracticalFilters = useCallback(() => {
+    const next = new URLSearchParams(searchParams);
+    next.delete("open_now");
+    next.delete("instant_booking");
+    next.delete("amenities");
+    next.delete("price_range");
+    next.delete("promo");
+    navigate(`/results?${next.toString()}`);
+  }, [searchParams, navigate]);
 
   const handleApplyFilters = (filterState: FilterState) => {
     const next = new URLSearchParams(searchParams);
@@ -751,13 +890,53 @@ export default function Results() {
       next.delete("promo");
     }
 
+    // Prompt 11 — persist options/priceTier from FiltersPanel
+    if (filterState.restaurantOptions?.length) {
+      const mapped = filterState.restaurantOptions.map((o) => o.toLowerCase().replace(/\s+/g, "_"));
+      next.set("amenities", mapped.join(","));
+    } else {
+      next.delete("amenities");
+    }
+    if (filterState.restaurantPriceTier) {
+      const map: Record<string, string> = { "€": "1", "€€": "2", "€€€": "3", "€€€€": "4" };
+      next.set("price_range", map[filterState.restaurantPriceTier] || "");
+    } else {
+      next.delete("price_range");
+    }
+
     navigate(`/results?${next.toString()}`);
   };
 
-  const [selectedCity, setSelectedCity] = useState(() => readSearchState(universeKey).city ?? "");
+  // "Autour de moi" mode — read lat/lng from URL params
+  const isNearMeMode = searchParams.get("nearme") === "1";
+  const nearMeLat = isNearMeMode ? parseFloat(searchParams.get("lat") || "") : NaN;
+  const nearMeLng = isNearMeMode ? parseFloat(searchParams.get("lng") || "") : NaN;
+  const hasNearMeCoords = isNearMeMode && Number.isFinite(nearMeLat) && Number.isFinite(nearMeLng);
+
+  // Compute bounding box for "Autour de moi" (~5km radius)
+  const nearMeBounds = useMemo(() => {
+    if (!hasNearMeCoords) return null;
+    const RADIUS_KM = 5;
+    const latDelta = RADIUS_KM / 111.32; // 1° lat ≈ 111.32km
+    const lngDelta = RADIUS_KM / (111.32 * Math.cos((nearMeLat * Math.PI) / 180));
+    return {
+      north: nearMeLat + latDelta,
+      south: nearMeLat - latDelta,
+      east: nearMeLng + lngDelta,
+      west: nearMeLng - lngDelta,
+      center: { lat: nearMeLat, lng: nearMeLng },
+    } as MapBounds;
+  }, [hasNearMeCoords, nearMeLat, nearMeLng]);
+
+  const [selectedCity, setSelectedCity] = useState(() => {
+    if (isNearMeMode) return "Autour de moi";
+    // Priority: URL param > localStorage
+    const urlCity = searchParams.get("city") || "";
+    return urlCity || readSearchState(universeKey).city || "";
+  });
   const [cityManuallySet, setCityManuallySet] = useState(() => {
-    // If there's already a city stored, consider it as manually set
-    return !!readSearchState(universeKey).city;
+    // If there's already a city from URL or stored, consider it as manually set
+    return !!(isNearMeMode || searchParams.get("city") || readSearchState(universeKey).city);
   });
 
   // Auto-detect city via geolocation
@@ -769,59 +948,90 @@ export default function Results() {
     }
   }, [detectedCityStatus, detectedCity, cityManuallySet]);
 
-  const [selectedDate, setSelectedDate] = useState(() => readSearchState(universeKey).date ?? "");
-  const [selectedTime, setSelectedTime] = useState(() => readSearchState(universeKey).time ?? "");
+  const [selectedDate, setSelectedDate] = useState(() => urlDate || readSearchState(universeKey).date || "");
+  const [selectedTime, setSelectedTime] = useState(() => urlTimeFrom || readSearchState(universeKey).time || "");
 
   // Additional search fields for different universes
   const [selectedPrestation, setSelectedPrestation] = useState(() => readSearchState(universeKey).typeValue ?? "");
   const [selectedActivityType, setSelectedActivityType] = useState("");
   const [selectedLieu, setSelectedLieu] = useState("");
-  const [selectedCheckInDate, setSelectedCheckInDate] = useState(() => readSearchState(universeKey).checkInDate ?? "");
-  const [selectedCheckOutDate, setSelectedCheckOutDate] = useState(() => readSearchState(universeKey).checkOutDate ?? "");
+  const [selectedCheckInDate, setSelectedCheckInDate] = useState(() => searchParams.get("pickup_date") || readSearchState(universeKey).checkInDate || "");
+  const [selectedCheckOutDate, setSelectedCheckOutDate] = useState(() => searchParams.get("dropoff_date") || readSearchState(universeKey).checkOutDate || "");
 
   // Rentacar specific states
-  const [pickupLocation, setPickupLocation] = useState(() => readSearchState(universeKey).pickupLocation ?? "");
-  const [dropoffLocation, setDropoffLocation] = useState(() => readSearchState(universeKey).dropoffLocation ?? "");
-  const [sameDropoff, setSameDropoff] = useState(true);
-  const [pickupTime, setPickupTime] = useState(() => readSearchState(universeKey).pickupTime ?? "10:00");
-  const [dropoffTime, setDropoffTime] = useState(() => readSearchState(universeKey).dropoffTime ?? "10:00");
+  const [pickupLocation, setPickupLocation] = useState(() => searchParams.get("pickup_city") || readSearchState(universeKey).pickupLocation || "");
+  const [dropoffLocation, setDropoffLocation] = useState(() => searchParams.get("dropoff_city") || readSearchState(universeKey).dropoffLocation || "");
+  const [pickupTime, setPickupTime] = useState(() => searchParams.get("pickup_time") || readSearchState(universeKey).pickupTime || "10:00");
+  const [dropoffTime, setDropoffTime] = useState(() => searchParams.get("dropoff_time") || readSearchState(universeKey).dropoffTime || "10:00");
+  const [rentalVehicles, setRentalVehicles] = useState<RentalVehicle[]>([]);
+  const [rentalLoading, setRentalLoading] = useState(false);
+  const [rentalVehicleCategory, setRentalVehicleCategory] = useState(() => searchParams.get("category") || "");
+  const [rentalTransmission, setRentalTransmission] = useState("");
+  const [rentalSortBy, setRentalSortBy] = useState<"price_asc" | "price_desc" | "rating" | "recommended">("recommended");
+
+  // Fetch rental vehicles when universe is rentacar
+  useEffect(() => {
+    if (universe !== "rentacar") return;
+    let cancelled = false;
+    setRentalLoading(true);
+    searchRentalVehicles({
+      pickup_city: pickupLocation || undefined,
+      dropoff_city: dropoffLocation || undefined,
+      pickup_date: selectedCheckInDate || undefined,
+      dropoff_date: selectedCheckOutDate || undefined,
+      pickup_time: pickupTime || undefined,
+      dropoff_time: dropoffTime || undefined,
+      category: (rentalVehicleCategory as any) || undefined,
+      transmission: (rentalTransmission as any) || undefined,
+      sort_by: rentalSortBy,
+      per_page: 50,
+    })
+      .then((res) => { if (!cancelled) setRentalVehicles(res.vehicles); })
+      .catch((err) => { console.error("[Rental] Search error:", err); if (!cancelled) setRentalVehicles([]); })
+      .finally(() => { if (!cancelled) setRentalLoading(false); });
+    return () => { cancelled = true; };
+  }, [universe, pickupLocation, dropoffLocation, selectedCheckInDate, selectedCheckOutDate, pickupTime, dropoffTime, rentalVehicleCategory, rentalTransmission, rentalSortBy]);
 
   useEffect(() => {
     const stored = readSearchState(universeKey);
-    setSelectedCity(stored.city ?? "");
+    const isNearMe = searchParams.get("nearme") === "1";
+    // Priority: nearme mode > URL param > localStorage
+    const urlCity = searchParams.get("city") || "";
+    const city = isNearMe ? "Autour de moi" : (urlCity || stored.city || "");
+    setSelectedCity(city);
     setSelectedDate(stored.date ?? "");
     setSelectedTime(stored.time ?? "");
     setSelectedPrestation(stored.typeValue ?? "");
     setSelectedCheckInDate(stored.checkInDate ?? "");
-
-    const city = stored.city ?? "";
     const universeLabel = universeKey === "restaurants" ? "Restaurants" : universeKey === "hebergement" ? "Hôtels" : "Activités";
-    const title = city ? `${universeLabel} à ${city} — Sortir Au Maroc` : `${universeLabel} — Sortir Au Maroc`;
-    const description = city
-      ? `Découvrez les meilleurs ${universeLabel.toLowerCase()} à ${city} et réservez en quelques clics.`
+    const displayCity = isNearMe ? "Autour de moi" : city;
+    const title = displayCity ? `${universeLabel} à ${displayCity} — Sortir Au Maroc` : `${universeLabel} — Sortir Au Maroc`;
+    const description = displayCity
+      ? `Découvrez les meilleurs ${universeLabel.toLowerCase()} à ${displayCity} et réservez en quelques clics.`
       : `Découvrez et réservez les meilleures adresses au Maroc.`;
 
-    applySeo({ title, description, ogType: "website" });
+    applySeo({ title, description, ogType: "website", ...buildI18nSeoFields(locale) });
     setSelectedCheckOutDate(stored.checkOutDate ?? "");
 
     setFilters((prev) => ({
       ...prev,
-      city: stored.city ?? prev.city,
+      city: city || prev.city,
       date: stored.date ?? "",
       time: stored.time ?? "",
     }));
-  }, [universeKey]);
+  }, [universeKey, searchParams]);
 
   useEffect(() => {
     patchSearchState(universeKey, {
       city: selectedCity,
+      query: searchQuery,
       date: selectedDate,
       time: selectedTime,
       typeValue: selectedPrestation,
       checkInDate: selectedCheckInDate,
       checkOutDate: selectedCheckOutDate,
     });
-  }, [universeKey, selectedCity, selectedDate, selectedTime, selectedPrestation, selectedCheckInDate, selectedCheckOutDate]);
+  }, [universeKey, selectedCity, searchQuery, selectedDate, selectedTime, selectedPrestation, selectedCheckInDate, selectedCheckOutDate]);
 
   // Save navigation state for authenticated users (to allow resuming later)
   useEffect(() => {
@@ -849,11 +1059,63 @@ export default function Results() {
     });
   }, [searchParams, universe, selectedCity, promotionsOnly, sortMode, selectedDate, selectedTime, filterPersonsValue, t]);
 
+  // Redirect to SEO landing page if universe+city matches one
+  // Skip redirect when user arrived via active search (fromSearch state)
+  const landingRedirectDone = useRef(false);
+  useEffect(() => {
+    if (landingRedirectDone.current) return;
+    if ((location.state as Record<string, unknown>)?.fromSearch) return; // user searched actively — stay on results
+    const city = searchParams.get("city") || "";
+    const uni = searchParams.get("universe") || "restaurants";
+    if (!city) return; // only redirect when a city is specified
+
+    let cancelled = false;
+    getLandingSlugMap()
+      .then((slugs) => {
+        if (cancelled || landingRedirectDone.current) return;
+        const match = findLandingSlug(slugs, uni, city);
+        if (match) {
+          landingRedirectDone.current = true;
+          navigate(`/${match}`, { replace: true });
+        }
+      })
+      .catch(() => {
+        // silently ignore — user stays on Results page
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- only on initial mount
+
   const handleCityChange = useCallback((city: string) => {
+    // Detect geo:lat,lng from "Autour de moi" selection
+    const geoMatch = city.match(/^geo:([-\d.]+),([-\d.]+)$/);
+    if (geoMatch) {
+      const lat = parseFloat(geoMatch[1]);
+      const lng = parseFloat(geoMatch[2]);
+      // Navigate to same page with nearme params
+      const next = new URLSearchParams(searchParams);
+      next.delete("city");
+      next.set("nearme", "1");
+      next.set("lat", lat.toFixed(6));
+      next.set("lng", lng.toFixed(6));
+      navigate(`/results?${next.toString()}`);
+      return;
+    }
+    // Normal city — clear nearme params if present
+    if (searchParams.get("nearme")) {
+      const next = new URLSearchParams(searchParams);
+      next.delete("nearme");
+      next.delete("lat");
+      next.delete("lng");
+      if (city) next.set("city", city);
+      navigate(`/results?${next.toString()}`);
+      return;
+    }
     setSelectedCity(city);
     setCityManuallySet(true);
     setFilters((prev) => ({ ...prev, city }));
-  }, []);
+  }, [searchParams, navigate]);
 
   const requestUserLocation = useCallback(() => {
     if (!navigator.geolocation) {
@@ -875,6 +1137,12 @@ export default function Results() {
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
+  }, []);
+
+  // "Rechercher ici" — search establishments within visible map bounds
+  // Setting searchBounds triggers React Query to refetch (it's in the queryKey)
+  const handleSearchArea = useCallback((bounds: MapBounds) => {
+    setSearchBounds(bounds);
   }, []);
 
   // Request geolocation on page load
@@ -956,53 +1224,143 @@ export default function Results() {
     [intlLocale],
   );
 
-  const [apiItems, setApiItems] = useState<PublicEstablishmentListItem[]>([]);
-  const [apiLoading, setApiLoading] = useState(false);
-  const [apiError, setApiError] = useState<string | null>(null);
+  // PERFORMANCE: Debounce city/category to avoid excessive API calls
+  // when user is rapidly changing filters.
+  // NOTE: searchQuery comes from URL params (only updates on explicit submit),
+  // so we use it directly — no debounce needed. Debouncing it caused a race
+  // condition where fast typing + immediate click would trigger the API with
+  // a stale/truncated query value.
+  const debouncedCity = useDebounce(selectedCity, 300);
+  const debouncedCategory = useDebounce(categoryFilter, 200);
+
+  // --- useInfiniteQuery replaces manual useState/useEffect for pagination ---
+  const {
+    data: infiniteData,
+    isLoading: apiLoading,
+    isError: apiIsError,
+    error: apiErrorObj,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: [
+      "establishments",
+      universe,
+      debouncedCity,
+      searchQuery,
+      debouncedCategory,
+      sortMode,
+      promotionsOnly,
+      searchBounds,
+      locale,
+      openNowFilter,
+      instantBookingFilter,
+      activeAmenities,
+      activePriceRange,
+      personalizationEnabled,
+    ],
+    queryFn: async ({ pageParam }) => {
+      return listPublicEstablishments({
+        universe,
+        city: isNearMeMode ? "" : debouncedCity,
+        q: searchQuery || null,
+        category: debouncedCategory || null,
+        sort: sortMode === "best" ? "best" : null,
+        promoOnly: promotionsOnly,
+        limit: 12,
+        cursor: pageParam?.cursor ?? null,
+        cursorScore: pageParam?.cursorScore ?? null,
+        cursorDate: pageParam?.cursorDate ?? null,
+        bounds: searchBounds
+          ? {
+              swLat: searchBounds.south,
+              swLng: searchBounds.west,
+              neLat: searchBounds.north,
+              neLng: searchBounds.east,
+            }
+          : null,
+        lang: locale,
+        open_now: openNowFilter || undefined,
+        instant_booking: instantBookingFilter || undefined,
+        amenities: activeAmenities.length > 0 ? activeAmenities : undefined,
+        price_range: activePriceRange.length > 0 ? activePriceRange : undefined,
+        personalized: personalizationEnabled ? undefined : false,
+      });
+    },
+    initialPageParam: null as {
+      cursor: string;
+      cursorScore: number | null;
+      cursorDate: string | null;
+    } | null,
+    getNextPageParam: (lastPage) => {
+      if (!lastPage.pagination?.has_more || !lastPage.pagination?.next_cursor) {
+        return undefined;
+      }
+      return {
+        cursor: lastPage.pagination.next_cursor,
+        cursorScore: lastPage.pagination.next_cursor_score ?? null,
+        cursorDate: lastPage.pagination.next_cursor_date ?? null,
+      };
+    },
+    staleTime: 2 * 60_000,
+  });
+
+  const apiError = apiIsError
+    ? (apiErrorObj?.message ?? t("common.error.load_failed"))
+    : null;
+  const apiItems = useMemo(
+    () => infiniteData?.pages.flatMap((p) => p.items) ?? [],
+    [infiniteData],
+  );
+  const totalCount = infiniteData?.pages[0]?.pagination?.total_count ?? null;
+  const isPersonalized = !!(personalizationEnabled && (infiniteData?.pages?.[0]?.meta as any)?.personalized);
+  const fallbackData = (infiniteData?.pages?.[0] as any)?.fallback ?? null;
 
   // Sponsored results state
   const [sponsoredItems, setSponsoredItems] = useState<SponsoredResultItem[]>([]);
   const [sponsoredImpressionIds, setSponsoredImpressionIds] = useState<Map<string, string>>(new Map());
 
-  // PERFORMANCE: Debounce search parameters to avoid excessive API calls
-  // when user is rapidly changing filters
-  const debouncedCity = useDebounce(selectedCity, 300);
-  const debouncedCategory = useDebounce(categoryFilter, 200);
-  const debouncedSearchQuery = useDebounce(searchQuery, 300);
+  // Note: Data fetching is now handled by useInfiniteQuery above.
+  // React Query automatically resets when queryKey changes (filters, universe, etc.).
 
+  // Save search to server-side history (fire-and-forget, after first page loads)
+  const lastSavedSearchRef = useRef<string>("");
   useEffect(() => {
-    let cancelled = false;
+    const firstPage = infiniteData?.pages[0];
+    if (!firstPage || !searchQuery || searchQuery.length < 2) return;
+    // Dedup: don't re-save identical search
+    const key = `${searchQuery}::${universe}::${debouncedCity}`;
+    if (lastSavedSearchRef.current === key) return;
+    lastSavedSearchRef.current = key;
 
-    setApiLoading(true);
-    setApiError(null);
-
-    listPublicEstablishments({
+    void saveSearchToServerHistory({
+      query: searchQuery,
       universe,
       city: debouncedCity,
-      q: debouncedSearchQuery || null,
-      category: debouncedCategory || null,
-      sort: sortMode === "best" ? "best" : null,
-      promoOnly: promotionsOnly,
-      limit: 60,
-    })
-      .then((payload) => {
-        if (cancelled) return;
-        setApiItems(payload.items ?? []);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setApiError(t("common.error.load_failed"));
-        setApiItems([]);
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setApiLoading(false);
-      });
+      results_count: firstPage.items.length,
+    });
+  }, [infiniteData?.pages, searchQuery, universe, debouncedCity]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [debouncedCategory, debouncedSearchQuery, promotionsOnly, debouncedCity, sortMode, universe]);
+  // IntersectionObserver for infinite scroll on mobile
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // Only auto-load on mobile (< 768px)
+    const isMobileWidth = typeof window !== "undefined" && window.innerWidth < 768;
+    if (!isMobileWidth || !hasNextPage || isFetchingNextPage) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          fetchNextPage();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+
+    const el = loadMoreRef.current;
+    if (el) observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   // Fetch sponsored results
   useEffect(() => {
@@ -1067,6 +1425,7 @@ export default function Results() {
     neighborhood?: string;
     avgPrice?: string;
     image: string;
+    phone?: string | null;
     badge?: string;
     status?: "OPEN" | "CLOSED";
     lat: number;
@@ -1081,6 +1440,9 @@ export default function Results() {
     isVerified?: boolean;
     isPremium?: boolean;
     isCurated?: boolean;
+    subcategory?: string;
+    tags?: string[];
+    slug?: string | null;
   };
 
   const resultsData: UiResultItem[] = useMemo(() => {
@@ -1090,11 +1452,12 @@ export default function Results() {
       return {
         id: item.id,
         name,
-        rating: typeof item.avg_rating === "number" ? item.avg_rating : undefined,
-        reviews: typeof item.review_count === "number" ? item.review_count : undefined,
-        category: item.subcategory ?? undefined,
-        neighborhood: item.address ?? item.city ?? undefined,
+        rating: typeof item.google_rating === "number" ? item.google_rating : undefined,
+        reviews: typeof item.google_review_count === "number" ? item.google_review_count : undefined,
+        category: (item.subcategory && item.subcategory !== "general") ? (item.subcategory.includes("/") ? item.subcategory.split("/").pop()?.trim() : item.subcategory) : undefined,
+        neighborhood: [item.neighborhood, item.city].filter(Boolean).join(", ") || item.city || undefined,
         image: item.cover_url ?? "/placeholder.svg",
+        phone: item.phone ?? null,
         lat: typeof item.lat === "number" ? item.lat : NaN,
         lng: typeof item.lng === "number" ? item.lng : NaN,
         bookingEnabled: item.booking_enabled === true,
@@ -1107,33 +1470,26 @@ export default function Results() {
         isVerified: item.verified === true,
         isPremium: item.premium === true,
         isCurated: item.curated === true,
+        subcategory: item.subcategory ?? undefined,
+        tags: Array.isArray(item.tags) ? item.tags : undefined,
+        slug: item.slug ?? null,
       };
     });
   }, [apiItems, formatNextSlotLabel]);
 
   const resultsDataEmptyState = apiLoading ? null : apiError;
 
-  const getDetailsPath = (id: string): string => {
-    switch (universe) {
-      case "restaurants":
-        return `/restaurant/${id}`;
-      case "sport":
-        return `/wellness/${id}`;
-      case "loisirs":
-        return `/loisir/${id}`;
-      case "hebergement":
-        return `/hotel/${id}`;
-      case "culture":
-        return `/culture/${id}`;
-      case "shopping":
-        return `/shopping/${id}`;
-      default:
-        return `/restaurant/${id}`;
-    }
+  const getDetailsPath = (item: UiResultItem): string => {
+    return buildEstablishmentUrl({
+      id: item.id,
+      slug: item.slug,
+      name: item.name,
+      universe: universe === "sport" ? "wellness" : universe === "bien_etre" ? "wellness" : universe,
+    });
   };
 
   const getDetailsHref = (item: any): string => {
-    const path = getDetailsPath(item.id);
+    const path = getDetailsPath(item);
     const qs = new URLSearchParams();
     if (item?.name) qs.set("title", String(item.name));
     if (item?.category) qs.set("category", String(item.category));
@@ -1160,15 +1516,15 @@ export default function Results() {
 
 
   useEffect(() => {
-    setVisibleCount(10);
-    setIsLoadingMore(false);
     setSelectedRestaurant(null);
     setHighlightedRestaurant(null);
     setMobileView("list");
     // Reset activity type filters when universe changes (each universe has its own taxonomy)
     setSelectedCuisineTypes([]);
     setSelectedAmbiances([]);
-  }, [promotionsOnly, universe]);
+    // Reset map bounds when main filters change (but preserve nearme bounds)
+    if (!isNearMeMode) setSearchBounds(null);
+  }, [promotionsOnly, universe, isNearMeMode]);
 
   const resultsHref = useMemo(() => {
     const params = new URLSearchParams();
@@ -1177,7 +1533,19 @@ export default function Results() {
     return `/results?${params.toString()}`;
   }, [promotionsOnly, universe]);
 
-  const panelInitialFilters = useMemo(() => ({ promotionsOnly }), [promotionsOnly]);
+  const panelInitialFilters = useMemo(() => {
+    // Map amenities URL param back to restaurantOptions display format
+    const amenityToOption: Record<string, string> = {
+      terrasse: "Terrasse", parking: "Parking", wifi: "Wi-Fi",
+      "adapté_enfants": "Adapté enfants", climatisation: "Climatisation",
+      "salle_privée": "Salle privée", "vue_mer": "Vue mer",
+    };
+    const restaurantOptions = activeAmenities.map((a) => amenityToOption[a] || a);
+    // Map price_range URL param back to restaurantPriceTier
+    const priceToTier: Record<number, "€" | "€€" | "€€€" | "€€€€"> = { 1: "€", 2: "€€", 3: "€€€", 4: "€€€€" };
+    const restaurantPriceTier = activePriceRange.length === 1 ? priceToTier[activePriceRange[0]] : undefined;
+    return { promotionsOnly, restaurantOptions, restaurantPriceTier };
+  }, [promotionsOnly, activeAmenities, activePriceRange]);
 
   const resultsCountLabel = (() => {
     switch (universe) {
@@ -1234,7 +1602,12 @@ export default function Results() {
       });
     }
 
-    // Default sorting: promo first, then popularity
+    // When there's a search query, preserve server ordering (scored search with subcategory boost)
+    if (searchQuery) {
+      return [...resultsData];
+    }
+
+    // Default sorting (no search query): promo first, then popularity
     return [...resultsData].sort((a, b) => {
       const promoDiff = getPromotionPercent(b) - getPromotionPercent(a);
       if (promoDiff !== 0) return promoDiff;
@@ -1244,12 +1617,33 @@ export default function Results() {
 
       return a.name.localeCompare(b.name);
     });
-  }, [resultsData, sortMode]);
+  }, [resultsData, sortMode, searchQuery]);
 
-  const displayedResults = useMemo(
-    () => sortedResultsData.slice(0, visibleCount),
-    [sortedResultsData, visibleCount],
-  );
+  // Client-side filtering by cuisine type (subcategory) and ambiance (tags)
+  const filteredResultsData = useMemo(() => {
+    let data = sortedResultsData;
+
+    if (selectedCuisineTypes.length > 0) {
+      const lowerSelected = selectedCuisineTypes.map((s) => s.toLowerCase());
+      data = data.filter((item) => {
+        const sub = (item.subcategory ?? item.category ?? "").toLowerCase();
+        return lowerSelected.some((s) => sub.includes(s));
+      });
+    }
+
+    if (selectedAmbiances.length > 0) {
+      const lowerAmbiances = selectedAmbiances.map((a) => a.toLowerCase());
+      data = data.filter((item) => {
+        const itemTags = (item.tags ?? []).map((t) => t.toLowerCase());
+        return lowerAmbiances.some((a) => itemTags.some((tag) => tag.includes(a)));
+      });
+    }
+
+    return data;
+  }, [sortedResultsData, selectedCuisineTypes, selectedAmbiances]);
+
+  // No more .slice() — server handles pagination, show all loaded items
+  const displayedResults = filteredResultsData;
 
   const orderedDisplayedResults = useMemo(() => {
     if (selectedRestaurant == null) return displayedResults;
@@ -1268,9 +1662,16 @@ export default function Results() {
           lat: item.lat,
           lng: item.lng,
           rating: item.rating,
+          reviews: item.reviews,
           promotionLabel: getPromotionBadge(item),
+          detailPath: getDetailsPath(item),
+          image: item.image,
+          phone: item.phone ?? undefined,
+          nextSlot: item.nextSlot,
+          bookingEnabled: item.bookingEnabled,
+          category: item.category,
         })),
-    [displayedResults],
+    [displayedResults, universe],
   );
 
   // Helper to render search inputs based on universe (responsive + no empty space on desktop)
@@ -1286,9 +1687,9 @@ export default function Results() {
     const peopleSelect = (
       <div className={peopleClass}>
         <div className="relative">
-          <Users className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 pointer-events-none" />
+          <Users className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 pointer-events-none" />
           <select
-            className="w-full pl-10 pr-4 py-2 h-10 md:h-11 bg-slate-100 border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+            className="w-full ps-10 pe-4 py-2 h-10 md:h-11 bg-slate-100 border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
             value={filters.guests}
             onChange={(e) => setFilters((prev) => ({ ...prev, guests: e.target.value }))}
           >
@@ -1445,13 +1846,13 @@ export default function Results() {
             {/* Prise en charge */}
             <div className={isMobile ? "col-span-2" : "flex-1 min-w-[130px] max-w-[160px]"}>
               <div className="relative">
-                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 pointer-events-none" />
+                <MapPin className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 pointer-events-none" />
                 <input
                   type="text"
                   value={pickupLocation}
                   onChange={(e) => setPickupLocation(e.target.value)}
                   placeholder={t("search.rentacar.pickup_location")}
-                  className="w-full pl-10 pr-4 py-2 h-10 md:h-11 bg-slate-100 border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+                  className="w-full ps-10 pe-4 py-2 h-10 md:h-11 bg-slate-100 border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-primary text-sm"
                 />
               </div>
             </div>
@@ -1459,31 +1860,15 @@ export default function Results() {
             {/* Lieu de restitution */}
             <div className={isMobile ? "col-span-2" : "flex-1 min-w-[130px] max-w-[160px]"}>
               <div className="relative">
-                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 pointer-events-none" />
+                <MapPin className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 pointer-events-none" />
                 <input
                   type="text"
-                  value={sameDropoff ? pickupLocation : dropoffLocation}
+                  value={dropoffLocation}
                   onChange={(e) => setDropoffLocation(e.target.value)}
-                  placeholder={t("search.rentacar.dropoff_location")}
-                  disabled={sameDropoff}
-                  className={`w-full pl-10 pr-4 py-2 h-10 md:h-11 border border-slate-200 rounded-md text-sm ${
-                    sameDropoff ? "bg-slate-200 text-slate-400 cursor-not-allowed" : "bg-slate-100 focus:outline-none focus:ring-2 focus:ring-primary"
-                  }`}
+                  placeholder="Même ville"
+                  className="w-full ps-10 pe-4 py-2 h-10 md:h-11 bg-slate-100 border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-primary text-sm"
                 />
               </div>
-            </div>
-
-            {/* Checkbox restitution identique */}
-            <div className={isMobile ? "col-span-2" : "flex items-center"}>
-              <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer hover:text-slate-800 whitespace-nowrap">
-                <input
-                  type="checkbox"
-                  checked={sameDropoff}
-                  onChange={(e) => setSameDropoff(e.target.checked)}
-                  className="w-3.5 h-3.5 text-primary border-slate-300 rounded focus:ring-primary"
-                />
-                <span>{t("search.rentacar.same_dropoff")}</span>
-              </label>
             </div>
 
             {/* Date prise en charge */}
@@ -1520,107 +1905,127 @@ export default function Results() {
   };
 
   return (
-    <div className="min-h-screen bg-white flex flex-col overflow-x-hidden" style={{ fontFamily: "Circular Std, sans-serif" }}>
+    <div className="min-h-screen bg-white flex flex-col" style={{ fontFamily: "Circular Std, sans-serif", overflowX: "clip" }}>
       <Header />
 
-      {/* Mobile Search Bar - TheFork inspired (non-rentacar) */}
+      {/* Mobile Search Bar - Sticky at top when header scrolls away (non-rentacar) */}
       {universe !== "rentacar" && (
-        <div className="md:hidden sticky top-16 z-40 bg-white border-b border-slate-200 shadow-sm">
-          {/* City/Location Search */}
-          <div className="px-4 pt-3 pb-2">
+        <div className="md:hidden sticky top-0 z-40 bg-white border-b border-slate-200 shadow-sm transition-all duration-300">
+          {/* Row 1: Search bar + Map toggle (always visible) */}
+          <div className="px-3 pt-2.5 pb-2 flex items-center gap-2">
             <button
               onClick={() => setShowCityBottomSheet(true)}
-              className="w-full flex items-center gap-3 px-4 py-3 bg-slate-50 rounded-xl border border-slate-200 text-left"
+              className="flex-1 flex items-center gap-2.5 px-3.5 py-2.5 bg-slate-50 rounded-full border border-slate-200 text-start min-w-0"
             >
-              <Search className="w-5 h-5 text-slate-400" />
-              <span className="text-slate-700 font-medium truncate">{selectedCity || t("results.search_placeholder")}</span>
+              <Search className="w-4 h-4 text-slate-400 flex-shrink-0" />
+              <span className="text-sm text-slate-700 font-medium truncate">
+                {selectedCity || t("results.search_placeholder")}
+              </span>
+            </button>
+            <button
+              onClick={() => setMobileView(mobileView === "map" ? "list" : "map")}
+              className={cn(
+                "flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-full border transition-colors",
+                mobileView === "map"
+                  ? "bg-primary/10 border-primary text-primary"
+                  : "bg-white border-slate-200 text-slate-500"
+              )}
+              aria-label={mobileView === "map" ? t("results.view.list") : t("results.view.map")}
+            >
+              {mobileView === "map" ? <List className="w-4.5 h-4.5" /> : <MapIcon className="w-4.5 h-4.5" />}
             </button>
           </div>
 
-          {/* Filter Pills - TheFork style with border */}
-          <div className="px-4 pb-3">
-            <div className="flex items-center border-2 border-primary rounded-full overflow-hidden">
-              {/* Date */}
-              <button
-                onClick={() => {
-                  setFilterBottomSheetTab("date");
-                  setShowFilterBottomSheet(true);
-                }}
-                className={cn(
-                  "flex-1 flex items-center justify-center gap-1.5 px-2 py-2.5 text-sm font-medium transition-colors",
-                  filterDateValue ? "text-primary" : "text-slate-700"
-                )}
-              >
-                <CalendarDays className="w-4 h-4 flex-shrink-0" />
-                <span className="truncate">
-                  {filterDateValue
-                    ? filterDateValue.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
-                    : t("results.filter.date")}
-                </span>
-                <ChevronDown className="w-3.5 h-3.5 flex-shrink-0 text-slate-400" />
-              </button>
+          {/* Row 2: Date/Time/Persons pills */}
+          <div>
+            <div className="px-3 pb-2">
+              <div className="flex items-center border border-primary/40 rounded-full overflow-hidden bg-white">
+                {/* Date */}
+                <button
+                  onClick={() => {
+                    setFilterBottomSheetTab("date");
+                    setShowFilterBottomSheet(true);
+                  }}
+                  className={cn(
+                    "flex-1 flex items-center justify-center gap-1 px-2 py-2 text-xs font-medium transition-colors",
+                    filterDateValue ? "text-primary" : "text-slate-600"
+                  )}
+                >
+                  <CalendarDays className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span className="truncate">
+                    {filterDateValue
+                      ? filterDateValue.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
+                      : t("results.filter.date")}
+                  </span>
+                  <ChevronDown className="w-3 h-3 flex-shrink-0 text-slate-400" />
+                </button>
 
-              <div className="w-px h-6 bg-slate-300" />
+                <div className="w-px h-5 bg-primary/20" />
 
-              {/* Time */}
-              <button
-                onClick={() => {
-                  setFilterBottomSheetTab("time");
-                  setShowFilterBottomSheet(true);
-                }}
-                className={cn(
-                  "flex-1 flex items-center justify-center gap-1.5 px-2 py-2.5 text-sm font-medium transition-colors",
-                  filterTimeValue ? "text-primary" : "text-slate-700"
-                )}
-              >
-                <Clock className="w-4 h-4 flex-shrink-0" />
-                <span className="truncate">{filterTimeValue || t("results.filter.time")}</span>
-                <ChevronDown className="w-3.5 h-3.5 flex-shrink-0 text-slate-400" />
-              </button>
+                {/* Time */}
+                <button
+                  onClick={() => {
+                    setFilterBottomSheetTab("time");
+                    setShowFilterBottomSheet(true);
+                  }}
+                  className={cn(
+                    "flex-1 flex items-center justify-center gap-1 px-2 py-2 text-xs font-medium transition-colors",
+                    filterTimeValue ? "text-primary" : "text-slate-600"
+                  )}
+                >
+                  <Clock className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span className="truncate">{filterTimeValue || t("results.filter.time")}</span>
+                  <ChevronDown className="w-3 h-3 flex-shrink-0 text-slate-400" />
+                </button>
 
-              <div className="w-px h-6 bg-slate-300" />
+                <div className="w-px h-5 bg-primary/20" />
 
-              {/* Persons */}
-              <button
-                onClick={() => {
-                  setFilterBottomSheetTab("persons");
-                  setShowFilterBottomSheet(true);
-                }}
-                className={cn(
-                  "flex-1 flex items-center justify-center gap-1.5 px-2 py-2.5 text-sm font-medium transition-colors",
-                  filterPersonsValue > 0 ? "text-primary" : "text-slate-700"
-                )}
-              >
-                <Users className="w-4 h-4 flex-shrink-0" />
-                <span className="truncate">{filterPersonsValue} {t("results.filter.persons_short")}</span>
-                <ChevronDown className="w-3.5 h-3.5 flex-shrink-0 text-slate-400" />
-              </button>
+                {/* Persons */}
+                <button
+                  onClick={() => {
+                    setFilterBottomSheetTab("persons");
+                    setShowFilterBottomSheet(true);
+                  }}
+                  className={cn(
+                    "flex-1 flex items-center justify-center gap-1 px-2 py-2 text-xs font-medium transition-colors",
+                    filterPersonsValue > 0 ? "text-primary" : "text-slate-600"
+                  )}
+                >
+                  <Users className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span className="truncate">{filterPersonsValue} {t("results.filter.persons_short")}</span>
+                  <ChevronDown className="w-3 h-3 flex-shrink-0 text-slate-400" />
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* Quick Filters - Fixed filter button + Horizontal scroll */}
-          <div className="pb-3 flex items-center">
+          {/* Row 3: Quick Filters - always visible */}
+          <div className="pb-2 flex items-center">
             {/* Fixed Filters button with badge */}
-            <div className="flex-shrink-0 pl-4 pr-2">
+            <div className="flex-shrink-0 ps-3 pe-1.5">
               {(() => {
                 const activeFilterCount = [
                   promotionsOnly,
                   sortMode === "best",
                   selectedCuisineTypes.length > 0,
                   selectedAmbiances.length > 0,
+                  openNowFilter,
+                  instantBookingFilter,
+                  activeAmenities.length > 0,
+                  activePriceRange.length > 0,
                 ].filter(Boolean).length;
 
                 return (
                   <button
                     onClick={() => setShowFilterPanel(true)}
-                    className="relative flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border bg-white border-slate-200 text-slate-700 hover:border-slate-300 transition-colors"
+                    className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border bg-white border-slate-200 text-slate-700 hover:border-slate-300 transition-colors"
                   >
                     {activeFilterCount > 0 && (
-                      <span className="absolute -top-1.5 -left-1.5 min-w-[20px] h-5 flex items-center justify-center px-1.5 rounded-full bg-primary text-white text-xs font-bold">
+                      <span className="absolute -top-1.5 -start-1.5 min-w-[18px] h-[18px] flex items-center justify-center px-1 rounded-full bg-primary text-white text-[10px] font-bold">
                         {activeFilterCount}
                       </span>
                     )}
-                    <SlidersHorizontal className="w-4 h-4" />
+                    <SlidersHorizontal className="w-3.5 h-3.5" />
                     {t("results.filters")}
                   </button>
                 );
@@ -1629,7 +2034,7 @@ export default function Results() {
 
             {/* Scrollable filters */}
             <div className="flex-1 overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-              <div className="flex items-center gap-2 pr-4">
+              <div className="flex items-center gap-1.5 pe-3">
                 {/* Promotions filter */}
                 <button
                   onClick={() => {
@@ -1642,13 +2047,13 @@ export default function Results() {
                     navigate(`/results?${next.toString()}`);
                   }}
                   className={cn(
-                    "flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors",
+                    "flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border transition-colors",
                     promotionsOnly
                       ? "bg-primary/10 border-primary text-primary"
                       : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
                   )}
                 >
-                  <Sparkles className="w-4 h-4" />
+                  <BadgePercent className="w-3.5 h-3.5" />
                   {t("results.filter.promotions")}
                 </button>
 
@@ -1664,42 +2069,42 @@ export default function Results() {
                     navigate(`/results?${next.toString()}`);
                   }}
                   className={cn(
-                    "flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors",
+                    "flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border transition-colors",
                     sortMode === "best"
                       ? "bg-primary/10 border-primary text-primary"
                       : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
                   )}
                 >
-                  <Star className="w-4 h-4" />
+                  <Star className="w-3.5 h-3.5" />
                   {t("results.filter.best_rated")}
                 </button>
 
-                {/* Type d'activité - for all universes */}
+                {/* Type d'activité */}
                 <button
                   onClick={() => {
                     setQuickFilterType("cuisine");
                     setShowQuickFilterSheet(true);
                   }}
                   className={cn(
-                    "flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors",
+                    "flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border transition-colors",
                     selectedCuisineTypes.length > 0
                       ? "bg-primary/10 border-primary text-primary"
                       : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
                   )}
                 >
                   {universe === "restaurants" ? (
-                    <Utensils className="w-4 h-4" />
+                    <Utensils className="w-3.5 h-3.5" />
                   ) : universe === "loisirs" ? (
-                    <Gamepad2 className="w-4 h-4" />
+                    <Gamepad2 className="w-3.5 h-3.5" />
                   ) : universe === "bien_etre" ? (
-                    <Dumbbell className="w-4 h-4" />
+                    <Dumbbell className="w-3.5 h-3.5" />
                   ) : (
-                    <Building2 className="w-4 h-4" />
+                    <Building2 className="w-3.5 h-3.5" />
                   )}
                   {selectedCuisineTypes.length > 0
-                    ? `${t("filters.section.activity_type")} (${selectedCuisineTypes.length})`
-                    : t("filters.section.activity_type")}
-                  <ChevronDown className="w-3.5 h-3.5" />
+                    ? `${cuisinePillLabel} (${selectedCuisineTypes.length})`
+                    : cuisinePillLabel}
+                  <ChevronDown className="w-3 h-3" />
                 </button>
 
                 {/* Ambiance - for restaurants only */}
@@ -1710,63 +2115,180 @@ export default function Results() {
                       setShowQuickFilterSheet(true);
                     }}
                     className={cn(
-                      "flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors",
+                      "flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border transition-colors",
                       selectedAmbiances.length > 0
                         ? "bg-primary/10 border-primary text-primary"
                         : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
                     )}
                   >
-                    <Wine className="w-4 h-4" />
+                    <Wine className="w-3.5 h-3.5" />
                     {selectedAmbiances.length > 0
                       ? `Ambiance (${selectedAmbiances.length})`
                       : t("results.filter.ambiance")}
-                    <ChevronDown className="w-3.5 h-3.5" />
+                    <ChevronDown className="w-3 h-3" />
+                  </button>
+                )}
+
+                {/* Prompt 11 — Practical filter chips */}
+                <button
+                  onClick={() => toggleFilterParam("open_now")}
+                  className={cn(
+                    "flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border transition-colors",
+                    openNowFilter
+                      ? "bg-emerald-50 border-emerald-500 text-emerald-700"
+                      : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
+                  )}
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  {t("results.filter.open_now")}
+                </button>
+
+                <button
+                  onClick={() => toggleFilterParam("instant_booking")}
+                  className={cn(
+                    "flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border transition-colors",
+                    instantBookingFilter
+                      ? "bg-primary/10 border-primary text-primary"
+                      : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
+                  )}
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  {t("results.filter.instant_booking")}
+                </button>
+
+                {/* Budget — single popover with selector */}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      className={cn(
+                        "flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border transition-colors",
+                        activePriceRange.length > 0
+                          ? "bg-primary/10 border-primary text-primary"
+                          : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
+                      )}
+                    >
+                      <Coins className="w-3.5 h-3.5" />
+                      Prix
+                      {activePriceRange.length > 0 && (
+                        <span className="ml-0.5 text-[10px] bg-primary text-white rounded-full w-4 h-4 flex items-center justify-center leading-none">
+                          {activePriceRange.length}
+                        </span>
+                      )}
+                      <ChevronDown className="w-3 h-3 opacity-60" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-auto p-2" sideOffset={6}>
+                    <div className="flex flex-col gap-1">
+                      {(["1", "2", "3", "4"] as const).map((tier) => (
+                        <button
+                          key={`price-mobile-${tier}`}
+                          onClick={() => toggleFilterParam("price_range", tier)}
+                          className={cn(
+                            "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors text-left",
+                            activePriceRange.includes(Number(tier))
+                              ? "bg-primary/10 text-primary"
+                              : "text-slate-700 hover:bg-slate-50"
+                          )}
+                        >
+                          {activePriceRange.includes(Number(tier)) && (
+                            <Check className="w-3.5 h-3.5 text-primary" />
+                          )}
+                          <span className={activePriceRange.includes(Number(tier)) ? "" : "ml-[22px]"}>
+                            {t(`results.filter.price_${tier}` as any)}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+
+                {universe === "restaurants" && (
+                  <>
+                    <button
+                      onClick={() => toggleFilterParam("amenities", "terrasse")}
+                      className={cn(
+                        "flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border transition-colors",
+                        activeAmenities.includes("terrasse")
+                          ? "bg-primary/10 border-primary text-primary"
+                          : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
+                      )}
+                    >
+                      <TreePalm className="w-3.5 h-3.5" />
+                      {t("results.filter.terrace")}
+                    </button>
+
+                    <button
+                      onClick={() => toggleFilterParam("amenities", "parking")}
+                      className={cn(
+                        "flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border transition-colors",
+                        activeAmenities.includes("parking")
+                          ? "bg-primary/10 border-primary text-primary"
+                          : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
+                      )}
+                    >
+                      <ParkingCircle className="w-3.5 h-3.5" />
+                      {t("results.filter.parking")}
+                    </button>
+
+                    <button
+                      onClick={() => toggleFilterParam("amenities", "wifi")}
+                      className={cn(
+                        "flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border transition-colors",
+                        activeAmenities.includes("wifi")
+                          ? "bg-primary/10 border-primary text-primary"
+                          : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
+                      )}
+                    >
+                      <Wifi className="w-3.5 h-3.5" />
+                      {t("results.filter.wifi")}
+                    </button>
+
+                    <button
+                      onClick={() => toggleFilterParam("amenities", "enfants")}
+                      className={cn(
+                        "flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border transition-colors",
+                        activeAmenities.includes("enfants")
+                          ? "bg-primary/10 border-primary text-primary"
+                          : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
+                      )}
+                    >
+                      <Baby className="w-3.5 h-3.5" />
+                      {t("results.filter.kid_friendly")}
+                    </button>
+                  </>
+                )}
+
+                {/* Prompt 12 — personalization badge */}
+                {isPersonalized && (
+                  <button
+                    onClick={() => {
+                      localStorage.setItem("sam_personalization", "off");
+                      setPersonalizationEnabled(false);
+                    }}
+                    className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border bg-purple-50 border-purple-200 text-purple-700"
+                    title={t("search.personalized.tooltip")}
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    {t("search.personalized")}
+                    <X className="w-3 h-3" />
                   </button>
                 )}
               </div>
             </div>
-          </div>
-
-          {/* List/Map Toggle */}
-          <div className="flex border-t border-slate-200">
-            <button
-              onClick={() => setMobileView("list")}
-              className={cn(
-                "flex-1 flex items-center justify-center gap-2 py-3 text-sm font-semibold transition-colors",
-                mobileView === "list"
-                  ? "text-primary border-b-2 border-primary bg-primary/5"
-                  : "text-slate-500 hover:text-slate-700"
-              )}
-            >
-              <List className="w-4 h-4" />
-              {t("results.view.list")}
-            </button>
-            <button
-              onClick={() => setMobileView("map")}
-              className={cn(
-                "flex-1 flex items-center justify-center gap-2 py-3 text-sm font-semibold transition-colors",
-                mobileView === "map"
-                  ? "text-primary border-b-2 border-primary bg-primary/5"
-                  : "text-slate-500 hover:text-slate-700"
-              )}
-            >
-              <MapIcon className="w-4 h-4" />
-              {t("results.view.map")}
-            </button>
           </div>
         </div>
       )}
 
       {/* Mobile Search Bar - Rentacar (Expedia style) */}
       {universe === "rentacar" && (
-        <div className="md:hidden sticky top-16 z-40 bg-white border-b border-slate-200 shadow-sm">
+        <div className="md:hidden sticky top-0 z-40 bg-white border-b border-slate-200 shadow-sm">
           {/* Search Summary Header */}
           <div className="px-4 py-3 bg-slate-50 border-b border-slate-200">
             <button
               onClick={() => {
                 // TODO: Open search edit modal
               }}
-              className="w-full text-left"
+              className="w-full text-start"
             >
               <div className="flex items-start gap-3">
                 <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
@@ -1836,7 +2358,7 @@ export default function Results() {
                     : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
                 )}
               >
-                <Sparkles className="w-4 h-4" />
+                <BadgePercent className="w-4 h-4" />
                 {t("results.filter.promotions")}
               </button>
 
@@ -1861,6 +2383,22 @@ export default function Results() {
                 <Star className="w-4 h-4" />
                 {t("results.filter.best_rated")}
               </button>
+
+              {/* Prompt 12 — personalization badge (mobile) */}
+              {isPersonalized && (
+                <button
+                  onClick={() => {
+                    localStorage.setItem("sam_personalization", "off");
+                    setPersonalizationEnabled(false);
+                  }}
+                  className="flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border bg-purple-50 border-purple-200 text-purple-700"
+                  title={t("search.personalized.tooltip")}
+                >
+                  <Sparkles className="w-4 h-4" />
+                  {t("search.personalized")}
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           </div>
 
@@ -1894,39 +2432,691 @@ export default function Results() {
         </div>
       )}
 
-      {/* Desktop Search Bar */}
+      {/* Desktop sticky filter bar (search bar is in the Header) */}
       <div
-        ref={searchBarRef}
-        className="hidden md:block sticky top-16 z-40 bg-gradient-to-r from-primary to-[#6a000f] py-6 md:py-10"
-        style={{ margin: "-2px 0 -3px" }}
+        ref={filterBarRef}
+        className="hidden md:block sticky top-16 z-40"
       >
-        <div className="container mx-auto px-4">
-          <div className="bg-white rounded-xl shadow-lg max-w-7xl mx-auto" style={{ padding: "14px 20px 16px" }}>
-            <div className="flex flex-wrap gap-2 md:gap-3 items-stretch w-full">
-              {renderSearchInputs("desktop")}
+        <div className="bg-white border-b border-slate-200 shadow-sm">
+          <div className="container mx-auto px-4 max-w-7xl">
+            <div className="flex items-center gap-2 py-2.5">
+              {universe === "rentacar" ? (
+                /* ── Rentacar filter bar ── */
+                <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide w-full" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                  {/* Vehicle & agency count */}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <Car className="w-4 h-4 text-slate-500" />
+                    <span className="text-sm font-medium text-slate-700 whitespace-nowrap">
+                      {rentalLoading ? "..." : rentalVehicles.length > 0
+                        ? `${new Set(rentalVehicles.map(v => v.establishment_id)).size} agence${new Set(rentalVehicles.map(v => v.establishment_id)).size > 1 ? "s" : ""} · ${rentalVehicles.length} véhicule${rentalVehicles.length > 1 ? "s" : ""}`
+                        : `${filteredResultsData.length} agence${filteredResultsData.length > 1 ? "s" : ""} de location`}
+                    </span>
+                  </div>
 
-              <Link to={resultsHref} className="w-full md:w-[190px] flex-none md:ml-auto">
-                <Button
-                  className="w-full h-10 md:h-11 text-base md:text-lg font-semibold tracking-[0.2px]"
-                  style={{ fontFamily: "Circular Std, sans-serif", letterSpacing: "0.2px" }}
+                  <div className="w-px h-6 bg-slate-300 flex-shrink-0 mx-1" />
+
+                  {/* Category filter */}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        className={cn(
+                          "flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors",
+                          rentalVehicleCategory
+                            ? "bg-primary/10 border-primary text-primary"
+                            : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
+                        )}
+                      >
+                        <Car className="w-4 h-4" />
+                        {rentalVehicleCategory
+                          ? rentalVehicleCategory.charAt(0).toUpperCase() + rentalVehicleCategory.slice(1)
+                          : "Type de véhicule"}
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" sideOffset={8} className="w-[340px] p-4 bg-white rounded-2xl shadow-xl border border-slate-200 max-h-[400px] overflow-y-auto">
+                      <div className="flex items-center justify-between mb-3 px-1">
+                        <h3 className="text-sm font-bold text-slate-900">Type de véhicule</h3>
+                        {rentalVehicleCategory && (
+                          <button onClick={() => setRentalVehicleCategory("")} className="text-xs font-medium text-primary hover:text-primary/80">
+                            Effacer
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {["citadine", "compacte", "berline", "suv", "4x4", "monospace", "utilitaire", "luxe", "sport", "electrique", "moto"].map((cat) => (
+                          <button
+                            key={cat}
+                            onClick={() => setRentalVehicleCategory(rentalVehicleCategory === cat ? "" : cat)}
+                            className={cn(
+                              "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all border",
+                              rentalVehicleCategory === cat
+                                ? "bg-primary text-white border-primary"
+                                : "bg-white text-slate-700 border-slate-200 hover:border-primary hover:text-primary"
+                            )}
+                          >
+                            {rentalVehicleCategory === cat && <Check className="w-3.5 h-3.5" />}
+                            {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                          </button>
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+
+                  {/* Transmission filter */}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        className={cn(
+                          "flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors",
+                          rentalTransmission
+                            ? "bg-primary/10 border-primary text-primary"
+                            : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
+                        )}
+                      >
+                        <Gauge className="w-4 h-4" />
+                        {rentalTransmission
+                          ? rentalTransmission === "automatique" ? "Automatique" : "Manuelle"
+                          : "Transmission"}
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" sideOffset={8} className="w-auto p-2 bg-white rounded-2xl shadow-xl border border-slate-200">
+                      <div className="flex flex-col gap-1">
+                        {[
+                          { value: "", label: "Toutes" },
+                          { value: "automatique", label: "Automatique" },
+                          { value: "manuelle", label: "Manuelle" },
+                        ].map((opt) => (
+                          <button
+                            key={opt.value}
+                            onClick={() => setRentalTransmission(opt.value)}
+                            className={cn(
+                              "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors text-left",
+                              rentalTransmission === opt.value
+                                ? "bg-primary/10 text-primary"
+                                : "text-slate-700 hover:bg-slate-50"
+                            )}
+                          >
+                            {rentalTransmission === opt.value && <Check className="w-4 h-4 text-primary" />}
+                            <span className={rentalTransmission === opt.value ? "" : "ml-6"}>{opt.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+
+                  {/* Sort by price */}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        className={cn(
+                          "flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors",
+                          rentalSortBy !== "recommended"
+                            ? "bg-primary/10 border-primary text-primary"
+                            : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
+                        )}
+                      >
+                        <Coins className="w-4 h-4" />
+                        {rentalSortBy === "price_asc" ? "Prix croissant" : rentalSortBy === "price_desc" ? "Prix décroissant" : rentalSortBy === "rating" ? "Mieux notés" : "Trier par"}
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" sideOffset={8} className="w-auto p-2 bg-white rounded-2xl shadow-xl border border-slate-200">
+                      <div className="flex flex-col gap-1">
+                        {([
+                          { value: "recommended", label: "Recommandés" },
+                          { value: "price_asc", label: "Prix croissant" },
+                          { value: "price_desc", label: "Prix décroissant" },
+                          { value: "rating", label: "Mieux notés" },
+                        ] as const).map((opt) => (
+                          <button
+                            key={opt.value}
+                            onClick={() => setRentalSortBy(opt.value)}
+                            className={cn(
+                              "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors text-left",
+                              rentalSortBy === opt.value
+                                ? "bg-primary/10 text-primary"
+                                : "text-slate-700 hover:bg-slate-50"
+                            )}
+                          >
+                            {rentalSortBy === opt.value && <Check className="w-4 h-4 text-primary" />}
+                            <span className={rentalSortBy === opt.value ? "" : "ml-6"}>{opt.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+
+                  {/* Promotions */}
+                  <button
+                    onClick={() => {
+                      const next = new URLSearchParams(searchParams);
+                      if (promotionsOnly) next.delete("promo"); else next.set("promo", "1");
+                      navigate(`/results?${next.toString()}`);
+                    }}
+                    className={cn(
+                      "flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors",
+                      promotionsOnly
+                        ? "bg-primary/10 border-primary text-primary"
+                        : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
+                    )}
+                  >
+                    <BadgePercent className="w-4 h-4" />
+                    Promotions
+                  </button>
+
+                  {/* All filters button */}
+                  <button
+                    onClick={() => setShowFilterPanel(!showFilterPanel)}
+                    className="flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border bg-white border-slate-300 text-slate-700 hover:border-slate-400 transition-colors"
+                  >
+                    <SlidersHorizontal className="w-4 h-4" />
+                    {t("results.filters")}
+                  </button>
+                </div>
+              ) : (
+              <>
+              {/* ── Fixed part: Date / Time / Persons / Filters ── */}
+              <div className="flex items-center gap-2 flex-shrink-0">
+              {/* Date pill with desktop popover */}
+              <Popover open={desktopDateOpen} onOpenChange={setDesktopDateOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    className={cn(
+                      "flex-shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors",
+                      filterDateValue
+                        ? "bg-primary/10 border-primary text-primary"
+                        : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
+                    )}
+                  >
+                    <CalendarDays className="w-4 h-4" />
+                    <span>
+                      {filterDateValue
+                        ? filterDateValue.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
+                        : t("results.filter.date")}
+                    </span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="start"
+                  sideOffset={8}
+                  className="w-[340px] p-4 bg-white rounded-2xl shadow-xl border border-slate-200"
                 >
-                  {t("results.search")}
-                </Button>
-              </Link>
+                  <CalendarGrid
+                    selectedDate={filterDateValue}
+                    onDateChange={(date) => {
+                      setFilterDateValue(date);
+                      setSelectedDate(date.toISOString().split("T")[0]);
+                      setDesktopDateOpen(false);
+                      // Auto-open time picker
+                      setDesktopTimeOpen(true);
+                    }}
+                    minDate={new Date()}
+                  />
+                </PopoverContent>
+              </Popover>
+
+              {/* Time pill with desktop popover */}
+              <Popover open={desktopTimeOpen} onOpenChange={setDesktopTimeOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    className={cn(
+                      "flex-shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors",
+                      filterTimeValue
+                        ? "bg-primary/10 border-primary text-primary"
+                        : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
+                    )}
+                  >
+                    <Clock className="w-4 h-4" />
+                    <span>{filterTimeValue || t("results.filter.time")}</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="start"
+                  sideOffset={8}
+                  className="w-[300px] p-4 bg-white rounded-2xl shadow-xl border border-slate-200 max-h-[400px] overflow-y-auto"
+                >
+                  <h3 className="text-sm font-bold text-slate-900 mb-3 px-1">Sélectionnez une heure</h3>
+                  <TimeGrid
+                    selectedTime={filterTimeValue}
+                    onTimeChange={(time) => {
+                      setFilterTimeValue(time);
+                      setSelectedTime(time);
+                      setDesktopTimeOpen(false);
+                      // Auto-open persons picker
+                      setDesktopPersonsOpen(true);
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
+
+              {/* Persons pill with desktop popover */}
+              <Popover open={desktopPersonsOpen} onOpenChange={setDesktopPersonsOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    className={cn(
+                      "flex-shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors",
+                      filterPersonsValue > 0
+                        ? "bg-primary/10 border-primary text-primary"
+                        : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
+                    )}
+                  >
+                    <Users className="w-4 h-4" />
+                    <span>{filterPersonsValue} {t("results.filter.persons_short")}</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="start"
+                  sideOffset={8}
+                  className="w-[300px] p-4 bg-white rounded-2xl shadow-xl border border-slate-200 max-h-[400px] overflow-y-auto"
+                >
+                  <h3 className="text-sm font-bold text-slate-900 mb-3 px-1">Nombre de personnes</h3>
+                  <PersonsGrid
+                    selectedPersons={filterPersonsValue}
+                    onPersonsChange={(persons) => {
+                      setFilterPersonsValue(persons);
+                      setFilters((prev) => ({ ...prev, guests: String(persons) }));
+                      setDesktopPersonsOpen(false);
+                    }}
+                    maxPersons={20}
+                  />
+                </PopoverContent>
+              </Popover>
+
+              {/* Divider */}
+              <div className="w-px h-6 bg-slate-300 flex-shrink-0 mx-1" />
+
+              {/* All Filters button */}
+              {(() => {
+                const activeFilterCount = [
+                  promotionsOnly,
+                  sortMode === "best",
+                  selectedCuisineTypes.length > 0,
+                  selectedAmbiances.length > 0,
+                  openNowFilter,
+                  instantBookingFilter,
+                  activeAmenities.length > 0,
+                  activePriceRange.length > 0,
+                ].filter(Boolean).length;
+
+                return (
+                  <button
+                    onClick={() => setShowFilterPanel(!showFilterPanel)}
+                    className={cn(
+                      "relative flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors",
+                      activeFilterCount > 0
+                        ? "bg-primary text-white border-primary"
+                        : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
+                    )}
+                  >
+                    <SlidersHorizontal className="w-4 h-4" />
+                    {t("results.filters")}
+                    {activeFilterCount > 0 && (
+                      <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-white text-primary text-xs font-bold">
+                        {activeFilterCount}
+                      </span>
+                    )}
+                  </button>
+                );
+              })()}
+              </div>
+
+              {/* ── Scrollable part: filter pills ── */}
+              <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide min-w-0" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+              {/* Promotions */}
+              <button
+                onClick={() => {
+                  const next = new URLSearchParams(searchParams);
+                  if (promotionsOnly) {
+                    next.delete("promo");
+                  } else {
+                    next.set("promo", "1");
+                  }
+                  navigate(`/results?${next.toString()}`);
+                }}
+                className={cn(
+                  "flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors",
+                  promotionsOnly
+                    ? "bg-primary/10 border-primary text-primary"
+                    : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
+                )}
+              >
+                <BadgePercent className="w-4 h-4" />
+                {t("results.filter.promotions")}
+              </button>
+
+              {/* Best rated */}
+              <button
+                onClick={() => {
+                  const next = new URLSearchParams(searchParams);
+                  if (sortMode === "best") {
+                    next.delete("sort");
+                  } else {
+                    next.set("sort", "best");
+                  }
+                  navigate(`/results?${next.toString()}`);
+                }}
+                className={cn(
+                  "flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors",
+                  sortMode === "best"
+                    ? "bg-primary/10 border-primary text-primary"
+                    : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
+                )}
+              >
+                <Star className="w-4 h-4" />
+                {t("results.filter.best_rated")}
+              </button>
+
+              {/* Type d'activité – desktop popover */}
+              <Popover open={desktopCuisineOpen} onOpenChange={setDesktopCuisineOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    className={cn(
+                      "flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors",
+                      selectedCuisineTypes.length > 0
+                        ? "bg-primary/10 border-primary text-primary"
+                        : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
+                    )}
+                  >
+                    {universe === "restaurants" ? (
+                      <Utensils className="w-4 h-4" />
+                    ) : universe === "loisirs" ? (
+                      <Gamepad2 className="w-4 h-4" />
+                    ) : universe === "bien_etre" ? (
+                      <Dumbbell className="w-4 h-4" />
+                    ) : (
+                      <Building2 className="w-4 h-4" />
+                    )}
+                    {selectedCuisineTypes.length > 0
+                      ? `${cuisinePillLabel} (${selectedCuisineTypes.length})`
+                      : cuisinePillLabel}
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="start"
+                  sideOffset={8}
+                  className="w-[340px] p-4 bg-white rounded-2xl shadow-xl border border-slate-200 max-h-[400px] overflow-y-auto"
+                >
+                  <div className="flex items-center justify-between mb-3 px-1">
+                    <h3 className="text-sm font-bold text-slate-900">
+                      {universe === "restaurants" ? "Type de cuisine" :
+                       universe === "sport" ? "Type de prestation" :
+                       universe === "loisirs" ? "Type d'activité" :
+                       universe === "hebergement" ? "Type d'hébergement" :
+                       universe === "culture" ? "Type de lieu" :
+                       universe === "shopping" ? "Type de boutique" :
+                       "Type"}
+                    </h3>
+                    {selectedCuisineTypes.length > 0 && (
+                      <button onClick={() => setSelectedCuisineTypes([])} className="text-xs font-medium text-primary hover:text-primary/80">
+                        Effacer
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {(universe === "restaurants" ? CUISINE_TYPES :
+                      universe === "sport" ? SPORT_SPECIALTIES :
+                      universe === "loisirs" ? LOISIRS_SPECIALTIES :
+                      universe === "hebergement" ? HEBERGEMENT_TYPES :
+                      universe === "culture" ? CULTURE_TYPES :
+                      universe === "shopping" ? SHOPPING_TYPES :
+                      CUISINE_TYPES
+                    ).map((option) => {
+                      const isSelected = selectedCuisineTypes.includes(option);
+                      return (
+                        <button
+                          key={option}
+                          type="button"
+                          onClick={() => {
+                            setSelectedCuisineTypes((prev) =>
+                              isSelected ? prev.filter((o) => o !== option) : [...prev, option]
+                            );
+                          }}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all border",
+                            isSelected
+                              ? "bg-primary text-white border-primary"
+                              : "bg-white text-slate-700 border-slate-200 hover:border-primary hover:text-primary"
+                          )}
+                        >
+                          {isSelected && <Check className="w-3.5 h-3.5" />}
+                          {option}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </PopoverContent>
+              </Popover>
+
+              {/* Ambiance – desktop popover, restaurants only */}
+              {universe === "restaurants" && (
+                <Popover open={desktopAmbianceOpen} onOpenChange={setDesktopAmbianceOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      className={cn(
+                        "flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors",
+                        selectedAmbiances.length > 0
+                          ? "bg-primary/10 border-primary text-primary"
+                          : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
+                      )}
+                    >
+                      <Wine className="w-4 h-4" />
+                      {selectedAmbiances.length > 0
+                        ? `Ambiance (${selectedAmbiances.length})`
+                        : t("results.filter.ambiance")}
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="start"
+                    sideOffset={8}
+                    className="w-[340px] p-4 bg-white rounded-2xl shadow-xl border border-slate-200 max-h-[400px] overflow-y-auto"
+                  >
+                    <div className="flex items-center justify-between mb-3 px-1">
+                      <h3 className="text-sm font-bold text-slate-900">Ambiance</h3>
+                      {selectedAmbiances.length > 0 && (
+                        <button onClick={() => setSelectedAmbiances([])} className="text-xs font-medium text-primary hover:text-primary/80">
+                          Effacer
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {AMBIANCE_TYPES.map((option) => {
+                        const isSelected = selectedAmbiances.includes(option);
+                        return (
+                          <button
+                            key={option}
+                            type="button"
+                            onClick={() => {
+                              setSelectedAmbiances((prev) =>
+                                isSelected ? prev.filter((o) => o !== option) : [...prev, option]
+                              );
+                            }}
+                            className={cn(
+                              "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all border",
+                              isSelected
+                                ? "bg-primary text-white border-primary"
+                                : "bg-white text-slate-700 border-slate-200 hover:border-primary hover:text-primary"
+                            )}
+                          >
+                            {isSelected && <Check className="w-3.5 h-3.5" />}
+                            {option}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
+
+              {/* Prompt 11 — Practical filter chips (desktop) */}
+              <button
+                onClick={() => toggleFilterParam("open_now")}
+                className={cn(
+                  "flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors",
+                  openNowFilter
+                    ? "bg-emerald-50 border-emerald-500 text-emerald-700"
+                    : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
+                )}
+              >
+                <Clock className="w-4 h-4" />
+                {t("results.filter.open_now")}
+              </button>
+
+              <button
+                onClick={() => toggleFilterParam("instant_booking")}
+                className={cn(
+                  "flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors",
+                  instantBookingFilter
+                    ? "bg-primary/10 border-primary text-primary"
+                    : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
+                )}
+              >
+                <Zap className="w-4 h-4" />
+                {t("results.filter.instant_booking")}
+              </button>
+
+              {/* Budget — single popover with selector */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    className={cn(
+                      "flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors",
+                      activePriceRange.length > 0
+                        ? "bg-primary/10 border-primary text-primary"
+                        : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
+                    )}
+                  >
+                    <Coins className="w-4 h-4" />
+                    Prix
+                    {activePriceRange.length > 0 && (
+                      <span className="ml-0.5 text-[10px] bg-primary text-white rounded-full w-4 h-4 flex items-center justify-center leading-none">
+                        {activePriceRange.length}
+                      </span>
+                    )}
+                    <ChevronDown className="w-3.5 h-3.5 opacity-60" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-auto p-2" sideOffset={8}>
+                  <div className="flex flex-col gap-1">
+                    {(["1", "2", "3", "4"] as const).map((tier) => (
+                      <button
+                        key={`price-desktop-${tier}`}
+                        onClick={() => toggleFilterParam("price_range", tier)}
+                        className={cn(
+                          "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors text-left",
+                          activePriceRange.includes(Number(tier))
+                            ? "bg-primary/10 text-primary"
+                            : "text-slate-700 hover:bg-slate-50"
+                        )}
+                      >
+                        {activePriceRange.includes(Number(tier)) && (
+                          <Check className="w-4 h-4 text-primary" />
+                        )}
+                        <span className={activePriceRange.includes(Number(tier)) ? "" : "ml-6"}>
+                          {t(`results.filter.price_${tier}` as any)}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+
+              {universe === "restaurants" && (
+                <>
+                  <button
+                    onClick={() => toggleFilterParam("amenities", "terrasse")}
+                    className={cn(
+                      "flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors",
+                      activeAmenities.includes("terrasse")
+                        ? "bg-primary/10 border-primary text-primary"
+                        : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
+                    )}
+                  >
+                    <TreePalm className="w-4 h-4" />
+                    {t("results.filter.terrace")}
+                  </button>
+
+                  <button
+                    onClick={() => toggleFilterParam("amenities", "parking")}
+                    className={cn(
+                      "flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors",
+                      activeAmenities.includes("parking")
+                        ? "bg-primary/10 border-primary text-primary"
+                        : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
+                    )}
+                  >
+                    <ParkingCircle className="w-4 h-4" />
+                    {t("results.filter.parking")}
+                  </button>
+
+                  <button
+                    onClick={() => toggleFilterParam("amenities", "wifi")}
+                    className={cn(
+                      "flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors",
+                      activeAmenities.includes("wifi")
+                        ? "bg-primary/10 border-primary text-primary"
+                        : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
+                    )}
+                  >
+                    <Wifi className="w-4 h-4" />
+                    {t("results.filter.wifi")}
+                  </button>
+
+                  <button
+                    onClick={() => toggleFilterParam("amenities", "enfants")}
+                    className={cn(
+                      "flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors",
+                      activeAmenities.includes("enfants")
+                        ? "bg-primary/10 border-primary text-primary"
+                        : "bg-white border-slate-300 text-slate-700 hover:border-slate-400"
+                    )}
+                  >
+                    <Baby className="w-4 h-4" />
+                    {t("results.filter.kid_friendly")}
+                  </button>
+                </>
+              )}
+              </div>
+              </>
+              )}
             </div>
           </div>
         </div>
       </div>
 
+      {/* Temporal chips from NLP search */}
+      {(urlDate || urlPersons) && (
+        <div className="container mx-auto px-4 max-w-7xl">
+          <div className="flex flex-wrap gap-2 py-2">
+            {urlDate && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200">
+                <CalendarDays className="w-3.5 h-3.5" />
+                <span>{formatTemporalChipLabel(urlDate, urlTimeFrom, urlTimeTo, locale)}</span>
+                <button onClick={() => dismissTemporalParams(["date", "time_from", "time_to"])} className="ml-0.5 hover:bg-amber-100 rounded-full p-0.5">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {urlPersons && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200">
+                <Users className="w-3.5 h-3.5" />
+                <span>{urlPersons} {parseInt(urlPersons, 10) > 1 ? "personnes" : "personne"}</span>
+                <button onClick={() => dismissTemporalParams(["persons"])} className="ml-0.5 hover:bg-amber-100 rounded-full p-0.5">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
       <div className="flex-1 container mx-auto px-4 py-4 md:py-6 max-w-7xl">
-        {/* Desktop Filters - hidden on mobile since we have the new mobile bar */}
-        <div className="hidden md:flex gap-2 mb-6 items-center">
-          <Button variant="outline" onClick={() => setShowFilterPanel(!showFilterPanel)} className="flex gap-2 items-center">
-            <Filter className="w-4 h-4" />
-            {t("results.filters")}
-          </Button>
-        </div>
 
         <FiltersPanel
           isOpen={showFilterPanel}
@@ -1936,74 +3126,111 @@ export default function Results() {
           onApplyFilters={handleApplyFilters}
         />
 
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 md:items-stretch items-start">
           {/* Listings */}
           <div className={cn("md:col-span-7", mobileView === "map" ? "hidden md:block" : "block")}>
             <div ref={listStartRef} />
             <div className="mb-4 flex items-start justify-between gap-4">
               <div>
-                <p className="text-sm text-slate-600">
-                  <strong>{resultsData.length}</strong> {t("results.summary.found", { label: resultsCountLabel })} · {t("results.summary.showing")}{" "}
-                  <strong>{Math.min(displayedResults.length, resultsData.length)}</strong>
-                </p>
+                {apiLoading ? (
+                  <div className="h-5 w-48 bg-slate-100 rounded animate-pulse" />
+                ) : universe === "rentacar" ? (
+                  <p className="text-sm text-slate-600">
+                    {rentalVehicles.length > 0 ? (
+                      <><strong>{new Set(rentalVehicles.map(v => v.establishment_id)).size}</strong> agence{new Set(rentalVehicles.map(v => v.establishment_id)).size > 1 ? "s" : ""} · <strong>{rentalVehicles.length}</strong> véhicule{rentalVehicles.length > 1 ? "s" : ""} disponible{rentalVehicles.length > 1 ? "s" : ""}</>
+                    ) : (
+                      <><strong>{filteredResultsData.length}</strong> agence{filteredResultsData.length > 1 ? "s" : ""} de location</>
+                    )}
+                  </p>
+                ) : (
+                  <p className="text-sm text-slate-600">
+                    <strong>{filteredResultsData.length}</strong> {t("results.summary.found", { label: resultsCountLabel })} · {t("results.summary.showing")}{" "}
+                    <strong>{Math.min(displayedResults.length, filteredResultsData.length)}</strong>
+                  </p>
+                )}
               </div>
             </div>
 
-            {resultsData.length === 0 ? (
-              <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/5 via-white to-rose-50 border border-primary/10 p-8 md:p-12">
-                {/* Decorative elements */}
-                <div className="absolute top-4 right-4 opacity-10">
-                  <Sparkles className="w-24 h-24 text-primary" />
-                </div>
-                <div className="absolute bottom-4 left-4 opacity-10">
-                  <CalendarDays className="w-16 h-16 text-primary" />
-                </div>
-
-                <div className="relative z-10 text-center max-w-md mx-auto">
-                  {/* Icon group representing couples, friends, families */}
-                  <div className="flex justify-center gap-3 mb-6">
-                    <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
-                      <Heart className="w-7 h-7 text-primary" />
-                    </div>
-                    <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
-                      <Users className="w-7 h-7 text-primary" />
-                    </div>
-                    <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
-                      <Utensils className="w-7 h-7 text-primary" />
-                    </div>
-                  </div>
-
-                  <h3 className="text-xl md:text-2xl font-bold text-slate-800 mb-3">
-                    {t("results.no_results.title")}
-                  </h3>
-
-                  <p className="text-slate-600 mb-2">
-                    {t("results.no_results.body")}
-                  </p>
-
-                  <p className="text-sm text-slate-500 mb-6">
-                    {t("results.no_results.suggestion")}
-                  </p>
-
-                  <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                    <Button
-                      onClick={() => setShowFilterPanel(true)}
-                      className="bg-primary hover:bg-primary/90 text-white gap-2"
-                    >
-                      <Filter className="w-4 h-4" />
-                      {t("results.no_results.open_filters")}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => navigate("/")}
-                      className="gap-2 border-primary/30 text-primary hover:bg-primary/5"
-                    >
-                      <Search className="w-4 h-4" />
-                      {t("results.no_results.new_search")}
-                    </Button>
-                  </div>
-                </div>
+            {apiLoading ? (
+              /* Loading skeleton while API fetches results */
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-4">
+                <EstablishmentCardSkeleton count={4} />
               </div>
+            ) : filteredResultsData.length === 0 && resultsData.length > 0 ? (
+              <div className="text-center py-12 px-4">
+                <Filter className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                <p className="text-slate-600 font-medium">{t("results.filter.no_results_filters")}</p>
+                <button
+                  onClick={() => { setSelectedCuisineTypes([]); setSelectedAmbiances([]); resetAllPracticalFilters(); }}
+                  className="mt-4 text-sm font-medium text-primary hover:text-primary/80"
+                >
+                  {t("results.filter.reset_filters")}
+                </button>
+              </div>
+            ) : resultsData.length === 0 ? (
+              fallbackData ? (
+                <SearchFallback
+                  fallback={fallbackData}
+                  currentQuery={searchQuery}
+                  currentUniverse={universe}
+                  currentCity={debouncedCity}
+                />
+              ) : (
+                <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/5 via-white to-rose-50 border border-primary/10 p-8 md:p-12">
+                  {/* Decorative elements */}
+                  <div className="absolute top-4 end-4 opacity-10">
+                    <Sparkles className="w-24 h-24 text-primary" />
+                  </div>
+                  <div className="absolute bottom-4 start-4 opacity-10">
+                    <CalendarDays className="w-16 h-16 text-primary" />
+                  </div>
+
+                  <div className="relative z-10 text-center max-w-md mx-auto">
+                    {/* Icon group representing couples, friends, families */}
+                    <div className="flex justify-center gap-3 mb-6">
+                      <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
+                        <Heart className="w-7 h-7 text-primary" />
+                      </div>
+                      <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
+                        <Users className="w-7 h-7 text-primary" />
+                      </div>
+                      <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
+                        <Utensils className="w-7 h-7 text-primary" />
+                      </div>
+                    </div>
+
+                    <h3 className="text-xl md:text-2xl font-bold text-slate-800 mb-3">
+                      {t("results.no_results.title")}
+                    </h3>
+
+                    <p className="text-slate-600 mb-2">
+                      {t("results.no_results.body")}
+                    </p>
+
+                    <p className="text-sm text-slate-500 mb-6">
+                      {t("results.no_results.suggestion")}
+                    </p>
+
+                    <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                      <Button
+                        onClick={() => setShowFilterPanel(true)}
+                        className="bg-primary hover:bg-primary/90 text-white gap-2"
+                      >
+                        <Filter className="w-4 h-4" />
+                        {t("results.no_results.open_filters")}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => navigate("/")}
+                        className="gap-2 border-primary/30 text-primary hover:bg-primary/5"
+                      >
+                        <Search className="w-4 h-4" />
+                        {t("results.no_results.new_search")}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )
             ) : (
               <>
                 {/* Sponsored Results Section */}
@@ -2018,7 +3245,11 @@ export default function Results() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-4">
                       {sponsoredItems.map((sponsored) => {
                         const est = sponsored.establishment;
-                        const detailsHref = getDetailsPath(est.id);
+                        const detailsHref = buildEstablishmentUrl({
+                          id: est.id,
+                          name: est.name,
+                          universe: universe === "sport" ? "wellness" : universe === "bien_etre" ? "wellness" : universe,
+                        });
 
                         return (
                           <div
@@ -2027,7 +3258,7 @@ export default function Results() {
                             onClick={() => void handleSponsoredClick(sponsored.campaign_id, detailsHref)}
                           >
                             {/* Sponsored badge */}
-                            <div className="absolute top-2 left-2 z-10">
+                            <div className="absolute top-2 start-2 z-10">
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-full border border-amber-200">
                                 <Sparkles className="w-3 h-3" />
                                 Sponsorisé
@@ -2037,8 +3268,8 @@ export default function Results() {
                               id={est.id}
                               name={est.name}
                               image={est.cover_url || "/placeholder.svg"}
-                              neighborhood={est.address || est.city || undefined}
-                              category={est.subcategory || undefined}
+                              neighborhood={[est.neighborhood, est.city].filter(Boolean).join(", ") || est.city || undefined}
+                              category={(est.subcategory && est.subcategory !== "general") ? (est.subcategory.includes("/") ? est.subcategory.split("/").pop()?.trim() : est.subcategory) : undefined}
                               rating={est.avg_rating ?? undefined}
                               reviews={est.review_count ?? undefined}
                               bookingEnabled={est.booking_enabled}
@@ -2056,6 +3287,7 @@ export default function Results() {
                               detailsHref={detailsHref}
                               actionLabel={getActionLabel()}
                               universe={universe}
+                              hideActionButton
                             />
                           </div>
                         );
@@ -2068,53 +3300,66 @@ export default function Results() {
                 {/* Grid layout for cards - responsive */}
                 <div className={cn(
                   "gap-4 md:gap-5",
-                  universe === "rentacar"
+                  universe === "rentacar" && rentalVehicles.length > 0
                     ? "flex flex-col"
                     : "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2"
                 )}>
-                  {universe === "rentacar" ? (
-                    // Vehicle cards for rentacar universe
-                    orderedDisplayedResults.map((item, index) => {
-                      // Mock vehicle data based on establishment data for demo
-                      const vehicleCategories = ["Économique", "Compacte", "SUV intermédiaire", "Berline", "Monospace", "SUV Premium"];
-                      const vehicleModels = [
-                        "Peugeot 208 ou similaire",
-                        "Renault Clio ou similaire",
-                        "Hyundai IX35 ou similaire",
-                        "Volkswagen Passat ou similaire",
-                        "Dacia Lodgy ou similaire",
-                        "Toyota RAV4 ou similaire"
-                      ];
-                      const fuelTypes = ["Essence", "Diesel", "Électrique", "Hybride"] as const;
-                      const transmissions = ["Automatique", "Manuelle"] as const;
+                  {universe === "rentacar" && rentalVehicles.length > 0 ? (
+                    // Vehicle cards from rental API
+                    rentalLoading ? (
+                      <div className="space-y-4">
+                        {[1, 2, 3].map((i) => (
+                          <div key={i} className="bg-white rounded-xl border border-slate-200 p-4 animate-pulse">
+                            <div className="flex gap-4">
+                              <div className="flex-1 space-y-3">
+                                <div className="h-4 w-24 bg-slate-200 rounded" />
+                                <div className="h-5 w-40 bg-slate-200 rounded" />
+                                <div className="h-3 w-32 bg-slate-200 rounded" />
+                                <div className="flex gap-4 mt-3">
+                                  <div className="h-3 w-16 bg-slate-200 rounded" />
+                                  <div className="h-3 w-20 bg-slate-200 rounded" />
+                                </div>
+                              </div>
+                              <div className="w-[140px] h-24 bg-slate-200 rounded" />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : rentalVehicles.map((vehicle) => {
+                      const fuelLabel = vehicle.specs.fuel_type === "essence" ? "Essence"
+                        : vehicle.specs.fuel_type === "diesel" ? "Diesel"
+                        : vehicle.specs.fuel_type === "electrique" ? "Électrique"
+                        : "Hybride";
+                      const transLabel = vehicle.specs.transmission === "automatique" ? "Automatique" : "Manuelle";
+                      const catLabel = vehicle.category.charAt(0).toUpperCase() + vehicle.category.slice(1);
+                      const modelLabel = vehicle.similar_vehicle
+                        ? `${vehicle.brand} ${vehicle.model} ou similaire`
+                        : `${vehicle.brand} ${vehicle.model}${vehicle.year ? ` ${vehicle.year}` : ""}`;
 
                       return (
                         <VehicleCard
-                          key={item.id}
-                          id={item.id}
-                          category={vehicleCategories[index % vehicleCategories.length]}
-                          model={vehicleModels[index % vehicleModels.length]}
-                          image={item.image || "https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=300&h=200&fit=crop"}
-                          seats={5}
-                          transmission={transmissions[index % 2]}
-                          fuelType={fuelTypes[index % fuelTypes.length]}
-                          unlimitedMileage={index % 3 !== 0}
-                          pickupLocation="Comptoir de l'agence et voiture dans le terminal"
-                          freeCancellation={index % 2 === 0}
-                          basicInsurance={true}
-                          onlineCheckIn={index % 3 === 0}
-                          supplierName={["Hertz", "Europcar", "Sixt", "Avis", "Budget"][index % 5]}
-                          supplierRating={70 + (index % 25)}
-                          originalPrice={index % 3 === 0 ? Math.round(200 + index * 15) : undefined}
-                          price={Math.round(150 + index * 12)}
-                          discount={index % 3 === 0 ? 30 : undefined}
-                          priceLabel="total"
-                          isSuperOffer={index % 4 === 0}
-                          isMemberPrice={index % 3 === 0}
-                          cashbackAmount={index % 2 === 0 ? 4.26 : undefined}
-                          detailsHref={`/vehicle/${item.id}`}
-                          isSelected={item.id === selectedRestaurant}
-                          onSelect={() => setSelectedRestaurant(item.id)}
+                          key={vehicle.id}
+                          id={vehicle.id}
+                          category={catLabel}
+                          model={modelLabel}
+                          image={vehicle.photos?.[0] || "https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=300&h=200&fit=crop"}
+                          seats={vehicle.specs.seats}
+                          doors={vehicle.specs.doors}
+                          transmission={transLabel as any}
+                          fuelType={fuelLabel as any}
+                          ac={vehicle.specs.ac}
+                          trunkVolume={vehicle.specs.trunk_volume || undefined}
+                          unlimitedMileage={vehicle.mileage_policy === "unlimited"}
+                          pickupLocation={pickupLocation || undefined}
+                          freeCancellation
+                          basicInsurance
+                          supplierName={vehicle.establishment_name || ""}
+                          supplierLogo={vehicle.establishment_logo || undefined}
+                          price={vehicle.pricing.standard}
+                          priceLabel="/ jour"
+                          detailsHref={`/vehicle/${vehicle.id}`}
+                          isSelected={vehicle.id === selectedRestaurant}
+                          onSelect={() => setSelectedRestaurant(vehicle.id)}
                         />
                       );
                     })
@@ -2155,6 +3400,7 @@ export default function Results() {
                             else cardRefs.current.delete(restaurant.id);
                           }}
                           id={`result-${restaurant.id}`}
+                          style={{ scrollMarginTop: `${stickyBarHeight + 16}px` }}
                         >
                           <EstablishmentCard
                             id={restaurant.id}
@@ -2183,63 +3429,70 @@ export default function Results() {
                               setSelectedRestaurant(restaurant.id);
                               setHighlightedRestaurant(restaurant.id);
                             }}
-                            onHover={(hovering) => setHighlightedRestaurant(hovering ? restaurant.id : null)}
+                            onHover={(hovering) => debouncedListHover(hovering ? restaurant.id : null)}
                             detailsHref={getDetailsHref(restaurant)}
                             actionLabel={getActionLabel()}
                             universe={universe}
+                            hideActionButton
                           />
                         </div>
                       );
                     })
                   )}
 
-                  {isLoadingMore ? (
-                    <>
-                      <div className="border border-slate-200 rounded-2xl p-5 animate-pulse bg-white">
-                        <div className="h-48 sm:h-28 bg-slate-100 rounded-lg" />
-                        <div className="mt-4 h-4 bg-slate-100 rounded w-2/3" />
-                        <div className="mt-2 h-3 bg-slate-100 rounded w-1/2" />
-                      </div>
-                      <div className="border border-slate-200 rounded-2xl p-5 animate-pulse bg-white">
-                        <div className="h-48 sm:h-28 bg-slate-100 rounded-lg" />
-                        <div className="mt-4 h-4 bg-slate-100 rounded w-2/3" />
-                        <div className="mt-2 h-3 bg-slate-100 rounded w-1/2" />
-                      </div>
-                    </>
+                  {isFetchingNextPage ? (
+                    <EstablishmentCardSkeleton count={2} />
                   ) : null}
                 </div>
 
-                {displayedResults.length < resultsData.length ? (
-                  <div className="mt-6 flex justify-center">
+                {/* Infinite scroll sentinel for mobile */}
+                <div ref={loadMoreRef} className="h-1" aria-hidden />
+
+                {/* Load more button (always visible, IntersectionObserver handles auto-load on mobile) */}
+                {hasNextPage ? (
+                  <div className="mt-6 flex flex-col items-center gap-2">
                     <Button
                       type="button"
                       variant="outline"
                       className="h-11 px-6"
-                      disabled={isLoadingMore}
-                      onClick={() => {
-                        setIsLoadingMore(true);
-                        window.setTimeout(() => {
-                          setVisibleCount((c) => Math.min(c + 10, resultsData.length));
-                          setIsLoadingMore(false);
-                        }, 600);
-                      }}
+                      disabled={isFetchingNextPage}
+                      onClick={() => fetchNextPage()}
                     >
-                      {t("results.load_more", { count: Math.min(10, resultsData.length - displayedResults.length) })}
+                      {isFetchingNextPage ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      ) : null}
+                      {t("results.load_more", { count: 12 })}
+                      {totalCount != null && totalCount > displayedResults.length && (
+                        <span className="ml-1 text-slate-400 font-normal">
+                          ({totalCount - displayedResults.length})
+                        </span>
+                      )}
                     </Button>
+                    {totalCount != null && (
+                      <p className="text-xs text-slate-400">
+                        {displayedResults.length} sur {totalCount}
+                      </p>
+                    )}
                   </div>
                 ) : null}
               </>
             )}
           </div>
 
-          {/* Map */}
+          {/* Map — fills all remaining viewport height below sticky bar */}
           <div
             className={cn(
-              "md:col-span-5",
-              mobileView === "map" ? "block" : "hidden md:block",
-              "h-[calc(100dvh-16rem)] md:h-[calc(100dvh-16rem)] md:sticky md:top-44",
-              "relative z-10 overflow-hidden rounded-xl",
+              "md:col-span-5 results-map-sticky",
+              mobileView === "map" ? "block h-[calc(100dvh-8rem)]" : "hidden md:block",
+              "md:sticky",
+              "relative z-10 rounded-xl",
             )}
+            style={
+              {
+                "--map-top": `${stickyBarHeight + 8}px`,
+                "--map-h": `calc(100dvh - ${stickyBarHeight + 16}px)`,
+              } as React.CSSProperties
+            }
           >
             <ResultsMap
               items={mapItems}
@@ -2253,11 +3506,84 @@ export default function Results() {
                 setHighlightedRestaurant(id);
                 scrollToCard(id);
               }}
+              onMarkerHover={debouncedMapHover}
               geoStatus={geoStatus}
+              onSearchArea={handleSearchArea}
+              cityName={selectedCity}
+              isMobile={mobileView === "map"}
+              onMobileMarkerTap={(item) => setMobileBottomCard(item)}
             />
           </div>
         </div>
       </div>
+
+      {/* Mobile bottom card — shown when tapping a marker on the mobile map */}
+      {mobileBottomCard && mobileView === "map" && (
+        <div className="fixed bottom-0 inset-x-0 z-[600] md:hidden">
+          <div className="bg-white rounded-t-2xl shadow-2xl border-t border-slate-200 p-4 pb-6 animate-in slide-in-from-bottom duration-300">
+            {/* Drag handle */}
+            <div className="w-10 h-1 rounded-full bg-slate-300 mx-auto mb-3" />
+            {/* Close button */}
+            <button
+              onClick={() => setMobileBottomCard(null)}
+              className="absolute top-3 right-3 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center"
+              aria-label="Fermer"
+            >
+              <X className="w-4 h-4 text-slate-500" />
+            </button>
+            <div className="flex gap-3">
+              {/* Image */}
+              <img
+                src={mobileBottomCard.image || "/Logo_SAM_Megaphone_Blanc.png"}
+                alt={mobileBottomCard.name}
+                className="w-24 h-20 rounded-xl object-cover flex-shrink-0 bg-slate-100"
+              />
+              <div className="flex-1 min-w-0">
+                <h3 className="font-bold text-sm text-slate-900 truncate">{mobileBottomCard.name}</h3>
+                {mobileBottomCard.category && (
+                  <div className="text-xs text-slate-500 mt-0.5">{mobileBottomCard.category}</div>
+                )}
+                {mobileBottomCard.rating != null && mobileBottomCard.rating > 0 && (
+                  <div className="flex items-center gap-1 mt-1">
+                    <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                    <span className="text-xs font-semibold">{mobileBottomCard.rating.toFixed(1)}</span>
+                    {mobileBottomCard.reviews != null && mobileBottomCard.reviews > 0 && (
+                      <span className="text-xs text-slate-400">({mobileBottomCard.reviews})</span>
+                    )}
+                  </div>
+                )}
+                {mobileBottomCard.promotionLabel && (
+                  <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-white bg-red-600">
+                    {mobileBottomCard.promotionLabel}
+                  </span>
+                )}
+                {mobileBottomCard.nextSlot && (
+                  <div className="text-xs text-emerald-600 font-medium mt-1">{mobileBottomCard.nextSlot}</div>
+                )}
+              </div>
+            </div>
+            {/* Action buttons */}
+            {mobileBottomCard.detailPath && (
+              <div className="flex gap-2 mt-3">
+                <Link
+                  to={mobileBottomCard.detailPath}
+                  className="flex-1 flex items-center justify-center py-2.5 rounded-full text-sm font-semibold border border-primary text-primary"
+                >
+                  Voir
+                </Link>
+                {mobileBottomCard.bookingEnabled && (
+                  <Link
+                    to={`${mobileBottomCard.detailPath}#booking`}
+                    className="flex-1 flex items-center justify-center py-2.5 rounded-full text-sm font-bold text-white bg-primary"
+                  >
+                    Réserver
+                  </Link>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Mobile Filter Bottom Sheet - TheFork style */}
       <ResultsFilterBottomSheet

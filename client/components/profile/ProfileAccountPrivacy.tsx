@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Eye, EyeOff, Key, Mail } from "lucide-react";
+import { Eye, EyeOff, Key, Mail, Smartphone, Trash2, Loader2, Shield } from "lucide-react";
 
 import { useI18n } from "@/lib/i18n";
 
@@ -15,7 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 
 import { clearAuthed } from "@/lib/auth";
 import { clearUserLocalData } from "@/lib/userData";
-import { deactivateMyConsumerAccount, deleteMyConsumerAccount, requestMyConsumerDataExport, requestPasswordResetLink, changePassword } from "@/lib/consumerAccountApi";
+import { deactivateMyConsumerAccount, deleteMyConsumerAccount, requestMyConsumerDataExport, requestPasswordResetLink, changePassword, listMyTrustedDevices, revokeMyTrustedDevice, revokeAllMyTrustedDevices, type TrustedDevice } from "@/lib/consumerAccountApi";
 
 function SectionCard({
   title,
@@ -165,6 +165,71 @@ export function ProfileAccountPrivacy() {
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // Trusted devices state
+  const [trustedDevices, setTrustedDevices] = useState<TrustedDevice[]>([]);
+  const [trustedDevicesLoading, setTrustedDevicesLoading] = useState(false);
+  const [trustedDevicesLoaded, setTrustedDevicesLoaded] = useState(false);
+  const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null);
+  const [revokingAll, setRevokingAll] = useState(false);
+
+  const loadTrustedDevices = useCallback(async () => {
+    setTrustedDevicesLoading(true);
+    try {
+      const result = await listMyTrustedDevices();
+      setTrustedDevices(result.devices || []);
+      setTrustedDevicesLoaded(true);
+    } catch {
+      setTrustedDevices([]);
+      setTrustedDevicesLoaded(true);
+    } finally {
+      setTrustedDevicesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadTrustedDevices();
+  }, [loadTrustedDevices]);
+
+  const handleRevokeDevice = async (deviceId: string) => {
+    setRevokingDeviceId(deviceId);
+    try {
+      await revokeMyTrustedDevice(deviceId);
+      setTrustedDevices((prev) => prev.filter((d) => d.id !== deviceId));
+      toast({
+        title: "Appareil supprimé",
+        description: "Cet appareil ne sera plus reconnu automatiquement.",
+      });
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: "Erreur",
+        description: e instanceof Error ? e.message : "Impossible de supprimer l'appareil",
+      });
+    } finally {
+      setRevokingDeviceId(null);
+    }
+  };
+
+  const handleRevokeAllDevices = async () => {
+    setRevokingAll(true);
+    try {
+      await revokeAllMyTrustedDevices();
+      setTrustedDevices([]);
+      toast({
+        title: "Tous les appareils supprimés",
+        description: "Vous devrez vous reconnecter avec un code sur chaque appareil.",
+      });
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: "Erreur",
+        description: e instanceof Error ? e.message : "Impossible de supprimer les appareils",
+      });
+    } finally {
+      setRevokingAll(false);
+    }
+  };
 
   const confirmWord = t("profile.privacy.delete.confirm_word");
 
@@ -423,12 +488,12 @@ export function ProfileAccountPrivacy() {
                         value={currentPassword}
                         onChange={(e) => setCurrentPassword(e.target.value)}
                         placeholder="••••••••"
-                        className="pr-10"
+                        className="pe-10"
                       />
                       <button
                         type="button"
                         onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                       >
                         {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
@@ -444,12 +509,12 @@ export function ProfileAccountPrivacy() {
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
                         placeholder="••••••••"
-                        className="pr-10"
+                        className="pe-10"
                       />
                       <button
                         type="button"
                         onClick={() => setShowNewPassword(!showNewPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                       >
                         {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
@@ -466,12 +531,12 @@ export function ProfileAccountPrivacy() {
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
                         placeholder="••••••••"
-                        className="pr-10"
+                        className="pe-10"
                       />
                       <button
                         type="button"
                         onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                       >
                         {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
@@ -499,7 +564,94 @@ export function ProfileAccountPrivacy() {
         </div>
       </div>
 
-      <SectionCard title={t("profile.privacy.deactivate.title")} description={t("profile.privacy.deactivate.description")}> 
+      {/* Trusted Devices Section */}
+      <div className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5">
+        <div className="flex items-center gap-2 mb-1">
+          <Shield className="w-5 h-5 text-slate-500" />
+          <div className="font-bold text-foreground">Appareils de confiance</div>
+        </div>
+        <div className="text-sm text-slate-600 mb-4">
+          Les appareils de confiance permettent de se connecter sans code de vérification SMS.
+          Après une première connexion réussie, votre appareil est mémorisé pendant 90 jours.
+        </div>
+
+        {trustedDevicesLoading && !trustedDevicesLoaded ? (
+          <div className="flex items-center gap-2 text-sm text-slate-500 py-3">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Chargement...
+          </div>
+        ) : trustedDevices.length === 0 ? (
+          <div className="text-sm text-slate-500 py-3">
+            Aucun appareil de confiance enregistré.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {trustedDevices.map((device) => (
+              <div
+                key={device.id}
+                className="flex items-center justify-between gap-3 p-3 rounded-lg bg-slate-50 border border-slate-100"
+              >
+                <div className="flex items-start gap-3 min-w-0">
+                  <Smartphone className="w-5 h-5 text-slate-400 shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-foreground flex items-center gap-2">
+                      <span className="truncate">{device.device_name}</span>
+                      {device.is_current && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700 shrink-0">
+                          Cet appareil
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      Dernière utilisation : {new Date(device.last_used_at).toLocaleDateString("fr-FR", {
+                        day: "numeric",
+                        month: "long",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </div>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                  disabled={revokingDeviceId === device.id || revokingAll}
+                  onClick={() => void handleRevokeDevice(device.id)}
+                >
+                  {revokingDeviceId === device.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4" />
+                  )}
+                </Button>
+              </div>
+            ))}
+
+            {trustedDevices.length > 1 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full mt-2 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                disabled={revokingAll || !!revokingDeviceId}
+                onClick={() => void handleRevokeAllDevices()}
+              >
+                {revokingAll ? (
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Suppression...
+                  </span>
+                ) : (
+                  "Supprimer tous les appareils de confiance"
+                )}
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <SectionCard title={t("profile.privacy.deactivate.title")} description={t("profile.privacy.deactivate.description")}>
         <AlertDialog
           open={deactivateOpen}
           onOpenChange={(open) => {

@@ -5,7 +5,7 @@ import { ChevronUp, ChevronDown, X, MapPin } from "lucide-react";
 import { Header } from "@/components/Header";
 import { getPublicHomeCities, getPublicUniverses, type PublicHomeCity, type PublicUniverse } from "@/lib/publicApi";
 import { useI18n } from "@/lib/i18n";
-import { applySeo } from "@/lib/seo";
+import { applySeo, buildI18nSeoFields } from "@/lib/seo";
 import {
   CUISINE_TYPES,
   SPORT_ACTIVITIES,
@@ -159,6 +159,7 @@ export default function CityDetail() {
       applySeo({
         title: `${city.name} - Sortir Au Maroc`,
         description: `Découvrez les meilleurs établissements à ${city.name} : restaurants, hôtels, loisirs et plus encore. Réservez facilement sur Sortir Au Maroc.`,
+        ...buildI18nSeoFields(locale),
       });
     }
   }, [city]);
@@ -218,7 +219,7 @@ export default function CityDetail() {
         <div className="mb-8">
           <button
             onClick={() => toggleSection(city.slug)}
-            className="w-full flex items-center justify-between py-4 text-left"
+            className="w-full flex items-center justify-between py-4 text-start"
           >
             <h2 className="text-2xl font-bold text-slate-900">{city.name}</h2>
             {expandedSection === city.slug ? (
@@ -283,7 +284,7 @@ export default function CityDetail() {
             <div key={otherCity.id} className="border-t border-slate-200">
               <button
                 onClick={() => toggleSection(otherCity.slug)}
-                className="w-full flex items-center justify-between py-4 text-left"
+                className="w-full flex items-center justify-between py-4 text-start"
               >
                 <h2 className="text-xl font-semibold text-slate-900">
                   {otherCity.name}

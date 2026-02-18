@@ -1,22 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
-  Aperture,
   ChevronLeft,
   Clock,
-  Facebook,
   Globe,
-  Instagram,
   MapPin,
-  Music,
   Phone,
   Share2,
   Star,
   Tag,
   Timer,
-  Twitter,
-  Youtube,
 } from "lucide-react";
+import { getSocialIcon } from "@/components/ui/SocialIcons";
 
 import { useGeocodedQuery } from "@/hooks/useGeocodedQuery";
 import { useUserLocation } from "@/hooks/useUserLocation";
@@ -31,11 +26,14 @@ import { Button } from "@/components/ui/button";
 import type { DateSlots } from "@/components/booking/StickyBottomBookingActionBar";
 import { ReservationBanner } from "@/components/booking/ReservationBanner";
 import { EstablishmentTabs } from "@/components/establishment/EstablishmentTabs";
+import { CeAdvantageSection } from "@/components/ce/CeAdvantageSection";
 import { GOOGLE_MAPS_LOGO_URL, WAZE_LOGO_URL } from "@/lib/mapAppLogos";
 import { createRng, makeImageSet, makePhoneMa, makeWebsiteUrl, nextDaysYmd, pickMany, pickOne, slugify } from "@/lib/mockData";
 import { cn } from "@/lib/utils";
 import { isAuthed, openAuthModal } from "@/lib/auth";
 import { ReportEstablishmentDialog } from "@/components/ReportEstablishmentDialog";
+import { applySeo, clearJsonLd, setJsonLd, generateLocalBusinessSchema, generateBreadcrumbSchema, buildI18nSeoFields } from "@/lib/seo";
+import { useI18n } from "@/lib/i18n";
 
 type Review = {
   id: string;
@@ -281,6 +279,7 @@ function buildFallbackCulture(args: {
 }
 
 export default function Culture() {
+  const { locale } = useI18n();
   const params = useParams();
 
   const [searchParams] = useSearchParams();
@@ -324,9 +323,85 @@ export default function Culture() {
     };
   }, [id, title]);
 
+  // ── SEO ──────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const name = data?.name?.trim();
+    if (!name) return;
+
+    const est = publicPayload?.establishment;
+    const city = (est?.city ?? data.city ?? "").trim();
+    const seoTitle = city ? `${name} à ${city} — Sortir Au Maroc` : `${name} — Sortir Au Maroc`;
+    const description = (data.description ?? "").trim() || undefined;
+    const ogImageUrl = data.images?.[0] ? String(data.images[0]) : undefined;
+
+    applySeo({
+      title: seoTitle,
+      description,
+      ogType: "place",
+      ogImageUrl,
+      canonicalStripQuery: true,
+      ...buildI18nSeoFields(locale),
+    });
+
+    if (est?.id) {
+      const canonicalUrl = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}` : "";
+      const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+      const schema = generateLocalBusinessSchema({
+        name: est.name || name,
+        url: canonicalUrl,
+        telephone: est.phone || undefined,
+        address: {
+          streetAddress: est.address || data.address || undefined,
+          addressLocality: est.city || data.city || undefined,
+          addressRegion: est.region || undefined,
+          postalCode: est.postal_code || undefined,
+          addressCountry: est.country || "MA",
+        },
+        images: (data.images ?? []).slice(0, 8),
+        description: data.description || undefined,
+        aggregateRating: { ratingValue: data.rating, reviewCount: data.reviewCount },
+        geo:
+          typeof est.lat === "number" && typeof est.lng === "number"
+            ? { latitude: est.lat, longitude: est.lng }
+            : undefined,
+      });
+      (schema as any)["@type"] = "EntertainmentBusiness";
+      setJsonLd("culture", schema);
+
+      setJsonLd(
+        "breadcrumb",
+        generateBreadcrumbSchema([
+          { name: "Accueil", url: `${baseUrl}/` },
+          { name: "Culture", url: `${baseUrl}/results?universe=culture` },
+          { name: est.name || name, url: canonicalUrl },
+        ]),
+      );
+    }
+
+    return () => {
+      clearJsonLd("culture");
+      clearJsonLd("breadcrumb");
+    };
+  }, [data.name, data.description, data.images?.[0], publicPayload?.establishment?.id, publicPayload?.establishment?.city]);
+
   const bookingEstablishmentId = publicPayload?.establishment?.id ?? data.id;
   // Booking is only enabled if the establishment has an email address registered
   const hasEstablishmentEmail = Boolean(publicPayload?.establishment?.email);
+
+  // Override category from DB subcategory when available
+  const dbCategory = useMemo(() => {
+    const est = publicPayload?.establishment as Record<string, unknown> | null | undefined;
+    if (!est) return null;
+    const sub = est.subcategory;
+    if (typeof sub === "string" && sub.length > 0 && sub !== "general") {
+      const parts = sub.split("/");
+      return parts[parts.length - 1].trim();
+    }
+    const cat = est.category;
+    return typeof cat === "string" && cat.length > 0 ? cat : null;
+  }, [publicPayload?.establishment]);
+
+  const effectiveCategory = dbCategory ?? data.category;
 
   const [bookingOpen, setBookingOpen] = useState(false);
   const [showReportDialog, setShowReportDialog] = useState(false);
@@ -444,7 +519,7 @@ export default function Culture() {
               </div>
 
               <div className="mt-3 flex flex-wrap gap-3 text-sm text-slate-600">
-                <span className="px-3 py-1 bg-slate-100 rounded">{data.category}</span>
+                <span className="px-3 py-1 bg-slate-100 rounded">{effectiveCategory}</span>
                 <span className="flex items-center gap-1">
                   <MapPin className="w-4 h-4" />
                   {data.neighborhood}
@@ -493,6 +568,8 @@ export default function Culture() {
       <EstablishmentTabs universe="culture" />
 
       <main className="container mx-auto px-4 pt-6 pb-8 space-y-10">
+        <CeAdvantageSection establishmentId={bookingEstablishmentId} />
+
         <section id="section-prestations" data-tab="prestations" className="scroll-mt-28">
           <div className="space-y-6">
             <div>
@@ -510,7 +587,7 @@ export default function Culture() {
                   <div className="mt-1 text-sm text-slate-600">Billet horodaté — entrée rapide</div>
                 </div>
 
-                <div className="sm:text-right">
+                <div className="sm:text-end">
                   <div className="text-xs font-semibold text-slate-500 tracking-wider">INCLUS</div>
                   <div className="mt-2 text-sm text-slate-700">Sélection d’inclusions et accès selon le billet.</div>
                 </div>
@@ -600,7 +677,7 @@ export default function Culture() {
                   <div>
                     <p className="text-sm text-slate-600">Adresse</p>
                     <a
-                      href={`https://waze.com/ul?q=${encodeURIComponent(data.address)}`}
+                      href={(publicPayload?.establishment?.social_links as Record<string, string> | null)?.waze || `https://waze.com/ul?q=${encodeURIComponent(data.address)}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="font-medium text-primary hover:text-primary/70 transition"
@@ -625,7 +702,7 @@ export default function Culture() {
                   <div className="w-full">
                     <p className="text-sm text-slate-600 mb-3">Tag</p>
                     <div className="flex gap-2 flex-wrap">
-                      <span className="px-3 py-1 bg-primary/10 text-primary rounded-full text-sm font-medium">{data.category}</span>
+                      <span className="px-3 py-1 bg-primary/10 text-primary rounded-full text-sm font-medium">{effectiveCategory}</span>
                       <span className="px-3 py-1 bg-primary/10 text-primary rounded-full text-sm font-medium">{data.neighborhood}</span>
                       <span className="px-3 py-1 bg-primary/10 text-primary rounded-full text-sm font-medium">{data.city}</span>
                     </div>
@@ -653,30 +730,10 @@ export default function Culture() {
                     <p className="text-sm text-slate-600 mb-3">Réseaux sociaux</p>
                     <div className="flex gap-4 flex-wrap">
                       {(() => {
-                        const getSocialIcon = (platform: string) => {
-                          const iconProps = "w-6 h-6 text-primary hover:text-primary/70 transition";
-                          switch (platform) {
-                            case "facebook":
-                              return <Facebook className={iconProps} />;
-                            case "instagram":
-                              return <Instagram className={iconProps} />;
-                            case "twitter":
-                              return <Twitter className={iconProps} />;
-                            case "tiktok":
-                              return <Music className={iconProps} />;
-                            case "snapchat":
-                              return <Aperture className={iconProps} />;
-                            case "youtube":
-                              return <Youtube className={iconProps} />;
-                            case "website":
-                              return <Globe className={iconProps} />;
-                            default:
-                              return null;
-                          }
-                        };
+                        const iconClass = "w-6 h-6 text-primary hover:text-primary/70 transition";
 
                         const items = data.socialMedia
-                          .map((social) => ({ social, icon: getSocialIcon(social.platform) }))
+                          .map((social) => ({ social, icon: getSocialIcon(social.platform, iconClass) }))
                           .filter((x) => x.icon != null);
 
                         if (items.length === 0) {
@@ -734,7 +791,7 @@ export default function Culture() {
 
             <div className="flex gap-3 flex-wrap">
               <a
-                href={`https://waze.com/ul?q=${encodeURIComponent(data.address)}`}
+                href={(publicPayload?.establishment?.social_links as Record<string, string> | null)?.waze || `https://waze.com/ul?q=${encodeURIComponent(data.address)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex-1 min-w-32 px-4 py-3 bg-white border-2 border-slate-300 rounded-lg font-semibold hover:bg-slate-50 transition text-center flex items-center justify-center gap-2"

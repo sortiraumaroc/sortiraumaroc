@@ -184,7 +184,7 @@ export function AdminEmailsTemplatesPage() {
           date: new Date().toISOString(),
           amount: "250 MAD",
           establishment: "Exemple établissement",
-          cta_url: draft.cta_url || "https://sortiraumaroc.ma/",
+          cta_url: draft.cta_url || "https://sam.ma/",
         },
       });
       setPreviewHtml(res.html);

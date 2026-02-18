@@ -1,8 +1,20 @@
+import { createRequire } from "module";
 import path from "path";
 import { createServer } from "./index";
 import * as express from "express";
 import { fileURLToPath } from "url";
 import { existsSync, statSync } from "fs";
+import { purgeOldAuditLogs } from "./routes/admin";
+import { prerenderMiddleware } from "./prerender";
+
+// Polyfill: make `require` available globally for ESM bundles.
+// Libraries like @sentry/node (via OpenTelemetry) use `require.cache`
+// which is not available in ESM context. This shim fixes:
+// "ReferenceError: require is not defined" in ExportsCache.has
+if (typeof globalThis.require === "undefined") {
+  const __req_filename = fileURLToPath(import.meta.url);
+  (globalThis as any).require = createRequire(__req_filename);
+}
 
 const app = createServer();
 // Sur Plesk, le port peut être géré automatiquement ou via variable d'environnement
@@ -61,6 +73,13 @@ app.use((req: express.Request, res: express.Response, next: express.NextFunction
   }
   next();
 });
+
+// Coming-soon page removed — site is officially launched
+
+// Bot pre-rendering: serve fully-rendered HTML to crawlers (ChatGPT, Google, Bing, etc.)
+// Must be BEFORE static file middleware so bot requests are intercepted first.
+// Falls back gracefully if Puppeteer is not installed.
+app.use(prerenderMiddleware);
 
 // Middleware personnalisé pour servir les fichiers statiques avec les bons types MIME
 app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -197,6 +216,17 @@ app.listen(port, () => {
   console.log(`✅ Route payment: POST /api/payments/lacaissepay/session`);
   console.log(`✅ Route webhook: POST /api/payments/webhook`);
   console.log(`✅ Toutes les routes sont enregistrées dans createServer()`);
+
+  // Auto-purge audit logs older than 30 days on startup + every 24h
+  purgeOldAuditLogs().catch((err) =>
+    console.error("[AuditLogCleanup] Startup purge failed:", err)
+  );
+  const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+  setInterval(() => {
+    purgeOldAuditLogs().catch((err) =>
+      console.error("[AuditLogCleanup] Scheduled purge failed:", err)
+    );
+  }, TWENTY_FOUR_HOURS);
 });
 
 

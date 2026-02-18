@@ -95,7 +95,7 @@ Un nouveau brief a été soumis et attend votre validation.
 Connectez-vous à l'interface admin pour valider le brief et proposer des créneaux de shooting.
       `.trim(),
       ctaLabel: "Voir le job",
-      ctaUrl: `https://sortiraumaroc.ma/admin/production-media/${encodeURIComponent(job.id)}`,
+      ctaUrl: `https://sam.ma/admin/production-media/${encodeURIComponent(job.id)}`,
       meta: { event: "media_factory.brief_submitted", job_id: job.id },
     });
 
@@ -136,7 +136,7 @@ Vous pouvez maintenant choisir un créneau de shooting parmi ceux proposés.
 Connectez-vous à votre espace PRO pour sélectionner votre date.
       `.trim(),
       ctaLabel: "Choisir un créneau",
-      ctaUrl: `https://sortiraumaroc.ma/pro?tab=media`,
+      ctaUrl: `https://sam.ma/pro?tab=media`,
       meta: { event: "media_factory.brief_approved", job_id: job.id },
     });
 
@@ -216,7 +216,7 @@ Un rendez-vous de shooting a été confirmé.
 Préparez-vous pour le shooting !
       `.trim(),
       ctaLabel: "Voir les détails",
-      ctaUrl: `https://sortiraumaroc.ma/admin/production-media/${encodeURIComponent(job.id)}`,
+      ctaUrl: `https://sam.ma/admin/production-media/${encodeURIComponent(job.id)}`,
       meta: {
         event: "media_factory.appointment_confirmed",
         job_id: job.id,
@@ -264,7 +264,7 @@ Un nouveau livrable a été uploadé par un partenaire.
 Connectez-vous pour valider ou demander des modifications.
       `.trim(),
       ctaLabel: "Valider le livrable",
-      ctaUrl: `https://sortiraumaroc.ma/admin/production-media/${encodeURIComponent(job.id)}`,
+      ctaUrl: `https://sam.ma/admin/production-media/${encodeURIComponent(job.id)}`,
       meta: {
         event: "media_factory.deliverable_uploaded",
         job_id: job.id,
@@ -333,7 +333,7 @@ ${args.status === "rejected" ? "Veuillez corriger et soumettre une nouvelle vers
       `.trim(),
       ctaLabel:
         args.status === "approved" ? "Demander facturation" : "Voir la mission",
-      ctaUrl: "https://sortiraumaroc.ma/partner",
+      ctaUrl: "https://sam.ma/partner",
       meta: {
         event: "media_factory.deliverable_reviewed",
         job_id: job.id,
@@ -395,7 +395,7 @@ Une demande de facturation partenaire a été soumise.
 Connectez-vous à l'interface Compta pour valider et émettre le paiement.
       `.trim(),
       ctaLabel: "Voir les demandes",
-      ctaUrl: "https://sortiraumaroc.ma/admin/production-media/compta",
+      ctaUrl: "https://sam.ma/admin/production-media/compta",
       meta: {
         event: "media_factory.invoice_requested",
         job_id: job.id,
@@ -441,7 +441,7 @@ Tous les livrables ont été validés. Vous pouvez les retrouver dans votre espa
 Merci pour votre confiance !
       `.trim(),
       ctaLabel: "Voir mes livrables",
-      ctaUrl: "https://sortiraumaroc.ma/pro?tab=media",
+      ctaUrl: "https://sam.ma/pro?tab=media",
       meta: { event: "media_factory.job_delivered", job_id: job.id },
     });
 

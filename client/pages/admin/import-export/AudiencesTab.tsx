@@ -716,7 +716,7 @@ export function AudiencesTab() {
                             : 'bg-white hover:bg-slate-50 border-slate-200'
                         }`}
                       >
-                        <span className="mr-1">{country.flag}</span>
+                        <span className="me-1">{country.flag}</span>
                         {country.name}
                       </button>
                     ))}
@@ -812,7 +812,7 @@ export function AudiencesTab() {
               Annuler
             </Button>
             <Button onClick={handleSave} disabled={saving || !form.name.trim()}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              {saving ? <Loader2 className="h-4 w-4 animate-spin me-2" /> : null}
               {editingAudience ? "Enregistrer" : "Créer"}
             </Button>
           </DialogFooter>
@@ -944,7 +944,7 @@ export function AudiencesTab() {
               disabled={deleting}
               className="bg-red-600 hover:bg-red-700"
             >
-              {deleting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin me-2" /> : null}
               Supprimer
             </AlertDialogAction>
           </AlertDialogFooter>

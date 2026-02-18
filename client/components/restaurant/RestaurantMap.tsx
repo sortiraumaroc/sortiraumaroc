@@ -12,8 +12,81 @@ const mapContainerStyle = {
   height: "100%",
 };
 
-// SAM marker icon - uses the megaphone logo
-const SAM_MARKER_ICON = "/logo.png";
+// Logo source — will be drawn inside a round marker via canvas
+const SAM_LOGO_SRC = "/Logo_SAM_Megaphone_Blanc.png";
+const MARKER_SIZE = 56; // px (canvas resolution, displayed at ~44-48 CSS px)
+
+/**
+ * Creates a round marker icon as a data-URL by drawing the SAM logo
+ * inside a circular red background with a white border.
+ */
+function createRoundMarkerIcon(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = MARKER_SIZE;
+      canvas.height = MARKER_SIZE;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { reject(new Error("canvas 2d context unavailable")); return; }
+
+      const cx = MARKER_SIZE / 2;
+      const cy = MARKER_SIZE / 2;
+      const r = MARKER_SIZE / 2 - 2; // leave 2px for border
+
+      // Red circle background
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fillStyle = "#E53935";
+      ctx.fill();
+
+      // Clip to circle for the logo
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, r - 2, 0, Math.PI * 2);
+      ctx.clip();
+
+      // Draw the logo centered and covering the circle
+      const logoSize = (r - 2) * 2;
+      ctx.drawImage(img, cx - logoSize / 2, cy - logoSize / 2, logoSize, logoSize);
+      ctx.restore();
+
+      // White border ring
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      resolve(canvas.toDataURL("image/png"));
+    };
+    img.onerror = () => {
+      // Fallback: return empty so we use default Google marker
+      resolve("");
+    };
+    img.src = SAM_LOGO_SRC;
+  });
+}
+
+// Module-level cache so we only generate the icon once
+let _cachedMarkerUrl: string | null = null;
+let _markerPromise: Promise<string> | null = null;
+
+function useRoundMarkerIcon(): string | null {
+  const [url, setUrl] = useState<string | null>(_cachedMarkerUrl);
+
+  useEffect(() => {
+    if (_cachedMarkerUrl) { setUrl(_cachedMarkerUrl); return; }
+    if (!_markerPromise) _markerPromise = createRoundMarkerIcon();
+    _markerPromise.then((dataUrl) => {
+      _cachedMarkerUrl = dataUrl || null;
+      setUrl(_cachedMarkerUrl);
+    });
+  }, []);
+
+  return url;
+}
 
 export function RestaurantMap({
   query,
@@ -35,6 +108,7 @@ export function RestaurantMap({
   const geocode = useGeocodedQuery(hasDirectCoords ? "" : query); // Skip geocoding if we have direct coords
   const mapRef = useRef<google.maps.Map | null>(null);
   const [showInfoWindow, setShowInfoWindow] = useState(false);
+  const roundMarkerUrl = useRoundMarkerIcon();
 
   // Prioritize direct coordinates over geocoded ones
   const coords: LatLng = hasDirectCoords
@@ -94,11 +168,13 @@ export function RestaurantMap({
               <Marker
                 position={coords}
                 onClick={() => setShowInfoWindow(true)}
-                icon={{
-                  url: SAM_MARKER_ICON,
-                  scaledSize: new google.maps.Size(48, 48),
-                  anchor: new google.maps.Point(24, 48),
-                }}
+                {...(roundMarkerUrl ? {
+                  icon: {
+                    url: roundMarkerUrl,
+                    scaledSize: new google.maps.Size(46, 46),
+                    anchor: new google.maps.Point(23, 23),
+                  },
+                } : {})}
               />
 
               {showInfoWindow && (
@@ -106,7 +182,7 @@ export function RestaurantMap({
                   position={coords}
                   onCloseClick={() => setShowInfoWindow(false)}
                   options={{
-                    pixelOffset: new google.maps.Size(0, -48),
+                    pixelOffset: new google.maps.Size(0, -26),
                   }}
                 >
                   <div className="font-semibold text-slate-900 text-sm p-1">{name}</div>
@@ -125,7 +201,7 @@ export function RestaurantMap({
         ) : null}
 
         {!hasDirectCoords && geocode.status === "error" ? (
-          <div className="absolute bottom-3 left-3 rounded-lg border border-slate-200 bg-white/95 backdrop-blur px-3 py-2 text-xs text-slate-700">
+          <div className="absolute bottom-3 start-3 rounded-lg border border-slate-200 bg-white/95 backdrop-blur px-3 py-2 text-xs text-slate-700">
             Localisation approximative.
           </div>
         ) : null}

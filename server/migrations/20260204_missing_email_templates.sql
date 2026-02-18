@@ -90,7 +90,7 @@ Our team will contact you within 24 to 48 hours.
 
 The Sortir Au Maroc team',
   'Visit website',
-  'https://sortiraumaroc.ma/'
+  'https://sam.ma/'
 ) ON CONFLICT (key) DO UPDATE SET
   name = EXCLUDED.name,
   subject_fr = EXCLUDED.subject_fr,
@@ -172,7 +172,7 @@ Don''t worry, you remain on the waitlist and we will contact you again if anothe
 
 The Sortir Au Maroc team',
   'Explore other options',
-  'https://sortiraumaroc.ma/'
+  'https://sam.ma/'
 ) ON CONFLICT (key) DO UPDATE SET
   name = EXCLUDED.name,
   subject_fr = EXCLUDED.subject_fr,
@@ -352,7 +352,7 @@ Discover the best addresses in Morocco!
 
 The Sortir Au Maroc team',
   'Discover establishments',
-  'https://sortiraumaroc.ma/'
+  'https://sam.ma/'
 ) ON CONFLICT (key) DO UPDATE SET
   name = EXCLUDED.name,
   subject_fr = EXCLUDED.subject_fr,
@@ -953,6 +953,47 @@ The Sortir Au Maroc team',
   subject_en = EXCLUDED.subject_en,
   body_en = EXCLUDED.body_en;
 
+-- Pro password regenerated (admin/team member password reset with temp password)
+INSERT INTO public.email_templates (
+  key, audience, name, enabled,
+  subject_fr, body_fr, cta_label_fr,
+  subject_en, body_en, cta_label_en,
+  cta_url
+) VALUES (
+  'pro_password_regenerated',
+  'system',
+  'Nouveau mot de passe PRO genere',
+  true,
+  'Votre nouveau mot de passe PRO',
+  'Bonjour,
+
+Un nouveau mot de passe a ete genere pour votre compte PRO Sortir Au Maroc ({{establishment_name}}).
+
+Votre nouveau mot de passe temporaire : {{password}}
+
+Nous vous recommandons de le changer des votre prochaine connexion.
+
+L''equipe Sortir Au Maroc',
+  'Se connecter',
+  'Your new PRO password',
+  'Hello,
+
+A new password has been generated for your Sortir Au Maroc PRO account ({{establishment_name}}).
+
+Your new temporary password: {{password}}
+
+We recommend changing it after your next login.
+
+The Sortir Au Maroc team',
+  'Log in',
+  '{{login_url}}'
+) ON CONFLICT (key) DO UPDATE SET
+  name = EXCLUDED.name,
+  subject_fr = EXCLUDED.subject_fr,
+  body_fr = EXCLUDED.body_fr,
+  subject_en = EXCLUDED.subject_en,
+  body_en = EXCLUDED.body_en;
+
 -- Newsletter subscription confirmed
 INSERT INTO public.email_templates (
   key, audience, name, enabled,
@@ -986,7 +1027,7 @@ See you soon!
 
 The Sortir Au Maroc team',
   'Explore establishments',
-  'https://sortiraumaroc.ma/'
+  'https://sam.ma/'
 ) ON CONFLICT (key) DO UPDATE SET
   name = EXCLUDED.name,
   subject_fr = EXCLUDED.subject_fr,
@@ -1031,7 +1072,7 @@ Offer valid until {{expires_at}}.
 
 The Sortir Au Maroc team',
   'Use the code',
-  'https://sortiraumaroc.ma/'
+  'https://sam.ma/'
 ) ON CONFLICT (key) DO UPDATE SET
   name = EXCLUDED.name,
   subject_fr = EXCLUDED.subject_fr,

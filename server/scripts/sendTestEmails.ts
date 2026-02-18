@@ -424,14 +424,14 @@ async function main() {
         fromKey,
         to: [TEST_EMAIL],
         variables,
-        ctaUrl: "https://sortiraumaroc.ma/test",
+        ctaUrl: "https://sam.ma/test",
       });
 
       if (result.ok) {
         console.log(`  ✅ Sent! (ID: ${result.emailId})`);
         successCount++;
       } else {
-        console.log(`  ❌ Failed: ${result.error}`);
+        console.log(`  ❌ Failed: ${(result as any).error}`);
         failCount++;
       }
     } catch (err) {

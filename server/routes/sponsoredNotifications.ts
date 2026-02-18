@@ -553,15 +553,13 @@ export const sendSponsoredNotification: RequestHandler = async (req, res) => {
       try {
         const result = await sendPushToConsumerUser({
           userId,
-          notification: {
-            title: `${NOTIFICATION_TYPES[(notification as any).notification_type]?.emoji || "📢"} ${(notification as any).title}`,
-            body: (notification as any).description,
-            imageUrl: (notification as any).image_url,
-            data: {
-              type: "sponsored_notification",
-              notification_id: notifId,
-              link_url: (notification as any).link_url || "",
-            },
+          title: `${NOTIFICATION_TYPES[(notification as any).notification_type]?.emoji || "📢"} ${(notification as any).title}`,
+          body: (notification as any).description,
+          imageUrl: (notification as any).image_url,
+          data: {
+            type: "sponsored_notification",
+            notification_id: notifId,
+            link_url: (notification as any).link_url || "",
           },
         });
 
@@ -628,10 +626,11 @@ export const sendSponsoredNotification: RequestHandler = async (req, res) => {
  * Récupère les notifications sponsorisées pour l'utilisateur connecté
  */
 export const getConsumerSponsoredNotifications: RequestHandler = async (req, res) => {
-  const { user, error } = await getConsumerUser(req);
-  if (error || !user) {
-    return res.status(401).json({ error: error || "Non authentifié" });
+  const consumerResult = await getConsumerUser(req);
+  if (consumerResult.ok === false) {
+    return res.status(consumerResult.status).json({ error: consumerResult.error });
   }
+  const user = consumerResult.user;
 
   const supabase = getAdminSupabase();
 
@@ -700,10 +699,11 @@ export const getConsumerSponsoredNotifications: RequestHandler = async (req, res
  * Marquer une notification comme lue
  */
 export const markSponsoredNotificationRead: RequestHandler = async (req, res) => {
-  const { user, error } = await getConsumerUser(req);
-  if (error || !user) {
-    return res.status(401).json({ error: error || "Non authentifié" });
+  const consumerResult = await getConsumerUser(req);
+  if (consumerResult.ok === false) {
+    return res.status(consumerResult.status).json({ error: consumerResult.error });
   }
+  const user = consumerResult.user;
 
   const supabase = getAdminSupabase();
   const notificationEntryId = req.params.id;
@@ -749,10 +749,11 @@ export const markSponsoredNotificationRead: RequestHandler = async (req, res) =>
  * Enregistrer un clic sur une notification
  */
 export const clickSponsoredNotification: RequestHandler = async (req, res) => {
-  const { user, error } = await getConsumerUser(req);
-  if (error || !user) {
-    return res.status(401).json({ error: error || "Non authentifié" });
+  const consumerResult = await getConsumerUser(req);
+  if (consumerResult.ok === false) {
+    return res.status(consumerResult.status).json({ error: consumerResult.error });
   }
+  const user = consumerResult.user;
 
   const supabase = getAdminSupabase();
   const notificationEntryId = req.params.id;

@@ -37,7 +37,13 @@ function mapLogToRow(log: AdminLogEntry): LogRow {
   const entityType = log.entity_type == null ? "—" : String(log.entity_type);
   const entityId = log.entity_id == null ? "—" : String(log.entity_id);
 
-  const actorLabel = log.source === "admin" ? "Admin" : String(log.actor_role ?? log.actor_user_id ?? "Système");
+  const actorLabel = log.actor_name
+    ? log.actor_name
+    : log.actor_email
+      ? log.actor_email
+      : log.source === "admin"
+        ? "Admin"
+        : String(log.actor_role ?? log.actor_user_id ?? "Système");
 
   return {
     id: String(log.id ?? ""),

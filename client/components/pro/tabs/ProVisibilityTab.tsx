@@ -236,7 +236,7 @@ function OfferCard({ offer, onAddToCart, variant = "pack" }: OfferCardProps) {
                 </li>
               ))}
               {deliverables.length > 6 && (
-                <li className="text-sm text-slate-500 pl-6">
+                <li className="text-sm text-slate-500 ps-6">
                   + {deliverables.length - 6} autres...
                 </li>
               )}
@@ -1043,7 +1043,7 @@ export function ProVisibilityTab({ establishment, role }: Props) {
                   <div className="font-semibold text-sm flex items-center gap-2">
                     <ShoppingCart className="w-4 h-4" />
                     Panier
-                    <Badge variant="secondary" className="ml-1">
+                    <Badge variant="secondary" className="ms-1">
                       {cart.length}
                     </Badge>
                   </div>
@@ -1064,7 +1064,7 @@ export function ProVisibilityTab({ establishment, role }: Props) {
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-2 ml-2">
+                          <div className="flex items-center gap-2 ms-2">
                             {offer.allow_quantity && (
                               <Input
                                 type="number"
@@ -1076,7 +1076,7 @@ export function ProVisibilityTab({ establishment, role }: Props) {
                               />
                             )}
 
-                            <div className="text-right min-w-[70px]">
+                            <div className="text-end min-w-[70px]">
                               <div className="font-semibold text-xs tabular-nums">{formatMoney(itemTotal, offer.currency)}</div>
                             </div>
 
@@ -1139,12 +1139,12 @@ export function ProVisibilityTab({ establishment, role }: Props) {
                   <Button className="w-full" disabled={checkingOut} onClick={() => setCheckoutDialogOpen(true)}>
                     {checkingOut ? (
                       <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        <Loader2 className="w-4 h-4 me-2 animate-spin" />
                         Paiement…
                       </>
                     ) : (
                       <>
-                        <ShoppingCart className="w-4 h-4 mr-2" />
+                        <ShoppingCart className="w-4 h-4 me-2" />
                         Procéder au paiement
                       </>
                     )}

@@ -234,7 +234,7 @@ export function EmailVerificationModal({
                   setError(null);
                   refreshCaptcha();
                 }}
-                className="p-2 -ml-2 hover:bg-slate-100 rounded-full transition-colors"
+                className="p-2 -ms-2 hover:bg-slate-100 rounded-full transition-colors"
               >
                 <ArrowLeft className="w-5 h-5 text-slate-600" />
               </button>
@@ -250,7 +250,7 @@ export function EmailVerificationModal({
 
             <button
               onClick={onClose}
-              className="p-2 -mr-2 hover:bg-slate-100 rounded-full transition-colors"
+              className="p-2 -me-2 hover:bg-slate-100 rounded-full transition-colors"
             >
               <X className="w-5 h-5 text-slate-600" />
             </button>
@@ -271,14 +271,14 @@ export function EmailVerificationModal({
                   Email
                 </Label>
                 <div className="mt-1.5 relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Mail className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <Input
                     id="verification-email"
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="example@email.com"
-                    className="pl-10"
+                    className="ps-10"
                     autoFocus
                   />
                 </div>
@@ -330,7 +330,7 @@ export function EmailVerificationModal({
                   <Loader2 className="w-5 h-5 animate-spin" />
                 ) : (
                   <>
-                    <Mail className="w-5 h-5 mr-2" />
+                    <Mail className="w-5 h-5 me-2" />
                     {t("profile.email_verification.send_code")}
                   </>
                 )}

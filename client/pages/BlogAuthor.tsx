@@ -12,7 +12,7 @@ import {
   type PublicBlogListItem,
 } from "@/lib/blog";
 import { useI18n } from "@/lib/i18n";
-import { applySeo, clearJsonLd, setJsonLd } from "@/lib/seo";
+import { applySeo, clearJsonLd, setJsonLd, buildI18nSeoFields } from "@/lib/seo";
 
 function ArticleCard({ item, to }: { item: PublicBlogListItem; to: string }) {
   const title = isPublicBlogListItemV2(item) ? String(item.resolved.title || "").trim() : String(item.title || "").trim();
@@ -175,6 +175,7 @@ export default function BlogAuthor() {
       title: displayName ? `${displayName} — Auteur — Sortir Au Maroc` : "Auteur — Sortir Au Maroc",
       description: desc || undefined,
       ogType: "profile",
+      ...buildI18nSeoFields(locale),
     });
 
     const canonical = (() => {

@@ -52,7 +52,7 @@ export function AnchoredSelect({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [open]);
 
-  const defaultTriggerClass = `w-full pl-10 pr-4 py-2 h-10 md:h-11 bg-slate-100 border border-slate-200 rounded-md text-left text-sm flex items-center justify-between transition-colors hover:bg-slate-100 hover:border-slate-300 focus-visible:border-primary/50 focus-visible:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${className}`;
+  const defaultTriggerClass = `w-full ps-10 pe-4 py-2 h-10 md:h-11 bg-slate-100 border border-slate-200 rounded-md text-start text-sm flex items-center justify-between transition-colors hover:bg-slate-100 hover:border-slate-300 focus-visible:border-primary/50 focus-visible:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${className}`;
 
   const trigger = (
     <button
@@ -84,7 +84,7 @@ export function AnchoredSelect({
             onChange(o.value);
             setOpen(false);
           }}
-          className={`w-full text-left rounded-lg px-3 py-2.5 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 active:bg-slate-100 ${
+          className={`w-full text-start rounded-lg px-3 py-2.5 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 active:bg-slate-100 ${
             o.value === value ? "bg-primary/5 text-primary font-semibold" : "text-slate-800 font-normal hover:bg-slate-50"
           }`}
           style={{ fontFamily: "Circular Std, sans-serif" }}
@@ -97,7 +97,7 @@ export function AnchoredSelect({
 
   return (
     <div className="relative w-full group">
-      <Icon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary w-5 h-5 pointer-events-none transition-colors" />
+      <Icon className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary w-5 h-5 pointer-events-none transition-colors" />
 
       {isMobile ? (
         <>

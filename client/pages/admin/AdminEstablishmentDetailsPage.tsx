@@ -11,6 +11,7 @@ import {
   Pencil,
   QrCode,
   RefreshCcw,
+  Repeat,
   Save,
   Loader2,
   Moon,
@@ -20,9 +21,20 @@ import {
   Trash2,
 } from "lucide-react";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -62,6 +74,7 @@ import { AdminDataTable } from "@/components/admin/table/AdminDataTable";
 import { useToast } from "@/hooks/use-toast";
 import {
   AdminApiError,
+  adminDeleteSlot,
   adminUpsertSlots,
   getEstablishment,
   listAdminEstablishmentConversations,
@@ -153,13 +166,21 @@ type QrRow = {
 };
 
 type SlotRow = {
+  id: string;
   startsAt: string;
+  startsAtIso: string;
+  endsAtIso: string | null;
   date: string;
   time: string;
   capacity: string;
+  capacityNum: number;
+  basePriceCents: number | null;
   basePrice: string;
   serviceLabel: string;
   promo: string;
+  promoType: string | null;
+  promoValue: number | null;
+  promoLabel: string | null;
   status: string;
 };
 
@@ -322,7 +343,25 @@ export function AdminEstablishmentDetailsPage() {
   const [ftourPaidPercent, setFtourPaidPercent] = useState(88);
   const [ftourFreePercent, setFtourFreePercent] = useState(6);
   const [ftourBufferPercent, setFtourBufferPercent] = useState(6);
+  const [ftourRepeatEnabled, setFtourRepeatEnabled] = useState(false);
+  const [ftourRepeatDays, setFtourRepeatDays] = useState<number[]>([1, 2, 3, 4, 5, 6, 0]);
   const [ftourCreating, setFtourCreating] = useState(false);
+
+  // Slot edit/delete dialogs
+  const [editSlotDialogOpen, setEditSlotDialogOpen] = useState(false);
+  const [editSlotData, setEditSlotData] = useState<SlotRow | null>(null);
+  const [editSlotSaving, setEditSlotSaving] = useState(false);
+  const [editFormStartDate, setEditFormStartDate] = useState("");
+  const [editFormStartTime, setEditFormStartTime] = useState("");
+  const [editFormCapacity, setEditFormCapacity] = useState("");
+  const [editFormBasePrice, setEditFormBasePrice] = useState("");
+  const [editFormServiceLabel, setEditFormServiceLabel] = useState("");
+  const [editFormPromoLabel, setEditFormPromoLabel] = useState("");
+  const [editFormPromoType, setEditFormPromoType] = useState<"percent" | "amount">("percent");
+  const [editFormPromoValue, setEditFormPromoValue] = useState("");
+  const [deleteSlotId, setDeleteSlotId] = useState<string | null>(null);
+  const [deleteSlotDeleting, setDeleteSlotDeleting] = useState(false);
+
   const [qrLogsById, setQrLogsById] = useState<Record<string, QrScanLogAdmin>>({});
   const [conversations, setConversations] = useState<ConversationRow[]>([]);
   const [linkedPros, setLinkedPros] = useState<Array<{ id: string; email: string }>>([]);
@@ -446,13 +485,21 @@ export function AdminEstablishmentDetailsPage() {
       setReservationsById(byId);
 
       const slots: SlotRow[] = (offersRes.slots ?? []).map((s: any) => ({
+        id: String(s?.id ?? ""),
         startsAt: formatLocal(s?.starts_at),
+        startsAtIso: s?.starts_at ?? "",
+        endsAtIso: s?.ends_at ?? null,
         date: formatSlotDate(s?.starts_at),
         time: formatSlotTime(s?.starts_at),
         capacity: String(s?.capacity ?? "—"),
+        capacityNum: typeof s?.capacity === "number" ? s.capacity : 0,
+        basePriceCents: typeof s?.base_price === "number" ? s.base_price : null,
         basePrice: formatMoneyCents(typeof s?.base_price === "number" ? s.base_price : null, s?.currency ?? null),
         serviceLabel: String(s?.service_label ?? "—"),
         promo: s?.promo_label ? `${s.promo_label}` : s?.promo_value ? `${s.promo_type === "percent" ? `${s.promo_value}%` : `${s.promo_value} MAD`}` : "—",
+        promoType: s?.promo_type ?? null,
+        promoValue: typeof s?.promo_value === "number" ? s.promo_value : null,
+        promoLabel: s?.promo_label ?? null,
         status: String(s?.status ?? "—"),
       }));
       setOffersSlots(slots);
@@ -783,6 +830,32 @@ export function AdminEstablishmentDetailsPage() {
       { accessorKey: "basePrice", header: "Prix" },
       { accessorKey: "promo", header: "Promo" },
       { accessorKey: "status", header: "Statut" },
+      {
+        id: "actions",
+        header: "Actions",
+        cell: ({ row }) => (
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              title="Modifier"
+              onClick={(e) => { e.stopPropagation(); openSlotEdit(row.original); }}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-red-600 hover:text-red-700 hover:bg-red-50"
+              title="Supprimer"
+              onClick={(e) => { e.stopPropagation(); setDeleteSlotId(row.original.id); }}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        ),
+      },
     ];
   }, []);
 
@@ -892,6 +965,12 @@ export function AdminEstablishmentDetailsPage() {
 
       const current = new Date(startDate);
       while (current <= endDate) {
+        // Skip days not in the repeat selection (when enabled)
+        if (ftourRepeatEnabled && ftourRepeatDays.length > 0 && !ftourRepeatDays.includes(current.getDay())) {
+          current.setDate(current.getDate() + 1);
+          continue;
+        }
+
         const slotStart = new Date(current);
         slotStart.setHours(hours, minutes, 0, 0);
 
@@ -921,13 +1000,21 @@ export function AdminEstablishmentDetailsPage() {
       // Refresh offers list
       const offersRes = await listAdminEstablishmentOffers(undefined, establishmentId);
       const refreshedSlots: SlotRow[] = (offersRes.slots ?? []).map((s: any) => ({
+        id: String(s?.id ?? ""),
         startsAt: formatLocal(s?.starts_at),
+        startsAtIso: s?.starts_at ?? "",
+        endsAtIso: s?.ends_at ?? null,
         date: formatSlotDate(s?.starts_at),
         time: formatSlotTime(s?.starts_at),
         capacity: String(s?.capacity ?? "—"),
+        capacityNum: typeof s?.capacity === "number" ? s.capacity : 0,
+        basePriceCents: typeof s?.base_price === "number" ? s.base_price : null,
         basePrice: formatMoneyCents(typeof s?.base_price === "number" ? s.base_price : null, s?.currency ?? null),
         serviceLabel: String(s?.service_label ?? "—"),
         promo: s?.promo_label ? `${s.promo_label}` : s?.promo_value ? `${s.promo_type === "percent" ? `${s.promo_value}%` : `${s.promo_value} MAD`}` : "—",
+        promoType: s?.promo_type ?? null,
+        promoValue: typeof s?.promo_value === "number" ? s.promo_value : null,
+        promoLabel: s?.promo_label ?? null,
         status: String(s?.status ?? "—"),
       }));
       setOffersSlots(refreshedSlots);
@@ -937,6 +1024,109 @@ export function AdminEstablishmentDetailsPage() {
       toast({ title: "Erreur", description: msg, variant: "destructive" });
     } finally {
       setFtourCreating(false);
+    }
+  };
+
+  // Helper to refresh the slots list
+  const refreshSlotsOnly = async () => {
+    try {
+      const offersRes = await listAdminEstablishmentOffers(undefined, establishmentId);
+      const refreshed: SlotRow[] = (offersRes.slots ?? []).map((s: any) => ({
+        id: String(s?.id ?? ""),
+        startsAt: formatLocal(s?.starts_at),
+        startsAtIso: s?.starts_at ?? "",
+        endsAtIso: s?.ends_at ?? null,
+        date: formatSlotDate(s?.starts_at),
+        time: formatSlotTime(s?.starts_at),
+        capacity: String(s?.capacity ?? "—"),
+        capacityNum: typeof s?.capacity === "number" ? s.capacity : 0,
+        basePriceCents: typeof s?.base_price === "number" ? s.base_price : null,
+        basePrice: formatMoneyCents(typeof s?.base_price === "number" ? s.base_price : null, s?.currency ?? null),
+        serviceLabel: String(s?.service_label ?? "—"),
+        promo: s?.promo_label ? `${s.promo_label}` : s?.promo_value ? `${s.promo_type === "percent" ? `${s.promo_value}%` : `${s.promo_value} MAD`}` : "—",
+        promoType: s?.promo_type ?? null,
+        promoValue: typeof s?.promo_value === "number" ? s.promo_value : null,
+        promoLabel: s?.promo_label ?? null,
+        status: String(s?.status ?? "—"),
+      }));
+      setOffersSlots(refreshed);
+    } catch { /* silent */ }
+  };
+
+  // Open edit dialog for a slot
+  const openSlotEdit = (slot: SlotRow) => {
+    setEditSlotData(slot);
+    setEditFormStartDate(slot.startsAtIso ? slot.startsAtIso.slice(0, 10) : "");
+    setEditFormStartTime(slot.startsAtIso ? slot.startsAtIso.slice(11, 16) : "");
+    setEditFormCapacity(String(slot.capacityNum));
+    setEditFormBasePrice(slot.basePriceCents != null ? String(slot.basePriceCents / 100) : "");
+    setEditFormServiceLabel(slot.serviceLabel === "—" ? "" : slot.serviceLabel);
+    setEditFormPromoLabel(slot.promoLabel ?? "");
+    setEditFormPromoType(slot.promoType === "amount" ? "amount" : "percent");
+    setEditFormPromoValue(slot.promoValue != null ? String(slot.promoValue) : "");
+    setEditSlotDialogOpen(true);
+  };
+
+  // Save edited slot
+  const handleSaveEditSlot = async () => {
+    if (!editSlotData) return;
+    setEditSlotSaving(true);
+    try {
+      const startsAt = `${editFormStartDate}T${editFormStartTime}:00`;
+      const startsDt = new Date(startsAt);
+      if (!Number.isFinite(startsDt.getTime())) {
+        toast({ title: "Erreur", description: "Date/heure invalide", variant: "destructive" });
+        return;
+      }
+
+      // Preserve original duration
+      const origStart = new Date(editSlotData.startsAtIso);
+      const origEnd = editSlotData.endsAtIso ? new Date(editSlotData.endsAtIso) : null;
+      const durationMs = origEnd ? origEnd.getTime() - origStart.getTime() : 3 * 60 * 60 * 1000;
+      const endsDt = new Date(startsDt.getTime() + durationMs);
+
+      const capacity = Math.max(1, Number(editFormCapacity) || 1);
+      const basePrice = editFormBasePrice.trim() ? Math.round(Number(editFormBasePrice) * 100) : null;
+      const promoValueNum = editFormPromoValue.trim() ? Math.round(Number(editFormPromoValue)) : null;
+      const promoValue = promoValueNum && promoValueNum > 0 ? promoValueNum : null;
+
+      await adminUpsertSlots(undefined, establishmentId, [{
+        starts_at: startsDt.toISOString(),
+        ends_at: endsDt.toISOString(),
+        capacity,
+        base_price: basePrice,
+        service_label: editFormServiceLabel || null,
+        promo_type: promoValue ? editFormPromoType : null,
+        promo_value: promoValue,
+        promo_label: promoValue ? (editFormPromoLabel.trim() || null) : null,
+      }]);
+
+      toast({ title: "Créneau modifié", description: "Le créneau a été mis à jour." });
+      setEditSlotDialogOpen(false);
+      setEditSlotData(null);
+      await refreshSlotsOnly();
+    } catch (e) {
+      const msg = e instanceof AdminApiError ? e.message : "Erreur inattendue";
+      toast({ title: "Erreur", description: msg, variant: "destructive" });
+    } finally {
+      setEditSlotSaving(false);
+    }
+  };
+
+  // Delete slot
+  const handleDeleteSlot = async () => {
+    if (!deleteSlotId) return;
+    setDeleteSlotDeleting(true);
+    try {
+      await adminDeleteSlot(undefined, establishmentId, deleteSlotId);
+      toast({ title: "Supprimé", description: "Le créneau a été supprimé." });
+      setDeleteSlotId(null);
+      await refreshSlotsOnly();
+    } catch (e) {
+      const msg = e instanceof AdminApiError ? e.message : "Erreur inattendue";
+      toast({ title: "Erreur", description: msg, variant: "destructive" });
+    } finally {
+      setDeleteSlotDeleting(false);
     }
   };
 
@@ -1636,6 +1826,162 @@ export function AdminEstablishmentDetailsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Delete Slot Confirmation */}
+      <AlertDialog open={!!deleteSlotId} onOpenChange={(open) => !open && setDeleteSlotId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer ce créneau ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Cette action est irréversible. Le créneau sera définitivement supprimé.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteSlotDeleting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteSlot}
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deleteSlotDeleting}
+            >
+              {deleteSlotDeleting ? "Suppression…" : "Supprimer"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Edit Slot Dialog */}
+      <Dialog open={editSlotDialogOpen} onOpenChange={(open) => { if (!open) { setEditSlotDialogOpen(false); setEditSlotData(null); } }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5" />
+              Modifier le créneau
+            </DialogTitle>
+            <DialogDescription>
+              Modifiez les informations du créneau.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Date</Label>
+                <Input
+                  type="date"
+                  value={editFormStartDate}
+                  onChange={(e) => setEditFormStartDate(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Heure</Label>
+                <Input
+                  type="time"
+                  value={editFormStartTime}
+                  onChange={(e) => setEditFormStartTime(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Capacité</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={editFormCapacity}
+                  onChange={(e) => setEditFormCapacity(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Prix (MAD)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={1}
+                  placeholder="Gratuit"
+                  value={editFormBasePrice}
+                  onChange={(e) => setEditFormBasePrice(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs font-medium">Service</Label>
+              <Select value={editFormServiceLabel || "Ftour"} onValueChange={setEditFormServiceLabel}>
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Petit-déjeuner">Petit-déjeuner</SelectItem>
+                  <SelectItem value="Déjeuner">Déjeuner</SelectItem>
+                  <SelectItem value="Tea Time">Tea Time</SelectItem>
+                  <SelectItem value="Happy Hour">Happy Hour</SelectItem>
+                  <SelectItem value="Dîner">Dîner</SelectItem>
+                  <SelectItem value="Ftour">Ftour (Ramadan)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2 rounded-lg border p-3">
+              <Label className="text-xs font-medium">Promotion (optionnel)</Label>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="space-y-0.5">
+                  <Label className="text-[11px] text-slate-500">Label</Label>
+                  <Input
+                    type="text"
+                    placeholder="-15%"
+                    value={editFormPromoLabel}
+                    onChange={(e) => setEditFormPromoLabel(e.target.value)}
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div className="space-y-0.5">
+                  <Label className="text-[11px] text-slate-500">Type</Label>
+                  <Select value={editFormPromoType} onValueChange={(v) => setEditFormPromoType(v as "percent" | "amount")}>
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="percent">Pourcentage</SelectItem>
+                      <SelectItem value="amount">Montant (MAD)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-0.5">
+                  <Label className="text-[11px] text-slate-500">Valeur</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    placeholder="0"
+                    value={editFormPromoValue}
+                    onChange={(e) => setEditFormPromoValue(e.target.value)}
+                    className="h-8 text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setEditSlotDialogOpen(false); setEditSlotData(null); }}>
+              Annuler
+            </Button>
+            <Button onClick={() => void handleSaveEditSlot()} disabled={editSlotSaving}>
+              {editSlotSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                  Enregistrement…
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-1" />
+                  Enregistrer
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Ftour Slots Creation Dialog */}
       <Dialog open={ftourDialogOpen} onOpenChange={setFtourDialogOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
@@ -1874,6 +2220,59 @@ export function AdminEstablishmentDetailsPage() {
               </div>
             </div>
 
+            {/* ── Répéter sur certains jours ── */}
+            <div className="space-y-2 rounded-lg border p-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
+                  checked={ftourRepeatEnabled}
+                  onCheckedChange={(checked) => setFtourRepeatEnabled(!!checked)}
+                />
+                <div className="flex items-center gap-1.5 text-xs font-medium">
+                  <Repeat className="h-3.5 w-3.5" />
+                  Répéter sur certains jours uniquement
+                </div>
+              </label>
+
+              {ftourRepeatEnabled && (
+                <div className="space-y-1.5 pt-1">
+                  <Label className="text-[11px] text-slate-500">Jours de la semaine</Label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {([
+                      { value: 1, label: "Lun" },
+                      { value: 2, label: "Mar" },
+                      { value: 3, label: "Mer" },
+                      { value: 4, label: "Jeu" },
+                      { value: 5, label: "Ven" },
+                      { value: 6, label: "Sam" },
+                      { value: 0, label: "Dim" },
+                    ] as const).map((day) => {
+                      const isActive = ftourRepeatDays.includes(day.value);
+                      return (
+                        <button
+                          key={day.value}
+                          type="button"
+                          onClick={() => {
+                            setFtourRepeatDays((prev) =>
+                              isActive
+                                ? prev.filter((d) => d !== day.value)
+                                : [...prev, day.value],
+                            );
+                          }}
+                          className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border transition ${
+                            isActive
+                              ? "bg-primary text-white border-primary"
+                              : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
+                          }`}
+                        >
+                          {day.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* ── Résumé ── */}
             {ftourDateStart && ftourDateEnd && (
               <div className="text-xs text-slate-500 bg-slate-50 rounded p-2">
@@ -1881,7 +2280,18 @@ export function AdminEstablishmentDetailsPage() {
                   const start = new Date(ftourDateStart);
                   const end = new Date(ftourDateEnd);
                   if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) return "Dates invalides";
-                  const days = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+
+                  let days = 0;
+                  if (ftourRepeatEnabled && ftourRepeatDays.length > 0) {
+                    const cursor = new Date(start);
+                    while (cursor <= end) {
+                      if (ftourRepeatDays.includes(cursor.getDay())) days++;
+                      cursor.setDate(cursor.getDate() + 1);
+                    }
+                  } else {
+                    days = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                  }
+
                   const priceStr = ftourBasePrice.trim() ? ` — ${ftourBasePrice} MAD` : " — Gratuit";
                   return `${days} créneau(x) ${ftourServiceLabel} seront créés (${ftourTimeStart} — ${ftourCapacity} places/jour${priceStr})`;
                 })()}

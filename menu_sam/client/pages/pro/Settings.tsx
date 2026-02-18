@@ -88,7 +88,7 @@ export default function ProSettings() {
   const [logoFile, setLogoFile] = React.useState<File | null>(null);
   const [uploadingLogo, setUploadingLogo] = React.useState(false);
 
-  const ciBaseUrl = "https://www.sortiraumaroc.ma";
+  const ciBaseUrl = "https://www.sam.ma";
 
   const logoContact = React.useMemo(
     () => contacts.find((c) => c.key === "logo") ?? null,

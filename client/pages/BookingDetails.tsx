@@ -1175,7 +1175,7 @@ export default function BookingDetails() {
                               criteria={
                                 (
                                   booking.review as {
-                                    criteria: BookingReviewCriteria;
+                                    criteria: Record<string, number>;
                                   }
                                 ).criteria
                               }
@@ -1212,8 +1212,8 @@ export default function BookingDetails() {
                                 {t("booking_details.review.rate_each")}
                               </div>
                               <CriteriaRatingsForm
-                                value={criteria}
-                                onChange={setCriteria}
+                                value={criteria as any}
+                                onChange={setCriteria as any}
                               />
                               <div className="mt-2 text-xs text-slate-600">
                                 {t("booking_details.review.estimated", {

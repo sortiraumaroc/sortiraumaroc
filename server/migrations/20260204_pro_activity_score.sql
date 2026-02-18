@@ -7,7 +7,7 @@ begin;
 -- 1. Add online status and activity columns to establishments
 -- ---------------------------------------------------------------------------
 ALTER TABLE public.establishments
-ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT FALSE,
+ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT TRUE,
 ADD COLUMN IF NOT EXISTS online_since TIMESTAMPTZ NULL,
 ADD COLUMN IF NOT EXISTS last_online_at TIMESTAMPTZ NULL,
 ADD COLUMN IF NOT EXISTS total_online_minutes INT DEFAULT 0,
@@ -18,6 +18,9 @@ COMMENT ON COLUMN public.establishments.online_since IS 'Timestamp de début de 
 COMMENT ON COLUMN public.establishments.last_online_at IS 'Dernière fois que l''établissement était en ligne';
 COMMENT ON COLUMN public.establishments.total_online_minutes IS 'Temps total passé en ligne (cumulé, en minutes)';
 COMMENT ON COLUMN public.establishments.activity_score IS 'Score d''assiduité calculé (0-100), impacte le classement recherche';
+
+-- Ensure existing establishments are online by default (for existing data where column was previously FALSE)
+UPDATE public.establishments SET is_online = TRUE WHERE is_online = FALSE OR is_online IS NULL;
 
 -- Index for search ordering by activity
 CREATE INDEX IF NOT EXISTS idx_establishments_activity_score ON public.establishments (activity_score DESC) WHERE status = 'active';
@@ -396,7 +399,8 @@ SELECT
     CASE WHEN e.curated THEN 5 ELSE 0 END      -- Curated bonus
   ) AS ranking_score
 FROM public.establishments e
-WHERE e.status = 'active';
+WHERE e.status = 'active'
+  AND e.is_online = TRUE;
 
 -- ---------------------------------------------------------------------------
 -- 9. Track reservation actions for activity scoring

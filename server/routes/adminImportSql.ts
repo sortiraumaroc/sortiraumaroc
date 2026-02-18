@@ -1,6 +1,6 @@
 import express from "express";
 import type { RequestHandler, Express } from "express";
-import { requireAdminKey, computeCompletenessScore, normalizeEstName } from "./admin";
+import { requireAdminKey, computeCompletenessScore, normalizeEstName, getAuditActorInfo } from "./admin";
 import { getAdminSupabase } from "../supabaseAdmin";
 
 // ─── SQL Parser ─────────────────────────────────────────────────────────
@@ -480,6 +480,7 @@ const executeSql: RequestHandler = async (req, res) => {
 
   const imports = Array.isArray(req.body?.imports) ? req.body.imports : [];
   const deleteIds = Array.isArray(req.body?.deleteIds) ? req.body.deleteIds : [];
+  const actor = getAuditActorInfo(req);
 
   console.log(`[import-sql/execute] Received ${imports.length} rows to import, ${deleteIds.length} to delete`);
   if (imports.length > 0) {
@@ -520,7 +521,8 @@ const executeSql: RequestHandler = async (req, res) => {
         action: "establishment.delete",
         entity_type: "establishment",
         entity_id: id,
-        metadata: { source: "sql_import_dedup", deleted_at: new Date().toISOString() },
+        actor_id: actor.actor_id,
+        metadata: { source: "sql_import_dedup", deleted_at: new Date().toISOString(), actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
       });
     }
   }
@@ -727,11 +729,15 @@ const executeSql: RequestHandler = async (req, res) => {
       action: "establishment.sql_import",
       entity_type: "establishment",
       entity_id: null,
+      actor_id: actor.actor_id,
       metadata: {
         importedCount,
         deletedCount,
         errorCount,
         timestamp: new Date().toISOString(),
+        actor_email: actor.actor_email,
+        actor_name: actor.actor_name,
+        actor_role: actor.actor_role,
       },
     });
   }

@@ -6,7 +6,7 @@
 
 import type { Request, Response } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
-import { notifyProMembers } from "./proNotifications";
+import { notifyProMembers } from "../proNotifications";
 
 // ---------------------------------------------------------------------------
 // Auth helpers (same pattern as pro.ts)

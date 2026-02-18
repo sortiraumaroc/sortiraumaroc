@@ -152,7 +152,7 @@ function SortableItem({
         <Button type="button" variant="ghost" size="icon" onClick={onThumb} title="Pouce vert" className="h-8 w-8">
           <Leaf className="w-4 h-4 text-emerald-600" />
         </Button>
-        <span className="text-xs tabular-nums text-slate-500 w-6 text-right">{item.popularity ?? 0}</span>
+        <span className="text-xs tabular-nums text-slate-500 w-6 text-end">{item.popularity ?? 0}</span>
 
         <Button type="button" variant="ghost" size="icon" disabled={!canEdit} onClick={onEdit} className="h-8 w-8">
           <Edit3 className="w-4 h-4" />

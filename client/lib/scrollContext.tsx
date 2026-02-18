@@ -9,6 +9,10 @@ interface ScrollContextValue {
   registerSearchFormRef: (ref: HTMLElement | null) => void;
   /** Current scroll Y position */
   scrollY: number;
+  /** Whether the search bar should always be shown in the header (e.g. Results page) */
+  alwaysShowSearchBar: boolean;
+  /** Set whether search bar should always be shown */
+  setAlwaysShowSearchBar: (value: boolean) => void;
 }
 
 const ScrollContext = createContext<ScrollContextValue | null>(null);
@@ -16,6 +20,7 @@ const ScrollContext = createContext<ScrollContextValue | null>(null);
 export function ScrollProvider({ children }: { children: React.ReactNode }) {
   const [isScrolledPastSearch, setIsScrolledPastSearch] = useState(false);
   const [scrollY, setScrollY] = useState(0);
+  const [alwaysShowSearchBar, setAlwaysShowSearchBarState] = useState(false);
   const searchFormRef = useRef<HTMLElement | null>(null);
 
   const registerSearchFormRef = useCallback((ref: HTMLElement | null) => {
@@ -24,6 +29,10 @@ export function ScrollProvider({ children }: { children: React.ReactNode }) {
 
   const setScrolledPastSearch = useCallback((value: boolean) => {
     setIsScrolledPastSearch(value);
+  }, []);
+
+  const setAlwaysShowSearchBar = useCallback((value: boolean) => {
+    setAlwaysShowSearchBarState(value);
   }, []);
 
   useEffect(() => {
@@ -68,6 +77,8 @@ export function ScrollProvider({ children }: { children: React.ReactNode }) {
         setScrolledPastSearch,
         registerSearchFormRef,
         scrollY,
+        alwaysShowSearchBar,
+        setAlwaysShowSearchBar,
       }}
     >
       {children}
@@ -84,6 +95,8 @@ export function useScrollContext() {
       setScrolledPastSearch: () => {},
       registerSearchFormRef: () => {},
       scrollY: 0,
+      alwaysShowSearchBar: false,
+      setAlwaysShowSearchBar: () => {},
     };
   }
   return context;

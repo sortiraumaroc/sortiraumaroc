@@ -19,6 +19,7 @@ import {
   markReminderSent,
   sendRenewalReminderEmail,
 } from "../subscriptions/usernameSubscription";
+import { sendTemplateEmail } from "../emailService";
 
 const supabase = getAdminSupabase();
 
@@ -297,7 +298,6 @@ export async function cronSubscriptionsTrialReminders(req: Request, res: Respons
         }
 
         // Send trial reminder email
-        const { sendTemplateEmail } = await import("../emailService");
         const establishment = (trial as any).establishments;
 
         // Get owner email

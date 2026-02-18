@@ -229,7 +229,7 @@ function RechargeDialogContent({
                 }}
               >
                 {processing && selectedAmount === amount ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  <Loader2 className="w-4 h-4 me-2 animate-spin" />
                 ) : null}
                 {amount} MAD
               </Button>
@@ -257,7 +257,7 @@ function RechargeDialogContent({
               disabled={processing || !customAmount}
             >
               {processing && selectedAmount === null && customAmount ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                <Loader2 className="w-4 h-4 me-2 animate-spin" />
               ) : null}
               Payer
             </Button>
@@ -701,7 +701,7 @@ export function ProAdsTab({ establishment, role }: Props) {
                 <div className="text-sm text-slate-600">Dépenses ce mois</div>
                 <div className="text-xl font-bold">{formatMoney(stats?.monthly_spent_cents ?? 0, "MAD")}</div>
               </div>
-              <div className="text-right">
+              <div className="text-end">
                 <div className="text-sm text-slate-600">Dépenses totales</div>
                 <div className="text-xl font-bold">{formatMoney(stats?.total_spent_cents ?? 0, "MAD")}</div>
               </div>
@@ -731,12 +731,12 @@ export function ProAdsTab({ establishment, role }: Props) {
             {/* Filters */}
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <Input
                   placeholder="Rechercher..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9"
+                  className="ps-9"
                 />
               </div>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -779,7 +779,7 @@ export function ProAdsTab({ establishment, role }: Props) {
                         <TableHead>Statut</TableHead>
                         <TableHead>Budget</TableHead>
                         <TableHead>Performance</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
+                        <TableHead className="text-end">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1139,7 +1139,7 @@ export function ProAdsTab({ establishment, role }: Props) {
                       {formData.targeting!.keywords!.map((kw) => (
                         <Badge key={kw} variant="secondary" className="gap-1">
                           {kw}
-                          <button onClick={() => removeKeyword(kw)} className="ml-1 hover:text-red-600">
+                          <button onClick={() => removeKeyword(kw)} className="ms-1 hover:text-red-600">
                             ×
                           </button>
                         </Badge>
@@ -1169,7 +1169,7 @@ export function ProAdsTab({ establishment, role }: Props) {
                     {formData.targeting!.cities!.map((city) => (
                       <Badge key={city} variant="secondary" className="gap-1">
                         {city}
-                        <button onClick={() => removeCity(city)} className="ml-1 hover:text-red-600">
+                        <button onClick={() => removeCity(city)} className="ms-1 hover:text-red-600">
                           ×
                         </button>
                       </Badge>

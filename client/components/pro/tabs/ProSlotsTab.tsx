@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import {
   AlertCircle,
   ArrowDown,
@@ -13,12 +13,16 @@ import {
   Filter,
   Pencil,
   Plus,
+  Repeat,
   Search,
   Trash2,
   Users,
+  Layers,
   X,
 } from "lucide-react";
 
+import { DatePickerInput } from "@/components/DatePickerInput";
+import { TimePickerInput } from "@/components/TimePickerInput";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,6 +35,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Dialog,
@@ -66,8 +71,16 @@ import {
   listProReservations,
   upsertProSlots,
 } from "@/lib/pro/api";
+import { proUpdateCapacity, proGetCapacity } from "@/lib/reservationV2ProApi";
 import type { Establishment, ProRole, ProSlot, Reservation } from "@/lib/pro/types";
 import { isReservationInPast } from "@/components/pro/reservations/reservationHelpers";
+
+// Capacity allocation profiles
+const CAPACITY_PROFILES = [
+  { id: "paid_priority", label: "Priorité payante", paid: 88, free: 6, buffer: 6 },
+  { id: "balanced", label: "Équilibré", paid: 50, free: 30, buffer: 20 },
+  { id: "generous_free", label: "Gratuit généreux", paid: 30, free: 60, buffer: 10 },
+] as const;
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -101,13 +114,16 @@ function formatMoney(amount: number | null | undefined, currency: string): strin
 function formatDateTime(iso: string): string {
   const d = new Date(iso);
   if (!Number.isFinite(d.getTime())) return iso;
-  return d.toLocaleString("fr-FR", {
+  const datePart = d.toLocaleDateString("fr-FR", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
+  });
+  const timePart = d.toLocaleTimeString("fr-FR", {
     hour: "2-digit",
     minute: "2-digit",
   });
+  return `${datePart}  |  ${timePart}`;
 }
 
 function formatDateTimeShort(iso: string): string {
@@ -137,13 +153,27 @@ const SERVICE_OPTIONS = [
   { value: "Tea Time", label: "Tea Time" },
   { value: "Happy Hour", label: "Happy Hour" },
   { value: "Dîner", label: "Dîner" },
+  { value: "Ftour", label: "Ftour (Ramadan)" },
 ];
 
 const INTERVAL_OPTIONS = [
   { value: "15", label: "15 min" },
   { value: "30", label: "30 min" },
   { value: "45", label: "45 min" },
-  { value: "60", label: "60 min" },
+  { value: "60", label: "1h" },
+  { value: "90", label: "1h30" },
+  { value: "120", label: "2h" },
+  { value: "180", label: "3h" },
+];
+
+const WEEKDAYS = [
+  { value: 1, label: "Lun" },
+  { value: 2, label: "Mar" },
+  { value: 3, label: "Mer" },
+  { value: 4, label: "Jeu" },
+  { value: 5, label: "Ven" },
+  { value: 6, label: "Sam" },
+  { value: 0, label: "Dim" },
 ];
 
 // ─────────────────────────────────────────────────────────────
@@ -167,7 +197,12 @@ export function ProSlotsTab({ establishment, role }: Props) {
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 10;
+  const [pageSize, setPageSize] = useState(10);
+
+  // Multi-selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   // Dialogs
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -177,8 +212,10 @@ export function ProSlotsTab({ establishment, role }: Props) {
 
   // Form state
   const emptyForm = {
-    startsAt: "",
-    endsAt: "",
+    startDate: "",
+    startTime: "",
+    endDate: "",
+    endTime: "",
     intervalMinutes: "30",
     serviceLabel: "__auto__",
     capacity: "",
@@ -186,10 +223,23 @@ export function ProSlotsTab({ establishment, role }: Props) {
     promoType: "percent",
     promoValue: "",
     promoLabel: "",
+    paidPercent: "88",
+    freePercent: "6",
+    bufferPercent: "6",
+    repeatEnabled: false as boolean,
+    repeatUntilDate: "",
+    repeatDays: [1, 2, 3, 4, 5, 6, 0] as number[], // 0=Dim, 1=Lun..6=Sam — tous par défaut
   };
   const [formData, setFormData] = useState(emptyForm);
   const [formErrors, setFormErrors] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
+
+  // Track which picker is currently open so only one shows at a time
+  type PickerId = "startDate" | "startTime" | "endDate" | "endTime" | "repeatUntilDate" | null;
+  const [openPicker, setOpenPicker] = useState<PickerId>(null);
+
+  // Capacity configs cache (for pre-filling edit forms)
+  const [capacityConfigs, setCapacityConfigs] = useState<Array<{ time_slot_start: string; time_slot_end: string; paid_stock_percentage: number; free_stock_percentage: number; buffer_percentage: number }>>([]);
 
   // ─────────────────────────────────────────────────────────────
   // Data Loading
@@ -223,6 +273,18 @@ export function ProSlotsTab({ establishment, role }: Props) {
       wl[r.slot_id] = (wl[r.slot_id] ?? 0) + 1;
     }
     setWaitlistBySlotId(wl);
+
+    // Load capacity configs for pre-filling
+    try {
+      const capRes = await proGetCapacity(establishment.id);
+      setCapacityConfigs((capRes.capacity ?? []).map((c: any) => ({
+        time_slot_start: c.time_slot_start,
+        time_slot_end: c.time_slot_end,
+        paid_stock_percentage: c.paid_stock_percentage ?? 88,
+        free_stock_percentage: c.free_stock_percentage ?? 6,
+        buffer_percentage: c.buffer_percentage ?? 6,
+      })));
+    } catch { /* silent */ }
 
     setLoading(false);
   };
@@ -353,10 +415,21 @@ export function ProSlotsTab({ establishment, role }: Props) {
     setShowCreateDialog(true);
   };
 
+  // Find capacity config matching a slot's time range
+  const findCapacityForSlot = (slotStartIso: string): { paid: string; free: string; buffer: string } => {
+    const startHHMM = new Date(slotStartIso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const match = capacityConfigs.find((c) => c.time_slot_start <= startHHMM && c.time_slot_end > startHHMM);
+    if (match) return { paid: String(match.paid_stock_percentage), free: String(match.free_stock_percentage), buffer: String(match.buffer_percentage) };
+    return { paid: "88", free: "6", buffer: "6" };
+  };
+
   const openEditDialog = (slot: SlotWithRemaining) => {
+    const cap = findCapacityForSlot(slot.starts_at);
     setFormData({
-      startsAt: slot.starts_at.slice(0, 16),
-      endsAt: slot.ends_at ? slot.ends_at.slice(0, 16) : "",
+      startDate: slot.starts_at.slice(0, 10),
+      startTime: slot.starts_at.slice(11, 16),
+      endDate: slot.ends_at ? slot.ends_at.slice(0, 10) : "",
+      endTime: slot.ends_at ? slot.ends_at.slice(11, 16) : "",
       intervalMinutes: "30",
       serviceLabel: slot.service_label || "__auto__",
       capacity: String(slot.capacity),
@@ -364,6 +437,12 @@ export function ProSlotsTab({ establishment, role }: Props) {
       promoType: slot.promo_type || "percent",
       promoValue: slot.promo_value ? String(slot.promo_value) : "",
       promoLabel: slot.promo_label || "",
+      paidPercent: cap.paid,
+      freePercent: cap.free,
+      bufferPercent: cap.buffer,
+      repeatEnabled: false,
+      repeatUntilDate: "",
+      repeatDays: [1, 2, 3, 4, 5, 6, 0],
     });
     setFormErrors({});
     setEditSlot(slot);
@@ -375,9 +454,12 @@ export function ProSlotsTab({ establishment, role }: Props) {
     const tomorrowEnd = slot.ends_at ? new Date(slot.ends_at) : null;
     if (tomorrowEnd) tomorrowEnd.setDate(tomorrowEnd.getDate() + 1);
 
+    const cap = findCapacityForSlot(slot.starts_at);
     setFormData({
-      startsAt: tomorrow.toISOString().slice(0, 16),
-      endsAt: tomorrowEnd ? tomorrowEnd.toISOString().slice(0, 16) : "",
+      startDate: tomorrow.toISOString().slice(0, 10),
+      startTime: tomorrow.toISOString().slice(11, 16),
+      endDate: tomorrowEnd ? tomorrowEnd.toISOString().slice(0, 10) : "",
+      endTime: tomorrowEnd ? tomorrowEnd.toISOString().slice(11, 16) : "",
       intervalMinutes: "30",
       serviceLabel: slot.service_label || "__auto__",
       capacity: String(slot.capacity),
@@ -385,6 +467,12 @@ export function ProSlotsTab({ establishment, role }: Props) {
       promoType: slot.promo_type || "percent",
       promoValue: slot.promo_value ? String(slot.promo_value) : "",
       promoLabel: slot.promo_label || "",
+      paidPercent: cap.paid,
+      freePercent: cap.free,
+      bufferPercent: cap.buffer,
+      repeatEnabled: false,
+      repeatUntilDate: "",
+      repeatDays: [1, 2, 3, 4, 5, 6, 0],
     });
     setFormErrors({});
     setShowCreateDialog(true);
@@ -397,8 +485,8 @@ export function ProSlotsTab({ establishment, role }: Props) {
     setError(null);
     setFormErrors({});
 
-    const startsDt = formData.startsAt ? new Date(formData.startsAt) : null;
-    const endsRangeDt = formData.endsAt ? new Date(formData.endsAt) : null;
+    const startsDt = formData.startDate && formData.startTime ? new Date(`${formData.startDate}T${formData.startTime}`) : null;
+    const endsRangeDt = formData.endDate && formData.endTime ? new Date(`${formData.endDate}T${formData.endTime}`) : null;
     const capacity = Number(formData.capacity);
     const intervalMinutes = Math.round(Number(formData.intervalMinutes) || 30);
 
@@ -406,7 +494,8 @@ export function ProSlotsTab({ establishment, role }: Props) {
     const errors: Record<string, boolean> = {};
 
     if (!startsDt || !Number.isFinite(startsDt.getTime())) {
-      errors.startsAt = true;
+      errors.startDate = true;
+      errors.startTime = true;
     }
 
     if (!Number.isFinite(capacity) || capacity <= 0) {
@@ -425,6 +514,16 @@ export function ProSlotsTab({ establishment, role }: Props) {
       errors.promoValue = true;
     }
 
+    // Validation répartition des places (doit faire 100%)
+    const paidPct = Number(formData.paidPercent) || 0;
+    const freePct = Number(formData.freePercent) || 0;
+    const bufferPct = Number(formData.bufferPercent) || 0;
+    if (paidPct + freePct + bufferPct !== 100) {
+      errors.paidPercent = true;
+      errors.freePercent = true;
+      errors.bufferPercent = true;
+    }
+
     if (Object.keys(errors).length > 0) {
       setFormErrors(errors);
       toast({ title: "Erreur", description: "Veuillez corriger les champs en rouge." });
@@ -432,21 +531,22 @@ export function ProSlotsTab({ establishment, role }: Props) {
       return;
     }
 
-    if (![15, 30, 45, 60].includes(intervalMinutes)) {
-      toast({ title: "Erreur", description: "Intervalle invalide (15 / 30 / 45 / 60 min)." });
+    if (![15, 30, 45, 60, 90, 120, 180].includes(intervalMinutes)) {
+      toast({ title: "Erreur", description: "Intervalle invalide." });
       setSaving(false);
       return;
     }
 
     if (endsRangeDt && Number.isFinite(endsRangeDt.getTime()) && endsRangeDt.getTime() <= startsDt.getTime()) {
-      setFormErrors({ endsAt: true });
+      setFormErrors({ endDate: true, endTime: true });
       toast({ title: "Erreur", description: "La fin doit être après le début." });
       setSaving(false);
       return;
     }
 
     const basePrice = formData.basePrice.trim() ? Math.round(Number(formData.basePrice) * 100) : null;
-    const promoValue = formData.promoValue.trim() ? Math.round(Number(formData.promoValue)) : null;
+    const promoValueRaw = formData.promoValue.trim() ? Math.round(Number(formData.promoValue)) : null;
+    const promoValue = promoValueRaw && promoValueRaw > 0 ? promoValueRaw : null;
     const serviceLabel = formData.serviceLabel === "__auto__" ? null : (formData.serviceLabel.trim() || null);
 
     const rows: Array<Record<string, unknown>> = [];
@@ -467,67 +567,151 @@ export function ProSlotsTab({ establishment, role }: Props) {
         base_price: basePrice,
         promo_type: promoValue ? formData.promoType : null,
         promo_value: promoValue,
-        promo_label: formData.promoLabel.trim() || null,
+        promo_label: promoValue ? (formData.promoLabel.trim() || null) : null,
         service_label: serviceLabel,
         active: true,
       });
     } else {
       // Create new slot(s)
       const rangeEnd = endsRangeDt && Number.isFinite(endsRangeDt.getTime()) ? endsRangeDt : null;
-      const slotEnd = (start: Date) => {
-        const dt = new Date(start);
-        dt.setMinutes(dt.getMinutes() + intervalMinutes);
-        return dt;
-      };
+      const slotDurationMs = intervalMinutes * 60 * 1000;
+      const slotEnd = (start: Date) => new Date(start.getTime() + slotDurationMs);
 
-      if (!rangeEnd) {
-        rows.push({
-          establishment_id: establishment.id,
-          starts_at: startsDt.toISOString(),
-          ends_at: slotEnd(startsDt).toISOString(),
-          capacity,
-          base_price: basePrice,
-          promo_type: promoValue ? formData.promoType : null,
-          promo_value: promoValue,
-          promo_label: formData.promoLabel.trim() || null,
-          service_label: serviceLabel,
-          active: true,
-        });
-      } else {
-        let cursor = new Date(startsDt);
+      // Determine which days to generate for
+      const daysToGenerate: string[] = []; // YYYY-MM-DD strings
+
+      if (formData.repeatEnabled && formData.repeatUntilDate) {
+        // Validate
+        if (!formData.repeatUntilDate) {
+          setFormErrors({ repeatUntilDate: true });
+          toast({ title: "Erreur", description: "Veuillez indiquer la date de fin de répétition." });
+          setSaving(false);
+          return;
+        }
+        if (formData.repeatDays.length === 0) {
+          toast({ title: "Erreur", description: "Veuillez sélectionner au moins un jour de la semaine." });
+          setSaving(false);
+          return;
+        }
+        const repeatEnd = new Date(formData.repeatUntilDate);
+        if (repeatEnd.getTime() <= new Date(formData.startDate).getTime()) {
+          setFormErrors({ repeatUntilDate: true });
+          toast({ title: "Erreur", description: "La date de fin de répétition doit être après la date de début." });
+          setSaving(false);
+          return;
+        }
+
+        // Generate list of days
+        const cursor = new Date(formData.startDate);
         let guard = 0;
-        while (cursor.getTime() < rangeEnd.getTime() && guard < 500) {
-          const s = new Date(cursor);
-          const e = slotEnd(s);
-          if (e.getTime() > rangeEnd.getTime()) break;
+        while (cursor <= repeatEnd && guard < 366) {
+          if (formData.repeatDays.includes(cursor.getDay())) {
+            daysToGenerate.push(cursor.toISOString().slice(0, 10));
+          }
+          cursor.setDate(cursor.getDate() + 1);
+          guard++;
+        }
 
+        if (daysToGenerate.length === 0) {
+          toast({ title: "Erreur", description: "Aucun jour ne correspond aux jours sélectionnés dans la plage." });
+          setSaving(false);
+          return;
+        }
+      } else {
+        // Single day only
+        daysToGenerate.push(formData.startDate);
+      }
+
+      // Generate slots for each day
+      const startTimeStr = formData.startTime; // "HH:MM"
+      const endTimeStr = formData.endTime; // "HH:MM" or ""
+
+      for (const dayStr of daysToGenerate) {
+        const dayStartDt = new Date(`${dayStr}T${startTimeStr}`);
+
+        if (!rangeEnd && daysToGenerate.length === 1) {
+          // Single slot, single day
           rows.push({
             establishment_id: establishment.id,
-            starts_at: s.toISOString(),
-            ends_at: e.toISOString(),
+            starts_at: dayStartDt.toISOString(),
+            ends_at: slotEnd(dayStartDt).toISOString(),
             capacity,
             base_price: basePrice,
             promo_type: promoValue ? formData.promoType : null,
             promo_value: promoValue,
-            promo_label: formData.promoLabel.trim() || null,
+            promo_label: promoValue ? (formData.promoLabel.trim() || null) : null,
             service_label: serviceLabel,
             active: true,
           });
+        } else {
+          // Multiple slots for this day: from startTime to endTime
+          const dayEndDt = endTimeStr
+            ? new Date(`${dayStr}T${endTimeStr}`)
+            : slotEnd(dayStartDt); // if no end time, generate one slot
 
-          cursor = e;
-          guard += 1;
-        }
+          let cursor = new Date(dayStartDt);
+          let guard = 0;
+          while (cursor.getTime() < dayEndDt.getTime() && guard < 500) {
+            const s = new Date(cursor);
+            const e = slotEnd(s);
+            if (e.getTime() > dayEndDt.getTime()) break;
 
-        if (!rows.length) {
-          toast({ title: "Erreur", description: "Aucun créneau généré. Vérifiez le début/fin et l'intervalle." });
-          setSaving(false);
-          return;
+            rows.push({
+              establishment_id: establishment.id,
+              starts_at: s.toISOString(),
+              ends_at: e.toISOString(),
+              capacity,
+              base_price: basePrice,
+              promo_type: promoValue ? formData.promoType : null,
+              promo_value: promoValue,
+              promo_label: promoValue ? (formData.promoLabel.trim() || null) : null,
+              service_label: serviceLabel,
+              active: true,
+            });
+
+            cursor = e;
+            guard++;
+          }
         }
+      }
+
+      if (!rows.length) {
+        toast({ title: "Erreur", description: "Aucun créneau généré. Vérifiez les dates, heures et l'intervalle." });
+        setSaving(false);
+        return;
+      }
+
+      // Safety cap: warn if generating too many slots
+      if (rows.length > 2000) {
+        toast({ title: "Erreur", description: `Trop de créneaux (${rows.length}). Réduisez la plage de dates ou augmentez l'intervalle.` });
+        setSaving(false);
+        return;
       }
     }
 
     try {
       await upsertProSlots({ establishmentId: establishment.id, slots: rows });
+
+      // Sync capacity allocation to establishment_capacity (best-effort)
+      try {
+        const firstRow = rows[0] as { starts_at: string; ends_at: string; capacity: number };
+        const startTime = new Date(firstRow.starts_at as string).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", hour12: false });
+        const endTime = new Date((rows[rows.length - 1] as { ends_at: string }).ends_at as string).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", hour12: false });
+        await proUpdateCapacity(establishment.id, [{
+          time_slot_start: startTime,
+          time_slot_end: endTime,
+          slot_interval_minutes: ([15, 30, 60, 90, 120].includes(intervalMinutes) ? intervalMinutes : 30) as 15 | 30 | 60 | 90 | 120,
+          total_capacity: capacity,
+          paid_stock_percentage: paidPct,
+          free_stock_percentage: freePct,
+          buffer_percentage: bufferPct,
+          occupation_duration_minutes: 90,
+          is_closed: false,
+        }]);
+      } catch {
+        // Sync failed silently — slot was still saved successfully
+      }
+
       toast({
         title: isEdit ? "Créneau modifié" : "Créneau(x) créé(s)",
         description: isEdit ? "Le créneau a été mis à jour." : `${rows.length} créneau(x) ajouté(s).`,
@@ -555,6 +739,65 @@ export function ProSlotsTab({ establishment, role }: Props) {
       setDeleteSlotId(null);
     }
   };
+
+  // ── Multi-selection helpers ──────────────────────────────────
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAll = useCallback(() => {
+    const pageIds = paginatedSlots.map((s) => s.id);
+    const allSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
+    if (allSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        pageIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        pageIds.forEach((id) => next.add(id));
+        return next;
+      });
+    }
+  }, [paginatedSlots, selectedIds]);
+
+  const confirmBulkDelete = async () => {
+    if (selectedIds.size === 0 || !canWrite(role)) return;
+    setBulkDeleting(true);
+    try {
+      const results = await Promise.allSettled(
+        Array.from(selectedIds).map((slotId) =>
+          deleteProSlot({ establishmentId: establishment.id, slotId }),
+        ),
+      );
+      const succeeded = results.filter((r) => r.status === "fulfilled").length;
+      const failed = results.filter((r) => r.status === "rejected").length;
+      if (failed > 0) {
+        toast({ title: "Suppression partielle", description: `${succeeded} supprimé(s), ${failed} échoué(s).` });
+      } else {
+        toast({ title: "Supprimés", description: `${succeeded} créneau(x) supprimé(s).` });
+      }
+      setSelectedIds(new Set());
+      await load();
+    } catch (e) {
+      toast({ title: "Erreur", description: e instanceof Error ? e.message : "Impossible de supprimer." });
+    } finally {
+      setBulkDeleting(false);
+      setShowBulkDeleteConfirm(false);
+    }
+  };
+
+  // Clear selection when filters/page change
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [timeFilter, statusFilter, serviceFilter, searchQuery]);
 
   const copySlotId = async (id: string) => {
     try {
@@ -610,6 +853,24 @@ export function ProSlotsTab({ establishment, role }: Props) {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Bulk Delete Confirmation Dialog */}
+      <AlertDialog open={showBulkDeleteConfirm} onOpenChange={(open) => !open && setShowBulkDeleteConfirm(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer {selectedIds.size} créneau(x) ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Cette action est irréversible. Les {selectedIds.size} créneaux sélectionnés seront définitivement supprimés.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmBulkDelete} className="bg-red-600 hover:bg-red-700" disabled={bulkDeleting}>
+              {bulkDeleting ? "Suppression…" : `Supprimer ${selectedIds.size} créneau(x)`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Create/Edit Dialog */}
       <Dialog
         open={showCreateDialog || !!editSlot}
@@ -620,7 +881,11 @@ export function ProSlotsTab({ establishment, role }: Props) {
           }
         }}
       >
-        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto p-0">
+        <DialogContent
+          className="max-w-xl max-h-[90vh] overflow-y-auto p-0"
+          onInteractOutside={(e) => e.preventDefault()}
+          onPointerDownOutside={(e) => e.preventDefault()}
+        >
           <DialogHeader className="px-6 pt-6 pb-4 border-b bg-slate-50">
             <DialogTitle className="text-xl">
               {editSlot ? "Modifier le créneau" : "Nouveau créneau"}
@@ -640,53 +905,81 @@ export function ProSlotsTab({ establishment, role }: Props) {
                 Date et heure
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label className={`text-xs ${formErrors.startsAt ? "text-red-500" : "text-slate-500"}`}>
-                    Date et heure de début *
-                  </Label>
-                  <Input
-                    type="datetime-local"
-                    value={formData.startsAt}
-                    onChange={(e) => {
-                      setFormData((p) => ({ ...p, startsAt: e.target.value }));
-                      setFormErrors((p) => ({ ...p, startsAt: false }));
+              {/* Début */}
+              <div className="space-y-1.5">
+                <Label className={`text-xs ${formErrors.startDate || formErrors.startTime ? "text-red-500" : "text-slate-500"}`}>
+                  Date et heure de début *
+                </Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <DatePickerInput
+                    value={formData.startDate}
+                    onChange={(d) => {
+                      setFormData((p) => ({ ...p, startDate: d }));
+                      setFormErrors((p) => ({ ...p, startDate: false }));
                     }}
-                    className={`h-11 ${formErrors.startsAt ? "border-red-500 focus-visible:ring-red-500" : ""}`}
+                    minDate={new Date()}
+                    forcePopover
+                    open={openPicker === "startDate"}
+                    onOpenChange={(o) => setOpenPicker(o ? "startDate" : null)}
+                  />
+                  <TimePickerInput
+                    value={formData.startTime}
+                    onChange={(t) => {
+                      setFormData((p) => ({ ...p, startTime: t }));
+                      setFormErrors((p) => ({ ...p, startTime: false }));
+                    }}
+                    forcePopover
+                    open={openPicker === "startTime"}
+                    onOpenChange={(o) => setOpenPicker(o ? "startTime" : null)}
                   />
                 </div>
-
-                {!editSlot && (
-                  <div className="space-y-1.5">
-                    <Label className={`text-xs ${formErrors.endsAt ? "text-red-500" : "text-slate-500"}`}>
-                      Date et heure de fin
-                    </Label>
-                    <Input
-                      type="datetime-local"
-                      value={formData.endsAt}
-                      onChange={(e) => {
-                        setFormData((p) => ({ ...p, endsAt: e.target.value }));
-                        setFormErrors((p) => ({ ...p, endsAt: false }));
-                      }}
-                      className={`h-11 ${formErrors.endsAt ? "border-red-500 focus-visible:ring-red-500" : ""}`}
-                    />
-                    <p className={`text-[11px] ${formErrors.endsAt ? "text-red-500" : "text-slate-400"}`}>
-                      {formErrors.endsAt ? "La fin doit être après le début" : "Optionnel - génère plusieurs créneaux"}
-                    </p>
-                  </div>
-                )}
               </div>
+
+              {/* Fin (uniquement en création) */}
+              {!editSlot && (
+                <div className="space-y-1.5">
+                  <Label className={`text-xs ${formErrors.endDate || formErrors.endTime ? "text-red-500" : "text-slate-500"}`}>
+                    Date et heure de fin
+                  </Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <DatePickerInput
+                      value={formData.endDate}
+                      onChange={(d) => {
+                        setFormData((p) => ({ ...p, endDate: d }));
+                        setFormErrors((p) => ({ ...p, endDate: false }));
+                      }}
+                      minDate={formData.startDate ? new Date(formData.startDate) : new Date()}
+                      forcePopover
+                      open={openPicker === "endDate"}
+                      onOpenChange={(o) => setOpenPicker(o ? "endDate" : null)}
+                    />
+                    <TimePickerInput
+                      value={formData.endTime}
+                      onChange={(t) => {
+                        setFormData((p) => ({ ...p, endTime: t }));
+                        setFormErrors((p) => ({ ...p, endTime: false }));
+                      }}
+                      forcePopover
+                      open={openPicker === "endTime"}
+                      onOpenChange={(o) => setOpenPicker(o ? "endTime" : null)}
+                    />
+                  </div>
+                  <p className={`text-[11px] ${formErrors.endDate || formErrors.endTime ? "text-red-500" : "text-slate-400"}`}>
+                    {formErrors.endDate || formErrors.endTime ? "La fin doit être après le début" : "Optionnel - génère plusieurs créneaux"}
+                  </p>
+                </div>
+              )}
 
               {!editSlot && (
                 <div className="space-y-1.5">
                   <Label className="text-xs text-slate-500">Durée de chaque créneau</Label>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     {INTERVAL_OPTIONS.map((opt) => (
                       <button
                         key={opt.value}
                         type="button"
                         onClick={() => setFormData((p) => ({ ...p, intervalMinutes: opt.value }))}
-                        className={`flex-1 py-2.5 px-3 text-sm font-medium rounded-lg border transition-all ${
+                        className={`py-2 px-4 text-sm font-medium rounded-lg border transition-all ${
                           formData.intervalMinutes === opt.value
                             ? "bg-primary text-white border-primary"
                             : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
@@ -699,6 +992,97 @@ export function ProSlotsTab({ establishment, role }: Props) {
                 </div>
               )}
             </div>
+
+            {/* Section Répétition multi-jours (uniquement en création) */}
+            {!editSlot && (
+              <div className="space-y-3 pt-2 border-t">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox
+                    checked={formData.repeatEnabled}
+                    onCheckedChange={(checked) =>
+                      setFormData((p) => ({ ...p, repeatEnabled: !!checked }))
+                    }
+                  />
+                  <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-700">
+                    <Repeat className="h-4 w-4" />
+                    Répéter sur plusieurs jours
+                  </div>
+                </label>
+
+                {formData.repeatEnabled && (
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <Label className={`text-xs ${formErrors.repeatUntilDate ? "text-red-500" : "text-slate-500"}`}>
+                        Répéter jusqu'au *
+                      </Label>
+                      <DatePickerInput
+                        value={formData.repeatUntilDate}
+                        onChange={(d) => {
+                          setFormData((p) => ({ ...p, repeatUntilDate: d }));
+                          setFormErrors((p) => ({ ...p, repeatUntilDate: false }));
+                        }}
+                        minDate={formData.startDate ? new Date(new Date(formData.startDate).getTime() + 86400000) : new Date()}
+                        forcePopover
+                        open={openPicker === "repeatUntilDate"}
+                        onOpenChange={(o) => setOpenPicker(o ? "repeatUntilDate" : null)}
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-slate-500">Jours de la semaine</Label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {WEEKDAYS.map((day) => {
+                          const isActive = formData.repeatDays.includes(day.value);
+                          return (
+                            <button
+                              key={day.value}
+                              type="button"
+                              onClick={() => {
+                                setFormData((p) => ({
+                                  ...p,
+                                  repeatDays: isActive
+                                    ? p.repeatDays.filter((d) => d !== day.value)
+                                    : [...p.repeatDays, day.value],
+                                }));
+                              }}
+                              className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition ${
+                                isActive
+                                  ? "bg-primary text-white border-primary"
+                                  : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
+                              }`}
+                            >
+                              {day.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        {(() => {
+                          if (!formData.startDate || !formData.repeatUntilDate || formData.repeatDays.length === 0) return null;
+                          const start = new Date(formData.startDate);
+                          const end = new Date(formData.repeatUntilDate);
+                          let count = 0;
+                          const cursor = new Date(start);
+                          while (cursor <= end && count < 366) {
+                            if (formData.repeatDays.includes(cursor.getDay())) count++;
+                            cursor.setDate(cursor.getDate() + 1);
+                          }
+                          const slotsPerDay = formData.endTime && formData.startTime
+                            ? (() => {
+                                const [sh, sm] = formData.startTime.split(":").map(Number);
+                                const [eh, em] = formData.endTime.split(":").map(Number);
+                                const totalMin = (eh * 60 + em) - (sh * 60 + sm);
+                                return totalMin > 0 ? Math.floor(totalMin / (Number(formData.intervalMinutes) || 30)) : 1;
+                              })()
+                            : 1;
+                          return `${count} jour${count > 1 ? "s" : ""} × ${slotsPerDay} créneau${slotsPerDay > 1 ? "x" : ""} = ~${count * slotsPerDay} créneaux au total`;
+                        })()}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Section Configuration */}
             <div className="space-y-4 pt-2 border-t">
@@ -722,9 +1106,9 @@ export function ProSlotsTab({ establishment, role }: Props) {
                         setFormErrors((p) => ({ ...p, capacity: false }));
                       }}
                       placeholder="20"
-                      className={`h-11 pr-16 ${formErrors.capacity ? "border-red-500 focus-visible:ring-red-500" : ""}`}
+                      className={`h-11 pe-16 ${formErrors.capacity ? "border-red-500 focus-visible:ring-red-500" : ""}`}
                     />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">places</span>
+                    <span className="absolute end-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">places</span>
                   </div>
                 </div>
 
@@ -743,9 +1127,9 @@ export function ProSlotsTab({ establishment, role }: Props) {
                         setFormErrors((p) => ({ ...p, basePrice: false }));
                       }}
                       placeholder="0"
-                      className={`h-11 pr-14 ${formErrors.basePrice ? "border-red-500 focus-visible:ring-red-500" : ""}`}
+                      className={`h-11 pe-14 ${formErrors.basePrice ? "border-red-500 focus-visible:ring-red-500" : ""}`}
                     />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">MAD</span>
+                    <span className="absolute end-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">MAD</span>
                   </div>
                 </div>
 
@@ -768,6 +1152,132 @@ export function ProSlotsTab({ establishment, role }: Props) {
                   </Select>
                 </div>
               </div>
+            </div>
+
+            {/* Section Répartition des places */}
+            <div className="space-y-3 pt-2 border-t">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                <Layers className="h-4 w-4" />
+                Répartition des places
+              </div>
+
+              {/* Profils rapides */}
+              <div className="flex flex-wrap gap-1.5">
+                {CAPACITY_PROFILES.map((p) => {
+                  const isActive = formData.paidPercent === String(p.paid) && formData.freePercent === String(p.free) && formData.bufferPercent === String(p.buffer);
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setFormData((prev) => ({ ...prev, paidPercent: String(p.paid), freePercent: String(p.free), bufferPercent: String(p.buffer) }))}
+                      className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition ${
+                        isActive
+                          ? "bg-primary text-white border-primary"
+                          : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  );
+                })}
+                {/* Personnalisé — actif quand les % ne correspondent à aucun profil */}
+                {(() => {
+                  const matchesAnyProfile = CAPACITY_PROFILES.some(
+                    (p) => formData.paidPercent === String(p.paid) && formData.freePercent === String(p.free) && formData.bufferPercent === String(p.buffer),
+                  );
+                  return (
+                    <button
+                      type="button"
+                      className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition ${
+                        !matchesAnyProfile
+                          ? "bg-primary text-white border-primary"
+                          : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                      }`}
+                      onClick={() => {
+                        // Si on clique sur Personnalisé et qu'on est déjà dessus, ne rien faire
+                        // Si on clique dessus depuis un profil, on reset à des valeurs vides pour éditer
+                        if (matchesAnyProfile) {
+                          setFormData((prev) => ({ ...prev, paidPercent: "", freePercent: "", bufferPercent: "" }));
+                        }
+                      }}
+                    >
+                      Personnalisé
+                    </button>
+                  );
+                })()}
+              </div>
+
+              {/* Inputs % */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <Label className={`text-xs ${formErrors.paidPercent ? "text-red-500" : "text-slate-500"}`}>Payant</Label>
+                  <div className="relative">
+                    <Input
+                      type="number" min="0" max="100"
+                      value={formData.paidPercent}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, paidPercent: e.target.value }))}
+                      className={`h-9 pe-8 text-sm ${formErrors.paidPercent ? "border-red-500" : ""}`}
+                    />
+                    <span className="absolute end-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400">%</span>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className={`text-xs ${formErrors.freePercent ? "text-red-500" : "text-slate-500"}`}>Gratuit</Label>
+                  <div className="relative">
+                    <Input
+                      type="number" min="0" max="100"
+                      value={formData.freePercent}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, freePercent: e.target.value }))}
+                      className={`h-9 pe-8 text-sm ${formErrors.freePercent ? "border-red-500" : ""}`}
+                    />
+                    <span className="absolute end-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400">%</span>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className={`text-xs ${formErrors.bufferPercent ? "text-red-500" : "text-slate-500"}`}>Buffer</Label>
+                  <div className="relative">
+                    <Input
+                      type="number" min="0" max="100"
+                      value={formData.bufferPercent}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, bufferPercent: e.target.value }))}
+                      className={`h-9 pe-8 text-sm ${formErrors.bufferPercent ? "border-red-500" : ""}`}
+                    />
+                    <span className="absolute end-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400">%</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Barre visuelle + décompte */}
+              {(() => {
+                const paid = Math.max(0, Math.min(100, Number(formData.paidPercent) || 0));
+                const free = Math.max(0, Math.min(100, Number(formData.freePercent) || 0));
+                const buffer = Math.max(0, Math.min(100, Number(formData.bufferPercent) || 0));
+                const total = paid + free + buffer;
+                const cap = Number(formData.capacity) || 0;
+                const paidPlaces = Math.round(cap * paid / 100);
+                const freePlaces = Math.round(cap * free / 100);
+                const bufferPlaces = Math.max(0, cap - paidPlaces - freePlaces);
+
+                return (
+                  <div className="space-y-1.5">
+                    <div className="flex h-2.5 rounded-full overflow-hidden bg-slate-100">
+                      <div className="bg-primary transition-all" style={{ width: `${paid}%` }} />
+                      <div className="bg-green-500 transition-all" style={{ width: `${free}%` }} />
+                      <div className="bg-orange-400 transition-all" style={{ width: `${buffer}%` }} />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3 text-[10px] text-slate-500">
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-primary" />{paidPlaces} payantes</span>
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" />{freePlaces} gratuites</span>
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400" />{bufferPlaces} buffer</span>
+                      </div>
+                      {total !== 100 && (
+                        <span className="text-[10px] text-red-500 font-semibold">Total : {total}% (doit être 100%)</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Section Promotion */}
@@ -821,9 +1331,9 @@ export function ProSlotsTab({ establishment, role }: Props) {
                         setFormErrors((p) => ({ ...p, promoValue: false }));
                       }}
                       placeholder="0"
-                      className={`h-11 pr-12 ${formErrors.promoValue ? "border-red-500 focus-visible:ring-red-500" : ""}`}
+                      className={`h-11 pe-12 ${formErrors.promoValue ? "border-red-500 focus-visible:ring-red-500" : ""}`}
                     />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                    <span className="absolute end-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
                       {formData.promoType === "percent" ? "%" : "MAD"}
                     </span>
                   </div>
@@ -866,7 +1376,7 @@ export function ProSlotsTab({ establishment, role }: Props) {
               <div className="flex items-center justify-between">
                 {getSlotStatusBadge(detailsSlot)}
                 <Button variant="outline" size="sm" onClick={() => copySlotId(detailsSlot.id)}>
-                  <Copy className="h-4 w-4 mr-2" />
+                  <Copy className="h-4 w-4 me-2" />
                   Copier ID
                 </Button>
               </div>
@@ -1032,12 +1542,12 @@ export function ProSlotsTab({ establishment, role }: Props) {
           {/* Filters */}
           <div className="flex flex-col md:flex-row gap-3">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Search className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <Input
                 placeholder="Rechercher par ID, service, promo..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
+                className="ps-9"
               />
             </div>
 
@@ -1085,12 +1595,35 @@ export function ProSlotsTab({ establishment, role }: Props) {
             )}
           </div>
 
-          {/* Results info */}
+          {/* Results info + selection bar */}
           <div className="flex items-center justify-between text-sm text-slate-500">
             <div className="flex items-center gap-2">
               <Filter className="h-4 w-4" />
               {filteredSlots.length} créneau{filteredSlots.length > 1 ? "x" : ""} trouvé{filteredSlots.length > 1 ? "s" : ""}
             </div>
+            {selectedIds.size > 0 && canWrite(role) && (
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium text-slate-700">
+                  {selectedIds.size} sélectionné{selectedIds.size > 1 ? "s" : ""}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelectedIds(new Set())}
+                >
+                  <X className="h-3.5 w-3.5 me-1" />
+                  Désélectionner
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setShowBulkDeleteConfirm(true)}
+                >
+                  <Trash2 className="h-3.5 w-3.5 me-1" />
+                  Supprimer ({selectedIds.size})
+                </Button>
+              </div>
+            )}
           </div>
 
           {/* Loading State */}
@@ -1109,12 +1642,22 @@ export function ProSlotsTab({ establishment, role }: Props) {
                   return (
                     <div
                       key={slot.id}
-                      className={`rounded-xl border p-4 space-y-3 ${isPast ? "bg-slate-50 opacity-60" : "bg-white"}`}
+                      className={`rounded-xl border p-4 space-y-3 ${isPast ? "bg-slate-50 opacity-60" : ""} ${selectedIds.has(slot.id) ? "bg-primary/5 border-primary/30" : "bg-white"}`}
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="font-semibold">{formatDateTimeShort(slot.starts_at)}</div>
-                          <div className="text-sm text-slate-500">{slot.service_label || "Auto"}</div>
+                        <div className="flex items-start gap-3">
+                          {canWrite(role) && (
+                            <Checkbox
+                              checked={selectedIds.has(slot.id)}
+                              onCheckedChange={() => toggleSelect(slot.id)}
+                              className="mt-1"
+                              aria-label={`Sélectionner créneau ${formatDateTimeShort(slot.starts_at)}`}
+                            />
+                          )}
+                          <div>
+                            <div className="font-semibold">{formatDateTimeShort(slot.starts_at)}</div>
+                            <div className="text-sm text-slate-500">{slot.service_label || "Auto"}</div>
+                          </div>
                         </div>
                         {getSlotStatusBadge(slot)}
                       </div>
@@ -1145,17 +1688,17 @@ export function ProSlotsTab({ establishment, role }: Props) {
 
                       <div className="flex flex-wrap gap-2 pt-2 border-t">
                         <Button variant="outline" size="sm" onClick={() => setDetailsSlot(slot)}>
-                          <Eye className="h-4 w-4 mr-1" />
+                          <Eye className="h-4 w-4 me-1" />
                           Détails
                         </Button>
                         {canWrite(role) && !isPast && (
                           <>
                             <Button variant="outline" size="sm" onClick={() => openEditDialog(slot)}>
-                              <Pencil className="h-4 w-4 mr-1" />
+                              <Pencil className="h-4 w-4 me-1" />
                               Modifier
                             </Button>
                             <Button variant="outline" size="sm" onClick={() => duplicateSlot(slot)}>
-                              <Copy className="h-4 w-4 mr-1" />
+                              <Copy className="h-4 w-4 me-1" />
                               Dupliquer
                             </Button>
                           </>
@@ -1167,7 +1710,7 @@ export function ProSlotsTab({ establishment, role }: Props) {
                             className="text-red-600 hover:text-red-700"
                             onClick={() => setDeleteSlotId(slot.id)}
                           >
-                            <Trash2 className="h-4 w-4 mr-1" />
+                            <Trash2 className="h-4 w-4 me-1" />
                             Supprimer
                           </Button>
                         )}
@@ -1182,6 +1725,15 @@ export function ProSlotsTab({ establishment, role }: Props) {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      {canWrite(role) && (
+                        <TableHead className="w-10">
+                          <Checkbox
+                            checked={paginatedSlots.length > 0 && paginatedSlots.every((s) => selectedIds.has(s.id))}
+                            onCheckedChange={toggleSelectAll}
+                            aria-label="Tout sélectionner"
+                          />
+                        </TableHead>
+                      )}
                       <TableHead
                         className="cursor-pointer hover:bg-slate-50"
                         onClick={() => handleSort("starts_at")}
@@ -1229,14 +1781,23 @@ export function ProSlotsTab({ establishment, role }: Props) {
                       </TableHead>
                       <TableHead>Statut</TableHead>
                       <TableHead>Promo</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
+                      <TableHead className="text-end">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {paginatedSlots.map((slot) => {
                       const isPast = isSlotInPast(slot);
                       return (
-                        <TableRow key={slot.id} className={isPast ? "opacity-50 bg-slate-50" : ""}>
+                        <TableRow key={slot.id} className={`${isPast ? "opacity-50 bg-slate-50" : ""} ${selectedIds.has(slot.id) ? "bg-primary/5" : ""}`}>
+                          {canWrite(role) && (
+                            <TableCell>
+                              <Checkbox
+                                checked={selectedIds.has(slot.id)}
+                                onCheckedChange={() => toggleSelect(slot.id)}
+                                aria-label={`Sélectionner créneau ${formatDateTime(slot.starts_at)}`}
+                              />
+                            </TableCell>
+                          )}
                           <TableCell className="whitespace-nowrap font-medium">
                             {formatDateTime(slot.starts_at)}
                           </TableCell>
@@ -1303,31 +1864,44 @@ export function ProSlotsTab({ establishment, role }: Props) {
               </div>
 
               {/* Pagination */}
-              {totalPages > 1 && (
+              {filteredSlots.length > 10 && (
                 <div className="flex items-center justify-between pt-4 border-t">
-                  <div className="text-sm text-slate-500">
-                    Page {currentPage} sur {totalPages}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                      disabled={currentPage === 1}
+                  <div className="flex items-center gap-3">
+                    <div className="text-sm text-slate-500">
+                      Page {currentPage} sur {totalPages}
+                    </div>
+                    <select
+                      value={pageSize}
+                      onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+                      className="text-sm border border-slate-200 rounded-md px-2 py-1 bg-white text-slate-600 focus:outline-none focus:ring-1 focus:ring-primary"
                     >
-                      <ChevronLeft className="h-4 w-4" />
-                      Précédent
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                      disabled={currentPage === totalPages}
-                    >
-                      Suivant
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
+                      {[10, 25, 50, 100].map((n) => (
+                        <option key={n} value={n}>{n} / page</option>
+                      ))}
+                    </select>
                   </div>
+                  {totalPages > 1 && (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                        Précédent
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                      >
+                        Suivant
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
                 </div>
               )}
             </>

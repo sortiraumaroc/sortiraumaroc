@@ -1,5 +1,5 @@
 import React, { Fragment, useEffect, useMemo, useState } from "react";
-import { Pencil, CheckCircle, ShieldCheck, ChevronDown, Search, Mail, Phone } from "lucide-react";
+import { Pencil, CheckCircle, ShieldCheck, ChevronDown, Search, Mail, Phone, CircleCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,11 +19,19 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useI18n } from "@/lib/i18n";
 import { isAuthed, getConsumerAuthInfo, type ConsumerAuthInfo } from "@/lib/auth";
-import { updateMyConsumerMe } from "@/lib/consumerMeApi";
+import { getMyConsumerMe, updateMyConsumerMe } from "@/lib/consumerMeApi";
 import type { SocioProfessionalStatus, UserProfile } from "@/lib/userData";
-import { saveUserProfile } from "@/lib/userData";
+import { saveUserProfile, getUserProfile } from "@/lib/userData";
 import { COUNTRIES, findCountryByCity, parsePhoneNumber } from "@/lib/countriesData";
 
 function formatUpdatedAt(updatedAtIso: string | undefined, intlLocale: string): string | null {
@@ -118,6 +126,8 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
 
   const [firstName, setFirstName] = useState(profile.firstName ?? "");
   const [lastName, setLastName] = useState(profile.lastName ?? "");
+  const [email, setEmail] = useState(profile.email ?? "");
+  const [emailError, setEmailError] = useState<string | null>(null);
 
   // Téléphone: séparer indicatif et numéro
   const initialPhone = parsePhoneNumber(profile.contact ?? "");
@@ -132,8 +142,8 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
   const [dateOfBirth, setDateOfBirth] = useState(profile.date_of_birth ?? "");
 
   // Pays et ville
-  const initialCountry = findCountryByCity(profile.city ?? "");
-  const [selectedCountryCode, setSelectedCountryCode] = useState(initialCountry?.code ?? "");
+  const initialCountry = profile.country || findCountryByCity(profile.city ?? "")?.code || "";
+  const [selectedCountryCode, setSelectedCountryCode] = useState(initialCountry);
   const [city, setCity] = useState(profile.city ?? "");
   const [countryPopoverOpen, setCountryPopoverOpen] = useState(false);
   const [countrySearchQuery, setCountrySearchQuery] = useState("");
@@ -144,6 +154,7 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
   const [remoteSyncError, setRemoteSyncError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedAtIso, setSavedAtIso] = useState<string | null>(null);
+  const [successDialogOpen, setSuccessDialogOpen] = useState(false);
 
   // Mode edition: les champs sont grisés après enregistrement
   // Si le profil a déjà été mis à jour (updatedAtIso existe), on commence en mode lecture
@@ -157,9 +168,71 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
 
   useEffect(() => {
     if (isAuthed()) {
-      getConsumerAuthInfo().then(setAuthInfo).catch(() => setAuthInfo(null));
+      getConsumerAuthInfo().then((info) => {
+        setAuthInfo(info);
+        // Pré-remplir l'email du profil depuis l'email d'authentification si vide
+        if (info?.email && !email) {
+          setEmail(info.email);
+        }
+        // Pré-remplir le téléphone du profil depuis le téléphone d'authentification si vide
+        if (info?.phone && !phoneNumber) {
+          const parsed = parsePhoneNumber(info.phone);
+          setPhoneDialCode(parsed.dialCode);
+          setPhoneNumber(parsed.number);
+        }
+      }).catch(() => setAuthInfo(null));
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Hydrater le profil depuis le serveur pour persister entre navigateurs
+  useEffect(() => {
+    if (!isAuthed()) return;
+    let cancelled = false;
+
+    getMyConsumerMe().then((me) => {
+      if (cancelled) return;
+
+      const local = getUserProfile();
+
+      // Merge server data into localStorage (server wins over empty local)
+      const merged = {
+        firstName: me.first_name || local.firstName || undefined,
+        lastName: me.last_name || local.lastName || undefined,
+        contact: me.phone || local.contact || undefined,
+        email: me.email || local.email || undefined,
+        date_of_birth: me.date_of_birth || local.date_of_birth || undefined,
+        city: me.city || local.city || undefined,
+        country: me.country || local.country || undefined,
+        socio_professional_status: (me.socio_professional_status || local.socio_professional_status || undefined) as SocioProfessionalStatus | undefined,
+        preferences: local.preferences,
+      };
+
+      saveUserProfile(merged);
+
+      // Update form fields with server data
+      if (me.first_name) setFirstName(me.first_name);
+      if (me.last_name) setLastName(me.last_name);
+      if (me.email) setEmail(me.email);
+      if (me.phone) {
+        const parsed = parsePhoneNumber(me.phone);
+        setPhoneDialCode(parsed.dialCode);
+        setPhoneNumber(parsed.number);
+      }
+      if (me.city) setCity(me.city);
+      if (me.country) setSelectedCountryCode(me.country);
+      if (me.socio_professional_status) setSocioProfessionalStatus(me.socio_professional_status as SocioProfessionalStatus);
+      if (me.date_of_birth) setDateOfBirth(me.date_of_birth);
+
+      // If server has data, switch to read mode
+      if (me.first_name || me.last_name || me.email || me.phone) {
+        setIsEditing(false);
+      }
+    }).catch(() => {
+      // Silently ignore - fallback to localStorage
+    });
+
+    return () => { cancelled = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Obtenir le pays sélectionné
   const selectedCountry = COUNTRIES.find(c => c.code === selectedCountryCode);
@@ -196,6 +269,8 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
   useEffect(() => {
     setFirstName(profile.firstName ?? "");
     setLastName(profile.lastName ?? "");
+    setEmail(profile.email ?? "");
+    setEmailError(null);
 
     const parsed = parsePhoneNumber(profile.contact ?? "");
     setPhoneDialCode(parsed.dialCode);
@@ -204,8 +279,8 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
     setSocioProfessionalStatus(profile.socio_professional_status ?? "");
     setDateOfBirth(profile.date_of_birth ?? "");
 
-    const country = findCountryByCity(profile.city ?? "");
-    setSelectedCountryCode(country?.code ?? "");
+    const countryCode = profile.country || findCountryByCity(profile.city ?? "")?.code || "";
+    setSelectedCountryCode(countryCode);
     setCity(profile.city ?? "");
 
     setSavedAtIso(null);
@@ -217,6 +292,7 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
     }
   }, [
     profile.contact,
+    profile.email,
     profile.socio_professional_status,
     profile.date_of_birth,
     profile.city,
@@ -238,6 +314,18 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
     e.preventDefault();
     if (saving) return;
 
+    // Validation email obligatoire
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!trimmedEmail) {
+      setEmailError("L'adresse email est obligatoire.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      setEmailError("Veuillez entrer une adresse email valide.");
+      return;
+    }
+    setEmailError(null);
+
     setSaving(true);
     setError(null);
     setRemoteSyncError(null);
@@ -246,13 +334,46 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
     const fullPhone = getFullPhoneNumber();
 
     try {
+      // Sync to the official source used by booking prefill FIRST.
+      // This validates uniqueness of email/phone on the server before saving locally.
+      if (isAuthed()) {
+        try {
+          await updateMyConsumerMe({
+            first_name: firstName.trim() ? firstName.trim() : null,
+            last_name: lastName.trim() ? lastName.trim() : null,
+            phone: fullPhone ? fullPhone : null,
+            email: trimmedEmail,
+            date_of_birth: dateOfBirth.trim() ? dateOfBirth.trim() : null,
+            city: city.trim() ? city.trim() : null,
+            country: selectedCountryCode || null,
+            socio_professional_status: socioProfessionalStatus || null,
+          });
+        } catch (syncErr) {
+          const msg = syncErr instanceof Error ? syncErr.message : "";
+          // Erreurs de validation (email/phone dupliqué) → on bloque la sauvegarde
+          if (msg.includes("email") && msg.includes("déjà")) {
+            setEmailError(msg);
+            return;
+          }
+          if (msg.includes("téléphone") || msg.includes("phone")) {
+            setError(msg);
+            return;
+          }
+          // Erreur réseau/serveur → on sauvegarde quand même en local avec un avertissement
+          setRemoteSyncError(msg || "Impossible de synchroniser avec le serveur. Vos infos sont sauvegardées localement.");
+        }
+      }
+
+      // Save locally (even if server sync failed for non-validation errors)
       const res = saveUserProfile({
         firstName,
         lastName,
         contact: fullPhone,
+        email: trimmedEmail,
         socio_professional_status: socioProfessionalStatus === "" ? undefined : socioProfessionalStatus,
         date_of_birth: dateOfBirth.trim() ? dateOfBirth.trim() : undefined,
         city,
+        country: selectedCountryCode || undefined,
         preferences: profile.preferences,
       });
 
@@ -261,23 +382,11 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
         return;
       }
 
-      // Sync to the official source used by booking prefill.
-      // Important: we await this so the next booking screen sees the updated profile.
-      if (isAuthed()) {
-        try {
-          await updateMyConsumerMe({
-            first_name: firstName.trim() ? firstName.trim() : null,
-            last_name: lastName.trim() ? lastName.trim() : null,
-            phone: fullPhone ? fullPhone : null,
-          });
-        } catch {
-          setRemoteSyncError("Impossible de synchroniser vos infos pour le pré-remplissage. Vous pouvez quand même réserver.");
-        }
-      }
-
       setSavedAtIso(new Date().toISOString());
       // Passer en mode lecture après enregistrement
       setIsEditing(false);
+      // Afficher la boîte de dialogue de confirmation
+      setSuccessDialogOpen(true);
     } finally {
       setSaving(false);
     }
@@ -301,8 +410,7 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
     <form onSubmit={onSubmit} className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <div className="text-sm font-bold text-foreground">{t("profile.info.title")}</div>
-          <div className="mt-1 text-xs text-slate-600">{t("profile.info.subtitle")}</div>
+          <div className="text-xs text-slate-600">{t("profile.info.subtitle")}</div>
         </div>
 
         {/* Bouton Modifier - affiché uniquement en mode lecture */}
@@ -377,6 +485,30 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
           />
         </div>
 
+        {/* Email - obligatoire */}
+        <div className="space-y-2">
+          <Label htmlFor="profile-email">Email *</Label>
+          <Input
+            id="profile-email"
+            type="email"
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              setEmailError(null);
+            }}
+            placeholder="votre@email.com"
+            disabled={!isEditing}
+            className={!isEditing ? disabledInputClass : emailError ? "border-red-400 focus-visible:ring-red-400" : ""}
+          />
+          {emailError ? (
+            <div className="text-xs text-red-600 font-medium">{emailError}</div>
+          ) : (
+            <div className="text-xs text-slate-600">
+              Utilisé pour vous contacter si besoin.
+            </div>
+          )}
+        </div>
+
         {/* Téléphone avec indicatif pays */}
         <div className="space-y-2">
           <div className="flex items-center gap-2">
@@ -412,12 +544,12 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
                 {/* Barre de recherche */}
                 <div className="p-2 border-b">
                   <div className="relative">
-                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+                    <Search className="absolute start-2.5 top-2.5 h-4 w-4 text-slate-400" />
                     <Input
                       placeholder="Rechercher un pays..."
                       value={phoneSearchQuery}
                       onChange={(e) => setPhoneSearchQuery(e.target.value)}
-                      className="pl-8 h-9"
+                      className="ps-8 h-9"
                     />
                   </div>
                 </div>
@@ -439,10 +571,11 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
                           setPhoneDialCode(country.dialCode);
                           setPhonePopoverOpen(false);
                           setPhoneSearchQuery("");
+                          setError(null);
                         }}
                       >
                         <span className="text-base">{country.flag}</span>
-                        <span className="flex-1 text-left truncate">{country.name}</span>
+                        <span className="flex-1 text-start truncate">{country.name}</span>
                         <span className="text-slate-500 text-xs">{country.dialCode}</span>
                       </button>
                     ))
@@ -462,6 +595,7 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
                   digits = digits.slice(1);
                 }
                 setPhoneNumber(digits);
+                setError(null);
               }}
               inputMode="tel"
               placeholder="6XXXXXXXX (sans le 0)"
@@ -524,7 +658,7 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
 
         {/* Pays - avec recherche */}
         <div className="space-y-2">
-          <Label>Pays</Label>
+          <Label>Tu habites dans quel pays ?</Label>
           <Popover open={countryPopoverOpen} onOpenChange={(open) => {
             if (!isEditing) return;
             setCountryPopoverOpen(open);
@@ -554,12 +688,12 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
               {/* Barre de recherche */}
               <div className="p-2 border-b">
                 <div className="relative">
-                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+                  <Search className="absolute start-2.5 top-2.5 h-4 w-4 text-slate-400" />
                   <Input
                     placeholder="Rechercher un pays..."
                     value={countrySearchQuery}
                     onChange={(e) => setCountrySearchQuery(e.target.value)}
-                    className="pl-8 h-9"
+                    className="ps-8 h-9"
                   />
                 </div>
               </div>
@@ -584,7 +718,7 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
                       }}
                     >
                       <span className="text-base">{country.flag}</span>
-                      <span className="flex-1 text-left truncate">{country.name}</span>
+                      <span className="flex-1 text-start truncate">{country.name}</span>
                     </button>
                   ))
                 )}
@@ -595,7 +729,7 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
 
         {/* Ville - avec recherche */}
         <div className="space-y-2">
-          <Label htmlFor="profile-city">{t("profile.info.city.label")}</Label>
+          <Label htmlFor="profile-city">Tu vis dans quelle ville ?</Label>
           {selectedCountry ? (
             <Popover open={cityPopoverOpen} onOpenChange={(open) => {
               if (!isEditing) return;
@@ -619,12 +753,12 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
                 {/* Barre de recherche */}
                 <div className="p-2 border-b">
                   <div className="relative">
-                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+                    <Search className="absolute start-2.5 top-2.5 h-4 w-4 text-slate-400" />
                     <Input
                       placeholder="Rechercher une ville..."
                       value={citySearchQuery}
                       onChange={(e) => setCitySearchQuery(e.target.value)}
-                      className="pl-8 h-9"
+                      className="ps-8 h-9"
                     />
                   </div>
                 </div>
@@ -648,7 +782,7 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
                           setCitySearchQuery("");
                         }}
                       >
-                        <span className="flex-1 text-left">{cityName}</span>
+                        <span className="flex-1 text-start">{cityName}</span>
                       </button>
                     ))
                   )}
@@ -669,27 +803,46 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
       </div>
 
       {error ? <div className="text-sm font-medium text-red-600">{error}</div> : null}
-      {remoteSyncError ? <div className="text-xs text-slate-600">{remoteSyncError}</div> : null}
+      {remoteSyncError ? <div className="text-xs text-amber-600">{remoteSyncError}</div> : null}
 
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         {/* Bouton Enregistrer - visible uniquement en mode édition */}
         {isEditing && (
-          <Button type="submit" className="bg-primary hover:bg-primary/90 text-white font-bold" disabled={saving}>
+          <Button type="submit" className="bg-primary hover:bg-primary/90 text-white font-bold" disabled={saving || !!error || !!emailError}>
             {saving ? "Enregistrement…" : t("profile.info.save")}
           </Button>
         )}
 
-        {savedAtIso ? (
-          <div className="flex items-center gap-2 text-sm text-emerald-700 font-semibold">
-            <CheckCircle className="w-4 h-4" />
-            {t("profile.info.saved")}
-          </div>
-        ) : null}
-
         {updatedAtLabel && !savedAtIso ? (
-          <div className="text-xs text-slate-600 sm:ml-auto">{t("profile.info.last_updated", { value: updatedAtLabel })}</div>
+          <div className="text-xs text-slate-600 sm:ms-auto">{t("profile.info.last_updated", { value: updatedAtLabel })}</div>
         ) : null}
       </div>
+
+      {/* Boîte de dialogue de confirmation */}
+      <Dialog open={successDialogOpen} onOpenChange={setSuccessDialogOpen}>
+        <DialogContent className="sm:max-w-sm" hideCloseButton>
+          <DialogHeader className="items-center text-center">
+            <div className="mx-auto mb-2 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
+              <CircleCheck
+                className="h-10 w-10 text-emerald-600 animate-[scale-bounce_0.5s_ease-out]"
+                strokeWidth={2}
+              />
+            </div>
+            <DialogTitle className="text-lg">Profil mis à jour</DialogTitle>
+            <DialogDescription>
+              Vos informations ont été enregistrées avec succès.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="sm:justify-center">
+            <Button
+              onClick={() => setSuccessDialogOpen(false)}
+              className="bg-primary hover:bg-primary/90 text-white font-bold min-w-[120px]"
+            >
+              Fermer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </form>
   );
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 
 import { ToastAction } from "@/components/ui/toast";
@@ -10,6 +10,7 @@ import {
   Bell,
   Briefcase,
   CalendarCheck,
+  Car,
   CreditCard,
   Eye,
   KeyRound,
@@ -82,40 +83,62 @@ import type {
   ProRole,
 } from "@/lib/pro/types";
 
-import { ProDashboardTab } from "@/components/pro/tabs/ProDashboardTab";
-import { ProImpactTab } from "@/components/pro/tabs/ProImpactTab";
-import { ProEstablishmentTab } from "@/components/pro/tabs/ProEstablishmentTab";
 import {
   getProProfileAvatar,
   subscribeToProProfileAvatarChanges,
 } from "@/lib/pro/profile";
-import { ProReservationsTab } from "@/components/pro/tabs/ProReservationsTab";
-import { ProWaitlistTab } from "@/components/pro/tabs/ProWaitlistTab";
-import { ProOffersTab } from "@/components/pro/tabs/ProOffersTab";
-import { ProSlotsTab } from "@/components/pro/tabs/ProSlotsTab";
-import { ProSettingsTab } from "@/components/pro/tabs/ProSettingsTab";
-import { ProMyAccountTab } from "@/components/pro/tabs/ProMyAccountTab";
 import { ProForcePasswordChangeDialog } from "@/components/pro/ProForcePasswordChangeDialog";
-import { checkMustChangePassword } from "@/lib/pro/api";
-import { ProPacksAndPromotionsTab } from "@/components/pro/tabs/ProPacksAndPromotionsTab";
-import { ProBillingTab } from "@/components/pro/tabs/ProBillingTab";
-import { ProVisibilityTab } from "@/components/pro/tabs/ProVisibilityTab";
-import { ProMediaFactoryTab } from "@/components/pro/tabs/ProMediaFactoryTab";
-import { ProNotificationsTab } from "@/components/pro/tabs/ProNotificationsTab";
-import { ProTeamTab } from "@/components/pro/tabs/ProTeamTab";
-import { ProAssistanceTab } from "@/components/pro/tabs/ProAssistanceTab";
-import { ProUnifiedScannerTab } from "@/components/pro/tabs/ProUnifiedScannerTab";
-import { ProMessagesTab } from "@/components/pro/tabs/ProMessagesTab";
-import { ProPrestatairesTab } from "@/components/pro/tabs/ProPrestatairesTab";
-import { ProReviewsTab } from "@/components/pro/tabs/ProReviewsTab";
-import { ProAdsTab } from "@/components/pro/ads/ProAdsTab";
-import { ProLoyaltyTab } from "@/components/pro/tabs/ProLoyaltyTab";
+import { checkMustChangePassword, getOnboardingWizardProgress } from "@/lib/pro/api";
+import type { OnboardingWizardProgress } from "@/lib/pro/types";
 import { ProLiveNotifications } from "@/components/pro/ProLiveNotifications";
 import { ProNotificationsSheet } from "@/components/pro/ProNotificationsSheet";
 import { ProOnlineToggle } from "@/components/pro/ProOnlineToggle";
+import { usePermissions } from "@/hooks/usePermissions";
+import type { PermissionKey } from "../../../shared/permissionTypes";
 import { useProUnreadCount } from "@/lib/mediaFactory/unreadHook";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { buildEstablishmentUrl } from "@/lib/establishmentUrl";
+import { universeSidebarLabel } from "@/components/pro/inventory/ProInventoryManager";
+import { ProOnboardingTip } from "@/components/pro/ProOnboardingTip";
+
+// ---------------------------------------------------------------------------
+// Lazy-loaded tabs – each tab becomes its own chunk
+// ---------------------------------------------------------------------------
+const ProDashboardTab = lazy(() => import("@/components/pro/tabs/ProDashboardTab").then(m => ({ default: m.ProDashboardTab })));
+const ProImpactTab = lazy(() => import("@/components/pro/tabs/ProImpactTab").then(m => ({ default: m.ProImpactTab })));
+const ProEstablishmentTab = lazy(() => import("@/components/pro/tabs/ProEstablishmentTab").then(m => ({ default: m.ProEstablishmentTab })));
+const ProReservationsTab = lazy(() => import("@/components/pro/tabs/ProReservationsTab").then(m => ({ default: m.ProReservationsTab })));
+const ProWaitlistTab = lazy(() => import("@/components/pro/tabs/ProWaitlistTab").then(m => ({ default: m.ProWaitlistTab })));
+const ProOffersTab = lazy(() => import("@/components/pro/tabs/ProOffersTab").then(m => ({ default: m.ProOffersTab })));
+const ProSettingsTab = lazy(() => import("@/components/pro/tabs/ProSettingsTab").then(m => ({ default: m.ProSettingsTab })));
+const ProMyAccountTab = lazy(() => import("@/components/pro/tabs/ProMyAccountTab").then(m => ({ default: m.ProMyAccountTab })));
+const ProPacksAndPromotionsTab = lazy(() => import("@/components/pro/tabs/ProPacksAndPromotionsTab").then(m => ({ default: m.ProPacksAndPromotionsTab })));
+const ProBillingTab = lazy(() => import("@/components/pro/tabs/ProBillingTab").then(m => ({ default: m.ProBillingTab })));
+const ProVisibilityTab = lazy(() => import("@/components/pro/tabs/ProVisibilityTab").then(m => ({ default: m.ProVisibilityTab })));
+const ProMediaFactoryTab = lazy(() => import("@/components/pro/tabs/ProMediaFactoryTab").then(m => ({ default: m.ProMediaFactoryTab })));
+const ProNotificationsTab = lazy(() => import("@/components/pro/tabs/ProNotificationsTab").then(m => ({ default: m.ProNotificationsTab })));
+const ProTeamTab = lazy(() => import("@/components/pro/tabs/ProTeamTab").then(m => ({ default: m.ProTeamTab })));
+const ProAssistanceTab = lazy(() => import("@/components/pro/tabs/ProAssistanceTab").then(m => ({ default: m.ProAssistanceTab })));
+const ProUnifiedScannerTab = lazy(() => import("@/components/pro/tabs/ProUnifiedScannerTab").then(m => ({ default: m.ProUnifiedScannerTab })));
+const ProMessagesTab = lazy(() => import("@/components/pro/tabs/ProMessagesTab").then(m => ({ default: m.ProMessagesTab })));
+const ProPrestatairesTab = lazy(() => import("@/components/pro/tabs/ProPrestatairesTab").then(m => ({ default: m.ProPrestatairesTab })));
+const ProReviewsTab = lazy(() => import("@/components/pro/tabs/ProReviewsTab").then(m => ({ default: m.ProReviewsTab })));
+const ProAdsTab = lazy(() => import("@/components/pro/ads/ProAdsTab").then(m => ({ default: m.ProAdsTab })));
+const ProLoyaltyTab = lazy(() => import("@/components/pro/tabs/ProLoyaltyTab").then(m => ({ default: m.ProLoyaltyTab })));
+const ProRentalTab = lazy(() => import("@/components/pro/tabs/ProRentalTab").then(m => ({ default: m.ProRentalTab })));
+
+// V2 lazy-loaded components
+const ProReservationsV2Dashboard = lazy(() => import("@/components/reservationV2/ProReservationsV2Dashboard").then(m => ({ default: m.ProReservationsV2Dashboard })));
+const ProLoyaltyV2Dashboard = lazy(() => import("@/components/loyaltyV2/ProLoyaltyV2Dashboard").then(m => ({ default: m.ProLoyaltyV2Dashboard })));
+const ProPacksDashboard = lazy(() => import("@/components/packs/ProPacksDashboard").then(m => ({ default: m.ProPacksDashboard })));
+const ProFinancesDashboard = lazy(() => import("@/components/packs/ProFinancesDashboard").then(m => ({ default: m.ProFinancesDashboard })));
+const ProOnboardingWizard = lazy(() => import("@/components/pro/wizard/ProOnboardingWizard").then(m => ({ default: m.ProOnboardingWizard })));
+
+const TabFallback = () => (
+  <div className="flex items-center justify-center py-12">
+    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+  </div>
+);
 
 type Props = {
   user: User;
@@ -189,6 +212,7 @@ export function ProShell({ user, onSignOut }: Props) {
         "messages",
         "assistance",
         "account",
+        "rental",
       ]),
     [],
   );
@@ -196,6 +220,11 @@ export function ProShell({ user, onSignOut }: Props) {
   // State for forcing password change on first login
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [passwordCheckDone, setPasswordCheckDone] = useState(false);
+
+  // Onboarding wizard state
+  const [showOnboardingWizard, setShowOnboardingWizard] = useState(false);
+  const [wizardProgress, setWizardProgress] = useState<OnboardingWizardProgress | null>(null);
+  const [wizardProgressLoaded, setWizardProgressLoaded] = useState(false);
   const tabParam = searchParams.get("tab");
 
   const [loading, setLoading] = useState(true);
@@ -224,6 +253,8 @@ export function ProShell({ user, onSignOut }: Props) {
     const m = memberships.find((x) => x.establishment_id === selected.id);
     return m?.role ?? null;
   }, [memberships, selected]);
+
+  const { can, matrix: permissionMatrix, refetch: refetchPermissions } = usePermissions(selected?.id ?? null, role);
 
   const refresh = async () => {
     setLoading(true);
@@ -266,6 +297,15 @@ export function ProShell({ user, onSignOut }: Props) {
       })
       .catch(() => {
         setPasswordCheckDone(true);
+      });
+    // Load wizard progress
+    void getOnboardingWizardProgress()
+      .then(({ progress }) => {
+        setWizardProgress(progress);
+        setWizardProgressLoaded(true);
+      })
+      .catch(() => {
+        setWizardProgressLoaded(true);
       });
   }, []);
 
@@ -461,14 +501,17 @@ export function ProShell({ user, onSignOut }: Props) {
         // Best-effort: keep the UI usable even if notifications fail.
         if (!cancelled) setUnreadNotifications(0);
 
-        // But surface the issue so it's not "silently empty".
+        // Surface the issue sparingly so it's not "silently empty".
         const now = Date.now();
-        if (now - lastNotificationsErrorAtRef.current > 30_000) {
+        if (now - lastNotificationsErrorAtRef.current > 60_000) {
           lastNotificationsErrorAtRef.current = now;
-          const msg =
+          const rawMsg =
             e instanceof Error
               ? e.message
               : "Impossible de charger les notifications";
+          const msg = rawMsg === "Failed to fetch"
+            ? "Connexion au serveur impossible — vérifiez votre connexion"
+            : rawMsg;
           toast({
             title: "Notifications",
             description: msg,
@@ -644,6 +687,16 @@ export function ProShell({ user, onSignOut }: Props) {
                 </Link>
               ) : null}
 
+              <button
+                type="button"
+                onClick={() => navigateToTab("scanner")}
+                className="md:hidden h-10 w-10 rounded-full border border-white/30 bg-white/10 hover:bg-white/20 transition flex items-center justify-center"
+                aria-label="Scanner QR"
+                title="Scanner QR"
+              >
+                <QrCode className="w-5 h-5" />
+              </button>
+
               <ProNotificationsSheet
                 open={notificationsOpen}
                 onOpenChange={setNotificationsOpen}
@@ -814,8 +867,8 @@ export function ProShell({ user, onSignOut }: Props) {
             >
               <div className="flex flex-col md:flex-row gap-6">
                 <aside className="md:w-64 md:flex-shrink-0 md:sticky md:top-6 md:self-start">
-                  <Card className="md:max-h-[calc(100vh-3rem)] md:overflow-auto">
-                    <CardContent className="p-2 space-y-3">
+                  <Card className="md:max-h-[calc(100vh-3rem)] md:overflow-auto h-fit">
+                    <CardContent className="p-2 space-y-2">
                       <div className="space-y-1">
                         <div className="text-xs font-semibold text-slate-500 px-2">
                           Établissement
@@ -844,10 +897,10 @@ export function ProShell({ user, onSignOut }: Props) {
                         </Select>
                       </div>
 
-                      <TabsList className="w-full bg-transparent p-0 h-auto flex md:flex-col flex-row md:gap-1 gap-2 md:items-stretch items-center justify-start overflow-x-auto md:overflow-visible [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                      <TabsList className="w-full bg-transparent p-0 h-auto flex md:flex-col flex-row md:gap-0.5 gap-2 md:items-stretch items-center justify-start overflow-x-auto md:overflow-visible [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                         <TabsTrigger
                           value="dashboard"
-                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
                         >
                           <LayoutDashboard className="w-4 h-4" />
                           Tableau de bord
@@ -855,119 +908,144 @@ export function ProShell({ user, onSignOut }: Props) {
                         {/* Hidden for now - Protection anti no-show tab
                         <TabsTrigger
                           value="impact"
-                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
                         >
                           <BarChart3 className="w-4 h-4" />
                           Protection anti no-show
                         </TabsTrigger>
                         */}
-                        <TabsTrigger
-                          value="establishment"
-                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
-                        >
-                          <Store className="w-4 h-4" />
-                          Fiche
-                        </TabsTrigger>
-                        <TabsTrigger
-                          value="offers"
-                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
-                        >
-                          <Tags className="w-4 h-4" />
-                          Offres
-                        </TabsTrigger>
+                        {can("manage_profile") && (
+                          <TabsTrigger
+                            value="establishment"
+                            className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                          >
+                            <Store className="w-4 h-4" />
+                            Fiche
+                          </TabsTrigger>
+                        )}
+                        {can("manage_inventory") && (
+                          <TabsTrigger
+                            value="offers"
+                            className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                          >
+                            <Tags className="w-4 h-4" />
+                            {universeSidebarLabel(selected)}
+                          </TabsTrigger>
+                        )}
 
-                        <TabsTrigger
-                          value="promotion"
-                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
-                        >
-                          <Megaphone className="w-4 h-4" />
-                          Packs & Promotions
-                        </TabsTrigger>
-                        <TabsTrigger
-                          value="reservations"
-                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
-                        >
-                          <CalendarCheck className="w-4 h-4" />
-                          Réservations
-                        </TabsTrigger>
-                        <TabsTrigger
-                          value="reviews"
-                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
-                        >
-                          <Star className="w-4 h-4" />
-                          Avis
-                        </TabsTrigger>
-                        <TabsTrigger
-                          value="waitlist"
-                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
-                        >
-                          <ListPlus className="w-4 h-4" />
-                          Liste d’attente
-                        </TabsTrigger>
-                        <TabsTrigger
-                          value="scanner"
-                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
-                        >
-                          <QrCode className="w-4 h-4" />
-                          Scanner QR
-                        </TabsTrigger>
-                        <TabsTrigger
-                          value="loyalty"
-                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
-                        >
-                          <Award className="w-4 h-4" />
-                          Fidélité
-                        </TabsTrigger>
-                        <TabsTrigger
-                          value="slots"
-                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
-                        >
-                          <Settings className="w-4 h-4" />
-                          Créneaux
-                        </TabsTrigger>
-
-                        <TabsTrigger
-                          value="settings"
-                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
-                        >
-                          <SlidersHorizontal className="w-4 h-4" />
-                          Paramètres
-                        </TabsTrigger>
-                        {showBillingTab && (
+                        {can("manage_offers") && (
+                          <TabsTrigger
+                            value="promotion"
+                            className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                          >
+                            <Megaphone className="w-4 h-4" />
+                            {selected?.universe === "rentacar" ? "Offres & Promos" : "Packs & Promotions"}
+                          </TabsTrigger>
+                        )}
+                        {can("manage_reservations") && (
+                          <TabsTrigger
+                            value="reservations"
+                            className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                          >
+                            <CalendarCheck className="w-4 h-4" />
+                            {selected?.universe === "rentacar" ? "Locations" : "Réservations"}
+                          </TabsTrigger>
+                        )}
+                        {selected?.universe === "rentacar" && (
+                          <TabsTrigger
+                            value="rental"
+                            className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                          >
+                            <Car className="w-4 h-4" />
+                            Location
+                          </TabsTrigger>
+                        )}
+                        {can("manage_reservations") && (
+                          <TabsTrigger
+                            value="waitlist"
+                            className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                          >
+                            <ListPlus className="w-4 h-4" />
+                            Liste d'attente
+                          </TabsTrigger>
+                        )}
+                        {can("manage_profile") && (
+                          <TabsTrigger
+                            value="reviews"
+                            className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                          >
+                            <Star className="w-4 h-4" />
+                            Avis
+                          </TabsTrigger>
+                        )}
+                        {can("manage_reservations") && (
+                          <TabsTrigger
+                            value="scanner"
+                            className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                          >
+                            <QrCode className="w-4 h-4" />
+                            Scanner QR
+                          </TabsTrigger>
+                        )}
+                        {can("manage_offers") && (
+                          <TabsTrigger
+                            value="loyalty"
+                            className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                          >
+                            <Award className="w-4 h-4" />
+                            Fidélité
+                          </TabsTrigger>
+                        )}
+                        {can("manage_profile") && (
+                          <TabsTrigger
+                            value="settings"
+                            className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                          >
+                            <SlidersHorizontal className="w-4 h-4" />
+                            Paramètres
+                          </TabsTrigger>
+                        )}
+                        {showBillingTab && can("view_billing") && (
                           <TabsTrigger
                             value="billing"
-                            className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                            className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
                           >
                             <CreditCard className="w-4 h-4" />
                             Facturation
                           </TabsTrigger>
                         )}
-                        <TabsTrigger
-                          value="visibility"
-                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
-                        >
-                          <Eye className="w-4 h-4" />
-                          Visibilité
-                        </TabsTrigger>
-                        <TabsTrigger
-                          value="ads"
-                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
-                        >
-                          <Sparkles className="w-4 h-4" />
-                          Publicités
-                        </TabsTrigger>
+                        {can("manage_offers") && (
+                          <TabsTrigger
+                            value="visibility"
+                            className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                          >
+                            <Eye className="w-4 h-4" />
+                            Visibilité
+                          </TabsTrigger>
+                        )}
+                        {can("manage_offers") && (
+                          <TabsTrigger
+                            value="ads"
+                            className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                          >
+                            <Sparkles className="w-4 h-4" />
+                            Publicités
+                          </TabsTrigger>
+                        )}
 
-                        <TabsTrigger
-                          value="media"
-                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
-                        >
-                          <Video className="w-4 h-4" />
-                          Media Factory
-                        </TabsTrigger>
+                        {can("manage_offers") && (
+                          <TabsTrigger
+                            value="media"
+                            className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                          >
+                            <Video className="w-4 h-4" />
+                            Media Factory
+                          </TabsTrigger>
+                        )}
 {/* Hidden - Prestataires tab removed
                         <TabsTrigger
                           value="prestataires"
-                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
                         >
                           <Briefcase className="w-4 h-4" />
                           Prestataires
@@ -975,36 +1053,36 @@ export function ProShell({ user, onSignOut }: Props) {
                         */}
                         <TabsTrigger
                           value="notifications"
-                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
                         >
                           <Bell className="w-4 h-4" />
                           Notifications
                         </TabsTrigger>
                         <TabsTrigger
                           value="team"
-                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
                         >
                           <Users className="w-4 h-4" />
                           Équipe
                         </TabsTrigger>
                         <TabsTrigger
                           value="messages"
-                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
                         >
                           <MessageSquare className="w-4 h-4" />
                           Messages
                           {mediaUnreadCount > 0 ? (
-                            <span className="ml-auto min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[11px] font-extrabold flex items-center justify-center">
+                            <span className="ms-auto min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[11px] font-extrabold flex items-center justify-center">
                               {mediaUnreadCount > 99 ? "99+" : mediaUnreadCount}
                             </span>
                           ) : null}
                         </TabsTrigger>
 
-                        <div className="hidden md:block my-2 h-px w-full bg-slate-200" />
+                        <div className="hidden md:block my-1 h-px w-full bg-slate-200" />
 
                         <TabsTrigger
                           value="assistance"
-                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-2 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
                         >
                           <LifeBuoy className="w-4 h-4" />
                           Assistance
@@ -1015,7 +1093,33 @@ export function ProShell({ user, onSignOut }: Props) {
                 </aside>
 
                 <section className="flex-1 min-w-0">
+                  <Suspense fallback={<TabFallback />}>
                   <TabsContent value="dashboard" className="mt-0">
+                    <ProOnboardingTip
+                      tipKey="dashboard"
+                      title="Bienvenue sur votre tableau de bord !"
+                      message="Retrouvez ici un apercu de votre activité : réservations récentes, statistiques clés et notifications importantes. C'est votre point de départ pour gérer votre établissement."
+                    />
+                    {/* Resume wizard banner */}
+                    {wizardProgressLoaded && wizardProgress && !wizardProgress.completed && !showOnboardingWizard && (
+                      <div className="mb-4 flex items-center justify-between rounded-lg border border-[#a3001d]/20 bg-[#a3001d]/5 p-4">
+                        <div>
+                          <p className="text-sm font-semibold text-gray-900">
+                            Votre fiche est incomplète
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            Reprenez le wizard pour compléter votre fiche d'établissement.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowOnboardingWizard(true)}
+                          className="shrink-0 rounded-lg bg-[#a3001d] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#8a0018]"
+                        >
+                          Reprendre
+                        </button>
+                      </div>
+                    )}
                     <ProDashboardTab
                       establishment={selected}
                       role={role}
@@ -1029,6 +1133,11 @@ export function ProShell({ user, onSignOut }: Props) {
                   </TabsContent>
 
                   <TabsContent value="establishment" className="mt-0">
+                    <ProOnboardingTip
+                      tipKey="establishment"
+                      title="Votre fiche établissement"
+                      message="Complétez votre fiche avec soin : photos, description, horaires et coordonnées. Une fiche complète et attractive attire plus de clients et améliore votre visibilité sur la plateforme."
+                    />
                     <ProEstablishmentTab
                       establishment={selected}
                       role={role}
@@ -1039,6 +1148,13 @@ export function ProShell({ user, onSignOut }: Props) {
                   </TabsContent>
 
                   <TabsContent value="offers" className="mt-0">
+                    <ProOnboardingTip
+                      tipKey="offers"
+                      title={selected?.universe === "rentacar" ? "Votre flotte de véhicules" : "Votre carte / menu"}
+                      message={selected?.universe === "rentacar"
+                        ? "Ajoutez ici vos véhicules avec photos, caractéristiques et tarifs. Ils seront affichés sur votre fiche publique pour que vos clients puissent découvrir votre offre de location."
+                        : "Ajoutez ici vos offres, plats ou prestations avec photos et prix. Ces éléments seront affichés sur votre fiche publique et permettront à vos clients de découvrir ce que vous proposez."}
+                    />
                     <ProOffersTab
                       establishment={selected}
                       role={role}
@@ -1047,55 +1163,117 @@ export function ProShell({ user, onSignOut }: Props) {
                   </TabsContent>
 
                   <TabsContent value="promotion" className="mt-0">
-                    <ProPacksAndPromotionsTab
-                      establishment={selected}
-                      role={role}
+                    <ProOnboardingTip
+                      tipKey="promotion"
+                      title={selected?.universe === "rentacar" ? "Offres & Promotions" : "Packs & Promotions"}
+                      message={selected?.universe === "rentacar"
+                        ? "Créez des offres spéciales (tarifs week-end, packs longue durée, promotions saisonnières) et des codes promo pour attirer plus de clients et booster vos locations."
+                        : "Créez des packs attractifs (menus, offres spéciales, coffrets cadeaux) et des codes promo pour fidéliser vos clients et booster vos ventes. Les packs apparaissent directement sur votre fiche."}
+                    />
+                    <ProPacksDashboard
+                      establishmentId={selected.id}
                     />
                   </TabsContent>
 
                   <TabsContent value="reservations" className="mt-0">
-                    <ProReservationsTab establishment={selected} role={role} />
+                    <ProOnboardingTip
+                      tipKey="reservations"
+                      title={selected?.universe === "rentacar" ? "Réservations de véhicules" : "Réservations & Créneaux"}
+                      message={selected?.universe === "rentacar"
+                        ? "Gérez les réservations de vos véhicules. Configurez les disponibilités et les créneaux de retrait/retour pour que vos clients puissent réserver en ligne."
+                        : "Commencez par créer des créneaux (horaires disponibles) pour que vos clients puissent réserver. Sans créneaux configurés, aucune réservation ne pourra être effectuée. Vous pouvez créer des créneaux en masse sur plusieurs jours en un seul clic !"}
+                    />
+                    <ProReservationsV2Dashboard establishmentId={selected.id} establishment={selected} role={role} />
                   </TabsContent>
 
                   <TabsContent value="reviews" className="mt-0">
+                    <ProOnboardingTip
+                      tipKey="reviews"
+                      title={selected?.universe === "rentacar" ? "Avis locataires" : "Avis clients"}
+                      message={selected?.universe === "rentacar"
+                        ? "Consultez et gérez les avis laissés par vos locataires. De bons avis améliorent votre classement et rassurent les futurs clients. Répondez aux avis pour montrer votre engagement."
+                        : "Consultez et gérez les avis laissés par vos clients. De bons avis améliorent votre classement et rassurent les futurs visiteurs. Répondez aux avis pour montrer votre engagement."}
+                    />
                     <ProReviewsTab establishment={selected} role={role} />
                   </TabsContent>
 
                   <TabsContent value="waitlist" className="mt-0">
+                    <ProOnboardingTip
+                      tipKey="waitlist"
+                      title="Liste d'attente"
+                      message="Lorsqu'un créneau est complet, vos clients peuvent s'inscrire en liste d'attente. Vous serez notifié et pourrez les contacter si une place se libère."
+                    />
                     <ProWaitlistTab establishment={selected} role={role} />
                   </TabsContent>
 
                   <TabsContent value="scanner" className="mt-0">
+                    <ProOnboardingTip
+                      tipKey="scanner"
+                      title="Scanner QR"
+                      message="Utilisez le scanner pour valider la présence de vos clients à leur arrivée. Scannez le QR code de leur réservation depuis votre téléphone ou tablette pour confirmer leur venue."
+                    />
                     <ProUnifiedScannerTab establishment={selected} role={role} />
                   </TabsContent>
 
                   <TabsContent value="loyalty" className="mt-0">
-                    <ProLoyaltyTab establishment={selected} role={role} />
-                  </TabsContent>
-
-                  <TabsContent value="slots" className="mt-0">
-                    <ProSlotsTab establishment={selected} role={role} />
+                    <ProOnboardingTip
+                      tipKey="loyalty"
+                      title={selected?.universe === "rentacar" ? "Fidélisation locataires" : "Programme de fidélité"}
+                      message={selected?.universe === "rentacar"
+                        ? "Récompensez vos locataires réguliers avec un programme de fidélité. Définissez des paliers et des avantages pour encourager les locations répétées et fidéliser votre clientèle."
+                        : "Récompensez vos clients réguliers avec un programme de fidélité. Définissez des paliers et des récompenses pour encourager les visites répétées et créer une communauté fidèle."}
+                    />
+                    <ProLoyaltyV2Dashboard
+                      establishmentId={selected.id}
+                      establishmentName={selected.name ?? ""}
+                      role={role}
+                    />
                   </TabsContent>
 
                   <TabsContent value="settings" className="mt-0">
+                    <ProOnboardingTip
+                      tipKey="settings"
+                      title="Paramètres"
+                      message="Configurez ici les paramètres avancés de votre établissement : politique d'annulation, délais de réservation, notifications automatiques et préférences de gestion."
+                    />
                     <ProSettingsTab establishment={selected} role={role} />
                   </TabsContent>
 
                   {showBillingTab && (
                     <TabsContent value="billing" className="mt-0">
-                      <ProBillingTab establishment={selected} role={role} />
+                      <ProOnboardingTip
+                        tipKey="billing"
+                        title="Facturation"
+                        message="Suivez vos revenus, commissions et factures. Consultez vos périodes de facturation, soumettez vos appels à facture et suivez vos paiements en toute transparence."
+                      />
+                      <ProFinancesDashboard establishmentId={selected.id} />
                     </TabsContent>
                   )}
 
                   <TabsContent value="visibility" className="mt-0">
+                    <ProOnboardingTip
+                      tipKey="visibility"
+                      title="Visibilité"
+                      message="Boostez votre visibilité sur la plateforme grâce à des options de mise en avant : position premium dans les résultats, badges spéciaux et mise en avant sur la page d'accueil."
+                    />
                     <ProVisibilityTab establishment={selected} role={role} />
                   </TabsContent>
 
                   <TabsContent value="ads" className="mt-0">
+                    <ProOnboardingTip
+                      tipKey="ads"
+                      title="Publicités"
+                      message="Lancez des campagnes publicitaires ciblées pour toucher de nouveaux clients. Définissez votre budget, votre audience et suivez les performances de vos annonces en temps réel."
+                    />
                     <ProAdsTab establishment={selected} role={role} />
                   </TabsContent>
 
                   <TabsContent value="media" className="mt-0">
+                    <ProOnboardingTip
+                      tipKey="media"
+                      title="Media Factory"
+                      message="Créez et gérez du contenu média professionnel pour votre établissement : photos, vidéos et supports visuels qui seront utilisés sur votre fiche et vos publicités."
+                    />
                     <ProMediaFactoryTab establishment={selected} role={role} />
                   </TabsContent>
 
@@ -1106,6 +1284,13 @@ export function ProShell({ user, onSignOut }: Props) {
                   */}
 
                   <TabsContent value="notifications" className="mt-0">
+                    <ProOnboardingTip
+                      tipKey="notifications"
+                      title="Notifications"
+                      message={selected?.universe === "rentacar"
+                        ? "Retrouvez ici toutes vos notifications : nouvelles locations, avis locataires, alertes système et messages importants. Activez les notifications push pour ne rien manquer."
+                        : "Retrouvez ici toutes vos notifications : nouvelles réservations, avis clients, alertes système et messages importants. Activez les notifications push pour ne rien manquer."}
+                    />
                     <ProNotificationsTab
                       establishment={selected}
                       user={user}
@@ -1114,24 +1299,47 @@ export function ProShell({ user, onSignOut }: Props) {
                   </TabsContent>
 
                   <TabsContent value="team" className="mt-0">
+                    <ProOnboardingTip
+                      tipKey="team"
+                      title="Gestion d'équipe"
+                      message="Invitez les membres de votre équipe et attribuez-leur des rôles (manager, marketing, staff). Chaque rôle a des permissions spécifiques pour gérer l'établissement en toute sécurité."
+                    />
                     <ProTeamTab
                       establishment={selected}
                       role={role}
                       user={user}
+                      can={can}
+                      permissionMatrix={permissionMatrix}
+                      refetchPermissions={refetchPermissions}
                     />
                   </TabsContent>
 
                   <TabsContent value="messages" className="mt-0">
+                    <ProOnboardingTip
+                      tipKey="messages"
+                      title="Messages"
+                      message="Échangez directement avec vos clients et l'équipe SAM. Répondez rapidement aux demandes pour offrir une expérience client exceptionnelle."
+                    />
                     <ProMessagesTab establishment={selected} role={role} />
                   </TabsContent>
 
                   <TabsContent value="assistance" className="mt-0">
+                    <ProOnboardingTip
+                      tipKey="assistance"
+                      title="Besoin d'aide ?"
+                      message="Notre équipe est là pour vous accompagner. Consultez les guides d'utilisation, la FAQ ou contactez directement le support SAM pour toute question."
+                    />
                     <ProAssistanceTab establishment={selected} role={role} />
+                  </TabsContent>
+
+                  <TabsContent value="rental" className="mt-0">
+                    {selected && <ProRentalTab establishment={selected} />}
                   </TabsContent>
 
                   <TabsContent value="account" className="mt-0">
                     <ProMyAccountTab user={user} />
                   </TabsContent>
+                  </Suspense>
                 </section>
               </div>
             </Tabs>
@@ -1142,8 +1350,32 @@ export function ProShell({ user, onSignOut }: Props) {
       {/* Force password change dialog for first login */}
       <ProForcePasswordChangeDialog
         open={passwordCheckDone && mustChangePassword}
-        onPasswordChanged={() => setMustChangePassword(false)}
+        onPasswordChanged={() => {
+          setMustChangePassword(false);
+          // After password change, show wizard if not already completed
+          if (wizardProgressLoaded && (!wizardProgress || !wizardProgress.completed)) {
+            setShowOnboardingWizard(true);
+          }
+        }}
       />
+
+      {/* Onboarding wizard (full screen overlay) */}
+      {showOnboardingWizard && selected && (
+        <Suspense fallback={<TabFallback />}>
+          <ProOnboardingWizard
+            establishment={selected as unknown as Record<string, unknown>}
+            initialProgress={wizardProgress}
+            onClose={() => setShowOnboardingWizard(false)}
+            onCompleted={() => {
+              setShowOnboardingWizard(false);
+              setWizardProgress((prev) =>
+                prev ? { ...prev, completed: true } : null,
+              );
+              void refresh();
+            }}
+          />
+        </Suspense>
+      )}
     </main>
   );
 }

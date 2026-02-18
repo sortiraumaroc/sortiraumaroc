@@ -12,6 +12,7 @@ export type EstablishmentUniverse =
   | "wellness"
   | "culture"
   | "shopping"
+  | "rentacar"
   | "default";
 
 type TabConfigItem = {
@@ -67,6 +68,12 @@ const UNIVERSE_TABS: Record<EstablishmentUniverse, TabConfigItem[]> = {
     { id: "infos", labelKey: "establishment.tabs.info", sectionId: "section-infos" },
     { id: "horaires", labelKey: "establishment.tabs.hours", sectionId: "section-horaires" },
     { id: "avis", labelKey: "establishment.tabs.reviews", sectionId: "section-avis" },
+    { id: "carte", labelKey: "establishment.tabs.map", sectionId: "section-carte" },
+  ],
+  rentacar: [
+    { id: "menu", labelKey: "establishment.tabs.vehicles", sectionId: "section-menu" },
+    { id: "avis", labelKey: "establishment.tabs.reviews", sectionId: "section-avis" },
+    { id: "infos", labelKey: "establishment.tabs.info", sectionId: "section-infos" },
     { id: "carte", labelKey: "establishment.tabs.map", sectionId: "section-carte" },
   ],
   default: [

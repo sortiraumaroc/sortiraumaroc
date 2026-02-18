@@ -85,11 +85,11 @@ export default function Help() {
                 </TabsList>
 
                 <TabsContent value="faq" className="mt-6">
-                  <FaqSection />
+                  <FaqSection audience="consumer" />
                 </TabsContent>
 
                 <TabsContent value="tickets" className="mt-6">
-                  {authed ? <SupportTicketsPanel /> : <FaqSection compact />}
+                  {authed ? <SupportTicketsPanel /> : <FaqSection compact audience="consumer" />}
                 </TabsContent>
 
                 <TabsContent value="chat" className="mt-6">

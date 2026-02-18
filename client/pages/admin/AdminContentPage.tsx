@@ -1403,7 +1403,7 @@ export function AdminContentPage() {
                               : prev,
                           )
                         }
-                        placeholder="https://sortiraumaroc.ma/content/a-propos"
+                        placeholder="https://sam.ma/content/a-propos"
                       />
                     </div>
                     <div className="space-y-2">
@@ -1417,7 +1417,7 @@ export function AdminContentPage() {
                               : prev,
                           )
                         }
-                        placeholder="https://sortiraumaroc.ma/en/content/about"
+                        placeholder="https://sam.ma/en/content/about"
                       />
                     </div>
                   </div>

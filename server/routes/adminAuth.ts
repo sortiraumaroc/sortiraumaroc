@@ -200,6 +200,22 @@ export const adminLogin: RequestHandler = async (req, res) => {
       // SECURITY: Reset rate limit on successful login
       resetAdminRateLimit(rateLimitKey);
 
+      // Audit: log admin login
+      try {
+        await supabase.from("admin_audit_log").insert({
+          actor_id: collaboratorId,
+          action: "admin.login",
+          entity_type: "admin_collaborator",
+          entity_id: collaboratorId ?? adminEmail,
+          metadata: {
+            actor_email: adminEmail,
+            actor_name: displayName,
+            actor_role: "superadmin",
+            method: "legacy_env",
+          },
+        });
+      } catch (_) { /* audit log failure must not block login */ }
+
       return res.json({ ok: true, session_token: token });
     }
   }
@@ -271,6 +287,23 @@ export const adminLogin: RequestHandler = async (req, res) => {
   });
 
   res.setHeader("Set-Cookie", cookie);
+
+  // Audit: log collaborator login
+  try {
+    await supabase.from("admin_audit_log").insert({
+      actor_id: collaborator.id,
+      action: "admin.login",
+      entity_type: "admin_collaborator",
+      entity_id: collaborator.id,
+      metadata: {
+        actor_email: collaborator.email,
+        actor_name: displayName,
+        actor_role: collaborator.role_id,
+        method: "collaborator_password",
+      },
+    });
+  } catch (_) { /* audit log failure must not block login */ }
+
   res.json({
     ok: true,
     session_token: token,

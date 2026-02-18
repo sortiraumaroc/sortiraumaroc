@@ -146,7 +146,7 @@ export function UsernameRequestsPanel({ adminKey }: Props) {
           <AtSign className="w-5 h-5" />
           Demandes de nom d'utilisateur
           {total > 0 && (
-            <Badge variant="secondary" className="ml-2">
+            <Badge variant="secondary" className="ms-2">
               {total} en attente
             </Badge>
           )}
@@ -165,7 +165,7 @@ export function UsernameRequestsPanel({ adminKey }: Props) {
                 <TableHead>Username demandé</TableHead>
                 <TableHead>Username actuel</TableHead>
                 <TableHead>Date</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead className="text-end">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -184,7 +184,7 @@ export function UsernameRequestsPanel({ adminKey }: Props) {
                       @{request.requested_username}
                     </div>
                     <div className="text-xs text-slate-500">
-                      sortiraumaroc.ma/@{request.requested_username}
+                      sam.ma/@{request.requested_username}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -202,7 +202,7 @@ export function UsernameRequestsPanel({ adminKey }: Props) {
                       {formatDate(request.created_at)}
                     </div>
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-end">
                     <div className="flex items-center justify-end gap-2">
                       <Button
                         size="sm"
@@ -216,7 +216,7 @@ export function UsernameRequestsPanel({ adminKey }: Props) {
                         ) : (
                           <X className="w-4 h-4" />
                         )}
-                        <span className="ml-1">Refuser</span>
+                        <span className="ms-1">Refuser</span>
                       </Button>
                       <Button
                         size="sm"
@@ -229,7 +229,7 @@ export function UsernameRequestsPanel({ adminKey }: Props) {
                         ) : (
                           <Check className="w-4 h-4" />
                         )}
-                        <span className="ml-1">Approuver</span>
+                        <span className="ms-1">Approuver</span>
                       </Button>
                     </div>
                   </TableCell>
@@ -277,7 +277,7 @@ export function UsernameRequestsPanel({ adminKey }: Props) {
                 disabled={processing !== null}
               >
                 {processing ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  <Loader2 className="w-4 h-4 me-2 animate-spin" />
                 ) : null}
                 Refuser
               </Button>

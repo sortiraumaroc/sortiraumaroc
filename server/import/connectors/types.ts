@@ -10,11 +10,17 @@
 
 export type ImportSource =
   | "google"
-  | "madeincity";
+  | "madeincity"
+  | "sortiraumaroc"
+  | "marrakechbestof"
+  | "bestrestaurantsmaroc";
 
 export const IMPORT_SOURCES: ImportSource[] = [
   "google",
   "madeincity",
+  "sortiraumaroc",
+  "marrakechbestof",
+  "bestrestaurantsmaroc",
 ];
 
 // ============================================

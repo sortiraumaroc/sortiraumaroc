@@ -1,3 +1,101 @@
+import type { AppLocale } from "./i18n/types";
+import { SUPPORTED_APP_LOCALES, DEFAULT_APP_LOCALE, stripLocalePrefix, addLocalePrefix } from "./i18n/types";
+
+// ---------------------------------------------------------------------------
+// OG locale mapping (spec §2)
+// ---------------------------------------------------------------------------
+const OG_LOCALE_MAP: Record<AppLocale, string> = {
+  fr: "fr_MA",
+  en: "en_US",
+  es: "es_ES",
+  it: "it_IT",
+  ar: "ar_SA",
+};
+
+/**
+ * Returns the OG `og:locale` value for the given app locale.
+ */
+export function getOgLocale(locale: AppLocale): string {
+  return OG_LOCALE_MAP[locale] ?? OG_LOCALE_MAP[DEFAULT_APP_LOCALE];
+}
+
+/**
+ * Returns all OG `og:locale:alternate` values (all except the current locale).
+ */
+export function getOgLocaleAlternates(locale: AppLocale): string[] {
+  return SUPPORTED_APP_LOCALES
+    .filter((l) => l !== locale)
+    .map((l) => OG_LOCALE_MAP[l]);
+}
+
+// ---------------------------------------------------------------------------
+// Hreflang builder (spec §1 + §5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds the full hreflang map for all 5 locales + x-default, given:
+ *  - The current pathname (may or may not contain a locale prefix)
+ *  - An optional baseUrl (defaults to window.location.origin)
+ *
+ * @example
+ *   buildSeoHreflangs("/en/restaurant/123")
+ *   → { fr: "https://sam.ma/restaurant/123", en: "https://sam.ma/en/restaurant/123", es: "https://sam.ma/es/restaurant/123", it: "https://sam.ma/it/restaurant/123", ar: "https://sam.ma/ar/restaurant/123", "x-default": "https://sam.ma/restaurant/123" }
+ */
+export function buildSeoHreflangs(pathname?: string, baseUrl?: string): Record<string, string> | undefined {
+  const base = baseUrl ?? (typeof window !== "undefined" ? window.location.origin : "");
+  if (!base) return undefined;
+
+  const rawPath = pathname ?? (typeof window !== "undefined" ? window.location.pathname : "/");
+  const strippedPath = stripLocalePrefix(rawPath);
+
+  const hreflangs: Record<string, string> = {};
+  for (const locale of SUPPORTED_APP_LOCALES) {
+    const localizedPath = addLocalePrefix(strippedPath, locale);
+    hreflangs[locale] = `${base}${localizedPath}`;
+  }
+  // x-default → FR (default locale, no prefix)
+  hreflangs["x-default"] = `${base}${strippedPath}`;
+
+  return hreflangs;
+}
+
+/**
+ * Returns the canonical URL for the current page, correctly including the locale prefix.
+ */
+export function buildCanonicalUrl(pathname?: string, baseUrl?: string): string {
+  const base = baseUrl ?? (typeof window !== "undefined" ? window.location.origin : "");
+  if (!base) return "";
+  const path = pathname ?? (typeof window !== "undefined" ? window.location.pathname : "/");
+  return `${base}${path}`;
+}
+
+// ---------------------------------------------------------------------------
+// Convenience: build a full SeoInput with all i18n fields pre-filled
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds the i18n-related subset of SeoInput for a given locale.
+ * Can be spread into an `applySeo()` call.
+ *
+ * @example
+ *   applySeo({
+ *     title: t("seo.home.title"),
+ *     description: t("seo.home.description"),
+ *     ...buildI18nSeoFields(locale),
+ *   });
+ */
+export function buildI18nSeoFields(
+  locale: AppLocale,
+  options?: { pathname?: string; baseUrl?: string },
+): Pick<SeoInput, "ogLocale" | "ogLocaleAlternates" | "hreflangs" | "canonicalUrl"> {
+  return {
+    ogLocale: getOgLocale(locale),
+    ogLocaleAlternates: getOgLocaleAlternates(locale),
+    hreflangs: buildSeoHreflangs(options?.pathname, options?.baseUrl),
+    canonicalUrl: buildCanonicalUrl(options?.pathname, options?.baseUrl),
+  };
+}
+
 export type SeoInput = {
   title?: string;
   description?: string;

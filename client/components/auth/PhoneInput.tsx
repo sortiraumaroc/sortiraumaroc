@@ -123,7 +123,7 @@ export const PhoneInput = forwardRef<HTMLInputElement, PhoneInputProps>(
                 type="button"
                 onClick={() => !disabled && setDropdownOpen(!dropdownOpen)}
                 disabled={disabled}
-                className="flex items-center gap-1 pl-2.5 pr-1.5 py-2 border-r border-slate-200 bg-slate-50 rounded-l-lg whitespace-nowrap shrink-0 hover:bg-slate-100 transition-colors"
+                className="flex items-center gap-1 ps-2.5 pe-1.5 py-2 border-e border-slate-200 bg-slate-50 rounded-s-lg whitespace-nowrap shrink-0 hover:bg-slate-100 transition-colors"
               >
                 <span className="text-sm leading-none">{country.flag}</span>
                 <span className="text-xs font-medium text-slate-700">{country.dial}</span>
@@ -132,14 +132,14 @@ export const PhoneInput = forwardRef<HTMLInputElement, PhoneInputProps>(
 
               {/* Dropdown */}
               {dropdownOpen && (
-                <div className="absolute top-full left-0 mt-1 w-56 max-h-48 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-50">
+                <div className="absolute top-full start-0 mt-1 w-56 max-h-48 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-50">
                   {COUNTRIES.map((c) => (
                     <button
                       key={c.code}
                       type="button"
                       onClick={() => handleCountrySelect(c)}
                       className={cn(
-                        "w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-slate-50 transition-colors text-sm",
+                        "w-full flex items-center gap-2 px-3 py-2 text-start hover:bg-slate-50 transition-colors text-sm",
                         c.code === countryCode && "bg-primary/5 font-medium"
                       )}
                     >
@@ -166,14 +166,14 @@ export const PhoneInput = forwardRef<HTMLInputElement, PhoneInputProps>(
               className={cn(
                 "border-0 focus-visible:ring-0 focus-visible:ring-offset-0",
                 "text-sm font-medium tracking-wide",
-                "h-10 pl-3"
+                "h-10 ps-3"
               )}
               autoComplete="tel-national"
             />
 
             {/* Validation indicator */}
             {value.length >= country.minDigits && (
-              <div className="pr-3">
+              <div className="pe-3">
                 {isComplete ? (
                   <svg className="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />

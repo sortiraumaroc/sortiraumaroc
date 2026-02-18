@@ -332,7 +332,7 @@ async function sendProWelcomeEmail(args: {
 }): Promise<void> {
   const proSpaceUrl = process.env.PUBLIC_BASE_URL
     ? `${process.env.PUBLIC_BASE_URL}/pro`
-    : "https://sortiraumaroc.ma/pro";
+    : "https://sam.ma/pro";
 
   const greeting = args.proName ? `Bonjour ${args.proName},` : "Bonjour,";
 
@@ -1190,9 +1190,9 @@ export function registerAdminImportExportRoutes(router: Router): void {
 
             if (!proInfo) {
               // Check if user exists
-              const { data: existingUsers } = await supabase.auth.admin.listUsers();
+              const { data: existingUsers } = await supabase.auth.admin.listUsers() as { data: { users: any[] } };
               const existingUser = existingUsers?.users?.find(
-                (u) => u.email?.toLowerCase() === normalized.pro_email!.toLowerCase()
+                (u: any) => u.email?.toLowerCase() === normalized.pro_email!.toLowerCase()
               );
 
               if (existingUser) {

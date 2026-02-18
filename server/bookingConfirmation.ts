@@ -11,7 +11,7 @@ import { getAdminSupabase } from "./supabaseAdmin";
 import { sendTemplateEmail } from "./emailService";
 import { formatDateLongFr } from "../shared/datetime";
 
-const BASE_URL = process.env.VITE_APP_URL || "https://sortiraumaroc.ma";
+const BASE_URL = process.env.VITE_APP_URL || "https://sam.ma";
 
 // ============================================================================
 // Types

@@ -532,7 +532,7 @@ export function MediaMessagesPanel({
       )}
     >
       {/* LEFT: Thread List */}
-      <div className="w-72 border-r border-slate-200 flex flex-col">
+      <div className="w-72 border-e border-slate-200 flex flex-col">
         <div className="p-3 border-b border-slate-200 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-slate-900">
             Conversations
@@ -578,7 +578,7 @@ export function MediaMessagesPanel({
                     key={thread.id}
                     onClick={() => onSelectThread(thread.id)}
                     className={cn(
-                      "w-full p-3 text-left hover:bg-slate-50 transition-colors",
+                      "w-full p-3 text-start hover:bg-slate-50 transition-colors",
                       isSelected && "bg-slate-100",
                     )}
                   >
@@ -658,7 +658,7 @@ export function MediaMessagesPanel({
                       onClick={() => onCloseThread(selectedThreadId)}
                       className="text-xs h-7"
                     >
-                      <Lock className="w-3 h-3 mr-1" />
+                      <Lock className="w-3 h-3 me-1" />
                       Clôturer
                     </Button>
                   )}
@@ -797,7 +797,7 @@ export function MediaMessagesPanel({
                                       <span className="text-[10px] opacity-70">
                                         {formatFileSize(att.size_bytes)}
                                       </span>
-                                      <Download className="w-3 h-3 ml-1" />
+                                      <Download className="w-3 h-3 ms-1" />
                                     </a>
                                   )}
                                 </div>
@@ -900,7 +900,7 @@ export function MediaMessagesPanel({
                         Réponses rapides
                       </Button>
                       {showQuickReplies && (
-                        <div className="absolute top-full left-0 mt-1 w-64 max-h-64 overflow-auto bg-white border border-slate-200 rounded-lg shadow-lg z-50">
+                        <div className="absolute top-full start-0 mt-1 w-64 max-h-64 overflow-auto bg-white border border-slate-200 rounded-lg shadow-lg z-50">
                           {Object.entries(quickRepliesByCategory).map(
                             ([category, templates]) => (
                               <div key={category}>
@@ -913,7 +913,7 @@ export function MediaMessagesPanel({
                                     key={qr.id}
                                     type="button"
                                     onClick={() => handleQuickReplySelect(qr)}
-                                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 border-b border-slate-100 last:border-b-0"
+                                    className="w-full text-start px-3 py-2 text-xs hover:bg-slate-50 border-b border-slate-100 last:border-b-0"
                                   >
                                     <div className="font-medium text-slate-900">
                                       {qr.label}
@@ -942,9 +942,9 @@ export function MediaMessagesPanel({
                         variant="outline"
                         size="sm"
                         onClick={() => setShowLogDialog(true)}
-                        className="h-7 text-xs ml-auto"
+                        className="h-7 text-xs ms-auto"
                       >
-                        <Plus className="w-3 h-3 mr-1" />
+                        <Plus className="w-3 h-3 me-1" />
                         Journal externe
                       </Button>
                     )}
@@ -979,7 +979,7 @@ export function MediaMessagesPanel({
                           <button
                             type="button"
                             onClick={() => removeAttachment(idx)}
-                            className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="absolute -top-1 -end-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
                           >
                             <X className="w-3 h-3" />
                           </button>
@@ -1063,7 +1063,7 @@ export function MediaMessagesPanel({
 
       {/* RIGHT: Info Panel */}
       {showInfoPanel && selectedThreadId && selectedThread && (
-        <div className="w-64 border-l border-slate-200 flex flex-col">
+        <div className="w-64 border-s border-slate-200 flex flex-col">
           <div className="p-3 border-b border-slate-200">
             <h4 className="text-sm font-semibold text-slate-900">
               Informations
@@ -1168,7 +1168,7 @@ export function MediaMessagesPanel({
                     size="sm"
                     className="w-full justify-start text-xs h-8"
                   >
-                    <ExternalLink className="w-3 h-3 mr-2" />
+                    <ExternalLink className="w-3 h-3 me-2" />
                     Ouvrir la mission
                   </Button>
                   <Button
@@ -1176,7 +1176,7 @@ export function MediaMessagesPanel({
                     size="sm"
                     className="w-full justify-start text-xs h-8"
                   >
-                    <FileText className="w-3 h-3 mr-2" />
+                    <FileText className="w-3 h-3 me-2" />
                     Voir les livrables
                   </Button>
                 </div>

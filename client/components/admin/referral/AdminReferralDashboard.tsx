@@ -273,7 +273,7 @@ function PartnersList({
         </Select>
 
         <Button variant="outline" size="sm" onClick={loadPartners}>
-          <RefreshCw className="h-4 w-4 mr-2" />
+          <RefreshCw className="h-4 w-4 me-2" />
           Actualiser
         </Button>
       </div>
@@ -354,7 +354,7 @@ function PartnersList({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem disabled>
-                        <Eye className="h-4 w-4 mr-2" />
+                        <Eye className="h-4 w-4 me-2" />
                         Voir détails
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
@@ -364,14 +364,14 @@ function PartnersList({
                             onClick={() => setAction({ type: "approve", partner })}
                             className="text-green-600"
                           >
-                            <CheckCircle className="h-4 w-4 mr-2" />
+                            <CheckCircle className="h-4 w-4 me-2" />
                             Approuver
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => setAction({ type: "reject", partner })}
                             className="text-red-600"
                           >
-                            <XCircle className="h-4 w-4 mr-2" />
+                            <XCircle className="h-4 w-4 me-2" />
                             Refuser
                           </DropdownMenuItem>
                         </>
@@ -381,7 +381,7 @@ function PartnersList({
                           onClick={() => setAction({ type: "suspend", partner })}
                           className="text-yellow-600"
                         >
-                          <Pause className="h-4 w-4 mr-2" />
+                          <Pause className="h-4 w-4 me-2" />
                           Suspendre
                         </DropdownMenuItem>
                       )}
@@ -390,7 +390,7 @@ function PartnersList({
                           onClick={() => setAction({ type: "reactivate", partner })}
                           className="text-green-600"
                         >
-                          <CheckCircle className="h-4 w-4 mr-2" />
+                          <CheckCircle className="h-4 w-4 me-2" />
                           Réactiver
                         </DropdownMenuItem>
                       )}

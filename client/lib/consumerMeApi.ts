@@ -6,6 +6,10 @@ export type ConsumerMe = {
   last_name: string | null;
   phone: string | null;
   email: string | null;
+  date_of_birth: string | null;
+  city: string | null;
+  country: string | null;
+  socio_professional_status: string | null;
   reliability_score?: number;
   reliability_level?: "excellent" | "good" | "medium" | "fragile";
 };
@@ -85,15 +89,21 @@ export async function updateMyConsumerMe(args: {
   first_name?: string | null;
   last_name?: string | null;
   phone?: string | null;
+  email?: string | null;
   date_of_birth?: string | null;
   city?: string | null;
+  country?: string | null;
+  socio_professional_status?: string | null;
 }): Promise<ConsumerMe> {
   const body = {
     ...(args.first_name != null ? { first_name: args.first_name } : {}),
     ...(args.last_name != null ? { last_name: args.last_name } : {}),
     ...(args.phone != null ? { phone: args.phone } : {}),
+    ...(args.email != null ? { email: args.email } : {}),
     ...(args.date_of_birth != null ? { date_of_birth: args.date_of_birth } : {}),
     ...(args.city != null ? { city: args.city } : {}),
+    ...(args.country != null ? { country: args.country } : {}),
+    ...(args.socio_professional_status != null ? { socio_professional_status: args.socio_professional_status } : {}),
   };
 
   return requestAuthedJson<ConsumerMe>("/api/consumer/me/update", {

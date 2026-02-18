@@ -1,10 +1,18 @@
 import { CONSUMER_AUTH_STORAGE_KEY, consumerSupabase } from "@/lib/supabase";
 import { clearProAuthStorage, proSupabase } from "@/lib/pro/supabase";
-import { clearUserLocalData } from "@/lib/userData";
+import { clearUserLocalData, getUserProfile, restoreAvatarFromBackup, saveUserProfile } from "@/lib/userData";
+import { getMyConsumerMe } from "@/lib/consumerMeApi";
 
 export const AUTH_STORAGE_KEY = "sam_auth";
 export const AUTH_CHANGED_EVENT = "sam-auth-changed";
 export const AUTH_MODAL_OPEN_EVENT = "sam-auth-modal-open";
+export const ONBOARDING_NEEDED_EVENT = "sam-onboarding-needed";
+
+export type OnboardingNeededDetail = {
+  prefillFirstName?: string;
+  prefillLastName?: string;
+  prefillEmail?: string;
+};
 
 // Trigger the auth modal to open from anywhere in the app
 export function openAuthModal(): void {
@@ -15,6 +23,7 @@ export function openAuthModal(): void {
 
 let initDone = false;
 let authSubscription: { unsubscribe: () => void } | null = null;
+let onboardingDispatched = false;
 
 let reactivateInFlight: Promise<void> | null = null;
 
@@ -126,6 +135,94 @@ function cleanupConsumerAuthSubscription() {
   w.__sam_consumer_auth_subscription = null;
 }
 
+/**
+ * Fetch profile from the server and merge into localStorage.
+ * Called after login / session restore so that profile data survives logout cycles.
+ *
+ * When `opts.checkOnboarding` is true (fresh SIGNED_IN event, typically after OAuth),
+ * we check whether the profile is incomplete and dispatch ONBOARDING_NEEDED_EVENT
+ * so the Header can open the onboarding wizard.
+ */
+let syncProfileInFlight: Promise<void> | null = null;
+
+interface SyncProfileOpts {
+  checkOnboarding?: boolean;
+  userMetadata?: Record<string, unknown>;
+}
+
+function splitFullName(fullName: string): { first: string; last: string } {
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length === 0) return { first: "", last: "" };
+  if (parts.length === 1) return { first: parts[0]!, last: "" };
+  return { first: parts[0]!, last: parts.slice(1).join(" ") };
+}
+
+function syncProfileFromServer(opts?: SyncProfileOpts): void {
+  if (syncProfileInFlight) return;
+
+  syncProfileInFlight = (async () => {
+    try {
+      const me = await getMyConsumerMe();
+      // Read current local profile to preserve local-only fields (avatar, preferences, etc.)
+      const local = getUserProfile();
+
+      saveUserProfile({
+        firstName: me.first_name ?? local.firstName ?? undefined,
+        lastName: me.last_name ?? local.lastName ?? undefined,
+        contact: me.phone ?? local.contact ?? undefined,
+        email: me.email ?? local.email ?? undefined,
+        date_of_birth: me.date_of_birth ?? local.date_of_birth ?? undefined,
+        city: me.city ?? local.city ?? undefined,
+        country: me.country ?? local.country ?? undefined,
+        socio_professional_status: (me.socio_professional_status ?? local.socio_professional_status ?? undefined) as any,
+        preferences: local.preferences,
+      });
+      // Restore avatar from backup if it was lost during logout
+      restoreAvatarFromBackup();
+
+      // ── Check if onboarding is needed (OAuth first sign-in) ──
+      if (opts?.checkOnboarding && !onboardingDispatched) {
+        const isIncomplete =
+          !me.first_name?.trim() ||
+          !me.last_name?.trim() ||
+          !me.date_of_birth?.trim() ||
+          !me.city?.trim();
+
+        if (isIncomplete) {
+          onboardingDispatched = true;
+
+          // Extract prefill data from OAuth user_metadata
+          const meta = opts.userMetadata ?? {};
+          let prefillFirstName = (meta.first_name as string) || undefined;
+          let prefillLastName = (meta.last_name as string) || undefined;
+
+          // If no split name, try full_name or name
+          if (!prefillFirstName) {
+            const fullName = (meta.full_name as string) || (meta.name as string) || "";
+            if (fullName.trim()) {
+              const { first, last } = splitFullName(fullName);
+              prefillFirstName = first || undefined;
+              prefillLastName = prefillLastName || last || undefined;
+            }
+          }
+
+          const detail: OnboardingNeededDetail = {
+            prefillFirstName: me.first_name?.trim() || prefillFirstName,
+            prefillLastName: me.last_name?.trim() || prefillLastName,
+            prefillEmail: me.email || (meta.email as string) || undefined,
+          };
+
+          window.dispatchEvent(new CustomEvent(ONBOARDING_NEEDED_EVENT, { detail }));
+        }
+      }
+    } catch {
+      // Silently ignore – this is a best-effort sync
+    }
+  })().finally(() => {
+    syncProfileInFlight = null;
+  });
+}
+
 export function initConsumerAuth(): void {
   if (typeof window === "undefined") return;
   if (initDone) return;
@@ -145,16 +242,26 @@ export function initConsumerAuth(): void {
 
       setAuthedFlag(Boolean(data.session));
       void bestEffortReactivateConsumerAccount(data.session?.access_token);
+      if (data.session) syncProfileFromServer();
     })
     .catch(async (e) => {
       if (isStaleConsumerAuthError(e)) await resetConsumerAuth();
       setAuthedFlag(false);
     });
 
-  const { data } = consumerSupabase.auth.onAuthStateChange((_event, session) => {
+  const { data } = consumerSupabase.auth.onAuthStateChange((event, session) => {
     setAuthedFlag(Boolean(session));
     if (session) {
       clearOtherSessionsForConsumer();
+      const isNewSignIn = event === "SIGNED_IN";
+      syncProfileFromServer(
+        isNewSignIn
+          ? {
+              checkOnboarding: true,
+              userMetadata: (session.user?.user_metadata as Record<string, unknown>) ?? undefined,
+            }
+          : undefined
+      );
     }
     void bestEffortReactivateConsumerAccount(session?.access_token);
   });
@@ -214,6 +321,7 @@ export function markAuthed(): void {
 
 export function clearAuthed(): void {
   if (typeof window === "undefined") return;
+  onboardingDispatched = false;
   setAuthedFlag(false);
   clearUserLocalData(); // Clear profile/bookings/favorites from localStorage so next user starts fresh
   void resetConsumerAuth();

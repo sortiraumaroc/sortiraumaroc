@@ -389,7 +389,7 @@ export default function DirectBooking() {
                   variant="outline"
                   className="text-green-700 border-green-300 bg-green-50 px-4 py-1.5 text-sm font-medium"
                 >
-                  <Check className="w-4 h-4 mr-1.5" />
+                  <Check className="w-4 h-4 me-1.5" />
                   Reservation sans commission
                 </Badge>
               </div>
@@ -401,7 +401,7 @@ export default function DirectBooking() {
                     <CalendarDays className="w-5 h-5 text-[#a3001d]" />
                     <span className="font-semibold text-slate-900">Date</span>
                     {selectedDate && (
-                      <span className="ml-auto text-sm text-[#a3001d] font-medium">
+                      <span className="ms-auto text-sm text-[#a3001d] font-medium">
                         {formatDateShort(selectedDate)}
                       </span>
                     )}
@@ -465,7 +465,7 @@ export default function DirectBooking() {
                       <Clock className="w-5 h-5 text-[#a3001d]" />
                       <span className="font-semibold text-slate-900">Heure</span>
                       {selectedTime && (
-                        <span className="ml-auto text-sm text-[#a3001d] font-medium">
+                        <span className="ms-auto text-sm text-[#a3001d] font-medium">
                           {selectedTime}
                         </span>
                       )}
@@ -516,7 +516,7 @@ export default function DirectBooking() {
                     <div className="flex items-center gap-2">
                       <Users className="w-5 h-5 text-[#a3001d]" />
                       <span className="font-semibold text-slate-900">Personnes</span>
-                      <span className="ml-auto text-sm text-[#a3001d] font-medium">
+                      <span className="ms-auto text-sm text-[#a3001d] font-medium">
                         {selectedPeople} personne{selectedPeople > 1 ? "s" : ""}
                       </span>
                     </div>
@@ -603,7 +603,7 @@ export default function DirectBooking() {
                               </p>
                             )}
                           </div>
-                          <div className="text-right flex-shrink-0">
+                          <div className="text-end flex-shrink-0">
                             <div className="font-bold text-[#a3001d]">
                               {(pack.price / 100).toFixed(0)} MAD
                             </div>
@@ -718,7 +718,7 @@ export default function DirectBooking() {
           >
             {submitting ? (
               <>
-                <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                <Loader2 className="w-5 h-5 me-2 animate-spin" />
                 Reservation en cours...
               </>
             ) : isSelectionComplete ? (

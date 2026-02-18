@@ -110,7 +110,7 @@ export function BriefFormRenderer({
               className="border rounded-lg overflow-hidden"
             >
               <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-slate-50">
-                <div className="flex items-center gap-3 text-left">
+                <div className="flex items-center gap-3 text-start">
                   <span className="text-lg">{section.icon}</span>
                   <div className="flex-1">
                     <div className="font-semibold text-sm">{section.title}</div>
@@ -285,14 +285,14 @@ function BriefFieldRenderer({
         <div className={wrapperClass}>
           {labelContent}
           <div className="relative">
-            <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <LinkIcon className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
             <Input
               type="url"
               value={value}
               onChange={(e) => onChange(e.target.value)}
               disabled={disabled}
               placeholder={field.hint || "https://..."}
-              className="pl-9"
+              className="ps-9"
             />
           </div>
           {hintContent}
@@ -438,11 +438,11 @@ function DatePickerField({
           variant="outline"
           disabled={disabled}
           className={cn(
-            "w-full justify-start text-left font-normal",
+            "w-full justify-start text-start font-normal",
             !value && "text-muted-foreground"
           )}
         >
-          <CalendarIcon className="mr-2 h-4 w-4" />
+          <CalendarIcon className="me-2 h-4 w-4" />
           {date ? format(date, "PPP", { locale: fr }) : "Sélectionner une date"}
         </Button>
       </PopoverTrigger>
@@ -569,7 +569,7 @@ function FileUploadField({
             return (
               <div
                 key={url}
-                className="relative group flex items-center gap-2 p-2 pr-8 bg-slate-100 rounded-lg text-xs"
+                className="relative group flex items-center gap-2 p-2 pe-8 bg-slate-100 rounded-lg text-xs"
               >
                 {isImage && (
                   <img
@@ -583,7 +583,7 @@ function FileUploadField({
                   <button
                     type="button"
                     onClick={() => removeUrl(url)}
-                    className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded-full bg-slate-200 hover:bg-rose-100 hover:text-rose-600 transition-colors"
+                    className="absolute end-1 top-1/2 -translate-y-1/2 p-1 rounded-full bg-slate-200 hover:bg-rose-100 hover:text-rose-600 transition-colors"
                   >
                     <X className="w-3 h-3" />
                   </button>

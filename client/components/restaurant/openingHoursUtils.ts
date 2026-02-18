@@ -74,10 +74,48 @@ export function normalizeOpeningHours(args: {
   if (args.openingHours) {
     for (const k of WEEKDAYS_ORDER) {
       const dayIntervals = args.openingHours[k];
-      if (!Array.isArray(dayIntervals)) continue;
-      base[k] = dayIntervals
-        .filter((i): i is OpeningInterval => !!i && (i.type === "lunch" || i.type === "dinner") && isValidTime(i.from) && isValidTime(i.to))
-        .map((i) => ({ type: i.type, from: i.from, to: i.to }));
+
+      // Standard format: array of intervals
+      if (Array.isArray(dayIntervals)) {
+        base[k] = dayIntervals
+          .filter((i): i is OpeningInterval => !!i && typeof i.type === "string" && isValidTime(i.from) && isValidTime(i.to))
+          .map((i) => ({ type: i.type as ServiceType, from: i.from, to: i.to }));
+        continue;
+      }
+
+      // Fallback: DaySchedule object (v1 or v2) that wasn't transformed server-side
+      if (dayIntervals && typeof dayIntervals === "object" && "open" in dayIntervals) {
+        const s = dayIntervals as Record<string, unknown>;
+        if (!s.open) { base[k] = []; continue; }
+
+        const intervals: OpeningInterval[] = [];
+
+        // v2 format: mode + ranges
+        if (Array.isArray(s.ranges)) {
+          const types: ServiceType[] = ["lunch", "dinner"];
+          (s.ranges as { from?: string; to?: string }[]).forEach((r, i) => {
+            if (r && typeof r.from === "string" && typeof r.to === "string" && isValidTime(r.from) && isValidTime(r.to)) {
+              intervals.push({ type: types[i] ?? "lunch", from: r.from, to: r.to });
+            }
+          });
+        } else {
+          // v1 format: continuous + openTime1/closeTime1
+          const t1From = typeof s.openTime1 === "string" ? s.openTime1 : "";
+          const t1To = typeof s.closeTime1 === "string" ? s.closeTime1 : "";
+          if (t1From && t1To && isValidTime(t1From) && isValidTime(t1To)) {
+            intervals.push({ type: "lunch", from: t1From, to: t1To });
+          }
+          if (!s.continuous) {
+            const t2From = typeof s.openTime2 === "string" ? s.openTime2 : "";
+            const t2To = typeof s.closeTime2 === "string" ? s.closeTime2 : "";
+            if (t2From && t2To && isValidTime(t2From) && isValidTime(t2To)) {
+              intervals.push({ type: "dinner", from: t2From, to: t2To });
+            }
+          }
+        }
+
+        base[k] = intervals;
+      }
     }
   }
 

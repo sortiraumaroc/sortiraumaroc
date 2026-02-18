@@ -260,14 +260,14 @@ export function AdminTopbar(props: { onSignOut: () => void }) {
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="hidden sm:flex items-center gap-2 pl-2 border-l border-slate-200 hover:bg-slate-50 rounded-md px-2 py-1 -my-1 transition-colors">
+                <button className="hidden sm:flex items-center gap-2 ps-2 border-s border-slate-200 hover:bg-slate-50 rounded-md px-2 py-1 -my-1 transition-colors">
                   <Avatar className="w-8 h-8">
                     {avatarUrl ? <AvatarImage src={avatarUrl} alt={profileDisplayName} /> : null}
                     <AvatarFallback className="bg-[#a3001d]/10 text-[#a3001d] font-bold text-xs">
                       {profileDisplayName.charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
-                  <div className="hidden md:block text-left">
+                  <div className="hidden md:block text-start">
                     <div className="text-sm font-semibold text-slate-900 leading-none">
                       {profileDisplayName}
                     </div>

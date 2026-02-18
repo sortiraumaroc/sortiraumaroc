@@ -134,7 +134,7 @@ export function HomeTakeoverBanner({ className = "" }: Props) {
       <button
         type="button"
         onClick={handleDismiss}
-        className="absolute top-3 right-3 z-20 w-8 h-8 rounded-full bg-black/30 hover:bg-black/50 flex items-center justify-center transition"
+        className="absolute top-3 end-3 z-20 w-8 h-8 rounded-full bg-black/30 hover:bg-black/50 flex items-center justify-center transition"
         aria-label="Fermer"
       >
         <X className="w-4 h-4" style={{ color: textColor }} />
@@ -265,7 +265,7 @@ export function HomeTakeoverBanner({ className = "" }: Props) {
 
       {/* "Sponsorisé" label */}
       <div
-        className="absolute bottom-2 left-2 px-2 py-0.5 rounded text-[10px] font-medium bg-black/30"
+        className="absolute bottom-2 start-2 px-2 py-0.5 rounded text-[10px] font-medium bg-black/30"
         style={{ color: textColor }}
       >
         Sponsorisé

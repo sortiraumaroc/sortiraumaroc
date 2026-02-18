@@ -10,6 +10,7 @@
 import type { RequestHandler, Router } from "express";
 import { randomUUID } from "node:crypto";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { adReadRateLimiter, adImpressionRateLimiter, adClickRateLimiter } from "../middleware/rateLimiter";
 
 // =============================================================================
 // HELPERS
@@ -74,6 +75,7 @@ export const getSponsoredResults: RequestHandler = async (req, res) => {
           name,
           city,
           address,
+          neighborhood,
           cover_url,
           subcategory,
           avg_rating,
@@ -170,6 +172,7 @@ export const getSponsoredResults: RequestHandler = async (req, res) => {
           name: establishment.name,
           city: establishment.city,
           address: establishment.address,
+          neighborhood: establishment.neighborhood ?? null,
           cover_url: establishment.cover_url,
           subcategory: establishment.subcategory,
           avg_rating: establishment.avg_rating,
@@ -231,6 +234,7 @@ export const getFeaturedPack: RequestHandler = async (req, res) => {
           universe,
           city,
           address,
+          neighborhood,
           cover_url,
           subcategory,
           avg_rating,
@@ -331,6 +335,7 @@ export const getFeaturedPack: RequestHandler = async (req, res) => {
           universe: establishment.universe,
           city: establishment.city,
           address: establishment.address,
+          neighborhood: establishment.neighborhood ?? null,
           cover_url: establishment.cover_url,
           subcategory: establishment.subcategory,
           avg_rating: establishment.avg_rating,
@@ -477,8 +482,44 @@ export const trackClick: RequestHandler = async (req, res) => {
 };
 
 // =============================================================================
-// REGISTER ROUTES
+// TRACK CONVERSION
 // =============================================================================
+
+/**
+ * POST /api/public/ads/conversion
+ * Enregistre une conversion publicitaire (réservation, achat pack, etc.)
+ */
+export const trackConversion: RequestHandler = async (req, res) => {
+  const { user_id, conversion_type, conversion_value_cents, entity_type, entity_id, establishment_id } = req.body;
+
+  if (!user_id || !conversion_type || !establishment_id) {
+    return res.status(400).json({ error: "user_id, conversion_type et establishment_id requis" });
+  }
+
+  const validTypes = ["reservation", "pack_purchase", "page_view", "contact"];
+  if (!validTypes.includes(conversion_type)) {
+    return res.status(400).json({ error: `conversion_type invalide. Attendu: ${validTypes.join(", ")}` });
+  }
+
+  try {
+    const { recordConversion } = await import("../ads/qualityScore");
+    const supabase = getAdminSupabase();
+
+    const result = await recordConversion(supabase, {
+      userId: user_id,
+      conversionType: conversion_type,
+      conversionValueCents: conversion_value_cents,
+      entityType: entity_type,
+      entityId: entity_id,
+      establishmentId: establishment_id,
+    });
+
+    return res.json({ ok: true, ...result });
+  } catch (error) {
+    console.error("[publicAds] trackConversion error:", error);
+    return res.status(500).json({ error: "Erreur serveur" });
+  }
+};
 
 // =============================================================================
 // GET HOME TAKEOVER (today's homepage takeover)
@@ -558,9 +599,10 @@ export const getHomeTakeover: RequestHandler = async (req, res) => {
 };
 
 export function registerPublicAdsRoutes(app: Router) {
-  app.get("/api/public/ads/sponsored", getSponsoredResults);
-  app.get("/api/public/ads/featured-pack", getFeaturedPack);
-  app.get("/api/public/ads/home-takeover", getHomeTakeover);
-  app.post("/api/public/ads/impression", trackImpression);
-  app.post("/api/public/ads/click", trackClick);
+  app.get("/api/public/ads/sponsored", adReadRateLimiter, getSponsoredResults);
+  app.get("/api/public/ads/featured-pack", adReadRateLimiter, getFeaturedPack);
+  app.get("/api/public/ads/home-takeover", adReadRateLimiter, getHomeTakeover);
+  app.post("/api/public/ads/impression", adImpressionRateLimiter, trackImpression);
+  app.post("/api/public/ads/click", adClickRateLimiter, trackClick);
+  app.post("/api/public/ads/conversion", adClickRateLimiter, trackConversion);
 }

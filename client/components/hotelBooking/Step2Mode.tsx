@@ -71,7 +71,7 @@ export default function Step2HotelMode() {
             type="button"
             onClick={() => handleSelectMode("non-guaranteed")}
             className={cn(
-              "w-full p-4 rounded-lg border-2 transition-all text-left",
+              "w-full p-4 rounded-lg border-2 transition-all text-start",
               reservationMode === "non-guaranteed" ? "border-primary bg-primary/5" : "border-slate-300 bg-white hover:border-primary/50",
             )}
           >
@@ -96,7 +96,7 @@ export default function Step2HotelMode() {
             type="button"
             onClick={() => handleSelectMode("guaranteed")}
             className={cn(
-              "w-full p-4 rounded-lg border-2 transition-all text-left",
+              "w-full p-4 rounded-lg border-2 transition-all text-start",
               reservationMode === "guaranteed" ? "border-primary bg-primary/5" : "border-slate-300 bg-white hover:border-primary/50",
             )}
           >

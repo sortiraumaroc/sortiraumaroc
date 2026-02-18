@@ -9,7 +9,7 @@ import { getPublicContentPage, type PublicContentPage } from "@/lib/content";
 import { useI18n } from "@/lib/i18n";
 import { addLocalePrefix } from "@/lib/i18n/types";
 import { sanitizeRichTextHtml } from "@/lib/richText";
-import { applySeo, clearJsonLd, setJsonLd } from "@/lib/seo";
+import { applySeo, clearJsonLd, setJsonLd, buildI18nSeoFields } from "@/lib/seo";
 
 function resolveBrandSuffix(): string {
   return "Sortir Au Maroc";
@@ -85,12 +85,14 @@ export default function ContentPage() {
         const ogDescription = String(item?.resolved?.og_description ?? "").trim();
         const ogImageUrl = String(item?.resolved?.og_image_url ?? "").trim();
 
-        const hreflangs: Record<string, string> = {};
+        // Custom hreflangs from DB (override auto-generated if present)
+        const customHreflangs: Record<string, string> = {};
         const canonicalFr = String((item as any)?.canonical_url_fr ?? "").trim();
         const canonicalEn = String((item as any)?.canonical_url_en ?? "").trim();
-        if (canonicalFr) hreflangs.fr = canonicalFr;
-        if (canonicalEn) hreflangs.en = canonicalEn;
-        if (canonicalFr) hreflangs["x-default"] = canonicalFr;
+        if (canonicalFr) customHreflangs.fr = canonicalFr;
+        if (canonicalEn) customHreflangs.en = canonicalEn;
+        if (canonicalFr) customHreflangs["x-default"] = canonicalFr;
+        const hasCustomHreflangs = Object.keys(customHreflangs).length > 0;
 
         const brand = resolveBrandSuffix();
         const finalTitle = seoTitle ? (seoTitle.includes(brand) ? seoTitle : `${seoTitle} — ${brand}`) : brand;
@@ -98,14 +100,14 @@ export default function ContentPage() {
         applySeo({
           title: finalTitle,
           description: seoDescription || undefined,
-          canonicalUrl: canonicalUrl || undefined,
           robots: robots || undefined,
           ogTitle: ogTitle || undefined,
           ogDescription: ogDescription || undefined,
           ogImageUrl: ogImageUrl || undefined,
-          ogLocale: locale === "en" ? "en_US" : "fr_MA",
-          ogLocaleAlternates: locale === "en" ? ["fr_MA"] : ["en_US"],
-          hreflangs: Object.keys(hreflangs).length ? hreflangs : undefined,
+          ...buildI18nSeoFields(locale),
+          // DB overrides: custom canonical and hreflangs take priority
+          ...(canonicalUrl ? { canonicalUrl } : {}),
+          ...(hasCustomHreflangs ? { hreflangs: customHreflangs } : {}),
         });
 
         if (item?.resolved?.schema_jsonld) {
@@ -226,7 +228,7 @@ export default function ContentPage() {
                     [&_p]:mb-4
                     [&_h2]:text-xl [&_h2]:font-extrabold [&_h2]:text-foreground [&_h2]:mt-8 [&_h2]:mb-3
                     [&_h3]:text-lg [&_h3]:font-bold [&_h3]:text-foreground [&_h3]:mt-6 [&_h3]:mb-2
-                    [&_ul]:my-4 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:my-4 [&_ol]:list-decimal [&_ol]:pl-6
+                    [&_ul]:my-4 [&_ul]:list-disc [&_ul]:ps-6 [&_ol]:my-4 [&_ol]:list-decimal [&_ol]:ps-6
                     [&_li]:my-1
                     [&_a]:text-primary [&_a:hover]:underline
                     [&_strong]:font-bold"

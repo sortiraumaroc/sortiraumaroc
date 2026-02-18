@@ -280,7 +280,7 @@ export function AdminEstablishmentBookingPolicyCard(props: { establishmentId: st
                 Enregistrer
               </Button>
               <Button size="sm" variant="outline" onClick={onCancel} disabled={saving || resetting} className="h-8">
-                <X className="h-3.5 w-3.5 mr-1" />
+                <X className="h-3.5 w-3.5 me-1" />
                 Annuler
               </Button>
               {hasPolicy && (
@@ -289,7 +289,7 @@ export function AdminEstablishmentBookingPolicyCard(props: { establishmentId: st
                   variant="destructive"
                   onClick={() => void onReset()}
                   disabled={saving || resetting}
-                  className="h-8 ml-auto gap-1.5"
+                  className="h-8 ms-auto gap-1.5"
                 >
                   {resetting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
                   Réinitialiser

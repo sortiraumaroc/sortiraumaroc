@@ -11,6 +11,8 @@
 import type { Router, RequestHandler } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
 import type { AdCampaign, AdModerationStatus } from "../ads/types";
+import { notifyProMembers } from "../proNotifications";
+import { sendTemplateEmail } from "../emailService";
 
 // =============================================================================
 // TYPES & HELPERS
@@ -259,7 +261,63 @@ export const moderateCampaign: RequestHandler = async (req, res) => {
       notes: rejection_reason || admin_notes || null,
     });
 
-    // TODO: Notifier le PRO par email
+    // Notifier le PRO de la décision de modération
+    void (async () => {
+      try {
+        const establishmentId = updated.establishment_id;
+
+        const titles: Record<string, string> = {
+          approve: "Campagne approuvée ✅",
+          reject: "Campagne rejetée ❌",
+          request_changes: "Modifications demandées ✏️",
+        };
+        const bodies: Record<string, string> = {
+          approve: `Votre campagne "${updated.title}" est maintenant active et en diffusion.`,
+          reject: `Votre campagne "${updated.title}" a été rejetée. Motif : ${rejection_reason || "Non spécifié"}`,
+          request_changes: `Des modifications sont demandées pour votre campagne "${updated.title}". Détails : ${rejection_reason || "Voir la plateforme"}`,
+        };
+
+        await notifyProMembers({
+          supabase,
+          establishmentId,
+          category: "ad",
+          title: titles[action] ?? "Mise à jour campagne",
+          body: bodies[action] ?? `Votre campagne "${updated.title}" a été mise à jour.`,
+          data: { campaign_id: campaignId, action },
+        });
+
+        // Email notification
+        // Récupérer l'email du pro owner
+        const { data: members } = await supabase
+          .from("pro_establishment_memberships")
+          .select("pro_user_id, pro_users!inner(email)")
+          .eq("establishment_id", establishmentId)
+          .eq("role", "owner")
+          .limit(1);
+
+        const ownerEmail = (members?.[0] as any)?.pro_users?.email;
+        if (ownerEmail) {
+          const templateKeys: Record<string, string> = {
+            approve: "ad_campaign_approved",
+            reject: "ad_campaign_rejected",
+            request_changes: "ad_campaign_changes_requested",
+          };
+          await sendTemplateEmail({
+            templateKey: templateKeys[action] ?? "ad_campaign_update",
+            lang: "fr",
+            fromKey: "noreply",
+            to: [ownerEmail],
+            variables: {
+              campaign_title: updated.title,
+              reason: rejection_reason || "",
+              dashboard_url: "https://sam.ma/pro?tab=ads",
+            },
+          });
+        }
+      } catch (e) {
+        console.error("[adminAds] Notification error (non-blocking):", e);
+      }
+    })();
 
     return res.json({ ok: true, campaign: updated });
   } catch (error) {

@@ -172,15 +172,17 @@ export function registerAdminDashboardRoutes(router: Router): void {
         // Top categories
         topCategoriesRes,
       ] = await Promise.all([
-        // Active users (users who made a booking in the period)
+        // Active users (registered consumers, excluding deleted accounts)
         supabase
-          .from("bookings")
-          .select("user_id", { count: "exact", head: true })
+          .from("consumer_users")
+          .select("*", { count: "exact", head: true })
+          .not("email", "like", "deleted+%@example.invalid")
           .gte("created_at", startStr)
           .lte("created_at", endStr),
         supabase
-          .from("bookings")
-          .select("user_id", { count: "exact", head: true })
+          .from("consumer_users")
+          .select("*", { count: "exact", head: true })
+          .not("email", "like", "deleted+%@example.invalid")
           .gte("created_at", prevStartStr)
           .lte("created_at", prevEndStr),
 

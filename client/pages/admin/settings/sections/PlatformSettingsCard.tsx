@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   CreditCard,
   Loader2,
+  Moon,
   RefreshCw,
   Settings2,
   Shield,
@@ -59,6 +60,7 @@ const CATEGORY_LABELS: Record<string, { label: string; icon: React.ReactNode }> 
   visibility: { label: "Visibilité & Media", icon: <Zap className="h-4 w-4" /> },
   reservations: { label: "Réservations", icon: <CheckCircle2 className="h-4 w-4" /> },
   branding: { label: "Marque & Identité", icon: <Shield className="h-4 w-4" /> },
+  ramadan: { label: "Ramadan & Ftour", icon: <Moon className="h-4 w-4" /> },
 };
 
 export function PlatformSettingsCard() {
@@ -117,6 +119,21 @@ export function PlatformSettingsCard() {
         title: "Paramètre mis à jour",
         description: `${setting.label} : ${newValue === "true" ? "Activé" : "Désactivé"}`,
       });
+    } catch (e) {
+      const msg = e instanceof AdminApiError ? e.message : "Erreur inattendue";
+      toast({ title: "Erreur", description: msg, variant: "destructive" });
+    } finally {
+      setSavingKey(null);
+    }
+  };
+
+  // Update a string setting
+  const updateStringSetting = async (key: string, value: string) => {
+    setSavingKey(key);
+    try {
+      const res = await updatePlatformSetting(undefined, { key, value });
+      setSettings((prev) => prev.map((s) => (s.key === key ? res.item : s)));
+      toast({ title: "Paramètre mis à jour", description: `${res.item.label} : ${value}` });
     } catch (e) {
       const msg = e instanceof AdminApiError ? e.message : "Erreur inattendue";
       toast({ title: "Erreur", description: msg, variant: "destructive" });
@@ -186,7 +203,7 @@ export function PlatformSettingsCard() {
               />
             </div>
             <Button variant="ghost" size="sm" onClick={handleInvalidateCache}>
-              <RefreshCw className="h-4 w-4 mr-1" />
+              <RefreshCw className="h-4 w-4 me-1" />
               Rafraîchir
             </Button>
           </div>
@@ -284,6 +301,44 @@ export function PlatformSettingsCard() {
                         </div>
                       );
                     })}
+                  {/* String settings (e.g. dates for Ramadan) */}
+                  {categorySettings
+                    .filter((s) => s.value_type === "string" && !s.is_sensitive)
+                    .map((setting) => {
+                      const isBusy = savingKey === setting.key;
+                      return (
+                        <div
+                          key={setting.key}
+                          className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="font-medium text-sm">{setting.label}</div>
+                            {setting.description && (
+                              <div className="text-xs text-slate-500 mt-0.5">{setting.description}</div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type={setting.key.includes("DATE") ? "date" : "text"}
+                              className="h-8 rounded-md border border-slate-300 px-2 text-sm w-40"
+                              defaultValue={setting.value}
+                              disabled={isBusy}
+                              onBlur={(e) => {
+                                const v = e.target.value.trim();
+                                if (v !== setting.value) {
+                                  void updateStringSetting(setting.key, v);
+                                }
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  (e.target as HTMLInputElement).blur();
+                                }
+                              }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
                 </div>
               </div>
             ))}
@@ -343,7 +398,7 @@ export function PlatformSettingsCard() {
               Annuler
             </Button>
             <Button onClick={handleModeChange} disabled={changingMode}>
-              {changingMode ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              {changingMode ? <Loader2 className="h-4 w-4 animate-spin me-2" /> : null}
               Confirmer le changement
             </Button>
           </DialogFooter>

@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect } from "react";
-import { Building2, Calendar, Clock, Loader2, Mail, Phone, User } from "lucide-react";
+import { Building2, Calendar, Loader2, Mail, Phone, User } from "lucide-react";
 
 import {
   Dialog,
@@ -301,8 +301,7 @@ export function ClaimEstablishmentDialog({
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="claim-time" className="flex items-center gap-2 text-sm font-medium">
-                  <Clock className="h-4 w-4 text-muted-foreground" />
+                <Label htmlFor="claim-time" className="text-sm font-medium">
                   Créneau horaire
                 </Label>
                 <Select
@@ -379,7 +378,7 @@ export function ClaimEstablishmentDialog({
           <Button onClick={handleSubmit} disabled={!isFormValid || submitting} className="rounded-lg">
             {submitting ? (
               <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                <Loader2 className="h-4 w-4 me-2 animate-spin" />
                 Envoi en cours...
               </>
             ) : (

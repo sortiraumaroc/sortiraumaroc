@@ -21,7 +21,7 @@ export const DEFAULT_CONNECTOR_CONFIG: ConnectorConfig = {
   rateLimitPerSecond: 1,
   maxRetries: 3,
   timeoutMs: 30000,
-  userAgent: "SAM-Import-Bot/1.0 (+https://sortiraumaroc.ma)",
+  userAgent: "SAM-Import-Bot/1.0 (+https://sam.ma)",
   respectRobots: true,
 };
 

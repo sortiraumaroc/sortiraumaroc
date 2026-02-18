@@ -11,6 +11,7 @@ import { sendLoggedEmail } from "../emailService";
 import { verifyRecaptchaToken, isRecaptchaConfigured } from "./recaptcha";
 import { getAdminSupabase } from "../supabaseAdmin";
 import crypto from "crypto";
+import { issueTrustedDevice } from "../trustedDeviceLogic";
 
 // In-memory store for verification codes (in production, use Redis or similar)
 const verificationCodes = new Map<string, { code: string; expiresAt: number }>();
@@ -68,7 +69,7 @@ export async function sendEmailVerificationCode(req: Request, res: Response) {
     });
 
     const existingUser = authUsersList?.users?.find(
-      (u) => u.email === normalizedEmail
+      (u: any) => u.email === normalizedEmail
     );
 
     if (existingUser) {
@@ -260,7 +261,7 @@ export async function signupWithEmail(req: Request, res: Response) {
     });
 
     const existingUser = authUsersList?.users?.find(
-      (u) => u.email === normalizedEmail
+      (u: any) => u.email === normalizedEmail
     );
 
     if (existingUser) {
@@ -346,7 +347,7 @@ export async function signupWithEmail(req: Request, res: Response) {
         type: "magiclink",
         email: normalizedEmail,
         options: {
-          redirectTo: process.env.PUBLIC_BASE_URL || process.env.VITE_APP_URL || "https://sortiraumaroc.ma",
+          redirectTo: process.env.PUBLIC_BASE_URL || process.env.VITE_APP_URL || "https://sam.ma",
         },
       });
 
@@ -373,6 +374,9 @@ export async function signupWithEmail(req: Request, res: Response) {
     }
 
     console.log("[EmailSignup] Account created successfully:", userId);
+
+    // Issue trusted device cookie for new email user (best-effort, non-blocking)
+    await issueTrustedDevice(req, res, userId);
 
     return res.json({
       success: true,
@@ -463,7 +467,7 @@ export async function setPhoneUserEmailPassword(req: Request, res: Response) {
     });
 
     const existingUser = authUsersList?.users?.find(
-      (u) => u.email === normalizedEmail && u.id !== userId
+      (u: any) => u.email === normalizedEmail && u.id !== userId
     );
 
     if (existingUser) {

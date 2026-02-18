@@ -8,6 +8,7 @@
 import { Router, type RequestHandler } from "express";
 import bcrypt from "bcryptjs";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { getAuditActorInfo } from "./admin";
 
 // ============================================================================
 // Helpers
@@ -35,8 +36,8 @@ function asBoolean(value: unknown): boolean | null {
 
 // Require admin key
 function requireAdminKey(
-  req: { headers: { "x-admin-key"?: string } },
-  res: { status: (code: number) => { json: (body: unknown) => void } }
+  req: Parameters<RequestHandler>[0],
+  res: Parameters<RequestHandler>[1]
 ): boolean {
   const adminKey = req.headers["x-admin-key"];
   if (!adminKey || adminKey !== process.env.ADMIN_KEY) {
@@ -48,8 +49,8 @@ function requireAdminKey(
 
 // Require superadmin (SAM team only)
 function requireSuperadmin(
-  req: { headers: { "x-admin-key"?: string; "x-admin-role"?: string } },
-  res: { status: (code: number) => { json: (body: unknown) => void } }
+  req: Parameters<RequestHandler>[0],
+  res: Parameters<RequestHandler>[1]
 ): boolean {
   if (!requireAdminKey(req, res)) return false;
   const role = req.headers["x-admin-role"];
@@ -145,13 +146,15 @@ export const setSecurityPassword: RequestHandler = async (req, res) => {
   }
 
   // Audit log
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
     action: existing
       ? "security.password.updated"
       : "security.password.created",
     entity_type: "admin_security_settings",
     entity_id: SECURITY_PASSWORD_KEY,
-    metadata: {},
+    actor_id: actor.actor_id,
+    metadata: { actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({
@@ -198,13 +201,15 @@ export const verifySecurityPassword: RequestHandler = async (req, res) => {
   const isValid = await bcrypt.compare(password, data.value_hash);
 
   // Audit log attempt
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
     action: isValid
       ? "security.password.verified"
       : "security.password.failed",
     entity_type: "sensitive_action",
     entity_id: action,
-    metadata: { success: isValid },
+    actor_id: actor.actor_id,
+    metadata: { success: isValid, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   if (!isValid) {
@@ -417,14 +422,19 @@ export const deleteDemoAccounts: RequestHandler = async (req, res) => {
   }
 
   // Audit log
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
     action: "users.demo.cleanup",
     entity_type: "consumer_users",
     entity_id: "batch",
+    actor_id: actor.actor_id,
     metadata: {
       deleted_count: deleted.length,
       error_count: errors.length,
       deleted_emails: deleted.map((d) => d.email),
+      actor_email: actor.actor_email,
+      actor_name: actor.actor_name,
+      actor_role: actor.actor_role,
     },
   });
 
@@ -647,15 +657,20 @@ export const importMarketingProspects: RequestHandler = async (req, res) => {
   }
 
   // Audit log
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
     action: "marketing.prospects.import",
     entity_type: "marketing_prospects",
     entity_id: "batch",
+    actor_id: actor.actor_id,
     metadata: {
       imported_count: inserted?.length ?? 0,
       skipped_count: skipped.length,
       tags,
       source,
+      actor_email: actor.actor_email,
+      actor_name: actor.actor_name,
+      actor_role: actor.actor_role,
     },
   });
 
@@ -826,11 +841,13 @@ export const bulkDeleteMarketingProspects: RequestHandler = async (req, res) => 
   }
 
   // Audit log
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
     action: "marketing.prospects.bulk_delete",
     entity_type: "marketing_prospects",
     entity_id: "batch",
-    metadata: { deleted_count: count },
+    actor_id: actor.actor_id,
+    metadata: { deleted_count: count, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.json({ success: true, deleted_count: count });
@@ -928,11 +945,13 @@ export const exportMarketingProspects: RequestHandler = async (req, res) => {
     );
 
   // Audit log
+  const actor = getAuditActorInfo(req);
   await supabase.from("admin_audit_log").insert({
     action: "marketing.prospects.export",
     entity_type: "marketing_prospects",
     entity_id: "batch",
-    metadata: { exported_count: data?.length ?? 0, filters: { tag, city, subscribedOnly } },
+    actor_id: actor.actor_id,
+    metadata: { exported_count: data?.length ?? 0, filters: { tag, city, subscribedOnly }, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
   });
 
   res.setHeader("Content-Type", "text/csv; charset=utf-8");

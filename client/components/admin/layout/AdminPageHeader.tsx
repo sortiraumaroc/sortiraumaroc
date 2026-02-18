@@ -10,13 +10,13 @@ import {
 } from "@/components/ui/tooltip";
 
 export function AdminPageHeader(props: {
-  title: string;
+  title: ReactNode;
   description?: string;
   actions?: ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-3 mb-4 lg:flex-row lg:items-start lg:justify-between">
-      <div className="min-w-0 lg:flex-1 lg:pr-6">
+      <div className="min-w-0 lg:flex-1 lg:pe-6">
         <div className="flex items-center gap-2">
           <h1 className="text-2xl font-extrabold text-slate-900">{props.title}</h1>
           {props.description ? (

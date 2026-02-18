@@ -206,7 +206,7 @@ export async function triggerWaitlistPromotionForSlot(args: {
       const startsAtIso = asIso(payload.starts_at);
       const dateLabel = startsAtIso ? formatLeJjMmAaAHeure(startsAtIso) : "";
 
-      const baseUrl = asString(process.env.PUBLIC_BASE_URL) || "https://sortiraumaroc.ma";
+      const baseUrl = asString(process.env.PUBLIC_BASE_URL) || "https://sam.ma";
       const ctaUrl = `${baseUrl}/profile/bookings/${encodeURIComponent(reservationId || "")}`;
 
       await sendTemplateEmail({

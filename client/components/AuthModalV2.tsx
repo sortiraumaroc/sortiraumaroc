@@ -42,9 +42,11 @@ interface AuthModalV2Props {
   isOpen: boolean;
   onClose: () => void;
   onAuthed?: () => void;
-  initialStep?: "login" | "signup";
+  initialStep?: "login" | "signup" | "onboarding";
   contextTitle?: string;
   contextSubtitle?: string;
+  /** Pre-fill data for OAuth onboarding (Google/Apple first sign-in) */
+  oauthOnboardingPrefill?: { firstName?: string; lastName?: string; email?: string };
 }
 
 // Generate 6-digit verification code
@@ -59,16 +61,30 @@ export function AuthModalV2({
   initialStep,
   contextTitle,
   contextSubtitle,
+  oauthOnboardingPrefill,
 }: AuthModalV2Props) {
 
   // Session conflict check
   const { hasConflict, conflictingSession, clearConflict } = useSessionConflict("consumer");
   const [showConflictDialog, setShowConflictDialog] = useState(false);
 
+  // Resolve initial step (supports "onboarding" for OAuth first sign-in)
+  const resolveInitialStep = (s?: string): AuthStep => {
+    if (s === "onboarding") return "onboarding";
+    if (s === "signup") return "signup_choice";
+    if (s === "login") return "login";
+    return "choice";
+  };
+
   // Current step in the auth flow
-  const [step, setStep] = useState<AuthStep>(
-    initialStep === "signup" ? "signup_choice" : initialStep === "login" ? "login" : "choice"
-  );
+  const [step, setStep] = useState<AuthStep>(resolveInitialStep(initialStep));
+
+  // Sync step when initialStep changes (e.g. Header opens modal in onboarding mode)
+  useEffect(() => {
+    if (isOpen && initialStep === "onboarding") {
+      setStep("onboarding");
+    }
+  }, [isOpen, initialStep]);
 
   // Loading and error states
   const [loading, setLoading] = useState(false);
@@ -304,6 +320,7 @@ export function AuthModalV2({
       const signupRes = await fetch("/api/consumer/auth/email/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include", // Allow trust cookie to be set
         body: JSON.stringify({
           email: signupData.email,
           password: signupData.password,
@@ -600,6 +617,8 @@ export function AuthModalV2({
           <OnboardingScreen
             onComplete={() => setStep("success")}
             authMethod={signupAuthMethod}
+            prefillFirstName={oauthOnboardingPrefill?.firstName}
+            prefillLastName={oauthOnboardingPrefill?.lastName}
           />
         );
 

@@ -219,12 +219,12 @@ export default function AdminContactFormsPage() {
         cell: ({ row }) =>
           row.original.is_active ? (
             <Badge variant="default" className="bg-green-500">
-              <Eye className="w-3 h-3 mr-1" />
+              <Eye className="w-3 h-3 me-1" />
               Actif
             </Badge>
           ) : (
             <Badge variant="secondary">
-              <EyeOff className="w-3 h-3 mr-1" />
+              <EyeOff className="w-3 h-3 me-1" />
               Inactif
             </Badge>
           ),
@@ -278,13 +278,13 @@ export default function AdminContactFormsPage() {
             <DropdownMenuContent align="end">
               <DropdownMenuItem asChild>
                 <Link to={`/admin/contact-forms/${row.original.form_id}`}>
-                  <Edit3 className="w-4 h-4 mr-2" />
+                  <Edit3 className="w-4 h-4 me-2" />
                   Modifier
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link to={`/admin/contact-forms/${row.original.form_id}/submissions`}>
-                  <Inbox className="w-4 h-4 mr-2" />
+                  <Inbox className="w-4 h-4 me-2" />
                   Voir les réponses
                 </Link>
               </DropdownMenuItem>
@@ -292,22 +292,22 @@ export default function AdminContactFormsPage() {
               <DropdownMenuItem
                 onClick={() => window.open(`/form/${row.original.slug}`, "_blank")}
               >
-                <ExternalLink className="w-4 h-4 mr-2" />
+                <ExternalLink className="w-4 h-4 me-2" />
                 Prévisualiser
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => handleDuplicate(row.original)}>
-                <Copy className="w-4 h-4 mr-2" />
+                <Copy className="w-4 h-4 me-2" />
                 Dupliquer
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => handleToggleActive(row.original)}>
                 {row.original.is_active ? (
                   <>
-                    <EyeOff className="w-4 h-4 mr-2" />
+                    <EyeOff className="w-4 h-4 me-2" />
                     Désactiver
                   </>
                 ) : (
                   <>
-                    <Eye className="w-4 h-4 mr-2" />
+                    <Eye className="w-4 h-4 me-2" />
                     Activer
                   </>
                 )}
@@ -317,7 +317,7 @@ export default function AdminContactFormsPage() {
                 className="text-destructive"
                 onClick={() => setDeleteForm(row.original)}
               >
-                <Trash2 className="w-4 h-4 mr-2" />
+                <Trash2 className="w-4 h-4 me-2" />
                 Supprimer
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -367,16 +367,16 @@ export default function AdminContactFormsPage() {
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row gap-4 justify-between">
         <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             placeholder="Rechercher un formulaire..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
+            className="ps-9"
           />
         </div>
         <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="w-4 h-4 mr-2" />
+          <Plus className="w-4 h-4 me-2" />
           Nouveau formulaire
         </Button>
       </div>
@@ -386,8 +386,7 @@ export default function AdminContactFormsPage() {
         <AdminDataTable
           columns={columns}
           data={filteredForms}
-          loading={loading}
-          emptyMessage="Aucun formulaire créé"
+          isLoading={loading}
         />
       </div>
 

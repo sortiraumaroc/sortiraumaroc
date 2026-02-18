@@ -216,7 +216,7 @@ function HelpHint({ message, ariaLabel }: { message: string; ariaLabel: string }
             "h-6 w-6 rounded-full border border-slate-200 bg-white text-slate-500",
             "inline-flex items-center justify-center",
             "hover:bg-slate-50 hover:text-slate-700",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a3001d]/30 focus-visible:ring-offset-2",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sam-primary/30 focus-visible:ring-offset-2",
           )}
           aria-label={ariaLabel}
           onClick={() => setOpen((o) => !o)}
@@ -457,7 +457,7 @@ export function StickyBottomBookingActionBar(props: {
                 onClick={props.onReserveNow}
                 className={cn(
                   "h-12 md:h-14 rounded-xl w-full",
-                  "bg-[#a3001d] hover:bg-[#a3001d]/90 text-white text-base font-bold shadow-sm active:scale-[0.99]",
+                  "bg-sam-primary hover:bg-sam-primary-hover text-white text-base font-bold shadow-sm active:scale-[0.99]",
                 )}
               >
                 {actionLabel}
@@ -467,7 +467,7 @@ export function StickyBottomBookingActionBar(props: {
                 asChild
                 className={cn(
                   "h-12 md:h-14 rounded-xl w-full",
-                  "bg-[#a3001d] hover:bg-[#a3001d]/90 text-white text-base font-bold shadow-sm active:scale-[0.99]",
+                  "bg-sam-primary hover:bg-sam-primary-hover text-white text-base font-bold shadow-sm active:scale-[0.99]",
                 )}
               >
                 <Link to={bookingHref}>{actionLabel}</Link>
@@ -479,7 +479,7 @@ export function StickyBottomBookingActionBar(props: {
     );
   }
 
-  // With slots: show TheFork-style slot picker
+  // With slots: show SAM slot picker
   return (
     <StickyBottomBar
       show
@@ -492,16 +492,16 @@ export function StickyBottomBookingActionBar(props: {
       containerClassName="px-3 sm:px-4"
     >
       <div className="mx-auto max-w-3xl">
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-lg px-4 py-4">
-          {/* Header with title and collapse arrow */}
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-lg px-4 py-4 md:px-6 md:py-5">
+          {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-base font-bold text-slate-900">
               {t("booking.choose_slot")}
             </h3>
           </div>
 
-          {/* Slot buttons - TheFork style */}
-          <div className="flex items-start gap-3 overflow-x-auto pb-2">
+          {/* Slot buttons - SAM style */}
+          <div className="flex items-start gap-3 md:gap-4 overflow-x-auto pb-2 scrollbar-hide">
             {quickSlots.map((slot) => {
               const active = slot.date === selectedDateYmd && slot.time === selectedTimeHm;
               const hasPromo = typeof slot.promo === "number" && slot.promo > 0;
@@ -511,20 +511,21 @@ export function StickyBottomBookingActionBar(props: {
                     type="button"
                     onClick={() => applyQuickSlot(slot)}
                     className={cn(
-                      "rounded-xl px-5 py-3 text-sm font-bold transition min-w-[100px]",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/50 focus-visible:ring-offset-2",
+                      "rounded-xl px-4 py-2.5 text-sm font-bold transition-all min-w-[110px] text-center",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sam-primary/30 focus-visible:ring-offset-2",
                       active
-                        ? "bg-teal-600 text-white"
-                        : "bg-teal-600 text-white hover:bg-teal-700",
+                        ? "bg-sam-primary text-white shadow-md"
+                        : "bg-white text-sam-secondary border-2 border-sam-primary/20 hover:bg-sam-primary hover:text-white hover:border-sam-primary",
                     )}
                     aria-pressed={active}
                   >
-                    {slot.label}
+                    <span className="block text-sm font-bold">{slot.label}</span>
+                    <span className="block text-xs opacity-80 mt-0.5">{formatTimeHmLabel(slot.time)}</span>
                   </button>
                   {/* Promo badge below the button */}
                   {hasPromo ? (
-                    <span className="mt-2 inline-flex items-center justify-center px-2.5 py-1 rounded-full bg-slate-100 text-xs font-bold text-slate-700">
-                      -{slot.promo} %
+                    <span className="mt-1.5 inline-flex items-center justify-center px-2.5 py-0.5 rounded-full bg-sam-accent/15 text-xs font-bold text-sam-accent-hover">
+                      -{slot.promo}%
                     </span>
                   ) : null}
                 </div>
@@ -533,17 +534,17 @@ export function StickyBottomBookingActionBar(props: {
           </div>
 
           {/* Footer: reservations count + more dates link */}
-          <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100">
-            <div className="flex items-center gap-2 text-sm text-slate-700">
-              <span className="text-lg">🔥</span>
-              <span>
+          <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
+            <div className="flex items-center gap-2 text-sm text-slate-600">
+              <span className="text-base leading-none">🔥</span>
+              <span className="font-medium">
                 {t("booking.reservations_today", { count: props.reservationsToday ?? 0 })}
               </span>
             </div>
             <button
               type="button"
               onClick={scrollToMoreDates}
-              className="text-sm font-semibold text-[#a3001d] hover:underline"
+              className="text-sm font-semibold text-sam-primary hover:text-sam-primary-hover hover:underline underline-offset-2 transition-colors"
             >
               {t("booking.step1.more_dates")}
             </button>

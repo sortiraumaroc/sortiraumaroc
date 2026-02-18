@@ -591,7 +591,7 @@ export default function Step3Info() {
                 <Tag className="w-4 h-4" />
                 Code promo
               </span>
-              <span className="text-slate-600 font-normal ml-1">
+              <span className="text-slate-600 font-normal ms-1">
                 ({t("booking.form.optional")})
               </span>
             </label>
@@ -601,7 +601,7 @@ export default function Step3Info() {
                 placeholder="Ex: SAMBIENVENUE"
                 value={promoCode}
                 onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
-                className={`w-full px-4 py-3 pr-12 border-2 rounded-lg focus:outline-none focus:ring-2 text-foreground placeholder:text-slate-500 transition-colors bg-slate-50 uppercase tracking-wider ${
+                className={`w-full px-4 py-3 pe-12 border-2 rounded-lg focus:outline-none focus:ring-2 text-foreground placeholder:text-slate-500 transition-colors bg-slate-50 uppercase tracking-wider ${
                   promoCode && promoValidation
                     ? promoValidation.valid
                       ? "border-green-500 focus:border-green-500 focus:ring-green-500/20"
@@ -610,7 +610,7 @@ export default function Step3Info() {
                 }`}
               />
               {promoCode && (
-                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                <div className="absolute end-3 top-1/2 -translate-y-1/2">
                   {promoValidating ? (
                     <Loader2 className="w-5 h-5 text-slate-400 animate-spin" />
                   ) : promoValidation?.valid ? (

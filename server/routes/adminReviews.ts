@@ -7,6 +7,7 @@ import type { RequestHandler } from "express";
 import { adminSupabase } from "../supabase";
 import { emitAdminNotification } from "../adminNotifications";
 import { notifyProMembers } from "../proNotifications";
+import { getAuditActorInfo } from "./admin";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -243,13 +244,15 @@ export const approveReview: RequestHandler = async (req, res) => {
     await updateEstablishmentRatingStats(review.establishment_id);
 
     // Log to audit
+    const actor = getAuditActorInfo(req);
     await adminSupabase.from("admin_audit_log").insert({
       source: "admin",
       action: "review.approve",
       entity_type: "review",
       entity_id: id,
       actor_user_id: adminUserId,
-      metadata: { establishment_id: review.establishment_id },
+      actor_id: actor.actor_id,
+      metadata: { establishment_id: review.establishment_id, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
     });
 
     return res.json({ ok: true, status: "approved" });
@@ -305,13 +308,15 @@ export const rejectReview: RequestHandler = async (req, res) => {
     }
 
     // Log to audit
+    const actor = getAuditActorInfo(req);
     await adminSupabase.from("admin_audit_log").insert({
       source: "admin",
       action: "review.reject",
       entity_type: "review",
       entity_id: id,
       actor_user_id: adminUserId,
-      metadata: { establishment_id: review.establishment_id, reason: reason.trim() },
+      actor_id: actor.actor_id,
+      metadata: { establishment_id: review.establishment_id, reason: reason.trim(), actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
     });
 
     return res.json({ ok: true, status: "rejected" });
@@ -369,7 +374,9 @@ export const sendReviewToPro: RequestHandler = async (req, res) => {
     const establishmentName = await getEstablishmentName(review.establishment_id);
 
     // Notify pro members
-    await notifyProMembers(review.establishment_id, {
+    await notifyProMembers({
+      supabase: adminSupabase,
+      establishmentId: review.establishment_id,
       title: "Nouvel avis à traiter",
       body: `Un avis client nécessite votre attention pour ${establishmentName}. Vous avez 24h pour y répondre.`,
       category: "review",
@@ -381,15 +388,20 @@ export const sendReviewToPro: RequestHandler = async (req, res) => {
     });
 
     // Log to audit
+    const actor = getAuditActorInfo(req);
     await adminSupabase.from("admin_audit_log").insert({
       source: "admin",
       action: "review.send_to_pro",
       entity_type: "review",
       entity_id: id,
       actor_user_id: adminUserId,
+      actor_id: actor.actor_id,
       metadata: {
         establishment_id: review.establishment_id,
         deadline: deadline.toISOString(),
+        actor_email: actor.actor_email,
+        actor_name: actor.actor_name,
+        actor_role: actor.actor_role,
       },
     });
 
@@ -510,16 +522,21 @@ export const resolveReport: RequestHandler = async (req, res) => {
     }
 
     // Log to audit
+    const actor = getAuditActorInfo(req);
     await adminSupabase.from("admin_audit_log").insert({
       source: "admin",
       action: `report.${status}`,
       entity_type: "establishment_report",
       entity_id: id,
       actor_user_id: adminUserId,
+      actor_id: actor.actor_id,
       metadata: {
         establishment_id: report.establishment_id,
         action_taken,
         notes,
+        actor_email: actor.actor_email,
+        actor_name: actor.actor_name,
+        actor_role: actor.actor_role,
       },
     });
 

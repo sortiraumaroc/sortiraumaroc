@@ -33,7 +33,7 @@ export function EmailSettingsCard(props: {
     "Bonjour,\n\nCeci est un email de test Sortir Au Maroc.\n\nMerci.",
   );
   const [ctaLabel, setCtaLabel] = useState<string>("Ouvrir Sortir Au Maroc");
-  const [ctaUrl, setCtaUrl] = useState<string>("https://sortiraumaroc.ma/");
+  const [ctaUrl, setCtaUrl] = useState<string>("https://sam.ma/");
 
   const [sending, setSending] = useState(false);
 
