@@ -10,6 +10,9 @@
 
 import { getAdminSupabase } from "./supabaseAdmin";
 import type { NotificationPreferences } from "../shared/notificationsBannersWheelTypes";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("notificationPreferences");
 
 // =============================================================================
 // Cache (5 min TTL, per user)
@@ -187,8 +190,8 @@ async function syncConsumerPushPreferences(
         push_bookings_enabled: prefs.reservation_reminders,
       })
       .eq("id", userId);
-  } catch {
-    // best-effort
+  } catch (err) {
+    log.warn({ err }, "Best-effort: sync consumer push preferences failed");
   }
 }
 

@@ -5,6 +5,9 @@
 
 import { createClient } from '@supabase/supabase-js';
 import type { AdCampaign, AdClick, AdImpression, AdWallet } from './types';
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("adsBilling");
 
 // =============================================================================
 // TYPES
@@ -122,7 +125,7 @@ export async function billClick(
     };
 
   } catch (error) {
-    console.error('[billing] Error billing click:', error);
+    log.error({ err: error }, "error billing click");
     return { success: false, amount_charged_cents: 0, new_balance_cents: 0, error: 'Erreur interne' };
   }
 }
@@ -217,7 +220,7 @@ export async function billImpressions(
     };
 
   } catch (error) {
-    console.error('[billing] Error billing impressions:', error);
+    log.error({ err: error }, "error billing impressions");
     return { success: false, amount_charged_cents: 0, new_balance_cents: 0, error: 'Erreur interne' };
   }
 }
@@ -276,7 +279,7 @@ export async function pauseExhaustedCampaigns(
     .select('id') as { data: any[] | null; error: any };
 
   if (error) {
-    console.error('[billing] Error pausing exhausted campaigns:', error);
+    log.error({ err: error }, "error pausing exhausted campaigns");
     return 0;
   }
 
@@ -305,7 +308,7 @@ export async function resetDailyBudgets(
     .select('id') as { data: any[] | null; error: any };
 
   if (error) {
-    console.error('[billing] Error resetting daily budgets:', error);
+    log.error({ err: error }, "error resetting daily budgets");
     return 0;
   }
 
@@ -345,7 +348,7 @@ export async function creditWallet(
     };
 
   } catch (error) {
-    console.error('[billing] Error crediting wallet:', error);
+    log.error({ err: error }, "error crediting wallet");
     return { success: false, amount_charged_cents: 0, new_balance_cents: 0, error: 'Erreur interne' };
   }
 }

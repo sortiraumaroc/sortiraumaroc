@@ -132,30 +132,26 @@ export function AuthModalV2({
     return `${window.location.origin}${window.location.pathname}${window.location.search}`;
   };
 
-  // OAuth sign in
+  // OAuth sign in — Supabase redirects the browser directly to Google/Apple
+  // (no skipBrowserRedirect, no manual window.location.assign → faster)
   const handleOAuthSignIn = async (provider: "google" | "apple") => {
     setOauthLoadingProvider(provider);
     setError(null);
 
     try {
-      const { data, error } = await consumerSupabase.auth.signInWithOAuth({
+      const { error } = await consumerSupabase.auth.signInWithOAuth({
         provider,
         options: {
           redirectTo: getOAuthRedirectTo(),
-          skipBrowserRedirect: true,
+          // No skipBrowserRedirect — Supabase redirects the browser directly
+          // to the OAuth provider, removing the extra client round-trip.
         },
       });
 
       if (error) throw error;
-
-      const url = data?.url;
-      if (!url) {
-        setError("Ce fournisseur n'est pas configuré");
-        return;
-      }
-
-      handleClose();
-      window.location.assign(url);
+      // If no error, the browser is already navigating to Google/Apple.
+      // Don't call handleClose() — it would trigger onClose() which in
+      // Booking.tsx clears the booking session from sessionStorage.
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e ?? "");
       if (msg.toLowerCase().includes("provider") && msg.toLowerCase().includes("not enabled")) {
@@ -163,7 +159,6 @@ export function AuthModalV2({
         return;
       }
       setError("Échec de la connexion");
-    } finally {
       setOauthLoadingProvider(null);
     }
   };
@@ -350,7 +345,7 @@ export function AuthModalV2({
       });
 
       if (signInError) {
-        console.warn("[AuthModalV2] Auto sign-in failed:", signInError.message);
+        // Auto sign-in failed, falling back to actionLink
         // Fallback: use actionLink
         if (signupResult.actionLink) {
           window.location.assign(signupResult.actionLink);
@@ -369,7 +364,7 @@ export function AuthModalV2({
             name: signupData.email.split("@")[0],
           }),
         }).catch(() => {
-          console.warn("[AuthModalV2] Failed to send welcome email");
+          // Failed to send welcome email (non-blocking)
         });
       }
 
@@ -448,7 +443,7 @@ export function AuthModalV2({
           }
 
           // Fallback: if client-side session setup fails, redirect as before
-          console.warn("[AuthModalV2] completeAuthentication failed, falling back to redirect");
+          // completeAuthentication failed, falling back to redirect
         }
 
         // Existing users (or fallback): redirect via magic link

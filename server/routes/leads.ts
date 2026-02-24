@@ -5,7 +5,13 @@
  */
 
 import type { Request, Response } from "express";
+import type { Express } from "express";
 import { randomBytes } from "crypto";
+import { createModuleLogger } from "../lib/logger";
+import { zBody } from "../lib/validate";
+import { establishmentLeadSchema, proDemoLeadSchema } from "../schemas/leads";
+
+const log = createModuleLogger("leads");
 
 import { renderSambookingEmail, sendSambookingEmail, type SambookingSenderKey } from "../email";
 import { getAdminSupabase } from "../supabaseAdmin";
@@ -77,7 +83,7 @@ async function logEmailEvent(args: {
       payload: args.payload,
     });
   } catch (err) {
-    console.error("[Leads] Failed to log email event:", err);
+    log.error({ err }, "Failed to log email event");
   }
 }
 
@@ -230,7 +236,7 @@ export async function submitEstablishmentLead(req: Request, res: Response) {
     });
 
     if (error) {
-      console.error("[Leads] Database error (establishment):", error);
+      log.error({ err: error }, "Database error (establishment)");
       return errors.database(res, error);
     }
 
@@ -259,11 +265,11 @@ export async function submitEstablishmentLead(req: Request, res: Response) {
     sendLoggedEmail({
       emailId: `${emailIdBase}-pro`,
       fromKey: "pro",
-      to: ["pro@sortiraumaroc.ma"],
+      to: ["pro@sam.ma"],
       subject: internalSubject,
       bodyText: internalBody,
       meta: { source: "lead_establishment_requests" },
-    }).catch((err) => console.error("[Leads] Email error (internal):", err));
+    }).catch((err) => log.error({ err }, "Email error (internal)"));
 
     // Email d'accusé de réception au demandeur
     const ackSubject = "Merci — Nous avons bien reçu votre demande";
@@ -286,11 +292,11 @@ export async function submitEstablishmentLead(req: Request, res: Response) {
       ctaLabel: "Découvrir Sortir Au Maroc",
       ctaUrl: "https://sam.ma/",
       meta: { source: "lead_establishment_requests", kind: "ack" },
-    }).catch((err) => console.error("[Leads] Email error (ack):", err));
+    }).catch((err) => log.error({ err }, "Email error (ack)"));
 
     return sendSuccess(res, { submitted: true });
   } catch (err) {
-    console.error("[Leads] Unexpected error (establishment):", err);
+    log.error({ err }, "Unexpected error (establishment)");
     return errors.internal(res, err);
   }
 }
@@ -341,7 +347,7 @@ export async function submitProDemoRequest(req: Request, res: Response) {
     });
 
     if (error) {
-      console.error("[Leads] Database error (pro-demo):", error);
+      log.error({ err: error }, "Database error (pro-demo)");
       return errors.database(res, error);
     }
 
@@ -376,22 +382,22 @@ export async function submitProDemoRequest(req: Request, res: Response) {
     sendLoggedEmail({
       emailId: `${emailIdBase}-hello`,
       fromKey: "hello",
-      to: ["hello@sortiraumaroc.ma"],
+      to: ["hello@sam.ma"],
       subject: internalSubject,
       bodyText: internalBody,
       meta: { source: "pro_demo_requests", routing: routingKey },
-    }).catch((err) => console.error("[Leads] Email error (hello):", err));
+    }).catch((err) => log.error({ err }, "Email error (hello)"));
 
     // Redirection intelligente selon le contenu du message
     if (routingKey !== "hello") {
       sendLoggedEmail({
         emailId: `${emailIdBase}-${routingKey}`,
         fromKey: routingKey,
-        to: [`${routingKey}@sortiraumaroc.ma`],
+        to: [`${routingKey}@sam.ma`],
         subject: internalSubject,
         bodyText: internalBody,
         meta: { source: "pro_demo_requests", routing: routingKey, kind: "redirect" },
-      }).catch((err) => console.error("[Leads] Email error (redirect):", err));
+      }).catch((err) => log.error({ err }, "Email error (redirect)"));
     }
 
     // Email d'accusé de réception
@@ -414,11 +420,20 @@ export async function submitProDemoRequest(req: Request, res: Response) {
       ctaLabel: "Ouvrir Sortir Au Maroc",
       ctaUrl: "https://sam.ma/",
       meta: { source: "pro_demo_requests", kind: "ack" },
-    }).catch((err) => console.error("[Leads] Email error (ack):", err));
+    }).catch((err) => log.error({ err }, "Email error (ack)"));
 
     return sendSuccess(res, { submitted: true });
   } catch (err) {
-    console.error("[Leads] Unexpected error (pro-demo):", err);
+    log.error({ err }, "Unexpected error (pro-demo)");
     return errors.internal(res, err);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerLeadsRoutes(app: Express) {
+  app.post("/api/leads/establishment", leadsRateLimiter, zBody(establishmentLeadSchema), submitEstablishmentLead);
+  app.post("/api/leads/pro-demo", leadsRateLimiter, zBody(proDemoLeadSchema), submitProDemoRequest);
 }

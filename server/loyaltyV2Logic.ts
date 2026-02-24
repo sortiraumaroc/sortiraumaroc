@@ -5,6 +5,9 @@
 
 import { getAdminSupabase } from "./supabaseAdmin";
 import { randomUUID } from "crypto";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("loyaltyV2");
 import type {
   StampFrequency,
   LoyaltyProgramStatus,
@@ -192,7 +195,7 @@ export async function addAutomaticStamp(args: {
       .single();
 
     if (createErr || !newCard) {
-      console.error("[loyaltyV2] create card error:", createErr);
+      log.error({ err: createErr }, "Create card error");
       return null;
     }
 
@@ -253,7 +256,7 @@ export async function addAutomaticStamp(args: {
   });
 
   if (stampErr) {
-    console.error("[loyaltyV2] stamp insert error:", stampErr);
+    log.error({ err: stampErr }, "Stamp insert error");
     return null;
   }
 
@@ -509,7 +512,7 @@ export async function validateConditionalStamp(args: {
   });
 
   if (stampErr) {
-    console.error("[loyaltyV2] conditional stamp error:", stampErr);
+    log.error({ err: stampErr }, "Conditional stamp error");
     return {
       ok: false,
       approved: false,
@@ -1024,7 +1027,7 @@ async function updateLoyaltyScoringContribution(userId: string): Promise<void> {
         { onConflict: "user_id" }
       );
   } catch (err) {
-    console.error("[loyaltyV2] scoring update error:", err);
+    log.error({ err }, "Scoring update error");
   }
 }
 
@@ -1112,7 +1115,7 @@ async function insertLoyaltyNotification(
       channel,
       status: "pending",
     });
-  } catch {
-    // best-effort
+  } catch (err) {
+    log.warn({ err }, "Best-effort: loyalty notification insert failed");
   }
 }

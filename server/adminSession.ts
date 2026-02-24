@@ -68,7 +68,7 @@ export function verifyAdminSessionToken(token: string): AdminSessionPayload | nu
   let sigProvided: Buffer;
   try {
     sigProvided = base64UrlDecodeToBuffer(sigB64);
-  } catch {
+  } catch { /* intentional: invalid base64 signature */
     return null;
   }
 
@@ -79,7 +79,7 @@ export function verifyAdminSessionToken(token: string): AdminSessionPayload | nu
   try {
     const raw = base64UrlDecodeToBuffer(payloadB64).toString("utf8");
     payload = JSON.parse(raw) as AdminSessionPayload;
-  } catch {
+  } catch { /* intentional: invalid JSON in session token */
     return null;
   }
 
@@ -122,7 +122,7 @@ function headerValue(headers: Record<string, unknown>, name: string): string | n
 function isHttpsUrl(value: string): boolean {
   try {
     return new URL(value).protocol === "https:";
-  } catch {
+  } catch { /* intentional: invalid URL */
     return false;
   }
 }

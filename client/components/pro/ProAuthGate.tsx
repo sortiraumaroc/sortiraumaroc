@@ -87,7 +87,7 @@ function normalizeEmail(v: string) {
 
 export function ProAuthGate({ children, variant = "pro" }: Props) {
   const variantConfig = VARIANT_CONFIG[variant];
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
@@ -141,22 +141,50 @@ export function ProAuthGate({ children, variant = "pro" }: Props) {
     if (paramMode === "signin") setMode("signin");
     if (paramMode === "reset-password") {
       setMode("reset-password");
-      // If the user already has a session (Supabase processed the token before mount),
-      // mark the form as ready immediately
-      proSupabase.auth.getSession().then(({ data }) => {
-        if (data.session) {
-          setResetPasswordReady(true);
-        }
-      });
+
+      // PKCE flow: Supabase v2 sends a `code` query param instead of a hash fragment.
+      // We must exchange the code for a session manually, because the proSupabase client
+      // may initialize after the consumer client already cleared the URL.
+      const pkceCode = searchParams.get("code");
+      if (pkceCode) {
+        proSupabase.auth
+          .exchangeCodeForSession(pkceCode)
+          .then(({ data, error: err }) => {
+            if (err) {
+              setError(
+                "Votre lien de réinitialisation a expiré ou a déjà été utilisé. Veuillez demander un nouveau lien.",
+              );
+            } else if (data.session) {
+              setResetPasswordReady(true);
+            }
+            // Clean the code from URL to avoid reuse
+            const next = new URLSearchParams(searchParams);
+            next.delete("code");
+            setSearchParams(next, { replace: true });
+          })
+          .catch(() => {
+            setError(
+              "Votre lien de réinitialisation a expiré ou a déjà été utilisé. Veuillez demander un nouveau lien.",
+            );
+          });
+      } else {
+        // Fallback: hash-fragment flow (older Supabase versions) — check if session already exists
+        proSupabase.auth.getSession().then(({ data }) => {
+          if (data.session) {
+            setResetPasswordReady(true);
+          }
+        });
+      }
     }
-  }, [searchParams]);
+  }, [searchParams, setSearchParams]);
 
   // Show conflict dialog when there's a conflicting session and user is not logged in
+  // BUT skip it during password reset / forgot password flows — those must work regardless
   useEffect(() => {
-    if (hasConflict && !user && !loading) {
+    if (hasConflict && !user && !loading && mode !== "reset-password" && mode !== "forgot-password") {
       setShowConflictDialog(true);
     }
-  }, [hasConflict, user, loading]);
+  }, [hasConflict, user, loading, mode]);
 
   useEffect(() => {
     setError(null);
@@ -307,6 +335,17 @@ export function ProAuthGate({ children, variant = "pro" }: Props) {
     setError(null);
 
     try {
+      // Vérifier que la session recovery existe avant d'appeler updateUser
+      const { data: sessionData } = await proSupabase.auth.getSession();
+      if (!sessionData.session) {
+        setError(
+          "Votre lien de réinitialisation a expiré ou a déjà été utilisé. Veuillez demander un nouveau lien.",
+        );
+        setResetPasswordReady(false);
+        setSubmitting(false);
+        return;
+      }
+
       const { error } = await proSupabase.auth.updateUser({
         password: newPassword,
       });
@@ -314,11 +353,15 @@ export function ProAuthGate({ children, variant = "pro" }: Props) {
       setResetPasswordSuccess(true);
     } catch (e) {
       const raw = e instanceof Error ? e.message : "";
+      const lower = raw.toLowerCase();
       let msg: string;
-      if (raw.toLowerCase().includes("same password") || raw.toLowerCase().includes("should be different")) {
+      if (lower.includes("same password") || lower.includes("should be different")) {
         msg = "Le nouveau mot de passe doit être différent de l'ancien.";
-      } else if (raw.toLowerCase().includes("weak") || raw.toLowerCase().includes("too short")) {
+      } else if (lower.includes("weak") || lower.includes("too short")) {
         msg = "Le mot de passe est trop faible. Utilisez au moins 8 caractères.";
+      } else if (lower.includes("session missing") || lower.includes("not authenticated") || lower.includes("refresh token")) {
+        msg = "Votre lien de réinitialisation a expiré ou a déjà été utilisé. Veuillez demander un nouveau lien.";
+        setResetPasswordReady(false);
       } else if (raw) {
         msg = raw;
       } else {
@@ -894,27 +937,50 @@ export function ProAuthGate({ children, variant = "pro" }: Props) {
                     </div>
                   ) : !resetPasswordReady ? (
                     <div className="space-y-4">
-                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-                        <div className="text-sm font-bold text-amber-800">
-                          Vérification en cours…
+                      {error ? (
+                        <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+                          <div className="text-sm font-bold text-red-800">
+                            Lien expiré ou invalide
+                          </div>
+                          <div className="mt-1 text-sm text-red-700">
+                            {error}
+                          </div>
                         </div>
-                        <div className="mt-1 text-sm text-amber-700">
-                          Veuillez patienter pendant que nous vérifions votre lien de réinitialisation.
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-center py-4">
-                        <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                      </div>
+                      ) : (
+                        <>
+                          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                            <div className="text-sm font-bold text-amber-800">
+                              Vérification en cours…
+                            </div>
+                            <div className="mt-1 text-sm text-amber-700">
+                              Veuillez patienter pendant que nous vérifions votre lien de réinitialisation.
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-center py-4">
+                            <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                          </div>
+                        </>
+                      )}
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => {
+                          setMode("forgot-password");
+                          setError(null);
+                        }}
+                      >
+                        Demander un nouveau lien
+                      </Button>
                       <div className="text-sm text-slate-600 text-center">
                         <button
                           type="button"
                           className="underline hover:text-slate-900"
                           onClick={() => {
-                            setMode("forgot-password");
+                            setMode("signin");
                             setError(null);
                           }}
                         >
-                          Renvoyer un nouveau lien
+                          Retour à la connexion
                         </button>
                       </div>
                     </div>

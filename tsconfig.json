@@ -23,7 +23,7 @@
     "noUnusedParameters": false,
     "noImplicitAny": false,
     "noFallthroughCasesInSwitch": false,
-    "strictNullChecks": false,
+    "strictNullChecks": true,
 
     /* Path mapping */
     "baseUrl": ".",

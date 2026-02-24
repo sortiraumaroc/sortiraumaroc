@@ -1,4 +1,4 @@
-import { clearProAuthStorage, proSupabase } from "./supabase";
+import { clearProAuthStorage, proSupabase, PRO_AUTH_STORAGE_KEY } from "./supabase";
 import { clearConsumerAuthStorage } from "@/lib/auth";
 import { consumerSupabase } from "@/lib/supabase";
 import type {
@@ -111,12 +111,10 @@ export async function proApiFetch(
 // Returns the cached token from localStorage (set by Supabase auth)
 export function getPartnerToken(): string | null {
   try {
-    // Try to get the session from localStorage (Supabase stores it there)
-    const storageKey = Object.keys(localStorage).find(
-      (key) => key.includes("supabase") && key.includes("auth-token")
-    );
-    if (!storageKey) return null;
-    const stored = localStorage.getItem(storageKey);
+    // [FIX-AUTH] Use the explicit Pro storage key instead of a fragile search
+    // across all localStorage keys. The old approach could match the wrong
+    // token if Consumer and Pro keys had similar naming patterns.
+    const stored = localStorage.getItem(PRO_AUTH_STORAGE_KEY);
     if (!stored) return null;
     const parsed = JSON.parse(stored);
     return parsed?.access_token ?? null;

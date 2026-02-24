@@ -1,8 +1,15 @@
 import type { RequestHandler } from "express";
+import type { Express } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("publicContactForms");
 import { emitAdminNotification } from "../adminNotifications";
 import { sendLoggedEmail } from "../emailService";
 import { sanitizePlain } from "../sanitizeV2";
+import { contactFormReadRateLimiter, contactFormSubmitRateLimiter } from "../middleware/rateLimiter";
+import { zBody, zParams } from "../lib/validate";
+import { SubmitContactFormSchema, SlugParams } from "../schemas/publicRoutes";
 
 // =============================================================================
 // Security helpers
@@ -64,7 +71,7 @@ function isSafeRegexPattern(pattern: string): boolean {
   try {
     new RegExp(pattern);
     return true;
-  } catch {
+  } catch { /* intentional: invalid regex pattern */
     return false;
   }
 }
@@ -142,7 +149,7 @@ export const getPublicContactForm: RequestHandler = async (req, res) => {
 
     res.json({ form: publicForm });
   } catch (err) {
-    console.error("[getPublicContactForm]", err);
+    log.error({ err }, "getPublicContactForm error");
     res.status(500).json({ error: "Failed to get form" });
   }
 };
@@ -209,7 +216,7 @@ export const submitPublicContactForm: RequestHandler = async (req, res) => {
         // Pattern — with ReDoS protection
         if (field.pattern) {
           if (!isSafeRegexPattern(field.pattern)) {
-            console.warn(`[submitPublicContactForm] Skipping unsafe regex pattern for field ${field.id}: ${field.pattern}`);
+            log.warn({ fieldId: field.id, pattern: field.pattern }, "skipping unsafe regex pattern");
           } else if (!new RegExp(field.pattern).test(value)) {
             errors[field.id] = `${field.label} n'est pas dans un format valide`;
           }
@@ -309,10 +316,10 @@ export const submitPublicContactForm: RequestHandler = async (req, res) => {
 
         // Send emails (async, don't wait)
         for (const adminEmail of form.notification_emails) {
-          sendNotificationEmail(adminEmail, form, submission, formData, fields).catch(console.error);
+          sendNotificationEmail(adminEmail, form, submission, formData, fields).catch((err) => log.error({ err }, "notification email send failed"));
         }
       } catch (notifErr) {
-        console.error("[submitPublicContactForm] notification error:", notifErr);
+        log.error({ err: notifErr }, "notification error");
       }
     }
 
@@ -321,7 +328,7 @@ export const submitPublicContactForm: RequestHandler = async (req, res) => {
       try {
         await sendConfirmationEmail(email, fullName || "", form);
       } catch (confirmErr) {
-        console.error("[submitPublicContactForm] confirmation email error:", confirmErr);
+        log.error({ err: confirmErr }, "confirmation email error");
       }
     }
 
@@ -332,7 +339,7 @@ export const submitPublicContactForm: RequestHandler = async (req, res) => {
       submission_id: submission.id,
     });
   } catch (err) {
-    console.error("[submitPublicContactForm]", err);
+    log.error({ err }, "submitPublicContactForm error");
     res.status(500).json({ error: "Failed to submit form" });
   }
 };
@@ -465,3 +472,13 @@ export const getPublicCountriesList: RequestHandler = async (_req, res) => {
 
   res.json({ countries });
 };
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerPublicContactFormRoutes(app: Express) {
+  app.get("/api/form/:slug", zParams(SlugParams), contactFormReadRateLimiter, getPublicContactForm);
+  app.post("/api/form/:slug/submit", zParams(SlugParams), contactFormSubmitRateLimiter, zBody(SubmitContactFormSchema), submitPublicContactForm);
+  app.get("/api/public/countries-list", getPublicCountriesList);
+}

@@ -145,6 +145,11 @@ export async function closePack(packId: string): Promise<{ ok: true }> {
   return proAuthedJson(`/api/pro/packs/${packId}/close`, { method: "POST" });
 }
 
+/** DELETE /api/pro/packs/:id — supprimer un brouillon/rejeté */
+export async function deletePack(packId: string): Promise<{ ok: true }> {
+  return proAuthedJson(`/api/pro/packs/${packId}`, { method: "DELETE" });
+}
+
 /** POST /api/pro/packs/:id/duplicate */
 export async function duplicatePack(packId: string): Promise<{ newPackId: string }> {
   return proAuthedJson(`/api/pro/packs/${packId}/duplicate`, { method: "POST" });

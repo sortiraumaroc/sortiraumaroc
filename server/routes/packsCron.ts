@@ -14,20 +14,27 @@
  *  - POST /api/admin/cron/billing/reconciliation         — verify financial coherence
  *  - POST /api/admin/cron/vf/retry-pending               — retry pending VosFactures documents
  *  - POST /api/admin/cron/vf/alert-stale                 — alert admin for pending > 24h
+ *  - POST /api/admin/cron/finance/retry-pending           — retry pending finance operations
+ *  - POST /api/admin/cron/finance/detect-stuck-refunds    — detect & enqueue stuck refunds
  *  - POST /api/admin/cron/packs/run-all                  — master runner
  */
 
 import type { Router, Request, Response, RequestHandler } from "express";
+import { createModuleLogger } from "../lib/logger";
 import {
   activateScheduledPacks,
   endExpiredPacks,
 } from "../packLifecycleLogic";
+
+const log = createModuleLogger("packsCron");
 import {
   closeBillingPeriods,
   sendInvoiceReminders,
   rolloverExpiredPeriods,
 } from "../billingPeriodLogic";
 import { retryPendingDocuments, alertStaleDocuments } from "../vosfactures/retry";
+import { retryPendingFinanceOperations, detectStuckRefunds } from "../finance/retryQueue";
+import { withCronLock } from "../lib/cronLock";
 import {
   expirePurchases,
   sendPackExpirationReminders,
@@ -61,7 +68,7 @@ const cronActivateScheduled: RequestHandler = async (req, res) => {
     const count = await activateScheduledPacks();
     res.json({ ok: true, count });
   } catch (err) {
-    console.error("[PacksCron] activateScheduled error:", err);
+    log.error({ err }, "activateScheduled error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 };
@@ -77,7 +84,7 @@ const cronEndExpired: RequestHandler = async (req, res) => {
     const count = await endExpiredPacks();
     res.json({ ok: true, count });
   } catch (err) {
-    console.error("[PacksCron] endExpired error:", err);
+    log.error({ err }, "endExpired error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 };
@@ -93,7 +100,7 @@ const cronClosePeriods: RequestHandler = async (req, res) => {
     const count = await closeBillingPeriods();
     res.json({ ok: true, count });
   } catch (err) {
-    console.error("[PacksCron] closePeriods error:", err);
+    log.error({ err }, "closePeriods error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 };
@@ -109,7 +116,7 @@ const cronInvoiceReminders: RequestHandler = async (req, res) => {
     const count = await sendInvoiceReminders();
     res.json({ ok: true, count });
   } catch (err) {
-    console.error("[PacksCron] invoiceReminders error:", err);
+    log.error({ err }, "invoiceReminders error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 };
@@ -125,7 +132,7 @@ const cronRolloverExpired: RequestHandler = async (req, res) => {
     const count = await rolloverExpiredPeriods();
     res.json({ ok: true, count });
   } catch (err) {
-    console.error("[PacksCron] rolloverExpired error:", err);
+    log.error({ err }, "rolloverExpired error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 };
@@ -141,7 +148,7 @@ const cronVfRetryPending: RequestHandler = async (req, res) => {
     const result = await retryPendingDocuments();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[PacksCron] vfRetryPending error:", err);
+    log.error({ err }, "vfRetryPending error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 };
@@ -157,7 +164,7 @@ const cronVfAlertStale: RequestHandler = async (req, res) => {
     const staleCount = await alertStaleDocuments();
     res.json({ ok: true, staleCount });
   } catch (err) {
-    console.error("[PacksCron] vfAlertStale error:", err);
+    log.error({ err }, "vfAlertStale error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 };
@@ -173,7 +180,7 @@ const cronExpirePurchases: RequestHandler = async (req, res) => {
     const count = await expirePurchases();
     res.json({ ok: true, count });
   } catch (err) {
-    console.error("[PacksCron] expirePurchases error:", err);
+    log.error({ err }, "expirePurchases error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 };
@@ -189,7 +196,7 @@ const cronExpirationReminders: RequestHandler = async (req, res) => {
     const count = await sendPackExpirationReminders();
     res.json({ ok: true, count });
   } catch (err) {
-    console.error("[PacksCron] expirationReminders error:", err);
+    log.error({ err }, "expirationReminders error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 };
@@ -205,7 +212,7 @@ const cronAlertStaleDisputes: RequestHandler = async (req, res) => {
     const count = await alertStaleDisputes();
     res.json({ ok: true, count });
   } catch (err) {
-    console.error("[PacksCron] alertStaleDisputes error:", err);
+    log.error({ err }, "alertStaleDisputes error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 };
@@ -221,7 +228,7 @@ const cronAlertLatePayments: RequestHandler = async (req, res) => {
     const count = await alertLatePayments();
     res.json({ ok: true, count });
   } catch (err) {
-    console.error("[PacksCron] alertLatePayments error:", err);
+    log.error({ err }, "alertLatePayments error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 };
@@ -237,7 +244,39 @@ const cronReconciliation: RequestHandler = async (req, res) => {
     const result = await runReconciliationReport();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[PacksCron] reconciliation error:", err);
+    log.error({ err }, "reconciliation error");
+    res.status(500).json({ ok: false, error: "internal_error" });
+  }
+};
+
+// POST /api/admin/cron/finance/retry-pending
+const cronFinanceRetryPending: RequestHandler = async (req, res) => {
+  if (!verifyCronSecret(req)) {
+    res.status(401).json({ ok: false, error: "Invalid cron secret" });
+    return;
+  }
+
+  try {
+    const result = await retryPendingFinanceOperations();
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    log.error({ err }, "financeRetryPending error");
+    res.status(500).json({ ok: false, error: "internal_error" });
+  }
+};
+
+// POST /api/admin/cron/finance/detect-stuck-refunds
+const cronDetectStuckRefunds: RequestHandler = async (req, res) => {
+  if (!verifyCronSecret(req)) {
+    res.status(401).json({ ok: false, error: "Invalid cron secret" });
+    return;
+  }
+
+  try {
+    const stuckCount = await detectStuckRefunds();
+    res.json({ ok: true, stuckCount });
+  } catch (err) {
+    log.error({ err }, "detectStuckRefunds error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 };
@@ -262,6 +301,9 @@ const CRON_JOBS: CronJobConfig[] = [
   { name: "rollover-expired-periods", schedule: "daily", dailyHour: 2, fn: rolloverExpiredPeriods },
   { name: "vf-retry-pending", schedule: "every_15min", fn: retryPendingDocuments },
   { name: "vf-alert-stale", schedule: "daily", dailyHour: 8, fn: alertStaleDocuments },
+  // Finance retry queue
+  { name: "finance-retry-pending", schedule: "every_15min", fn: retryPendingFinanceOperations },
+  { name: "finance-detect-stuck-refunds", schedule: "daily", dailyHour: 7, fn: detectStuckRefunds },
   // Phase 6 jobs
   { name: "expire-purchases", schedule: "daily", dailyHour: 0, fn: expirePurchases },
   { name: "pack-expiration-reminders", schedule: "daily", dailyHour: 10, fn: sendPackExpirationReminders },
@@ -300,17 +342,22 @@ const cronRunAll: RequestHandler = async (req, res) => {
     if (smart && !isJobDueNow(job)) continue;
 
     try {
-      const result = await job.fn();
-      results[job.name] = { ok: true, result };
+      // Wrap each job in a cron lock to prevent concurrent executions
+      const lockResult = await withCronLock(job.name, job.fn);
+      if (lockResult.skipped) {
+        results[job.name] = { ok: true, result: { skipped: true } };
+      } else {
+        results[job.name] = { ok: true, result: lockResult.result };
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`[PacksCron] ${job.name} failed:`, message);
+      log.error({ jobName: job.name, error: message }, "Cron job failed");
       results[job.name] = { ok: false, error: message };
     }
   }
 
   const jobsRun = Object.keys(results).length;
-  console.log(`[PacksCron] run-all: ${jobsRun} jobs executed`);
+  log.info({ jobsRun }, "run-all completed");
 
   res.json({ ok: true, jobsRun, results });
 };
@@ -328,6 +375,9 @@ export function registerPacksCronRoutes(app: Router): void {
   app.post("/api/admin/cron/billing/rollover-expired", cronRolloverExpired);
   app.post("/api/admin/cron/vf/retry-pending", cronVfRetryPending);
   app.post("/api/admin/cron/vf/alert-stale", cronVfAlertStale);
+  // Finance retry queue
+  app.post("/api/admin/cron/finance/retry-pending", cronFinanceRetryPending);
+  app.post("/api/admin/cron/finance/detect-stuck-refunds", cronDetectStuckRefunds);
   // Phase 6 routes
   app.post("/api/admin/cron/packs/expire-purchases", cronExpirePurchases);
   app.post("/api/admin/cron/packs/expiration-reminders", cronExpirationReminders);

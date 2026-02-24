@@ -1,4 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("proNotifications");
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -48,7 +51,7 @@ export async function notifyProMembers(args: {
 
     if (!out.length) return;
     await args.supabase.from("pro_notifications").insert(out);
-  } catch {
-    // ignore (best-effort)
+  } catch (err) {
+    log.warn({ err }, "Best-effort: notifyProMembers failed");
   }
 }

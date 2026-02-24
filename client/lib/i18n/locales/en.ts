@@ -229,6 +229,7 @@ const en: Partial<Record<TranslationKey, string>> = {
     "footer.install_app": "Install the app",
 
     "footer.copyright_suffix": ". All rights reserved.",
+    "footer.ramadan_moubarak": "Ramadan Mubarak",
 
     // PWA
     "pwa.update_available": "New version available",
@@ -377,6 +378,16 @@ const en: Partial<Record<TranslationKey, string>> = {
     "home.sections.themed.ramadan": "Ftour & Shour selection",
     "home.sections.ramadan.title": "Ramadan Special",
     "home.sections.ramadan.subtitle": "Discover the best Ftour options",
+
+    // Thousand and One Nights Theme — Ramadan 2026
+    "home.ramadan.hero.title": "Ramadan Mubarak",
+    "home.ramadan.hero.subtitle": "Experience exceptional evenings with Morocco's finest venues",
+    "home.ramadan.announcement": "Ramadan Mubarak! Discover our special Ftour & Shour offers",
+    "home.ramadan.cta.title": "Experience an exceptional Ramadan",
+    "home.ramadan.cta.description": "The finest venues in the Kingdom await you for an unforgettable Ftour",
+    "home.ramadan.cta.button": "View Ramadan offers",
+    "home.ramadan.category.ftour": "Ramadan Ftour",
+    "home.ramadan.badge.ftour": "Ftour",
 
     "home.categories.restaurants.title": "What are you craving?",
     "home.categories.sport.title": "What activity interests you?",
@@ -760,7 +771,7 @@ const en: Partial<Record<TranslationKey, string>> = {
 
     // Booking (high priority paths)
     "booking.steps.details": "Details",
-    "booking.steps.payment": "Payment",
+    "booking.steps.payment": "Summary",
     "booking.steps.info": "Info",
     "booking.steps.confirmation": "Confirmation",
     "booking.step_header.label": "STEP {step} OF {total}",
@@ -966,6 +977,7 @@ const en: Partial<Record<TranslationKey, string>> = {
     "booking.form.placeholder.last_name": "e.g. Benali",
     "booking.form.placeholder.email": "e.g. amina@example.com",
     "booking.form.placeholder.phone": "e.g. +212 6 12 34 56 78",
+    "booking.form.placeholder.phone_local": "6 12 34 56 78",
     "booking.form.placeholder.message": "e.g. Allergies, special occasion…",
     "booking.form.placeholder.message_long":
       "Describe the occasion (birthday, date night...), list dietary restrictions, or any special request...",
@@ -990,7 +1002,7 @@ const en: Partial<Record<TranslationKey, string>> = {
     "booking.step4.banner.body.confirmed":
       "Your spot is guaranteed. A confirmation SMS has been sent.",
     "booking.step4.banner.body.pending":
-      "The venue will confirm your booking by SMS or WhatsApp shortly.",
+      "The venue will confirm your booking by SMS or email shortly.",
 
     "booking.step4.contact.title": "CONTACT",
     "booking.step4.contact.confirmation_sent":

@@ -6,8 +6,15 @@
  */
 
 import type { Request, Response } from "express";
+import type { Express } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
 import crypto from "crypto";
+import { createModuleLogger } from "../lib/logger";
+import { authRateLimiter } from "../middleware/rateLimiter";
+import { zBody } from "../lib/validate";
+import { FirebaseAuthSchema } from "../schemas/firebaseAuth";
+
+const log = createModuleLogger("firebaseAuth");
 
 // Rate limiting storage (in production, use Redis)
 const loginAttempts = new Map<string, { count: number; lastAttempt: number }>();
@@ -139,7 +146,7 @@ async function verifyFirebaseIdToken(idToken: string, projectId: string): Promis
       uid: payload.sub,
     };
   } catch (error) {
-    console.error("[FirebaseAuth] Token verification error:", error);
+    log.error({ err: error }, "token verification error");
     return { valid: false, error: "Token verification failed" };
   }
 }
@@ -190,7 +197,7 @@ export async function authenticateWithFirebase(
     const verification = await verifyFirebaseIdToken(idToken, firebaseProjectId);
 
     if (!verification.valid) {
-      console.warn("[FirebaseAuth] Token verification failed:", verification.error);
+      log.warn({ error: verification.error }, "token verification failed");
       res.status(401).json({ error: "Invalid or expired token" });
       return;
     }
@@ -200,7 +207,7 @@ export async function authenticateWithFirebase(
 
     // Log if client-provided phone doesn't match (potential manipulation attempt)
     if (clientPhoneNumber && clientPhoneNumber !== verifiedPhoneNumber) {
-      console.warn("[FirebaseAuth] Phone mismatch - client:", clientPhoneNumber, "verified:", verifiedPhoneNumber);
+      log.warn({ clientPhoneNumber, verifiedPhoneNumber }, "phone mismatch between client and verified token");
     }
 
     const supabase = getAdminSupabase();
@@ -216,7 +223,7 @@ export async function authenticateWithFirebase(
       .limit(1);
 
     if (searchError) {
-      console.error("[FirebaseAuth] Error searching for user:", searchError);
+      log.error({ err: searchError }, "error searching for user");
     }
 
     let userId: string;
@@ -245,7 +252,7 @@ export async function authenticateWithFirebase(
         });
 
       if (authError) {
-        console.error("[FirebaseAuth] Error creating auth user:", authError);
+        log.error({ err: authError }, "error creating auth user");
         res.status(500).json({ error: "Failed to create user account" });
         return;
       }
@@ -268,10 +275,7 @@ export async function authenticateWithFirebase(
         .single();
 
       if (profileError) {
-        console.error(
-          "[FirebaseAuth] Error creating consumer profile:",
-          profileError
-        );
+        log.error({ err: profileError }, "error creating consumer profile");
         // Don't fail - the auth user was created successfully
       }
 
@@ -297,15 +301,15 @@ export async function authenticateWithFirebase(
               });
 
             if (linkError) {
-              console.warn("[FirebaseAuth] Failed to create referral link:", linkError);
+              log.warn({ err: linkError }, "failed to create referral link");
             } else {
-              console.log("[FirebaseAuth] Referral link created for user:", consumerUser.id);
+              log.info({ userId: consumerUser.id }, "referral link created");
             }
           } else {
-            console.warn("[FirebaseAuth] Invalid referral code provided:", referralCode);
+            log.warn({ referralCode }, "invalid referral code provided");
           }
         } catch (refError) {
-          console.error("[FirebaseAuth] Error processing referral:", refError);
+          log.error({ err: refError }, "error processing referral");
           // Don't fail registration if referral fails
         }
       }
@@ -322,7 +326,7 @@ export async function authenticateWithFirebase(
       });
 
     if (sessionError) {
-      console.error("[FirebaseAuth] Error generating session:", sessionError);
+      log.error({ err: sessionError }, "error generating session");
       res.status(500).json({ error: "Failed to create session" });
       return;
     }
@@ -341,7 +345,7 @@ export async function authenticateWithFirebase(
           firebase_uid: verification.uid,
         },
       });
-    } catch { /* ignore logging errors */ }
+    } catch (err) { log.warn({ err }, "Best-effort: phone login audit log failed"); }
 
     // Return the session data
     res.json({
@@ -351,7 +355,7 @@ export async function authenticateWithFirebase(
       actionLink: sessionData?.properties?.action_link,
     });
   } catch (error) {
-    console.error("[FirebaseAuth] Unexpected error:", error);
+    log.error({ err: error }, "unexpected error");
     res.status(500).json({ error: "Authentication failed" });
   }
 }
@@ -369,4 +373,13 @@ export async function checkFirebaseAuthStatus(
     available: isConfigured,
     methods: isConfigured ? ["phone"] : [],
   });
+}
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerFirebaseAuthRoutes(app: Express) {
+  app.post("/api/consumer/auth/firebase", authRateLimiter, zBody(FirebaseAuthSchema), authenticateWithFirebase);
+  app.get("/api/consumer/auth/firebase/status", checkFirebaseAuthStatus);
 }

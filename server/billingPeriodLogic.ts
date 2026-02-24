@@ -18,6 +18,9 @@
 import { getAdminSupabase } from "./supabaseAdmin";
 import { notifyProMembers } from "./proNotifications";
 import { emitAdminNotification } from "./adminNotifications";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("billingPeriod");
 import { sendTemplateEmail } from "./emailService";
 import { generateCommissionInvoice, generateCorrectionCreditNote } from "./vosfactures/documents";
 import {
@@ -60,67 +63,30 @@ export async function closeBillingPeriods(): Promise<number> {
   for (const period of periods) {
     const p = period as any;
 
-    // Calculate totals from transactions
-    const { data: txSums } = await supabase
-      .from("transactions")
-      .select("gross_amount, commission_amount, net_amount")
-      .eq("establishment_id", p.establishment_id)
-      .eq("billing_period", p.period_code)
-      .eq("status", "completed");
+    // Atomic closure via RPC — sums transactions, calculates refunds,
+    // updates the period status in a single PostgreSQL transaction.
+    // Prevents inconsistent state if the process crashes mid-operation.
+    const { data: rpcResult, error: rpcErr } = await supabase.rpc("close_billing_period", {
+      p_period_id: p.id,
+      p_deadline_offset_days: BILLING_PERIOD.CALL_TO_INVOICE_DEADLINE_DAYS,
+    });
 
-    let totalGross = 0;
-    let totalCommission = 0;
-    let totalNet = 0;
-    let txCount = 0;
-
-    if (txSums) {
-      for (const tx of txSums as any[]) {
-        totalGross += tx.gross_amount ?? 0;
-        totalCommission += tx.commission_amount ?? 0;
-        totalNet += tx.net_amount ?? 0;
-        txCount++;
-      }
+    if (rpcErr) {
+      log.error({ periodId: p.id, err: rpcErr.message }, "close_billing_period RPC failed");
+      continue;
     }
 
-    // Calculate refunds
-    const { data: refundSums } = await supabase
-      .from("transactions")
-      .select("gross_amount")
-      .eq("establishment_id", p.establishment_id)
-      .eq("billing_period", p.period_code)
-      .in("type", ["pack_refund", "deposit_refund"]);
-
-    let totalRefunds = 0;
-    if (refundSums) {
-      for (const r of refundSums as any[]) {
-        totalRefunds += Math.abs(r.gross_amount ?? 0);
-      }
+    const result = rpcResult as any;
+    if (!result?.ok) {
+      log.warn({ periodId: p.id, error: result?.error }, "close_billing_period returned non-ok");
+      continue;
     }
-
-    // Calculate deadline: Period A → 20th, Period B → 5th next month
-    const periodDates = getBillingPeriodDates(p.period_code);
-    const deadlineDate = new Date(periodDates.end);
-    deadlineDate.setDate(deadlineDate.getDate() + BILLING_PERIOD.CALL_TO_INVOICE_DEADLINE_DAYS);
-
-    await supabase
-      .from("billing_periods")
-      .update({
-        status: "closed",
-        total_gross: totalGross,
-        total_commission: totalCommission,
-        total_net: totalNet,
-        total_refunds: totalRefunds,
-        transaction_count: txCount,
-        call_to_invoice_deadline: deadlineDate.toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", p.id);
 
     closed++;
   }
 
   if (closed > 0) {
-    console.log(`[Billing] Closed ${closed} billing periods`);
+    log.info({ closed }, "Closed billing periods");
   }
 
   return closed;
@@ -322,7 +288,7 @@ export async function callToInvoice(
 
       invoiceGenerated = true;
     } catch (err) {
-      console.error("[Billing] Failed to generate commission invoice:", err);
+      log.error({ err }, "Failed to generate commission invoice");
     }
   })();
 
@@ -524,7 +490,7 @@ export async function rolloverExpiredPeriods(): Promise<number> {
   }
 
   if (rolledOver > 0) {
-    console.log(`[Billing] Rolled over ${rolledOver} expired periods`);
+    log.info({ rolledOver }, "Rolled over expired periods");
   }
 
   return rolledOver;
@@ -674,7 +640,7 @@ export async function respondToDispute(
           });
         }
       } catch (err) {
-        console.error("[Billing] Failed to generate correction credit note:", err);
+        log.error({ err }, "Failed to generate correction credit note");
       }
     })();
   }

@@ -9,7 +9,19 @@
  */
 
 import type { Router, RequestHandler } from "express";
+import { createModuleLogger } from "../lib/logger";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { zQuery, zParams } from "../lib/validate";
+import {
+  ListAdminAdsCampaignsQuery,
+  GetAdminAdsRevenueQuery,
+  GetAdminHomeTakeoverCalendarQuery,
+  AdCampaignParams,
+  AuctionConfigParams,
+  HomeTakeoverDateParams,
+} from "../schemas/adminAds";
+
+const log = createModuleLogger("adminAds");
 import type { AdCampaign, AdModerationStatus } from "../ads/types";
 import { notifyProMembers } from "../proNotifications";
 import { sendTemplateEmail } from "../emailService";
@@ -66,7 +78,7 @@ export const getModerationQueue: RequestHandler = async (req, res) => {
       .order("submitted_at", { ascending: true, nullsFirst: false });
 
     if (error) {
-      console.error("[adminAds] Error fetching moderation queue:", error);
+      log.error({ err: error }, "error fetching moderation queue");
       return res.status(500).json({ error: "Erreur récupération file" });
     }
 
@@ -94,7 +106,7 @@ export const getModerationQueue: RequestHandler = async (req, res) => {
       total: enrichedCampaigns.length,
     });
   } catch (error) {
-    console.error("[adminAds] getModerationQueue error:", error);
+    log.error({ err: error }, "getModerationQueue error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -154,7 +166,7 @@ export const getCampaignForModeration: RequestHandler = async (req, res) => {
       wallet_balance_cents: wallet?.balance_cents ?? 0,
     });
   } catch (error) {
-    console.error("[adminAds] getCampaignForModeration error:", error);
+    log.error({ err: error }, "getCampaignForModeration error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -247,7 +259,7 @@ export const moderateCampaign: RequestHandler = async (req, res) => {
       .single();
 
     if (updateError) {
-      console.error("[adminAds] Error moderating campaign:", updateError);
+      log.error({ err: updateError }, "error moderating campaign");
       return res.status(500).json({ error: "Erreur modération" });
     }
 
@@ -315,13 +327,13 @@ export const moderateCampaign: RequestHandler = async (req, res) => {
           });
         }
       } catch (e) {
-        console.error("[adminAds] Notification error (non-blocking):", e);
+        log.error({ err: e }, "notification error (non-blocking)");
       }
     })();
 
     return res.json({ ok: true, campaign: updated });
   } catch (error) {
-    console.error("[adminAds] moderateCampaign error:", error);
+    log.error({ err: error }, "moderateCampaign error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -378,7 +390,7 @@ export const listAllCampaigns: RequestHandler = async (req, res) => {
     const { data: campaigns, error, count } = await query;
 
     if (error) {
-      console.error("[adminAds] Error listing campaigns:", error);
+      log.error({ err: error }, "error listing campaigns");
       return res.status(500).json({ error: "Erreur récupération campagnes" });
     }
 
@@ -393,7 +405,7 @@ export const listAllCampaigns: RequestHandler = async (req, res) => {
       total: count ?? 0,
     });
   } catch (error) {
-    console.error("[adminAds] listAllCampaigns error:", error);
+    log.error({ err: error }, "listAllCampaigns error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -444,7 +456,7 @@ export const pauseCampaign: RequestHandler = async (req, res) => {
 
     return res.json({ ok: true, campaign: updated });
   } catch (error) {
-    console.error("[adminAds] pauseCampaign error:", error);
+    log.error({ err: error }, "pauseCampaign error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -499,7 +511,7 @@ export const resumeCampaign: RequestHandler = async (req, res) => {
 
     return res.json({ ok: true, campaign: updated });
   } catch (error) {
-    console.error("[adminAds] resumeCampaign error:", error);
+    log.error({ err: error }, "resumeCampaign error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -522,13 +534,13 @@ export const getAuctionConfigs: RequestHandler = async (req, res) => {
       .order("product_type");
 
     if (error) {
-      console.error("[adminAds] Error fetching auction configs:", error);
+      log.error({ err: error }, "error fetching auction configs");
       return res.status(500).json({ error: "Erreur récupération configuration" });
     }
 
     return res.json({ ok: true, configs: configs ?? [] });
   } catch (error) {
-    console.error("[adminAds] getAuctionConfigs error:", error);
+    log.error({ err: error }, "getAuctionConfigs error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -593,13 +605,13 @@ export const updateAuctionConfig: RequestHandler = async (req, res) => {
       .single();
 
     if (error) {
-      console.error("[adminAds] Error updating auction config:", error);
+      log.error({ err: error }, "error updating auction config");
       return res.status(500).json({ error: "Erreur mise à jour configuration" });
     }
 
     return res.json({ ok: true, config: updated });
   } catch (error) {
-    console.error("[adminAds] updateAuctionConfig error:", error);
+    log.error({ err: error }, "updateAuctionConfig error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -652,7 +664,7 @@ export const getRevenueStats: RequestHandler = async (req, res) => {
       .lte("created_at", until.toISOString());
 
     if (clicksError) {
-      console.error("[adminAds] Error fetching revenue data:", clicksError);
+      log.error({ err: clicksError }, "error fetching revenue data");
       return res.status(500).json({ error: "Erreur récupération revenus" });
     }
 
@@ -744,7 +756,7 @@ export const getRevenueStats: RequestHandler = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("[adminAds] getRevenueStats error:", error);
+    log.error({ err: error }, "getRevenueStats error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -815,7 +827,7 @@ export const getAdsOverview: RequestHandler = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("[adminAds] getAdsOverview error:", error);
+    log.error({ err: error }, "getAdsOverview error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -875,7 +887,7 @@ export const getAdminHomeTakeoverCalendar: RequestHandler = async (req, res) => 
       .order("date", { ascending: true });
 
     if (error) {
-      console.error("[adminAds] Error fetching calendar:", error);
+      log.error({ err: error }, "error fetching admin calendar");
       return res.status(500).json({ error: "Erreur serveur" });
     }
 
@@ -884,7 +896,7 @@ export const getAdminHomeTakeoverCalendar: RequestHandler = async (req, res) => 
       calendar: calendar ?? [],
     });
   } catch (error) {
-    console.error("[adminAds] getAdminHomeTakeoverCalendar error:", error);
+    log.error({ err: error }, "getAdminHomeTakeoverCalendar error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -949,7 +961,7 @@ export const updateHomeTakeoverDay: RequestHandler = async (req, res) => {
         .eq("date", date);
 
       if (error) {
-        console.error("[adminAds] Error updating calendar day:", error);
+        log.error({ err: error }, "error updating calendar day");
         return res.status(500).json({ error: "Erreur serveur" });
       }
     } else {
@@ -974,14 +986,14 @@ export const updateHomeTakeoverDay: RequestHandler = async (req, res) => {
       });
 
       if (error) {
-        console.error("[adminAds] Error creating calendar day:", error);
+        log.error({ err: error }, "error creating calendar day");
         return res.status(500).json({ error: "Erreur serveur" });
       }
     }
 
     return res.json({ ok: true, date, updates });
   } catch (error) {
-    console.error("[adminAds] updateHomeTakeoverDay error:", error);
+    log.error({ err: error }, "updateHomeTakeoverDay error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -1032,7 +1044,7 @@ export const confirmHomeTakeoverReservation: RequestHandler = async (req, res) =
       });
 
       if (debitError) {
-        console.error("[adminAds] Debit wallet error:", debitError);
+        log.error({ err: debitError }, "debit wallet error");
         return res.status(400).json({ error: "Échec du débit wallet" });
       }
     }
@@ -1064,7 +1076,7 @@ export const confirmHomeTakeoverReservation: RequestHandler = async (req, res) =
       amount_cents: bidCents,
     });
   } catch (error) {
-    console.error("[adminAds] confirmHomeTakeoverReservation error:", error);
+    log.error({ err: error }, "confirmHomeTakeoverReservation error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -1129,7 +1141,7 @@ export const rejectHomeTakeoverReservation: RequestHandler = async (req, res) =>
       date,
     });
   } catch (error) {
-    console.error("[adminAds] rejectHomeTakeoverReservation error:", error);
+    log.error({ err: error }, "rejectHomeTakeoverReservation error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -1141,25 +1153,25 @@ export const rejectHomeTakeoverReservation: RequestHandler = async (req, res) =>
 export function registerAdminAdsRoutes(app: Router) {
   // Modération
   app.get("/api/admin/ads/moderation/queue", getModerationQueue);
-  app.get("/api/admin/ads/campaigns/:campaignId", getCampaignForModeration);
-  app.post("/api/admin/ads/campaigns/:campaignId/moderate", moderateCampaign);
+  app.get("/api/admin/ads/campaigns/:campaignId", zParams(AdCampaignParams), getCampaignForModeration);
+  app.post("/api/admin/ads/campaigns/:campaignId/moderate", zParams(AdCampaignParams), moderateCampaign);
 
   // Gestion campagnes
-  app.get("/api/admin/ads/campaigns", listAllCampaigns);
-  app.post("/api/admin/ads/campaigns/:campaignId/pause", pauseCampaign);
-  app.post("/api/admin/ads/campaigns/:campaignId/resume", resumeCampaign);
+  app.get("/api/admin/ads/campaigns", zQuery(ListAdminAdsCampaignsQuery), listAllCampaigns);
+  app.post("/api/admin/ads/campaigns/:campaignId/pause", zParams(AdCampaignParams), pauseCampaign);
+  app.post("/api/admin/ads/campaigns/:campaignId/resume", zParams(AdCampaignParams), resumeCampaign);
 
   // Configuration
   app.get("/api/admin/ads/auction-config", getAuctionConfigs);
-  app.patch("/api/admin/ads/auction-config/:productType", updateAuctionConfig);
+  app.patch("/api/admin/ads/auction-config/:productType", zParams(AuctionConfigParams), updateAuctionConfig);
 
   // Dashboard
-  app.get("/api/admin/ads/revenue", getRevenueStats);
+  app.get("/api/admin/ads/revenue", zQuery(GetAdminAdsRevenueQuery), getRevenueStats);
   app.get("/api/admin/ads/overview", getAdsOverview);
 
   // Home Takeover Calendar
-  app.get("/api/admin/ads/home-takeover/calendar", getAdminHomeTakeoverCalendar);
-  app.patch("/api/admin/ads/home-takeover/calendar/:date", updateHomeTakeoverDay);
-  app.post("/api/admin/ads/home-takeover/calendar/:date/confirm", confirmHomeTakeoverReservation);
-  app.post("/api/admin/ads/home-takeover/calendar/:date/reject", rejectHomeTakeoverReservation);
+  app.get("/api/admin/ads/home-takeover/calendar", zQuery(GetAdminHomeTakeoverCalendarQuery), getAdminHomeTakeoverCalendar);
+  app.patch("/api/admin/ads/home-takeover/calendar/:date", zParams(HomeTakeoverDateParams), updateHomeTakeoverDay);
+  app.post("/api/admin/ads/home-takeover/calendar/:date/confirm", zParams(HomeTakeoverDateParams), confirmHomeTakeoverReservation);
+  app.post("/api/admin/ads/home-takeover/calendar/:date/reject", zParams(HomeTakeoverDateParams), rejectHomeTakeoverReservation);
 }

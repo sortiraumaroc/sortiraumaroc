@@ -37,6 +37,24 @@ import {
   getClientIp,
 } from "../middleware/rateLimiter";
 import { auditProAction } from "../auditLogV2";
+import { zBody, zQuery, zParams, zIdParam } from "../lib/validate";
+import {
+  ProActionAcceptSchema,
+  ProActionRefuseSchema,
+  ProActionHoldSchema,
+  ProActionCancelSchema,
+  ProActionEstablishmentOnlySchema,
+  UpdateProCapacitySchema,
+  CreateProDiscountSchema,
+  UpdateProDiscountSchema,
+  UpdateAutoAcceptRulesSchema,
+  ProSendQuoteSchema,
+  ProSendQuoteMessageSchema,
+  ListProReservationsQuery,
+  GetProCalendarQuery,
+  ProEstablishmentQuery,
+  GetProOccupancyStatsQuery,
+} from "../schemas/reservationV2Pro";
 
 // =============================================================================
 // Auth helper (mirrors pro.ts pattern)
@@ -765,38 +783,38 @@ const getProOccupancyStats: RequestHandler = async (req, res) => {
 
 export function registerReservationV2ProRoutes(app: Router): void {
   // Reservation list & calendar
-  app.get("/api/pro/reservations", listProReservations);
-  app.get("/api/pro/reservations/calendar", getProCalendar);
+  app.get("/api/pro/reservations", zQuery(ListProReservationsQuery), listProReservations);
+  app.get("/api/pro/reservations/calendar", zQuery(GetProCalendarQuery), getProCalendar);
 
   // Reservation actions (rate limited)
-  app.post("/api/pro/reservations/:id/accept", proActionRateLimiter, proAccept);
-  app.post("/api/pro/reservations/:id/refuse", proActionRateLimiter, proRefuse);
-  app.post("/api/pro/reservations/:id/hold", proActionRateLimiter, proHold);
-  app.post("/api/pro/reservations/:id/request-deposit", proActionRateLimiter, proRequestDeposit);
-  app.post("/api/pro/reservations/:id/cancel", proActionRateLimiter, proCancel);
-  app.post("/api/pro/reservations/:id/scan-qr", qrScanRateLimiter, proScanQr);
-  app.post("/api/pro/reservations/:id/confirm-venue", proActionRateLimiter, proConfirmVenueRoute);
-  app.post("/api/pro/reservations/:id/declare-no-show", proActionRateLimiter, proDeclareNoShow);
+  app.post("/api/pro/reservations/:id/accept", zParams(zIdParam), zBody(ProActionAcceptSchema), proActionRateLimiter, proAccept);
+  app.post("/api/pro/reservations/:id/refuse", zParams(zIdParam), zBody(ProActionRefuseSchema), proActionRateLimiter, proRefuse);
+  app.post("/api/pro/reservations/:id/hold", zParams(zIdParam), zBody(ProActionHoldSchema), proActionRateLimiter, proHold);
+  app.post("/api/pro/reservations/:id/request-deposit", zParams(zIdParam), zBody(ProActionEstablishmentOnlySchema), proActionRateLimiter, proRequestDeposit);
+  app.post("/api/pro/reservations/:id/cancel", zParams(zIdParam), zBody(ProActionCancelSchema), proActionRateLimiter, proCancel);
+  app.post("/api/pro/reservations/:id/scan-qr", zParams(zIdParam), zBody(ProActionEstablishmentOnlySchema), qrScanRateLimiter, proScanQr);
+  app.post("/api/pro/reservations/:id/confirm-venue", zParams(zIdParam), zBody(ProActionEstablishmentOnlySchema), proActionRateLimiter, proConfirmVenueRoute);
+  app.post("/api/pro/reservations/:id/declare-no-show", zParams(zIdParam), zBody(ProActionEstablishmentOnlySchema), proActionRateLimiter, proDeclareNoShow);
 
   // Capacity & discounts
-  app.get("/api/pro/capacity", getProCapacity);
-  app.put("/api/pro/capacity", proActionRateLimiter, updateProCapacity);
-  app.get("/api/pro/discounts", getProDiscounts);
-  app.post("/api/pro/discounts", proActionRateLimiter, createProDiscount);
-  app.put("/api/pro/discounts/:id", proActionRateLimiter, updateProDiscount);
-  app.delete("/api/pro/discounts/:id", proActionRateLimiter, deleteProDiscount);
+  app.get("/api/pro/capacity", zQuery(ProEstablishmentQuery), getProCapacity);
+  app.put("/api/pro/capacity", zBody(UpdateProCapacitySchema), proActionRateLimiter, updateProCapacity);
+  app.get("/api/pro/discounts", zQuery(ProEstablishmentQuery), getProDiscounts);
+  app.post("/api/pro/discounts", zBody(CreateProDiscountSchema), proActionRateLimiter, createProDiscount);
+  app.put("/api/pro/discounts/:id", zParams(zIdParam), zBody(UpdateProDiscountSchema), proActionRateLimiter, updateProDiscount);
+  app.delete("/api/pro/discounts/:id", zParams(zIdParam), proActionRateLimiter, deleteProDiscount);
 
   // Auto-accept rules
-  app.get("/api/pro/auto-accept-rules", getAutoAcceptRules);
-  app.put("/api/pro/auto-accept-rules", proActionRateLimiter, updateAutoAcceptRules);
+  app.get("/api/pro/auto-accept-rules", zQuery(ProEstablishmentQuery), getAutoAcceptRules);
+  app.put("/api/pro/auto-accept-rules", zBody(UpdateAutoAcceptRulesSchema), proActionRateLimiter, updateAutoAcceptRules);
 
   // Quotes
-  app.get("/api/pro/quotes", getProQuotes);
-  app.post("/api/pro/quotes/:id/acknowledge", proActionRateLimiter, proAcknowledgeQuote);
-  app.post("/api/pro/quotes/:id/send-quote", proActionRateLimiter, proSendQuote);
-  app.post("/api/pro/quotes/:id/messages", proActionRateLimiter, proSendQuoteMessage);
+  app.get("/api/pro/quotes", zQuery(ProEstablishmentQuery), getProQuotes);
+  app.post("/api/pro/quotes/:id/acknowledge", zParams(zIdParam), zBody(ProActionEstablishmentOnlySchema), proActionRateLimiter, proAcknowledgeQuote);
+  app.post("/api/pro/quotes/:id/send-quote", zParams(zIdParam), zBody(ProSendQuoteSchema), proActionRateLimiter, proSendQuote);
+  app.post("/api/pro/quotes/:id/messages", zParams(zIdParam), zBody(ProSendQuoteMessageSchema), proActionRateLimiter, proSendQuoteMessage);
 
   // Statistics
-  app.get("/api/pro/stats/reservations", getProReservationStats);
-  app.get("/api/pro/stats/occupancy", getProOccupancyStats);
+  app.get("/api/pro/stats/reservations", zQuery(ProEstablishmentQuery), getProReservationStats);
+  app.get("/api/pro/stats/occupancy", zQuery(GetProOccupancyStatsQuery), getProOccupancyStats);
 }

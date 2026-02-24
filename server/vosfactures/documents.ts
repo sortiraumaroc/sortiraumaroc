@@ -17,6 +17,9 @@
 
 import { getAdminSupabase } from "../supabaseAdmin";
 import { getBillingCompanyProfile } from "../billing/companyProfile";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("vosfactures");
 import type { BillingCompanyProfile } from "../billing/companyProfile";
 import {
   createDocument,
@@ -139,11 +142,8 @@ async function recordPendingDocument(args: {
       retry_count: 0,
       status: "pending",
     });
-  } catch {
-    // Best-effort — log and continue
-    console.error(
-      `[VF] Failed to record pending document: ${args.type} for ${args.reference_type}/${args.reference_id}`,
-    );
+  } catch (err) {
+    log.error({ err, type: args.type, referenceType: args.reference_type, referenceId: args.reference_id }, "Failed to record pending document");
   }
 }
 
@@ -733,7 +733,7 @@ async function storeReceiptId(
       .update({ receipt_id: String(vfDocumentId), updated_at: new Date().toISOString() })
       .eq("id", recordId);
   } catch (err) {
-    console.error(`[VF] Failed to store receipt_id on ${table}/${recordId}:`, err);
+    log.error({ err, table, recordId }, "Failed to store receipt_id");
   }
 }
 
@@ -758,10 +758,7 @@ async function storeReceiptIdOnReservation(
       .update({ meta, updated_at: new Date().toISOString() })
       .eq("id", reservationId);
   } catch (err) {
-    console.error(
-      `[VF] Failed to store receipt_id on reservation/${reservationId}:`,
-      err,
-    );
+    log.error({ err, reservationId }, "Failed to store receipt_id on reservation");
   }
 }
 
@@ -777,10 +774,7 @@ async function storeVfRefOnTransaction(
       .update({ [field]: value })
       .eq("id", transactionId);
   } catch (err) {
-    console.error(
-      `[VF] Failed to store ${field} on transaction/${transactionId}:`,
-      err,
-    );
+    log.error({ err, field, transactionId }, "Failed to store VF ref on transaction");
   }
 }
 
@@ -798,10 +792,7 @@ async function storeBillingPeriodInvoiceId(
       })
       .eq("id", billingPeriodId);
   } catch (err) {
-    console.error(
-      `[VF] Failed to store invoice_id on billing_period/${billingPeriodId}:`,
-      err,
-    );
+    log.error({ err, billingPeriodId }, "Failed to store invoice_id on billing_period");
   }
 }
 
@@ -816,10 +807,7 @@ async function storeCreditNoteId(
       .update({ vosfactures_credit_note_id: String(vfDocumentId) })
       .eq("id", refundId);
   } catch (err) {
-    console.error(
-      `[VF] Failed to store credit_note_id on pack_refund/${refundId}:`,
-      err,
-    );
+    log.error({ err, refundId }, "Failed to store credit_note_id on pack_refund");
   }
 }
 
@@ -837,9 +825,6 @@ async function storeDisputeCreditNoteId(
       })
       .eq("id", disputeId);
   } catch (err) {
-    console.error(
-      `[VF] Failed to store credit_note_id on billing_dispute/${disputeId}:`,
-      err,
-    );
+    log.error({ err, disputeId }, "Failed to store credit_note_id on billing_dispute");
   }
 }

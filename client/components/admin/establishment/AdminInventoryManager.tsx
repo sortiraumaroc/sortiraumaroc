@@ -640,7 +640,7 @@ export function AdminInventoryManager({
           });
           categoryMap.set(cat.title, res.category.id);
         } catch (err) {
-          console.warn(`Failed to create category ${cat.title}:`, err);
+          // Failed to create category, trying to find existing
           // Try to find existing category
           const existing = categories.find(
             (c) => c.title.toLowerCase() === cat.title.toLowerCase()
@@ -665,7 +665,7 @@ export function AdminInventoryManager({
           });
           successCount++;
         } catch (err) {
-          console.warn(`Failed to create item ${item.title}:`, err);
+          // Failed to create item (non-blocking, continuing batch)
         }
       }
 

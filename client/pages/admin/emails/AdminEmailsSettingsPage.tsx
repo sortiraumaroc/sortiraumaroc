@@ -33,7 +33,7 @@ function toDraft(item: AdminEmailBranding | null): Draft {
     secondary_color: item?.secondary_color ?? "#000000",
     background_color: item?.background_color ?? "#FFFFFF",
     from_name: item?.from_name ?? "Sortir Au Maroc",
-    contact_email: item?.contact_email ?? "hello@sortiraumaroc.ma",
+    contact_email: item?.contact_email ?? "hello@sam.ma",
     signature_fr: item?.signature_fr ?? "L'équipe Sortir Au Maroc",
     signature_en: item?.signature_en ?? "The Sortir Au Maroc team",
     legal_legal: String(links.legal ?? "https://sam.ma/mentions-legales"),
@@ -219,7 +219,7 @@ export function AdminEmailsSettingsPage() {
   };
 
   const senders = useMemo(
-    () => ["hello@sortiraumaroc.ma", "support@sortiraumaroc.ma", "pro@sortiraumaroc.ma", "finance@sortiraumaroc.ma", "noreply@sortiraumaroc.ma"],
+    () => ["hello@sam.ma", "support@sam.ma", "pro@sam.ma", "finance@sam.ma", "noreply@sam.ma"],
     [],
   );
 

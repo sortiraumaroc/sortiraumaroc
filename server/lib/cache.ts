@@ -1,6 +1,9 @@
 import NodeCache from "node-cache";
 import { createHash } from "crypto";
 import type { Request, Response, NextFunction } from "express";
+import { createModuleLogger } from "./logger";
+
+const log = createModuleLogger("cache");
 
 const CACHE_ENABLED = process.env.CACHE_ENABLED !== "false";
 
@@ -29,25 +32,23 @@ export async function cachedQuery<T>(
     if (cached !== undefined) {
       totalHits++;
       if (process.env.NODE_ENV !== "production") {
-        console.log(`[CACHE HIT] ${key}`);
+        log.debug({ key }, "cache hit");
       }
       return cached;
     }
-  } catch {
-    /* cache error, continue to DB */
+  } catch { /* intentional: cache read may fail, fallthrough to DB */
   }
 
   totalMisses++;
   if (process.env.NODE_ENV !== "production") {
-    console.log(`[CACHE MISS] ${key}`);
+    log.debug({ key }, "cache miss");
   }
 
   const result = await queryFn();
 
   try {
     cache.set(key, result, ttlSeconds);
-  } catch {
-    /* cache error, skip */
+  } catch { /* intentional: cache write may fail, result already fetched */
   }
 
   return result;
@@ -108,18 +109,17 @@ export function cacheMiddleware(
       if (cached !== undefined) {
         totalHits++;
         if (process.env.NODE_ENV !== "production") {
-          console.log(`[CACHE HIT] ${key}`);
+          log.debug({ key }, "cache hit");
         }
         res.json(cached);
         return;
       }
-    } catch {
-      /* cache error, continue */
+    } catch { /* intentional: cache read may fail, fallthrough to handler */
     }
 
     totalMisses++;
     if (process.env.NODE_ENV !== "production") {
-      console.log(`[CACHE MISS] ${key}`);
+      log.debug({ key }, "cache miss");
     }
 
     // Monkey-patch res.json to intercept the response body
@@ -129,8 +129,7 @@ export function cacheMiddleware(
       if (res.statusCode >= 200 && res.statusCode < 300) {
         try {
           cache.set(key, body, ttlSeconds);
-        } catch {
-          /* cache error, skip */
+        } catch { /* intentional: cache write may fail, response already sent */
         }
       }
       return originalJson(body);

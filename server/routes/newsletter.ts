@@ -1,6 +1,11 @@
 import { Router, Request, Response } from "express";
 import { adminSupabase } from "../supabase";
 import { createRateLimiter } from "../middleware/rateLimiter";
+import { createModuleLogger } from "../lib/logger";
+import { zBody } from "../lib/validate";
+import { NewsletterSubscribeSchema, NewsletterUnsubscribeSchema } from "../schemas/newsletter";
+
+const log = createModuleLogger("newsletter");
 
 const router = Router();
 
@@ -41,7 +46,7 @@ async function getGeoLocation(ip: string): Promise<{ city: string | null; countr
 
     return { city: null, country: null };
   } catch (error) {
-    console.error("Geolocation error:", error);
+    log.error({ err: error }, "Geolocation error");
     return { city: null, country: null };
   }
 }
@@ -56,7 +61,7 @@ function getClientIP(req: Request): string {
 }
 
 // POST /api/newsletter/subscribe - Public endpoint for newsletter signup
-router.post("/subscribe", newsletterSubscribeRateLimiter, async (req: Request, res: Response) => {
+router.post("/subscribe", newsletterSubscribeRateLimiter, zBody(NewsletterSubscribeSchema), async (req: Request, res: Response) => {
   try {
     const { email, source } = req.body;
 
@@ -101,7 +106,7 @@ router.post("/subscribe", newsletterSubscribeRateLimiter, async (req: Request, r
           .eq("id", existing.id);
 
         if (updateError) {
-          console.error("Error reactivating subscription:", updateError);
+          log.error({ err: updateError }, "Error reactivating subscription");
           return res.status(500).json({ error: "Failed to reactivate subscription" });
         }
 
@@ -125,7 +130,7 @@ router.post("/subscribe", newsletterSubscribeRateLimiter, async (req: Request, r
     });
 
     if (insertError) {
-      console.error("Error inserting subscriber:", insertError);
+      log.error({ err: insertError }, "Error inserting subscriber");
       if (insertError.code === "23505") {
         return res.status(409).json({ message: "Email already exists" });
       }
@@ -137,7 +142,7 @@ router.post("/subscribe", newsletterSubscribeRateLimiter, async (req: Request, r
 
     return res.status(201).json({ success: true, message: "Inscrit avec succès" });
   } catch (error) {
-    console.error("Newsletter subscribe error:", error);
+    log.error({ err: error }, "Newsletter subscribe error");
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -156,7 +161,7 @@ router.get("/count", async (_req: Request, res: Response) => {
       .eq("status", "active");
 
     if (error) {
-      console.error("Error fetching subscriber count:", error);
+      log.error({ err: error }, "Error fetching subscriber count");
       return res.status(500).json({ error: "Failed to fetch count" });
     }
 
@@ -167,13 +172,13 @@ router.get("/count", async (_req: Request, res: Response) => {
 
     return res.json({ count: total, success: true });
   } catch (error) {
-    console.error("Newsletter count error:", error);
+    log.error({ err: error }, "Newsletter count error");
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
 // POST /api/newsletter/unsubscribe - Public endpoint to unsubscribe
-router.post("/unsubscribe", async (req: Request, res: Response) => {
+router.post("/unsubscribe", createRateLimiter("newsletter-unsubscribe", { windowMs: 15 * 60 * 1000, maxRequests: 5 }), zBody(NewsletterUnsubscribeSchema), async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
 
@@ -191,13 +196,13 @@ router.post("/unsubscribe", async (req: Request, res: Response) => {
       .eq("email", email.toLowerCase().trim());
 
     if (error) {
-      console.error("Error unsubscribing:", error);
+      log.error({ err: error }, "Error unsubscribing");
       return res.status(500).json({ error: "Failed to unsubscribe" });
     }
 
     return res.json({ success: true, message: "Successfully unsubscribed" });
   } catch (error) {
-    console.error("Newsletter unsubscribe error:", error);
+    log.error({ err: error }, "Newsletter unsubscribe error");
     return res.status(500).json({ error: "Internal server error" });
   }
 });

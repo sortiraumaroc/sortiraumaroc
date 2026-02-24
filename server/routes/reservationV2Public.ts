@@ -48,6 +48,23 @@ import {
   validatePaymentType,
   sanitizeObject,
 } from "../sanitizeV2";
+import { createModuleLogger } from "../lib/logger";
+import { zBody, zParams, zIdParam } from "../lib/validate";
+import {
+  CreateReservationV2Schema,
+  ModifyReservationV2Schema,
+  CancelReservationV2Schema,
+  ValidateReservationPromoSchema,
+  JoinWaitlistV2Schema,
+  SubmitQuoteSchema,
+  PostQuoteMessageSchema,
+  RespondToNoShowDisputeSchema,
+  ReservationIdParams,
+  AvailabilityDateParams,
+  EstablishmentAvailabilityParams,
+} from "../schemas/reservationV2Public";
+
+const log = createModuleLogger("reservationV2Public");
 
 // =============================================================================
 // Auth helper (mirrors public.ts pattern)
@@ -67,7 +84,8 @@ async function getConsumerUserId(req: Request): Promise<ConsumerAuthResult> {
     const { data, error } = await supabase.auth.getUser(token);
     if (error || !data.user) return { ok: false, status: 401, error: "unauthorized" };
     return { ok: true, userId: data.user.id };
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "Failed to authenticate consumer token");
     return { ok: false, status: 401, error: "unauthorized" };
   }
 }
@@ -103,7 +121,7 @@ async function getEstablishmentAvailability(req: Request, res: Response) {
 
     res.json({ ok: true, availability: result, discounts });
   } catch (err) {
-    console.error("[getEstablishmentAvailability] Error:", err);
+    log.error({ err }, "getEstablishmentAvailability failed");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -135,7 +153,7 @@ async function getEstablishmentDateAvailability(req: Request, res: Response) {
     const discounts = await getSlotDiscounts({ supabase, establishmentId, date });
     res.json({ ok: true, availability: result, discounts });
   } catch (err) {
-    console.error("[getEstablishmentDateAvailability] Error:", err);
+    log.error({ err }, "getEstablishmentDateAvailability failed");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -199,7 +217,7 @@ async function createReservation(req: Request, res: Response) {
 
     res.status(201).json({ ok: true, reservation: result.reservation, waitlisted: result.waitlisted });
   } catch (err) {
-    console.error("[createReservation] Error:", err);
+    log.error({ err }, "createReservation failed");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -257,7 +275,7 @@ async function modifyReservation(req: Request, res: Response) {
 
     res.json({ ok: true, message: "Reservation modified" });
   } catch (err) {
-    console.error("[modifyReservation] Error:", err);
+    log.error({ err }, "modifyReservation failed");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -293,7 +311,7 @@ async function cancelReservation(req: Request, res: Response) {
 
     res.json({ ok: true, newStatus: result.newStatus, cancellationType: result.cancellationType });
   } catch (err) {
-    console.error("[cancelReservation] Error:", err);
+    log.error({ err }, "cancelReservation failed");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -327,7 +345,7 @@ async function upgradeReservation(req: Request, res: Response) {
 
     res.json({ ok: true, newStatus: result.newStatus });
   } catch (err) {
-    console.error("[upgradeReservation] Error:", err);
+    log.error({ err }, "upgradeReservation failed");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -365,7 +383,7 @@ async function getReservationQrCode(req: Request, res: Response) {
       startsAt: r.starts_at,
     });
   } catch (err) {
-    console.error("[getReservationQrCode] Error:", err);
+    log.error({ err }, "getReservationQrCode failed");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -424,7 +442,7 @@ async function validatePromoCode(req: Request, res: Response) {
       },
     });
   } catch (err) {
-    console.error("[validatePromoCode] Error:", err);
+    log.error({ err }, "validatePromoCode failed");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -472,7 +490,7 @@ async function getMyReservations(req: Request, res: Response) {
 
     res.json({ ok: true, reservations: data ?? [] });
   } catch (err) {
-    console.error("[getMyReservations] Error:", err);
+    log.error({ err }, "getMyReservations failed");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -491,7 +509,7 @@ async function getMyScore(req: Request, res: Response) {
 
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[getMyScore] Error:", err);
+    log.error({ err }, "getMyScore failed");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -552,7 +570,7 @@ async function joinWaitlist(req: Request, res: Response) {
 
     res.status(201).json({ ok: true, waitlistEntryId: (entry as any).id });
   } catch (err) {
-    console.error("[joinWaitlist] Error:", err);
+    log.error({ err }, "joinWaitlist failed");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -616,7 +634,7 @@ async function confirmWaitlistSlot(req: Request, res: Response) {
 
     res.json({ ok: true, reservation: result.reservation });
   } catch (err) {
-    console.error("[confirmWaitlistSlot] Error:", err);
+    log.error({ err }, "confirmWaitlistSlot failed");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -662,7 +680,7 @@ async function submitQuote(req: Request, res: Response) {
 
     res.status(201).json({ ok: true, quoteId: result.quoteId });
   } catch (err) {
-    console.error("[submitQuote] Error:", err);
+    log.error({ err }, "submitQuote failed");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -691,7 +709,7 @@ async function getMyQuotes(req: Request, res: Response) {
     if (error) return res.status(500).json({ error: error.message });
     res.json({ ok: true, quotes: data ?? [] });
   } catch (err) {
-    console.error("[getMyQuotes] Error:", err);
+    log.error({ err }, "getMyQuotes failed");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -726,7 +744,7 @@ async function getQuoteDetail(req: Request, res: Response) {
 
     res.json({ ok: true, quote, messages: messages ?? [] });
   } catch (err) {
-    console.error("[getQuoteDetail] Error:", err);
+    log.error({ err }, "getQuoteDetail failed");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -758,7 +776,7 @@ async function postQuoteMessage(req: Request, res: Response) {
 
     res.status(201).json({ ok: true, messageId: result.messageId });
   } catch (err) {
-    console.error("[postQuoteMessage] Error:", err);
+    log.error({ err }, "postQuoteMessage failed");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -785,7 +803,7 @@ async function acceptQuoteRoute(req: Request, res: Response) {
 
     res.json({ ok: true, quoteId: result.quoteId, reservationId: result.reservationId });
   } catch (err) {
-    console.error("[acceptQuoteRoute] Error:", err);
+    log.error({ err }, "acceptQuoteRoute failed");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -828,7 +846,7 @@ async function respondToNoShowDispute(req: Request, res: Response) {
 
     res.json({ ok: true, newStatus: result.newStatus });
   } catch (err) {
-    console.error("[respondToNoShowDispute] Error:", err);
+    log.error({ err }, "respondToNoShowDispute failed");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -839,32 +857,32 @@ async function respondToNoShowDispute(req: Request, res: Response) {
 
 export function registerReservationV2PublicRoutes(app: Router): void {
   // Availability (anti-scraping rate limit)
-  app.get("/api/establishments/:id/availability", availabilityReadRateLimiter, getEstablishmentAvailability);
-  app.get("/api/establishments/:id/availability/:date", availabilityReadRateLimiter, getEstablishmentDateAvailability);
+  app.get("/api/establishments/:id/availability", zParams(EstablishmentAvailabilityParams), availabilityReadRateLimiter, getEstablishmentAvailability);
+  app.get("/api/establishments/:id/availability/:date", zParams(AvailabilityDateParams), availabilityReadRateLimiter, getEstablishmentDateAvailability);
 
   // Reservations CRUD (strict rate limits on mutating operations)
-  app.post("/api/reservations", reservationCreateRateLimiter, createReservation);
-  app.put("/api/reservations/:id", reservationCreateRateLimiter, modifyReservation);
-  app.delete("/api/reservations/:id", reservationCancelRateLimiter, cancelReservation);
-  app.post("/api/reservations/:id/upgrade", upgradeRateLimiter, upgradeReservation);
-  app.get("/api/reservations/:id/qrcode", getReservationQrCode);
-  app.post("/api/reservations/validate-promo", availabilityReadRateLimiter, validatePromoCode);
+  app.post("/api/reservations", reservationCreateRateLimiter, zBody(CreateReservationV2Schema), createReservation);
+  app.put("/api/reservations/:id", zParams(ReservationIdParams), reservationCreateRateLimiter, zBody(ModifyReservationV2Schema), modifyReservation);
+  app.delete("/api/reservations/:id", zParams(ReservationIdParams), reservationCancelRateLimiter, zBody(CancelReservationV2Schema), cancelReservation);
+  app.post("/api/reservations/:id/upgrade", zParams(ReservationIdParams), upgradeRateLimiter, upgradeReservation);
+  app.get("/api/reservations/:id/qrcode", zParams(ReservationIdParams), getReservationQrCode);
+  app.post("/api/reservations/validate-promo", availabilityReadRateLimiter, zBody(ValidateReservationPromoSchema), validatePromoCode);
 
   // My reservations & score
   app.get("/api/me/reservations", getMyReservations);
   app.get("/api/me/score", getMyScore);
 
   // Waitlist
-  app.post("/api/waitlist", reservationCreateRateLimiter, joinWaitlist);
-  app.post("/api/waitlist/:id/confirm", reservationCreateRateLimiter, confirmWaitlistSlot);
+  app.post("/api/waitlist", reservationCreateRateLimiter, zBody(JoinWaitlistV2Schema), joinWaitlist);
+  app.post("/api/waitlist/:id/confirm", zParams(ReservationIdParams), reservationCreateRateLimiter, confirmWaitlistSlot);
 
   // Quotes (strict anti-spam)
-  app.post("/api/quotes", quoteRequestRateLimiter, submitQuote);
+  app.post("/api/quotes", quoteRequestRateLimiter, zBody(SubmitQuoteSchema), submitQuote);
   app.get("/api/me/quotes", getMyQuotes);
-  app.get("/api/quotes/:id", getQuoteDetail);
-  app.post("/api/quotes/:id/messages", quoteRequestRateLimiter, postQuoteMessage);
-  app.post("/api/quotes/:id/accept", reservationCreateRateLimiter, acceptQuoteRoute);
+  app.get("/api/quotes/:id", zParams(ReservationIdParams), getQuoteDetail);
+  app.post("/api/quotes/:id/messages", zParams(ReservationIdParams), quoteRequestRateLimiter, zBody(PostQuoteMessageSchema), postQuoteMessage);
+  app.post("/api/quotes/:id/accept", zParams(ReservationIdParams), reservationCreateRateLimiter, acceptQuoteRoute);
 
   // No-show dispute response (strict)
-  app.post("/api/no-show-disputes/:id/respond", disputeResponseRateLimiter, respondToNoShowDispute);
+  app.post("/api/no-show-disputes/:id/respond", zParams(ReservationIdParams), disputeResponseRateLimiter, zBody(RespondToNoShowDisputeSchema), respondToNoShowDispute);
 }

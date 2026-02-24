@@ -53,7 +53,7 @@ export const ReCaptchaV2 = forwardRef<ReCaptchaV2Ref, ReCaptchaV2Props>(
     }, []);
 
     if (!RECAPTCHA_SITE_KEY) {
-      console.warn("[ReCaptchaV2] VITE_RECAPTCHA_SITE_KEY not configured");
+      // VITE_RECAPTCHA_SITE_KEY not configured
       return (
         <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
           reCAPTCHA non configuré

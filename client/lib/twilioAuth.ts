@@ -168,7 +168,7 @@ export async function sendVerificationCode(phoneNumber: string): Promise<SendCod
   }
 
   try {
-    console.log("[TwilioAuth] Sending verification code to:", formattedPhone);
+    // Sending verification code
 
     const response = await fetch("/api/consumer/auth/phone/send-code", {
       method: "POST",
@@ -183,7 +183,7 @@ export async function sendVerificationCode(phoneNumber: string): Promise<SendCod
     const data = await response.json();
 
     if (!response.ok) {
-      console.error("[TwilioAuth] Send code error:", data);
+      // Send code error — handled below
       return {
         success: false,
         error: data.error || "Échec de l'envoi du code",
@@ -191,7 +191,7 @@ export async function sendVerificationCode(phoneNumber: string): Promise<SendCod
       };
     }
 
-    console.log("[TwilioAuth] Code sent successfully");
+    // Code sent successfully
     return {
       success: true,
       status: data.status,
@@ -224,7 +224,7 @@ export async function verifyCode(
   }
 
   try {
-    console.log("[TwilioAuth] Verifying code for:", formattedPhone);
+    // Verifying code
 
     const response = await fetch("/api/consumer/auth/phone/verify-code", {
       method: "POST",
@@ -242,14 +242,14 @@ export async function verifyCode(
     const data = await response.json();
 
     if (!response.ok) {
-      console.error("[TwilioAuth] Verify code error:", data);
+      // Verify code error — handled below
       return {
         success: false,
         error: data.error || "Code invalide",
       };
     }
 
-    console.log("[TwilioAuth] Code verified successfully, isNewUser:", data.isNewUser);
+    // Code verified successfully
     return {
       success: true,
       isNewUser: data.isNewUser,
@@ -283,7 +283,7 @@ export async function completeAuthentication(actionLink: string): Promise<boolea
     const token = url.searchParams.get("token") || url.hash.split("access_token=")[1]?.split("&")[0];
 
     if (!token) {
-      console.error("[TwilioAuth] No token found in actionLink");
+      // No token found in actionLink
       return false;
     }
 
@@ -297,7 +297,7 @@ export async function completeAuthentication(actionLink: string): Promise<boolea
     });
 
     if (error) {
-      console.error("[TwilioAuth] Error verifying OTP:", error);
+      // Error verifying OTP — trying session fallback
       // Fallback: try to get session directly
       const { data: sessionData, error: sessionError } = await consumerSupabase.auth.getSession();
       if (sessionError || !sessionData.session) {

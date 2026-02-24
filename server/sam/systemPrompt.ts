@@ -5,6 +5,7 @@
  */
 
 import type { SamUserProfile } from "../lib/samDataAccess";
+import type { EstablishmentFullContext } from "./chatEndpoint";
 
 // Labels lisibles pour chaque univers
 const UNIVERSE_LABELS: Record<string, string> = {
@@ -21,6 +22,7 @@ export function buildSystemPrompt(context: {
   user: SamUserProfile | null;
   isAuthenticated: boolean;
   universe?: string;
+  establishment?: EstablishmentFullContext | null;
 }): string {
   const userContext = context.user
     ? `
@@ -164,10 +166,177 @@ INTELLIGENCE — PRÉFÉRENCES :
 - Utilise ces préférences pour affiner tes recommandations futures dans la même conversation
 - Si l'utilisateur dit "surprise-moi", "choisis pour moi", "je ne sais pas quoi choisir" → appelle surprise_me
 
-${context.universe && UNIVERSE_LABELS[context.universe] ? `UNIVERS ACTIF : ${UNIVERSE_LABELS[context.universe]}
+${context.establishment ? buildEstablishmentScopedSection(context.establishment) : (
+  context.universe && UNIVERSE_LABELS[context.universe] ? `UNIVERS ACTIF : ${UNIVERSE_LABELS[context.universe]}
 L'utilisateur navigue actuellement dans l'univers "${context.universe}". Priorise cet univers dans tes recherches et recommandations.
 - Utilise universe: "${context.universe}" par défaut dans tes appels à search_establishments et get_trending
 - Adapte ton ton et tes suggestions à ce domaine
 - Si l'utilisateur demande explicitement un autre univers, tu peux changer — mais par défaut, reste dans "${context.universe}"
-` : ""}${userContext}`;
+` : ""
+)}${userContext}`;
+}
+
+// ---------------------------------------------------------------------------
+// Establishment scoped prompt section
+// ---------------------------------------------------------------------------
+
+function formatHours(hours: unknown): string {
+  if (!hours || typeof hours !== "object") return "Non renseignés";
+  try {
+    const h = hours as Record<string, unknown>;
+    const days: string[] = [];
+    for (const [day, val] of Object.entries(h)) {
+      if (val && typeof val === "object") {
+        const v = val as Record<string, string>;
+        days.push(`${day}: ${v.open ?? "?"} – ${v.close ?? "?"}`);
+      } else if (typeof val === "string") {
+        days.push(`${day}: ${val}`);
+      }
+    }
+    return days.length ? days.join(" | ") : "Non renseignés";
+  } catch { /* intentional: opening hours may have unexpected shape */
+    return "Non renseignés";
+  }
+}
+
+function buildEstablishmentScopedSection(ctx: EstablishmentFullContext): string {
+  const est = ctx.establishment.establishment;
+  const slots = ctx.establishment.availableSlots;
+  const { packs } = ctx.packs;
+  const { reviews, average_rating, total_count } = ctx.reviews;
+  const menu = ctx.menu;
+  const ramadanOffers = ctx.ramadanOffers;
+
+  // --- Menu section ---
+  let menuSection = "Menu non disponible en ligne.";
+  if (menu && menu.items.length > 0) {
+    const lines: string[] = [];
+    for (const cat of menu.categories) {
+      lines.push(`### ${cat.title}${cat.description ? ` — ${cat.description}` : ""}`);
+      const catItems = menu.items.filter((i) => i.category === cat.title);
+      for (const item of catItems) {
+        const labelsStr = item.labels.length ? ` [${item.labels.join(", ")}]` : "";
+        const priceStr = item.price != null ? `${item.price} ${item.currency}` : "Prix variable";
+        const variantsStr = item.variants.length
+          ? " | " + item.variants.map((v) => `${v.title ?? "Option"}: ${v.price} ${item.currency}`).join(", ")
+          : "";
+        const descStr = item.description ? ` — ${item.description}` : "";
+        lines.push(`- ${item.title}${labelsStr} : ${priceStr}${variantsStr}${descStr}`);
+      }
+    }
+    // Items without category
+    const uncategorized = menu.items.filter((i) => !i.category);
+    if (uncategorized.length) {
+      lines.push("### Autres");
+      for (const item of uncategorized) {
+        const priceStr = item.price != null ? `${item.price} ${item.currency}` : "Prix variable";
+        lines.push(`- ${item.title} : ${priceStr}`);
+      }
+    }
+    menuSection = lines.join("\n");
+  }
+
+  // --- Packs section ---
+  let packsSection = "Aucun pack disponible.";
+  if (packs.length > 0) {
+    packsSection = packs
+      .map((p) => {
+        const priceStr = `${p.price} MAD`;
+        const origStr = p.original_price && p.original_price > p.price
+          ? ` (au lieu de ${p.original_price} MAD, -${p.discount_percent}%)`
+          : "";
+        const descStr = p.short_description ? ` — ${p.short_description}` : "";
+        return `- ${p.title} : ${priceStr}${origStr}${descStr}`;
+      })
+      .join("\n");
+  }
+
+  // --- Ramadan section ---
+  let ramadanSection = "Aucune offre Ramadan en cours.";
+  if (ramadanOffers.length > 0) {
+    ramadanSection = ramadanOffers
+      .map((o) => {
+        const price = typeof o.price === "number" ? `${Math.round(Number(o.price)) / 100} MAD` : "";
+        const type = o.type ?? "";
+        const timeSlots = Array.isArray(o.time_slots)
+          ? " | Horaires: " + (o.time_slots as Array<Record<string, string>>)
+              .map((s) => `${s.label ?? ""} ${s.start ?? ""}–${s.end ?? ""}`)
+              .join(", ")
+          : "";
+        const desc = o.description ? ` — ${o.description}` : "";
+        return `- ${o.title} (${type}) : ${price}${timeSlots}${desc}`;
+      })
+      .join("\n");
+  }
+
+  // --- Reviews section ---
+  let reviewsSection = "Pas encore d'avis sur sam.ma.";
+  if (reviews.length > 0) {
+    reviewsSection = reviews
+      .map((r) => `- ${r.author_first_name ?? "Anonyme"} : ${r.rating}/5${r.comment ? ` "${r.comment}"` : ""}`)
+      .join("\n");
+    if (total_count > 0 && average_rating != null) {
+      reviewsSection += `\nMoyenne sam.ma : ${average_rating}/5 (${total_count} avis)`;
+    }
+  }
+
+  // --- Slots section ---
+  let slotsSection = "Aucun créneau configuré.";
+  if (slots.length > 0) {
+    slotsSection = slots
+      .slice(0, 7) // Max 7 jours pour ne pas exploser le prompt
+      .map((s) =>
+        `${s.date} : ${s.services.map((sv) => `${sv.service} → ${sv.times.join(", ")}`).join(" | ")}`,
+      )
+      .join("\n");
+  }
+
+  return `MODE ÉTABLISSEMENT DÉDIÉ — RÈGLE ABSOLUE :
+Tu es l'assistant IA exclusif de "${est.name}".
+
+🚫 TU NE PARLES QUE DE CET ÉTABLISSEMENT.
+Si l'utilisateur demande un autre restaurant, hôtel ou lieu, réponds :
+"Je suis l'assistant de ${est.name}. Pour d'autres adresses, utilise la recherche sur sam.ma !"
+
+📍 FICHE ÉTABLISSEMENT :
+- Nom : ${est.name}
+- Type : ${est.universe}${est.category ? ` / ${est.category}` : ""}${est.subcategory ? ` (${est.subcategory})` : ""}
+- Ville : ${est.city ?? "Non renseignée"} | Adresse : ${est.address ?? "Non renseignée"}
+- Téléphone : ${est.phone ?? "Non renseigné"} | WhatsApp : ${est.whatsapp ?? "Non renseigné"}
+- Horaires : ${formatHours(est.hours)}
+- Description : ${est.description_short ?? ""}${est.description_long ? `\n${est.description_long}` : ""}
+- Note Google : ${est.google_rating != null ? `${est.google_rating}/5 (${est.google_review_count ?? 0} avis)` : "Non disponible"}
+- Réservation en ligne : ${est.booking_enabled ? "✅ Activée" : "❌ Non disponible"}
+- Menu digital : ${est.menu_digital_url ?? "Non disponible"}
+${est.tags?.length ? `- Tags : ${est.tags.join(", ")}` : ""}
+${est.google_maps_url ? `- Google Maps : ${est.google_maps_url}` : ""}
+
+🍽️ MENU / CARTE :
+${menuSection}
+
+🎁 PACKS & OFFRES :
+${packsSection}
+
+🌙 OFFRES RAMADAN :
+${ramadanSection}
+
+⭐ AVIS RÉCENTS :
+${reviewsSection}
+
+📅 CRÉNEAUX DISPONIBLES (prochains jours) :
+${slotsSection}
+
+COMPORTEMENT EN MODE ÉTABLISSEMENT :
+1. PROPOSE PROACTIVEMENT les packs, offres Ramadan et plats populaires quand le contexte s'y prête
+2. Si l'utilisateur mentionne des goûts (végétarien, épicé, poisson…) → recommande des plats SPÉCIFIQUES du menu ci-dessus
+3. Si l'utilisateur veut réserver → utilise check_availability puis create_booking (confirmation obligatoire)
+4. Tu connais DÉJÀ toutes les infos ci-dessus — n'appelle PAS get_establishment_details ni get_establishment_packs
+5. Tu peux appeler check_availability pour vérifier une DATE SPÉCIFIQUE demandée par l'utilisateur
+6. Tu peux appeler get_establishment_reviews si l'utilisateur veut plus d'avis
+7. ID de l'établissement pour les tools : "${est.id}"
+8. Quand tu parles du menu, cite les VRAIS noms de plats et VRAIS prix — ne les invente jamais
+9. Si on te demande un type de plat (végétarien, sans gluten, etc.) → cherche dans les items du menu avec les labels correspondants
+10. Si on te demande le budget pour un repas → calcule à partir des prix réels du menu
+11. Sois chaleureux et donne envie de venir !
+`;
 }

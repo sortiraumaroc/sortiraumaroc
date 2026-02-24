@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Briefcase, Building2, Gift, BarChart3, QrCode, Plus, Pencil, Trash2, RefreshCw, Download, Copy, Check, Users, Eye } from "lucide-react";
 
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
+import { AdminUsersNav } from "@/pages/admin/users/AdminUsersNav";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -714,6 +715,7 @@ function AdvantagesTab() {
 export function AdminCePage() {
   return (
     <div className="p-6 space-y-6">
+      <AdminUsersNav />
       <AdminPageHeader
         title="Comités d'Entreprise"
         description="Gérez les entreprises, salariés et avantages CE"

@@ -12,7 +12,10 @@
  */
 
 import type { Router, RequestHandler } from "express";
+import { createModuleLogger } from "../lib/logger";
 import { getAdminSupabase } from "../supabaseAdmin";
+
+const log = createModuleLogger("loyaltyV2Pro");
 import {
   validateConditionalStamp,
   claimLoyaltyReward,
@@ -41,6 +44,19 @@ import {
 } from "../middleware/rateLimiter";
 import { isValidUUID, sanitizeText, sanitizePlain } from "../sanitizeV2";
 import { auditProAction } from "../auditLogV2";
+import { zBody, zParams } from "../lib/validate";
+import {
+  LoyaltyEstablishmentOnlySchema,
+  CreateProLoyaltyProgramSchema,
+  UpdateProLoyaltyProgramSchema,
+  ScanLoyaltySchema,
+  ConfirmConditionalStampSchema,
+  OfferGiftSchema,
+  ProgramIdParams,
+  CardIdParams,
+  DistributionIdParams,
+  UserIdParams,
+} from "../schemas/loyaltyV2Pro";
 
 // =============================================================================
 // Auth helpers (same pattern as reservationV2Pro.ts)
@@ -171,7 +187,7 @@ const getProLoyaltyProgram: RequestHandler = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("[getProLoyaltyProgram] Error:", err);
+    log.error({ err }, "getProLoyaltyProgram error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -285,7 +301,7 @@ const createProLoyaltyProgram: RequestHandler = async (req, res) => {
 
     res.json({ ok: true, program: data });
   } catch (err) {
-    console.error("[createProLoyaltyProgram] Error:", err);
+    log.error({ err }, "createProLoyaltyProgram error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -392,7 +408,7 @@ const updateProLoyaltyProgram: RequestHandler = async (req, res) => {
 
     res.json({ ok: true, program: data });
   } catch (err) {
-    console.error("[updateProLoyaltyProgram] Error:", err);
+    log.error({ err }, "updateProLoyaltyProgram error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -431,7 +447,7 @@ const activateProgram: RequestHandler = async (req, res) => {
       message: `Programme activé. ${result.unfrozenCount ?? 0} carte(s) dégelée(s).`,
     });
   } catch (err) {
-    console.error("[activateProgram] Error:", err);
+    log.error({ err }, "activateProgram error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -470,7 +486,7 @@ const deactivateProgram: RequestHandler = async (req, res) => {
       message: `Programme désactivé. ${result.frozenCount ?? 0} carte(s) gelée(s).`,
     });
   } catch (err) {
-    console.error("[deactivateProgram] Error:", err);
+    log.error({ err }, "deactivateProgram error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -545,7 +561,7 @@ const getProLoyaltyStats: RequestHandler = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("[getProLoyaltyStats] Error:", err);
+    log.error({ err }, "getProLoyaltyStats error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -657,7 +673,7 @@ const getProLoyaltyClients: RequestHandler = async (req, res) => {
       per_page: perPage,
     });
   } catch (err) {
-    console.error("[getProLoyaltyClients] Error:", err);
+    log.error({ err }, "getProLoyaltyClients error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -715,7 +731,7 @@ const getProLoyaltyClientDetail: RequestHandler = async (req, res) => {
       rewards: rewards ?? [],
     });
   } catch (err) {
-    console.error("[getProLoyaltyClientDetail] Error:", err);
+    log.error({ err }, "getProLoyaltyClientDetail error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -770,7 +786,7 @@ const scanLoyalty: RequestHandler = async (req, res) => {
 
     res.json({ ok: true, loyalty: result });
   } catch (err) {
-    console.error("[scanLoyalty] Error:", err);
+    log.error({ err }, "scanLoyalty error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -835,7 +851,7 @@ const confirmConditionalStamp: RequestHandler = async (req, res) => {
 
     res.json(result);
   } catch (err) {
-    console.error("[confirmConditionalStamp] Error:", err);
+    log.error({ err }, "confirmConditionalStamp error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -877,7 +893,7 @@ const claimReward: RequestHandler = async (req, res) => {
 
     res.status(result.ok ? 200 : 400).json(result);
   } catch (err) {
-    console.error("[claimReward] Error:", err);
+    log.error({ err }, "claimReward error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -910,7 +926,7 @@ const consumeGift: RequestHandler = async (req, res) => {
 
     res.status(result.ok ? 200 : 400).json(result);
   } catch (err) {
-    console.error("[consumeGift] Error:", err);
+    log.error({ err }, "consumeGift error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -974,7 +990,7 @@ const offerGift: RequestHandler = async (req, res) => {
 
     res.status(result.ok ? 200 : 400).json(result);
   } catch (err) {
-    console.error("[offerGift] Error:", err);
+    log.error({ err }, "offerGift error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -995,7 +1011,7 @@ const getMyOfferedGifts: RequestHandler = async (req, res) => {
     const gifts = await getProOfferedGifts(estId);
     res.json({ ok: true, gifts });
   } catch (err) {
-    console.error("[getMyOfferedGifts] Error:", err);
+    log.error({ err }, "getMyOfferedGifts error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -1007,23 +1023,23 @@ const getMyOfferedGifts: RequestHandler = async (req, res) => {
 export function registerLoyaltyV2ProRoutes(app: Router): void {
   // Programme fidélité — rate limited
   app.get("/api/pro/loyalty", loyaltyReadRateLimiter, getProLoyaltyProgram);
-  app.post("/api/pro/loyalty", loyaltyProActionRateLimiter, createProLoyaltyProgram);
-  app.put("/api/pro/loyalty/:programId", loyaltyProActionRateLimiter, updateProLoyaltyProgram);
-  app.post("/api/pro/loyalty/:programId/activate", loyaltyProActionRateLimiter, activateProgram);
-  app.post("/api/pro/loyalty/:programId/deactivate", loyaltyProActionRateLimiter, deactivateProgram);
+  app.post("/api/pro/loyalty", zBody(CreateProLoyaltyProgramSchema), loyaltyProActionRateLimiter, createProLoyaltyProgram);
+  app.put("/api/pro/loyalty/:programId", zParams(ProgramIdParams), zBody(UpdateProLoyaltyProgramSchema), loyaltyProActionRateLimiter, updateProLoyaltyProgram);
+  app.post("/api/pro/loyalty/:programId/activate", zParams(ProgramIdParams), zBody(LoyaltyEstablishmentOnlySchema), loyaltyProActionRateLimiter, activateProgram);
+  app.post("/api/pro/loyalty/:programId/deactivate", zParams(ProgramIdParams), zBody(LoyaltyEstablishmentOnlySchema), loyaltyProActionRateLimiter, deactivateProgram);
   app.get("/api/pro/loyalty/stats", loyaltyReadRateLimiter, getProLoyaltyStats);
 
   // Clients fidèles — rate limited reads
   app.get("/api/pro/loyalty/clients", loyaltyReadRateLimiter, getProLoyaltyClients);
-  app.get("/api/pro/loyalty/clients/:userId", loyaltyReadRateLimiter, getProLoyaltyClientDetail);
+  app.get("/api/pro/loyalty/clients/:userId", zParams(UserIdParams), loyaltyReadRateLimiter, getProLoyaltyClientDetail);
 
   // Scan QR fidélité — rate limited
-  app.post("/api/pro/scan/loyalty", loyaltyScanRateLimiter, scanLoyalty);
-  app.post("/api/pro/loyalty/stamp/:cardId", loyaltyStampRateLimiter, confirmConditionalStamp);
-  app.post("/api/pro/loyalty/claim-reward/:cardId", loyaltyConsumeRateLimiter, claimReward);
+  app.post("/api/pro/scan/loyalty", zBody(ScanLoyaltySchema), loyaltyScanRateLimiter, scanLoyalty);
+  app.post("/api/pro/loyalty/stamp/:cardId", zParams(CardIdParams), zBody(ConfirmConditionalStampSchema), loyaltyStampRateLimiter, confirmConditionalStamp);
+  app.post("/api/pro/loyalty/claim-reward/:cardId", zParams(CardIdParams), zBody(LoyaltyEstablishmentOnlySchema), loyaltyConsumeRateLimiter, claimReward);
 
   // Cadeaux sam.ma — rate limited
-  app.post("/api/pro/gifts/:distributionId/consume", loyaltyConsumeRateLimiter, consumeGift);
-  app.post("/api/pro/gifts/offer", loyaltyGiftOfferRateLimiter, offerGift);
+  app.post("/api/pro/gifts/:distributionId/consume", zParams(DistributionIdParams), loyaltyConsumeRateLimiter, consumeGift);
+  app.post("/api/pro/gifts/offer", zBody(OfferGiftSchema), loyaltyGiftOfferRateLimiter, offerGift);
   app.get("/api/pro/gifts/offered", loyaltyReadRateLimiter, getMyOfferedGifts);
 }

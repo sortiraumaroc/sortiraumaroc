@@ -13,6 +13,9 @@
 import { getAdminSupabase } from "./supabaseAdmin";
 import { fireNotification, sendNotification } from "./notificationEngine";
 import { emitAdminNotification } from "./adminNotifications";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("wheelCron");
 import { getAudienceUserIds } from "./audienceSegmentService";
 import { getDailyRecap } from "./wheelAdminLogic";
 import { sendTemplateEmail } from "./emailService";
@@ -55,7 +58,7 @@ export async function sendDailyNotPlayedReminders(): Promise<{ sent: number }> {
       .select("id")
       .eq("status", "active")
       .eq("push_marketing_enabled", true)
-      .limit(50000);
+      .limit(5000); // maxReminders is capped at 5000 — no need to fetch more
 
     eligibleUserIds = (users ?? []).map((u: { id: string }) => u.id);
   }
@@ -106,7 +109,7 @@ export async function sendDailyNotPlayedReminders(): Promise<{ sent: number }> {
     sent++;
   }
 
-  console.log(`[WheelCron] Sent ${sent} daily reminders (${notPlayed.length} eligible, ${playedUsers.size} already played)`);
+  log.info({ sent, eligible: notPlayed.length, alreadyPlayed: playedUsers.size }, "Sent daily reminders");
   return { sent };
 }
 
@@ -154,7 +157,7 @@ export async function sendPrizeExpirationReminders(): Promise<{ sent: number }> 
     sent++;
   }
 
-  console.log(`[WheelCron] Sent ${sent} prize expiration reminders`);
+  log.info({ sent }, "Sent prize expiration reminders");
   return { sent };
 }
 
@@ -178,13 +181,13 @@ export async function expireUnconsumedPrizes(): Promise<{ expired: number }> {
     .select("id");
 
   if (error) {
-    console.error("[WheelCron] expireUnconsumedPrizes error:", error.message);
+    log.error({ err: error.message }, "expireUnconsumedPrizes error");
     return { expired: 0 };
   }
 
   const count = data?.length ?? 0;
   if (count > 0) {
-    console.log(`[WheelCron] Expired ${count} unconsumed wheel prizes`);
+    log.info({ count }, "Expired unconsumed wheel prizes");
   }
 
   return { expired: count };
@@ -249,7 +252,7 @@ export async function sendDailyAdminRecap(): Promise<{ sent: boolean }> {
       },
     });
   } catch (err) {
-    console.error("[WheelCron] Recap email error:", err);
+    log.error({ err }, "Recap email error");
   }
 
   return { sent: true };
@@ -274,7 +277,7 @@ export async function endExpiredWheels(): Promise<{ ended: number }> {
     .select("id, name");
 
   if (error) {
-    console.error("[WheelCron] endExpiredWheels error:", error.message);
+    log.error({ err: error.message }, "endExpiredWheels error");
     return { ended: 0 };
   }
 
@@ -288,7 +291,7 @@ export async function endExpiredWheels(): Promise<{ ended: number }> {
         data: { wheelId: wheel.id },
       });
     }
-    console.log(`[WheelCron] Ended ${count} expired wheel events`);
+    log.info({ count }, "Ended expired wheel events");
   }
 
   return { ended: count };

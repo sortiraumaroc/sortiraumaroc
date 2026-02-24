@@ -431,6 +431,9 @@ export type PublicHomeFeedResponse = {
     top_rated: PublicHomeFeedItem[];
     deals: PublicHomeFeedItem[];
     themed: PublicHomeFeedItem[];
+    by_service_buffet: PublicHomeFeedItem[];
+    by_service_table: PublicHomeFeedItem[];
+    by_service_carte: PublicHomeFeedItem[];
   };
   meta: {
     universe?: string;
@@ -816,10 +819,20 @@ export type PublicHowItWorksItem = {
   description: string;
 };
 
+export type PublicHomeSectionConfig = {
+  key: string;
+  is_active: boolean;
+  sort_order: number;
+  display_mode: "ordered" | "random";
+  city_filter: string;
+};
+
 export type PublicHomeSettings = {
   hero: {
     background_image_url: string | null;
     overlay_opacity: number;
+    mobile_background_image_url?: string | null;
+    mobile_overlay_opacity?: number;
     title?: string | null;
     subtitle?: string | null;
   };
@@ -827,6 +840,8 @@ export type PublicHomeSettings = {
     title: string;
     items: PublicHowItWorksItem[];
   };
+  sections_config?: PublicHomeSectionConfig[];
+  packs_section_title?: string;
 };
 
 export async function getPublicHomeSettings(): Promise<{

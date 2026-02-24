@@ -580,7 +580,7 @@ export default function Profile() {
                 {activeTab === "gains" && <MyWheelGifts />}
 
                 {activeTab === "notifications" && (
-                  <ProfileNotifications bookings={bookings} packPurchases={packPurchases} />
+                  <ProfileNotifications />
                 )}
 
                 {activeTab === "billing" && (

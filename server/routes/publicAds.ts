@@ -10,6 +10,11 @@
 import type { RequestHandler, Router } from "express";
 import { randomUUID } from "node:crypto";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
+import { zBody, zQuery } from "../lib/validate";
+import { TrackImpressionSchema, TrackClickSchema, TrackConversionSchema, SponsoredAdsQuery, FeaturedPackQuery } from "../schemas/publicAds";
+
+const log = createModuleLogger("publicAds");
 import { adReadRateLimiter, adImpressionRateLimiter, adClickRateLimiter } from "../middleware/rateLimiter";
 
 // =============================================================================
@@ -93,7 +98,7 @@ export const getSponsoredResults: RequestHandler = async (req, res) => {
     const { data: campaigns, error } = await query;
 
     if (error) {
-      console.error("[publicAds] Error fetching sponsored campaigns:", error);
+      log.error({ err: error }, "Error fetching sponsored campaigns");
       return res.status(500).json({ error: "Erreur serveur" });
     }
 
@@ -191,7 +196,7 @@ export const getSponsoredResults: RequestHandler = async (req, res) => {
       total: sponsored.length,
     });
   } catch (error) {
-    console.error("[publicAds] getSponsoredResults error:", error);
+    log.error({ err: error }, "getSponsoredResults error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -250,7 +255,7 @@ export const getFeaturedPack: RequestHandler = async (req, res) => {
       .eq("moderation_status", "approved");
 
     if (error) {
-      console.error("[publicAds] Error fetching featured pack campaigns:", error);
+      log.error({ err: error }, "Error fetching featured pack campaigns");
       return res.status(500).json({ error: "Erreur serveur" });
     }
 
@@ -348,7 +353,7 @@ export const getFeaturedPack: RequestHandler = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("[publicAds] getFeaturedPack error:", error);
+    log.error({ err: error }, "getFeaturedPack error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -387,7 +392,7 @@ export const trackImpression: RequestHandler = async (req, res) => {
 
     return res.json({ ok: true, impression_id: impressionId });
   } catch (error) {
-    console.error("[publicAds] trackImpression error:", error);
+    log.error({ err: error }, "trackImpression error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -476,7 +481,7 @@ export const trackClick: RequestHandler = async (req, res) => {
       is_valid: isValid,
     });
   } catch (error) {
-    console.error("[publicAds] trackClick error:", error);
+    log.error({ err: error }, "trackClick error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -516,7 +521,7 @@ export const trackConversion: RequestHandler = async (req, res) => {
 
     return res.json({ ok: true, ...result });
   } catch (error) {
-    console.error("[publicAds] trackConversion error:", error);
+    log.error({ err: error }, "trackConversion error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -593,16 +598,16 @@ export const getHomeTakeover: RequestHandler = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("[publicAds] getHomeTakeover error:", error);
+    log.error({ err: error }, "getHomeTakeover error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
 
 export function registerPublicAdsRoutes(app: Router) {
-  app.get("/api/public/ads/sponsored", adReadRateLimiter, getSponsoredResults);
-  app.get("/api/public/ads/featured-pack", adReadRateLimiter, getFeaturedPack);
+  app.get("/api/public/ads/sponsored", zQuery(SponsoredAdsQuery), adReadRateLimiter, getSponsoredResults);
+  app.get("/api/public/ads/featured-pack", zQuery(FeaturedPackQuery), adReadRateLimiter, getFeaturedPack);
   app.get("/api/public/ads/home-takeover", adReadRateLimiter, getHomeTakeover);
-  app.post("/api/public/ads/impression", adImpressionRateLimiter, trackImpression);
-  app.post("/api/public/ads/click", adClickRateLimiter, trackClick);
-  app.post("/api/public/ads/conversion", adClickRateLimiter, trackConversion);
+  app.post("/api/public/ads/impression", adImpressionRateLimiter, zBody(TrackImpressionSchema), trackImpression);
+  app.post("/api/public/ads/click", adClickRateLimiter, zBody(TrackClickSchema), trackClick);
+  app.post("/api/public/ads/conversion", adClickRateLimiter, zBody(TrackConversionSchema), trackConversion);
 }

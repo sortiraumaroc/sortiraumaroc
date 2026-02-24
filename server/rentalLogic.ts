@@ -4,6 +4,9 @@
 // =============================================================================
 
 import { getAdminSupabase } from "./supabaseAdmin";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("rentalLogic");
 import type {
   RentalVehicle,
   RentalVehicleSpecs,
@@ -183,7 +186,7 @@ export async function searchRentalVehicles(
   const { data, error, count } = await query;
 
   if (error) {
-    console.error("[RentalLogic] searchRentalVehicles error:", error);
+    log.error({ err: error }, "searchRentalVehicles error");
     return { vehicles: [], total: 0, page, per_page: perPage };
   }
 

@@ -12,6 +12,9 @@
 import { getAdminSupabase } from "./supabaseAdmin";
 import { emitAdminNotification } from "./adminNotifications";
 import { sendTemplateEmail } from "./emailService";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("packsCronLogic");
 
 // =============================================================================
 // 1. Expire Pack Purchases — daily 0h
@@ -34,7 +37,7 @@ export async function expirePurchases(): Promise<number> {
     .lt("expires_at", now);
 
   if (fetchErr) {
-    console.error("[PacksCronLogic] expirePurchases fetch error:", fetchErr);
+    log.error({ err: fetchErr }, "expirePurchases fetch error");
     throw new Error(fetchErr.message);
   }
 
@@ -49,11 +52,11 @@ export async function expirePurchases(): Promise<number> {
     .in("id", ids);
 
   if (updateErr) {
-    console.error("[PacksCronLogic] expirePurchases update error:", updateErr);
+    log.error({ err: updateErr }, "expirePurchases update error");
     throw new Error(updateErr.message);
   }
 
-  console.log(`[PacksCronLogic] expirePurchases: ${ids.length} purchases expired`);
+  log.info({ count: ids.length }, "expirePurchases completed");
   return ids.length;
 }
 
@@ -84,7 +87,7 @@ export async function sendPackExpirationReminders(): Promise<number> {
     .lte("expires_at", sevenDaysFromNow.toISOString());
 
   if (fetchErr) {
-    console.error("[PacksCronLogic] sendPackExpirationReminders fetch error:", fetchErr);
+    log.error({ err: fetchErr }, "sendPackExpirationReminders fetch error");
     throw new Error(fetchErr.message);
   }
 
@@ -129,7 +132,7 @@ export async function sendPackExpirationReminders(): Promise<number> {
         ctaUrl: "https://sam.ma/profile?tab=packs",
         ctaLabel: "Voir mes Packs",
       }).catch((err) => {
-        console.error(`[PacksCronLogic] expiry reminder email failed for purchase ${p.id}:`, err);
+        log.error({ err, purchaseId: p.id }, "expiry reminder email failed");
       });
     }
 
@@ -143,7 +146,7 @@ export async function sendPackExpirationReminders(): Promise<number> {
     sentCount++;
   }
 
-  console.log(`[PacksCronLogic] sendPackExpirationReminders: ${sentCount} reminders sent`);
+  log.info({ count: sentCount }, "sendPackExpirationReminders completed");
   return sentCount;
 }
 
@@ -167,7 +170,7 @@ export async function alertStaleDisputes(): Promise<number> {
     .lt("created_at", fiveDaysAgo);
 
   if (error) {
-    console.error("[PacksCronLogic] alertStaleDisputes fetch error:", error);
+    log.error({ err: error }, "alertStaleDisputes fetch error");
     throw new Error(error.message);
   }
 
@@ -206,7 +209,7 @@ export async function alertStaleDisputes(): Promise<number> {
     data: { dispute_ids: disputeIds, count },
   });
 
-  console.log(`[PacksCronLogic] alertStaleDisputes: ${count} stale disputes alerted`);
+  log.info({ count }, "alertStaleDisputes completed");
   return count;
 }
 
@@ -231,7 +234,7 @@ export async function alertLatePayments(): Promise<number> {
     .lt("payment_due_date", today);
 
   if (error) {
-    console.error("[PacksCronLogic] alertLatePayments fetch error:", error);
+    log.error({ err: error }, "alertLatePayments fetch error");
     throw new Error(error.message);
   }
 
@@ -277,7 +280,7 @@ export async function alertLatePayments(): Promise<number> {
     },
   });
 
-  console.log(`[PacksCronLogic] alertLatePayments: ${count} late payments alerted (${totalDhs} Dhs total)`);
+  log.info({ count, totalDhs }, "alertLatePayments completed");
   return count;
 }
 
@@ -315,7 +318,7 @@ export async function runReconciliationReport(): Promise<{
     .limit(100);
 
   if (fetchErr) {
-    console.error("[PacksCronLogic] runReconciliationReport fetch error:", fetchErr);
+    log.error({ err: fetchErr }, "runReconciliationReport fetch error");
     throw new Error(fetchErr.message);
   }
 
@@ -337,7 +340,7 @@ export async function runReconciliationReport(): Promise<{
       .eq("status", "completed");
 
     if (txErr) {
-      console.error(`[PacksCronLogic] reconciliation tx fetch for period ${p.id}:`, txErr);
+      log.error({ err: txErr, periodId: p.id }, "reconciliation tx fetch error");
       continue;
     }
 
@@ -402,9 +405,7 @@ export async function runReconciliationReport(): Promise<{
     });
   }
 
-  console.log(
-    `[PacksCronLogic] runReconciliationReport: ${periods.length} periods checked, ${discrepancies} discrepancies`
-  );
+  log.info({ periodsChecked: periods.length, discrepancies }, "runReconciliationReport completed");
 
   return {
     periodsChecked: periods.length,

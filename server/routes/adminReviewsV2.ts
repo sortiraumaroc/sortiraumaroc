@@ -13,7 +13,11 @@
  */
 
 import type { RequestHandler } from "express";
+import type { Express } from "express";
+import { createModuleLogger } from "../lib/logger";
 import { getAdminSupabase } from "../supabaseAdmin";
+
+const log = createModuleLogger("adminReviewsV2");
 import { getAuditActorInfo } from "./admin";
 import {
   adminApproveReview,
@@ -31,6 +35,12 @@ import {
   adminListReportsSchema,
   resolveReportSchema,
 } from "../schemas/reviews";
+import { zBody, zParams, zIdParam } from "../lib/validate";
+import {
+  AdminModerateReviewSchema,
+  AdminModerateResponseSchema,
+  AdminResolveReportSchema,
+} from "../schemas/adminReviewsV2";
 import type { ReviewStatus } from "../../shared/reviewTypes";
 
 // =============================================================================
@@ -69,7 +79,7 @@ export const listAdminReviewsV2: RequestHandler = async (req, res) => {
     const { data, error, count } = await query;
 
     if (error) {
-      console.error("[adminReviewsV2] listAdminReviews error:", error);
+      log.error({ err: error }, "listAdminReviews error");
       return res.status(500).json({ ok: false, error: error.message });
     }
 
@@ -133,7 +143,7 @@ export const listAdminReviewsV2: RequestHandler = async (req, res) => {
       limit,
     });
   } catch (err) {
-    console.error("[adminReviewsV2] listAdminReviews exception:", err);
+    log.error({ err }, "listAdminReviews exception");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 };
@@ -195,7 +205,7 @@ export const getReviewStatsV2: RequestHandler = async (req, res) => {
       gestures_expiring_soon: gesturesExpiringSoon ?? 0,
     });
   } catch (err) {
-    console.error("[adminReviewsV2] getReviewStats exception:", err);
+    log.error({ err }, "getReviewStats exception");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 };
@@ -284,7 +294,7 @@ export const getAdminReviewV2: RequestHandler = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("[adminReviewsV2] getAdminReview exception:", err);
+    log.error({ err }, "getAdminReview exception");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 };
@@ -356,7 +366,7 @@ export const moderateReviewV2: RequestHandler = async (req, res) => {
       new_status: "newStatus" in result ? result.newStatus : action,
     });
   } catch (err) {
-    console.error("[adminReviewsV2] moderateReview exception:", err);
+    log.error({ err }, "moderateReview exception");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 };
@@ -383,13 +393,13 @@ export const listPendingResponsesV2: RequestHandler = async (req, res) => {
       .order("created_at", { ascending: true });
 
     if (error) {
-      console.error("[adminReviewsV2] listPendingResponses error:", error);
+      log.error({ err: error }, "listPendingResponses error");
       return res.status(500).json({ ok: false, error: error.message });
     }
 
     return res.json({ ok: true, items: data ?? [] });
   } catch (err) {
-    console.error("[adminReviewsV2] listPendingResponses exception:", err);
+    log.error({ err }, "listPendingResponses exception");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 };
@@ -466,7 +476,7 @@ export const moderateResponseV2: RequestHandler = async (req, res) => {
 
     return res.json({ ok: true, action, new_status: newStatus });
   } catch (err) {
-    console.error("[adminReviewsV2] moderateResponse exception:", err);
+    log.error({ err }, "moderateResponse exception");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 };
@@ -506,7 +516,7 @@ export const listReviewReportsV2: RequestHandler = async (req, res) => {
     const { data, error, count } = await query;
 
     if (error) {
-      console.error("[adminReviewsV2] listReviewReports error:", error);
+      log.error({ err: error }, "listReviewReports error");
       return res.status(500).json({ ok: false, error: error.message });
     }
 
@@ -518,7 +528,7 @@ export const listReviewReportsV2: RequestHandler = async (req, res) => {
       limit,
     });
   } catch (err) {
-    console.error("[adminReviewsV2] listReviewReports exception:", err);
+    log.error({ err }, "listReviewReports exception");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 };
@@ -591,7 +601,22 @@ export const resolveReviewReportV2: RequestHandler = async (req, res) => {
 
     return res.json({ ok: true, action, status: action });
   } catch (err) {
-    console.error("[adminReviewsV2] resolveReviewReport exception:", err);
+    log.error({ err }, "resolveReviewReport exception");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 };
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerAdminReviewsV2Routes(app: Express) {
+  app.get("/api/admin/v2/reviews", listAdminReviewsV2);
+  app.get("/api/admin/v2/reviews/stats", getReviewStatsV2);
+  app.get("/api/admin/v2/reviews/:id", zParams(zIdParam), getAdminReviewV2);
+  app.post("/api/admin/v2/reviews/:id/moderate", zParams(zIdParam), zBody(AdminModerateReviewSchema), moderateReviewV2);
+  app.get("/api/admin/v2/reviews/responses", listPendingResponsesV2);
+  app.post("/api/admin/v2/reviews/responses/:id/moderate", zParams(zIdParam), zBody(AdminModerateResponseSchema), moderateResponseV2);
+  app.get("/api/admin/v2/reviews/reports", listReviewReportsV2);
+  app.post("/api/admin/v2/reviews/reports/:id/resolve", zParams(zIdParam), zBody(AdminResolveReportSchema), resolveReviewReportV2);
+}

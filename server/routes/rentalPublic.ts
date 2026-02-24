@@ -9,6 +9,10 @@
  *  - POST /api/rental/price-quote      — calculate price quote
  */
 
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("rentalPublic");
+
 import type { Router, Request, Response, RequestHandler } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
 import {
@@ -17,6 +21,8 @@ import {
   getRentalCities,
   calculateRentalPrice,
 } from "../rentalLogic";
+import { zBody, zQuery, zParams } from "../lib/validate";
+import { RentalPriceQuoteSchema, SearchVehiclesQuery, VehicleIdParams } from "../schemas/rentalPublicRoutes";
 
 // =============================================================================
 // Auth helpers (same pattern as packsPublic.ts)
@@ -36,7 +42,8 @@ async function getConsumerUserId(req: Request): Promise<ConsumerAuthResult> {
     const { data, error } = await supabase.auth.getUser(token);
     if (error || !data.user) return { ok: false, status: 401, error: "unauthorized" };
     return { ok: true, userId: data.user.id };
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "Consumer auth token verification failed");
     return { ok: false, status: 401, error: "unauthorized" };
   }
 }
@@ -113,7 +120,7 @@ const searchVehicles: RequestHandler = async (req, res) => {
       per_page: params.per_page,
     });
   } catch (err) {
-    console.error("[RentalPublic] searchVehicles error:", err);
+    log.error({ err }, "searchVehicles error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -139,7 +146,7 @@ const getVehicleDetail: RequestHandler = async (req, res) => {
 
     res.json({ vehicle });
   } catch (err) {
-    console.error("[RentalPublic] getVehicleDetail error:", err);
+    log.error({ err }, "getVehicleDetail error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -154,7 +161,7 @@ const listCities: RequestHandler = async (_req, res) => {
 
     res.json({ cities });
   } catch (err) {
-    console.error("[RentalPublic] listCities error:", err);
+    log.error({ err }, "listCities error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -180,7 +187,7 @@ const listInsurancePlans: RequestHandler = async (_req, res) => {
 
     res.json({ plans: data ?? [] });
   } catch (err) {
-    console.error("[RentalPublic] listInsurancePlans error:", err);
+    log.error({ err }, "listInsurancePlans error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -212,7 +219,7 @@ const getPriceQuote: RequestHandler = async (req, res) => {
 
     res.json(quote);
   } catch (err) {
-    console.error("[RentalPublic] getPriceQuote error:", err);
+    log.error({ err }, "getPriceQuote error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -223,11 +230,11 @@ const getPriceQuote: RequestHandler = async (req, res) => {
 
 export function registerRentalPublicRoutes(app: Router): void {
   // Public (no auth required)
-  app.get("/api/rental/search", searchVehicles);
-  app.get("/api/rental/vehicles/:id", getVehicleDetail);
+  app.get("/api/rental/search", zQuery(SearchVehiclesQuery), searchVehicles);
+  app.get("/api/rental/vehicles/:id", zParams(VehicleIdParams), getVehicleDetail);
   app.get("/api/rental/cities", listCities);
   app.get("/api/rental/insurance-plans", listInsurancePlans);
 
   // Public (no auth required for price quotes)
-  app.post("/api/rental/price-quote", getPriceQuote);
+  app.post("/api/rental/price-quote", zBody(RentalPriceQuoteSchema), getPriceQuote);
 }

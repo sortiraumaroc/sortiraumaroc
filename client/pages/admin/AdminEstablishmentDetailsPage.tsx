@@ -19,6 +19,9 @@ import {
   Store,
   Ticket,
   Trash2,
+  CheckCircle,
+  XCircle,
+  AlertTriangle,
 } from "lucide-react";
 
 import {
@@ -46,6 +49,7 @@ import {
 } from "@/components/ui/select";
 
 import { isPastByIso } from "@/lib/reservationStatus";
+import { buildEstablishmentUrl } from "@/lib/establishmentUrl";
 import {
   Dialog,
   DialogContent,
@@ -57,7 +61,13 @@ import {
 import { EstablishmentPendingProfileUpdatesPanel } from "@/components/admin/EstablishmentPendingProfileUpdatesPanel";
 
 import { buildConsumedByPurchase, getPackPurchaseConsumption } from "@/lib/packConsumption";
+import {
+  approvePack as adminApprovePack,
+  rejectPack as adminRejectPack,
+  requestPackModification as adminRequestPackModification,
+} from "@/lib/packsV2AdminApi";
 import { AdminQrScanDetailsDialog } from "@/components/admin/establishment/AdminQrScanDetailsDialog";
+import { PacksListView, type PackListPack } from "@/components/packs/PacksListView";
 import { AdminReservationDetailsDialog } from "@/components/admin/establishment/AdminReservationDetailsDialog";
 import { AdminInventoryManager } from "@/components/admin/establishment/AdminInventoryManager";
 import { AdminGalleryManager } from "@/components/admin/establishment/AdminGalleryManager";
@@ -74,6 +84,7 @@ import { AdminDataTable } from "@/components/admin/table/AdminDataTable";
 import { useToast } from "@/hooks/use-toast";
 import {
   AdminApiError,
+  adminBulkDeleteSlots,
   adminDeleteSlot,
   adminUpsertSlots,
   getEstablishment,
@@ -116,6 +127,7 @@ function universeLabel(slug: string): string {
 
 type EstablishmentDetails = {
   id: string;
+  slug: string | null;
   name: string;
   city: string;
   status: string;
@@ -184,10 +196,78 @@ type SlotRow = {
   status: string;
 };
 
+type SlotGroup = {
+  groupKey: string;
+  ids: string[];
+  dateRange: string;
+  dateStartIso: string;
+  time: string;
+  serviceLabel: string;
+  capacity: string;
+  capacityNum: number;
+  basePriceCents: number | null;
+  basePrice: string;
+  promo: string;
+  promoType: string | null;
+  promoValue: number | null;
+  promoLabel: string | null;
+  status: string;
+  count: number;
+  slots: SlotRow[];
+};
+
+function groupSlots(slots: SlotRow[]): SlotGroup[] {
+  const map = new Map<string, SlotRow[]>();
+  for (const slot of slots) {
+    const key = `${slot.time}|${slot.serviceLabel}|${slot.capacityNum}|${slot.basePriceCents}|${slot.promoType}|${slot.promoValue}|${slot.promoLabel}`;
+    const group = map.get(key) ?? [];
+    group.push(slot);
+    map.set(key, group);
+  }
+
+  return Array.from(map.entries())
+    .map(([key, groupSlots]) => {
+      groupSlots.sort((a, b) => a.startsAtIso.localeCompare(b.startsAtIso));
+      const first = groupSlots[0];
+      const last = groupSlots[groupSlots.length - 1];
+
+      const statuses = new Set(groupSlots.map((s) => s.status));
+      const status = statuses.size === 1 ? first.status : "mixte";
+
+      const dateRange =
+        groupSlots.length === 1 || first.date === last.date
+          ? first.date
+          : `${first.date} → ${last.date}`;
+
+      return {
+        groupKey: key,
+        ids: groupSlots.map((s) => s.id),
+        dateRange,
+        dateStartIso: first.startsAtIso,
+        time: first.time,
+        serviceLabel: first.serviceLabel,
+        capacity: first.capacity,
+        capacityNum: first.capacityNum,
+        basePriceCents: first.basePriceCents,
+        basePrice: first.basePrice,
+        promo: first.promo,
+        promoType: first.promoType,
+        promoValue: first.promoValue,
+        promoLabel: first.promoLabel,
+        status,
+        count: groupSlots.length,
+        slots: groupSlots,
+      };
+    })
+    .sort((a, b) => a.dateStartIso.localeCompare(b.dateStartIso));
+}
+
 type PackRow = {
+  id: string;
   title: string;
   price: string;
   moderationStatus: string;
+  rawStatus: string;
   active: string;
 };
 
@@ -322,6 +402,7 @@ export function AdminEstablishmentDetailsPage() {
   const [reservationsById, setReservationsById] = useState<Record<string, ReservationAdmin>>({});
   const [offersSlots, setOffersSlots] = useState<SlotRow[]>([]);
   const [offersPacks, setOffersPacks] = useState<PackRow[]>([]);
+  const [offersPacksRaw, setOffersPacksRaw] = useState<PackListPack[]>([]);
   const [packPurchases, setPackPurchases] = useState<PurchaseRow[]>([]);
   const [packRedemptions, setPackRedemptions] = useState<RedemptionRow[]>([]);
 
@@ -361,6 +442,22 @@ export function AdminEstablishmentDetailsPage() {
   const [editFormPromoValue, setEditFormPromoValue] = useState("");
   const [deleteSlotId, setDeleteSlotId] = useState<string | null>(null);
   const [deleteSlotDeleting, setDeleteSlotDeleting] = useState(false);
+
+  // Group edit/delete dialogs
+  const [editGroupDialogOpen, setEditGroupDialogOpen] = useState(false);
+  const [editGroupData, setEditGroupData] = useState<SlotGroup | null>(null);
+  const [editGroupSaving, setEditGroupSaving] = useState(false);
+  const [editGroupTime, setEditGroupTime] = useState("");
+  const [editGroupCapacity, setEditGroupCapacity] = useState("");
+  const [editGroupBasePrice, setEditGroupBasePrice] = useState("");
+  const [editGroupServiceLabel, setEditGroupServiceLabel] = useState("");
+  const [editGroupPromoLabel, setEditGroupPromoLabel] = useState("");
+  const [editGroupPromoType, setEditGroupPromoType] = useState<"percent" | "amount">("percent");
+  const [editGroupPromoValue, setEditGroupPromoValue] = useState("");
+  const [editGroupDateStart, setEditGroupDateStart] = useState("");
+  const [editGroupDateEnd, setEditGroupDateEnd] = useState("");
+  const [deleteGroupData, setDeleteGroupData] = useState<SlotGroup | null>(null);
+  const [deleteGroupDeleting, setDeleteGroupDeleting] = useState(false);
 
   const [qrLogsById, setQrLogsById] = useState<Record<string, QrScanLogAdmin>>({});
   const [conversations, setConversations] = useState<ConversationRow[]>([]);
@@ -402,6 +499,15 @@ export function AdminEstablishmentDetailsPage() {
   const [removeProDialogOpen, setRemoveProDialogOpen] = useState(false);
   const [proToRemove, setProToRemove] = useState<{ id: string; email: string } | null>(null);
   const [removingPro, setRemovingPro] = useState(false);
+
+  // Pack moderation actions
+  const [packActionLoading, setPackActionLoading] = useState<string | null>(null);
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectPackId, setRejectPackId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [modifDialogOpen, setModifDialogOpen] = useState(false);
+  const [modifPackId, setModifPackId] = useState<string | null>(null);
+  const [modifNote, setModifNote] = useState("");
 
   const fetchMessages = useCallback(async () => {
     if (!establishmentId || !selectedConversationId) return;
@@ -448,6 +554,7 @@ export function AdminEstablishmentDetailsPage() {
       const raw = estRes.item as any;
       const mapped: EstablishmentDetails = {
         id: String(raw?.id ?? establishmentId),
+        slug: typeof raw?.slug === "string" && raw.slug.trim() ? raw.slug.trim() : null,
         name: String(raw?.name ?? raw?.title ?? raw?.id ?? ""),
         city: String(raw?.city ?? ""),
         status: String(raw?.status ?? ""),
@@ -516,12 +623,29 @@ export function AdminEstablishmentDetailsPage() {
         ended: "Terminé",
       };
       const packs: PackRow[] = (offersRes.packs ?? []).map((p: any) => ({
+        id: String(p?.id ?? ""),
         title: String(p?.title ?? p?.name ?? p?.id ?? "—"),
         price: formatMoneyCents(typeof p?.price === "number" ? p.price : null, p?.currency ?? null),
         moderationStatus: moderationLabels[String(p?.moderation_status ?? "")] ?? String(p?.moderation_status ?? "—"),
+        rawStatus: String(p?.moderation_status ?? ""),
         active: typeof p?.active === "boolean" ? (p.active ? "Oui" : "Non") : "—",
       }));
       setOffersPacks(packs);
+
+      // Store raw packs for unified PacksListView
+      const rawPacks: PackListPack[] = (offersRes.packs ?? []).map((p: any) => ({
+        id: String(p?.id ?? ""),
+        title: String(p?.title ?? p?.name ?? p?.id ?? "—"),
+        price: typeof p?.price === "number" ? p.price : 0,
+        original_price: typeof p?.original_price === "number" ? p.original_price : null,
+        stock: typeof p?.stock === "number" ? p.stock : null,
+        sold_count: typeof p?.sold_count === "number" ? p.sold_count : null,
+        moderation_status: String(p?.moderation_status ?? "draft"),
+        active: typeof p?.active === "boolean" ? p.active : undefined,
+        cover_url: typeof p?.cover_url === "string" ? p.cover_url : null,
+        short_description: typeof p?.short_description === "string" ? p.short_description : null,
+      }));
+      setOffersPacksRaw(rawPacks);
 
       const rawRedemptions = (billingRes.redemptions ?? []) as any[];
       const consumedByPurchase = buildConsumedByPurchase(rawRedemptions);
@@ -677,21 +801,13 @@ export function AdminEstablishmentDetailsPage() {
 
   const publicUrl = useMemo(() => {
     if (!est?.id) return null;
-
-    const id = encodeURIComponent(est.id);
-    const u = String(est.universe ?? "")
-      .trim()
-      .toLowerCase();
-
-    if (u === "restaurant" || u === "restaurants") return `/restaurant/${id}`;
-    if (u === "hebergement" || u === "hebergements" || u === "hotel" || u === "hotels") return `/hotel/${id}`;
-    if (u === "loisir" || u === "loisirs") return `/loisir/${id}`;
-    if (u === "sport" || u === "sports" || u === "wellness" || u === "bien-etre" || u === "bien etre") return `/wellness/${id}`;
-    if (u === "culture") return `/culture/${id}`;
-    if (u === "shopping") return `/shopping/${id}`;
-
-    return `/restaurant/${id}`;
-  }, [est?.id, est?.universe]);
+    return buildEstablishmentUrl({
+      id: est.id,
+      slug: est.slug ?? null,
+      name: est.name ?? null,
+      universe: est.universe,
+    });
+  }, [est?.id, est?.slug, est?.name, est?.universe]);
 
   const reservationColumns = useMemo<ColumnDef<ReservationRow>[]>(() => {
     function isRecord(value: unknown): value is Record<string, unknown> {
@@ -821,9 +937,24 @@ export function AdminEstablishmentDetailsPage() {
     ];
   }, []);
 
-  const slotsColumns = useMemo<ColumnDef<SlotRow>[]>(() => {
+  const slotGroups = useMemo(() => groupSlots(offersSlots), [offersSlots]);
+
+  const slotGroupColumns = useMemo<ColumnDef<SlotGroup>[]>(() => {
     return [
-      { accessorKey: "date", header: "Date" },
+      {
+        accessorKey: "dateRange",
+        header: "Période",
+        cell: ({ row }) => (
+          <div className="flex items-center gap-1.5">
+            <span>{row.original.dateRange}</span>
+            {row.original.count > 1 && (
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 font-medium">
+                {row.original.count}
+              </Badge>
+            )}
+          </div>
+        ),
+      },
       { accessorKey: "time", header: "Heure" },
       { accessorKey: "serviceLabel", header: "Service" },
       { accessorKey: "capacity", header: "Places" },
@@ -840,7 +971,7 @@ export function AdminEstablishmentDetailsPage() {
               size="icon"
               className="h-7 w-7"
               title="Modifier"
-              onClick={(e) => { e.stopPropagation(); openSlotEdit(row.original); }}
+              onClick={(e) => { e.stopPropagation(); openGroupEdit(row.original); }}
             >
               <Pencil className="h-3.5 w-3.5" />
             </Button>
@@ -849,7 +980,7 @@ export function AdminEstablishmentDetailsPage() {
               size="icon"
               className="h-7 w-7 text-red-600 hover:text-red-700 hover:bg-red-50"
               title="Supprimer"
-              onClick={(e) => { e.stopPropagation(); setDeleteSlotId(row.original.id); }}
+              onClick={(e) => { e.stopPropagation(); setDeleteGroupData(row.original); }}
             >
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
@@ -859,14 +990,155 @@ export function AdminEstablishmentDetailsPage() {
     ];
   }, []);
 
+  // [FIX] Handlers pour actions de modération des packs
+  const handlePackApprove = useCallback(async (packId: string) => {
+    setPackActionLoading(packId);
+    try {
+      await adminApprovePack(packId);
+      toast({ title: "Pack approuvé", description: "Le pack a été approuvé avec succès." });
+      void refresh();
+    } catch (e: any) {
+      toast({ title: "Erreur", description: e.message ?? "Impossible d'approuver le pack", variant: "destructive" });
+    } finally {
+      setPackActionLoading(null);
+    }
+  }, [toast, refresh]);
+
+  const handlePackReject = useCallback(async () => {
+    if (!rejectPackId || !rejectReason.trim()) return;
+    setPackActionLoading(rejectPackId);
+    try {
+      await adminRejectPack(rejectPackId, rejectReason.trim());
+      toast({ title: "Pack refusé", description: "Le pack a été refusé." });
+      setRejectDialogOpen(false);
+      setRejectPackId(null);
+      setRejectReason("");
+      void refresh();
+    } catch (e: any) {
+      toast({ title: "Erreur", description: e.message ?? "Impossible de refuser le pack", variant: "destructive" });
+    } finally {
+      setPackActionLoading(null);
+    }
+  }, [rejectPackId, rejectReason, toast, refresh]);
+
+  const handlePackRequestModification = useCallback(async () => {
+    if (!modifPackId || !modifNote.trim()) return;
+    setPackActionLoading(modifPackId);
+    try {
+      await adminRequestPackModification(modifPackId, modifNote.trim());
+      toast({ title: "Modification demandée", description: "Une demande de modification a été envoyée au Pro." });
+      setModifDialogOpen(false);
+      setModifPackId(null);
+      setModifNote("");
+      void refresh();
+    } catch (e: any) {
+      toast({ title: "Erreur", description: e.message ?? "Impossible de demander la modification", variant: "destructive" });
+    } finally {
+      setPackActionLoading(null);
+    }
+  }, [modifPackId, modifNote, toast, refresh]);
+
   const packsColumns = useMemo<ColumnDef<PackRow>[]>(() => {
+    const statusBadgeClass: Record<string, string> = {
+      pending_moderation: "bg-amber-100 text-amber-800 border-amber-300",
+      approved: "bg-emerald-100 text-emerald-800 border-emerald-300",
+      active: "bg-emerald-100 text-emerald-800 border-emerald-300",
+      rejected: "bg-red-100 text-red-800 border-red-300",
+      modification_requested: "bg-sky-100 text-sky-800 border-sky-300",
+      suspended: "bg-slate-200 text-slate-700 border-slate-400",
+      draft: "bg-slate-100 text-slate-600 border-slate-300",
+      sold_out: "bg-violet-100 text-violet-700 border-violet-300",
+      ended: "bg-slate-100 text-slate-500 border-slate-300",
+    };
+
     return [
-      { accessorKey: "title", header: "Pack" },
-      { accessorKey: "price", header: "Prix" },
-      { accessorKey: "moderationStatus", header: "Modération" },
-      { accessorKey: "active", header: "Actif" },
+      { accessorKey: "title", header: "Pack", meta: { style: { width: "25%" } } },
+      { accessorKey: "price", header: "Prix", meta: { style: { width: "10%" } } },
+      {
+        accessorKey: "moderationStatus",
+        header: "Modération",
+        meta: { style: { width: "12%" } },
+        cell: ({ row }) => {
+          const raw = row.original.rawStatus;
+          const label = row.original.moderationStatus;
+          return (
+            <Badge className={statusBadgeClass[raw] ?? "bg-slate-100 text-slate-600"}>
+              {label}
+            </Badge>
+          );
+        },
+      },
+      { accessorKey: "active", header: "Actif", meta: { style: { width: "8%" } } },
+      {
+        id: "actions",
+        header: "Actions",
+        cell: ({ row }) => {
+          const pack = row.original;
+          const isLoading = packActionLoading === pack.id;
+          const isPending = pack.rawStatus === "pending_moderation";
+          const canReject = isPending || pack.rawStatus === "approved" || pack.rawStatus === "active";
+          const canRequestModif = isPending;
+
+          return (
+            <div className="flex items-center gap-1">
+              {isPending && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-emerald-700 border-emerald-300 hover:bg-emerald-50"
+                  disabled={isLoading}
+                  onClick={(e) => { e.stopPropagation(); void handlePackApprove(pack.id); }}
+                  title="Approuver"
+                >
+                  {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />}
+                  <span className="ml-1 hidden xl:inline">Approuver</span>
+                </Button>
+              )}
+              {canRequestModif && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-sky-700 border-sky-300 hover:bg-sky-50"
+                  disabled={isLoading}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setModifPackId(pack.id);
+                    setModifNote("");
+                    setModifDialogOpen(true);
+                  }}
+                  title="Demander modification"
+                >
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  <span className="ml-1 hidden xl:inline">Modifier</span>
+                </Button>
+              )}
+              {canReject && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-red-700 border-red-300 hover:bg-red-50"
+                  disabled={isLoading}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRejectPackId(pack.id);
+                    setRejectReason("");
+                    setRejectDialogOpen(true);
+                  }}
+                  title="Refuser"
+                >
+                  <XCircle className="h-3.5 w-3.5" />
+                  <span className="ml-1 hidden xl:inline">Refuser</span>
+                </Button>
+              )}
+              {!isPending && !canReject && (
+                <span className="text-xs text-slate-400">—</span>
+              )}
+            </div>
+          );
+        },
+      },
     ];
-  }, []);
+  }, [packActionLoading, handlePackApprove]);
 
   const purchasesColumns = useMemo<ColumnDef<PurchaseRow>[]>(() => {
     const paymentLabels: Record<string, string> = {
@@ -930,7 +1202,8 @@ export function AdminEstablishmentDetailsPage() {
 
   // Create Ftour slots in batch
   const handleCreateFtourSlots = async () => {
-    if (!establishmentId || !ftourDateStart || !ftourDateEnd || !ftourTimeStart) return;
+    if (!establishmentId || !ftourDateStart || !ftourTimeStart) return;
+    if (ftourRepeatEnabled && !ftourDateEnd) return;
 
     // Validate capacity distribution
     if (ftourPaidPercent + ftourFreePercent + ftourBufferPercent !== 100) {
@@ -941,8 +1214,15 @@ export function AdminEstablishmentDetailsPage() {
     setFtourCreating(true);
     try {
       const startDate = new Date(ftourDateStart);
-      const endDate = new Date(ftourDateEnd);
-      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime()) || endDate < startDate) {
+      if (isNaN(startDate.getTime())) {
+        toast({ title: "Erreur", description: "Date de début invalide", variant: "destructive" });
+        return;
+      }
+
+      // Si la répétition est activée, utiliser ftourDateEnd comme date de fin
+      // Sinon, créer un seul créneau pour la date de début
+      const endDate = ftourRepeatEnabled && ftourDateEnd ? new Date(ftourDateEnd) : new Date(startDate);
+      if (isNaN(endDate.getTime()) || endDate < startDate) {
         toast({ title: "Erreur", description: "Dates invalides", variant: "destructive" });
         return;
       }
@@ -1127,6 +1407,132 @@ export function AdminEstablishmentDetailsPage() {
       toast({ title: "Erreur", description: msg, variant: "destructive" });
     } finally {
       setDeleteSlotDeleting(false);
+    }
+  };
+
+  // ── Group edit/delete handlers ──
+  const openGroupEdit = (group: SlotGroup) => {
+    setEditGroupData(group);
+    // Extract local HH:mm from first slot (group.time is display-formatted like "19h15")
+    const firstSlotIso = group.slots[0]?.startsAtIso;
+    let timeForInput = "19:15";
+    if (firstSlotIso) {
+      const d = new Date(firstSlotIso);
+      if (Number.isFinite(d.getTime())) {
+        timeForInput = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+      }
+    }
+    setEditGroupTime(timeForInput);
+    // Extract local YYYY-MM-DD for date inputs from first/last slot
+    const sortedSlots = [...group.slots].sort((a, b) => a.startsAtIso.localeCompare(b.startsAtIso));
+    const firstDate = new Date(sortedSlots[0]?.startsAtIso ?? "");
+    const lastDate = new Date(sortedSlots[sortedSlots.length - 1]?.startsAtIso ?? "");
+    const toLocalDate = (d: Date) => {
+      if (!Number.isFinite(d.getTime())) return "";
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    };
+    setEditGroupDateStart(toLocalDate(firstDate));
+    setEditGroupDateEnd(toLocalDate(lastDate));
+    setEditGroupCapacity(String(group.capacityNum));
+    setEditGroupBasePrice(group.basePriceCents != null ? String(group.basePriceCents / 100) : "");
+    setEditGroupServiceLabel(group.serviceLabel === "—" ? "" : group.serviceLabel);
+    setEditGroupPromoLabel(group.promoLabel ?? "");
+    setEditGroupPromoType(group.promoType === "amount" ? "amount" : "percent");
+    setEditGroupPromoValue(group.promoValue != null ? String(group.promoValue) : "");
+    setEditGroupDialogOpen(true);
+  };
+
+  const handleSaveGroupEdit = async () => {
+    if (!editGroupData) return;
+    setEditGroupSaving(true);
+    try {
+      const capacity = Math.max(1, Number(editGroupCapacity) || 1);
+      const basePrice = editGroupBasePrice.trim() ? Math.round(Number(editGroupBasePrice) * 100) : null;
+      const promoValueNum = editGroupPromoValue.trim() ? Math.round(Number(editGroupPromoValue)) : null;
+      const promoValue = promoValueNum && promoValueNum > 0 ? promoValueNum : null;
+      const [hours, minutes] = editGroupTime.split(":").map(Number);
+
+      // Check if dates changed
+      const sortedSlots = [...editGroupData.slots].sort((a, b) => a.startsAtIso.localeCompare(b.startsAtIso));
+      const origFirstDate = new Date(sortedSlots[0]?.startsAtIso ?? "");
+      const origLastDate = new Date(sortedSlots[sortedSlots.length - 1]?.startsAtIso ?? "");
+      const toLocalDate = (d: Date) => {
+        if (!Number.isFinite(d.getTime())) return "";
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      };
+      const origStart = toLocalDate(origFirstDate);
+      const origEnd = toLocalDate(origLastDate);
+      const datesChanged = editGroupDateStart !== origStart || editGroupDateEnd !== origEnd;
+
+      // Compute duration from first existing slot
+      const firstOrigStart = new Date(sortedSlots[0]?.startsAtIso ?? "");
+      const firstOrigEnd = sortedSlots[0]?.endsAtIso ? new Date(sortedSlots[0].endsAtIso) : null;
+      const durationMs = firstOrigEnd ? firstOrigEnd.getTime() - firstOrigStart.getTime() : 3 * 60 * 60 * 1000;
+
+      const sharedProps = {
+        capacity,
+        base_price: basePrice,
+        service_label: editGroupServiceLabel || null,
+        promo_type: promoValue ? editGroupPromoType : null,
+        promo_value: promoValue,
+        promo_label: promoValue ? (editGroupPromoLabel.trim() || null) : null,
+      };
+
+      if (datesChanged) {
+        // Dates changed: delete old slots and create new ones for each day in range
+        await adminBulkDeleteSlots(undefined, establishmentId, editGroupData.ids);
+        const startD = new Date(editGroupDateStart + "T00:00:00");
+        const endD = new Date(editGroupDateEnd + "T00:00:00");
+        const newSlots: Array<Record<string, unknown>> = [];
+        const cur = new Date(startD);
+        while (cur <= endD) {
+          const newStart = new Date(cur);
+          newStart.setHours(hours, minutes, 0, 0);
+          const newEnd = new Date(newStart.getTime() + durationMs);
+          newSlots.push({ starts_at: newStart.toISOString(), ends_at: newEnd.toISOString(), ...sharedProps });
+          cur.setDate(cur.getDate() + 1);
+        }
+        if (newSlots.length > 0) {
+          await adminUpsertSlots(undefined, establishmentId, newSlots);
+        }
+        toast({ title: "Créneaux modifiés", description: `${newSlots.length} créneau(x) recréé(s).` });
+      } else {
+        // Dates unchanged: update existing slots keeping original dates
+        const slots = editGroupData.slots.map((slot) => {
+          const slotOrigStart = new Date(slot.startsAtIso);
+          const newStart = new Date(slotOrigStart);
+          newStart.setHours(hours, minutes, 0, 0);
+          const newEnd = new Date(newStart.getTime() + durationMs);
+          return { starts_at: newStart.toISOString(), ends_at: newEnd.toISOString(), ...sharedProps };
+        });
+        await adminUpsertSlots(undefined, establishmentId, slots);
+        toast({ title: "Créneaux modifiés", description: `${slots.length} créneau(x) mis à jour.` });
+      }
+
+      setEditGroupDialogOpen(false);
+      setEditGroupData(null);
+      await refreshSlotsOnly();
+    } catch (e) {
+      const msg = e instanceof AdminApiError ? e.message : "Erreur inattendue";
+      toast({ title: "Erreur", description: msg, variant: "destructive" });
+    } finally {
+      setEditGroupSaving(false);
+    }
+  };
+
+  const handleDeleteGroup = async () => {
+    if (!deleteGroupData) return;
+    setDeleteGroupDeleting(true);
+    try {
+      await adminBulkDeleteSlots(undefined, establishmentId, deleteGroupData.ids);
+      toast({ title: "Supprimé", description: `${deleteGroupData.count} créneau(x) supprimé(s).` });
+      setDeleteGroupData(null);
+      await refreshSlotsOnly();
+    } catch (e) {
+      const msg = e instanceof AdminApiError ? e.message : "Erreur inattendue";
+      toast({ title: "Erreur", description: msg, variant: "destructive" });
+    } finally {
+      setDeleteGroupDeleting(false);
     }
   };
 
@@ -1475,7 +1881,7 @@ export function AdminEstablishmentDetailsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="space-y-4">
         <div className="space-y-2 min-w-0 overflow-hidden">
           <div className="flex items-center justify-between">
             <div className="text-sm font-bold text-slate-900 flex items-center gap-2">
@@ -1495,7 +1901,7 @@ export function AdminEstablishmentDetailsPage() {
               <div className="text-xs text-slate-500">{offersSlots.length}</div>
             </div>
           </div>
-          <AdminDataTable data={offersSlots} columns={slotsColumns} searchPlaceholder="Rechercher…" />
+          <AdminDataTable data={slotGroups} columns={slotGroupColumns} searchPlaceholder="Rechercher…" />
         </div>
 
         <div className="space-y-2 min-w-0 overflow-hidden">
@@ -1504,9 +1910,24 @@ export function AdminEstablishmentDetailsPage() {
               <Store className="h-4 w-4 text-primary" />
               Offres (packs)
             </div>
-            <div className="text-xs text-slate-500">{offersPacks.length}</div>
+            <div className="text-xs text-slate-500">{offersPacksRaw.length}</div>
           </div>
-          <AdminDataTable data={offersPacks} columns={packsColumns} searchPlaceholder="Rechercher…" />
+          <PacksListView
+            packs={offersPacksRaw}
+            role="admin"
+            onApprove={handlePackApprove}
+            onReject={(packId) => {
+              setRejectPackId(packId);
+              setRejectReason("");
+              setRejectDialogOpen(true);
+            }}
+            onRequestModification={(packId) => {
+              setModifPackId(packId);
+              setModifNote("");
+              setModifDialogOpen(true);
+            }}
+            actionLoading={packActionLoading}
+          />
         </div>
       </div>
 
@@ -1848,6 +2269,181 @@ export function AdminEstablishmentDetailsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Delete Group Confirmation */}
+      <AlertDialog open={!!deleteGroupData} onOpenChange={(open) => !open && setDeleteGroupData(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer {deleteGroupData?.count ?? 0} créneau(x) ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Cette action est irréversible. Tous les créneaux de cette série ({deleteGroupData?.dateRange}) seront définitivement supprimés.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteGroupDeleting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteGroup}
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deleteGroupDeleting}
+            >
+              {deleteGroupDeleting ? "Suppression…" : "Supprimer tout"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Edit Group Dialog */}
+      <Dialog open={editGroupDialogOpen} onOpenChange={(open) => { if (!open) { setEditGroupDialogOpen(false); setEditGroupData(null); } }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5" />
+              Modifier les créneaux
+            </DialogTitle>
+            <DialogDescription>
+              {editGroupData && (
+                <>
+                  {editGroupData.count} créneau(x) — {editGroupData.dateRange}
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Dates */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Date début</Label>
+                <Input
+                  type="date"
+                  value={editGroupDateStart}
+                  onChange={(e) => setEditGroupDateStart(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Date fin</Label>
+                <Input
+                  type="date"
+                  value={editGroupDateEnd}
+                  onChange={(e) => setEditGroupDateEnd(e.target.value)}
+                  min={editGroupDateStart}
+                />
+              </div>
+            </div>
+
+            {/* Heure */}
+            <div className="space-y-1">
+              <Label className="text-xs font-medium">Heure début</Label>
+              <Input
+                type="time"
+                value={editGroupTime}
+                onChange={(e) => setEditGroupTime(e.target.value)}
+              />
+            </div>
+
+            {/* Service */}
+            <div className="space-y-1">
+              <Label className="text-xs font-medium">Service</Label>
+              <Select value={editGroupServiceLabel} onValueChange={setEditGroupServiceLabel}>
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Petit-déjeuner">Petit-déjeuner</SelectItem>
+                  <SelectItem value="Déjeuner">Déjeuner</SelectItem>
+                  <SelectItem value="Tea Time">Tea Time</SelectItem>
+                  <SelectItem value="Happy Hour">Happy Hour</SelectItem>
+                  <SelectItem value="Dîner">Dîner</SelectItem>
+                  <SelectItem value="Ftour">Ftour (Ramadan)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Capacité & Prix */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Capacité par créneau</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={editGroupCapacity}
+                  onChange={(e) => setEditGroupCapacity(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Prix (MAD)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={1}
+                  placeholder="Gratuit"
+                  value={editGroupBasePrice}
+                  onChange={(e) => setEditGroupBasePrice(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Promotion */}
+            <div className="space-y-2 rounded-lg border p-3">
+              <Label className="text-xs font-medium">Promotion (optionnel)</Label>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-slate-500">Label affiché</Label>
+                  <Input
+                    placeholder="-15%"
+                    value={editGroupPromoLabel}
+                    onChange={(e) => setEditGroupPromoLabel(e.target.value)}
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-slate-500">Type</Label>
+                  <Select value={editGroupPromoType} onValueChange={(v) => setEditGroupPromoType(v as "percent" | "amount")}>
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="percent">Pourcentage</SelectItem>
+                      <SelectItem value="amount">Montant</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-slate-500">Valeur</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    placeholder="0"
+                    value={editGroupPromoValue}
+                    onChange={(e) => setEditGroupPromoValue(e.target.value)}
+                    className="h-8 text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setEditGroupDialogOpen(false); setEditGroupData(null); }}>
+              Annuler
+            </Button>
+            <Button onClick={() => void handleSaveGroupEdit()} disabled={editGroupSaving}>
+              {editGroupSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                  Sauvegarde…
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-1" />
+                  Sauvegarder
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Edit Slot Dialog */}
       <Dialog open={editSlotDialogOpen} onOpenChange={(open) => { if (!open) { setEditSlotDialogOpen(false); setEditSlotData(null); } }}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
@@ -1996,24 +2592,14 @@ export function AdminEstablishmentDetailsPage() {
           </DialogHeader>
 
           <div className="space-y-5">
-            {/* ── Dates ── */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs font-medium">Date début</Label>
-                <Input
-                  type="date"
-                  value={ftourDateStart}
-                  onChange={(e) => setFtourDateStart(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs font-medium">Date fin</Label>
-                <Input
-                  type="date"
-                  value={ftourDateEnd}
-                  onChange={(e) => setFtourDateEnd(e.target.value)}
-                />
-              </div>
+            {/* ── Date de début ── */}
+            <div className="space-y-1">
+              <Label className="text-xs font-medium">Date de début</Label>
+              <Input
+                type="date"
+                value={ftourDateStart}
+                onChange={(e) => setFtourDateStart(e.target.value)}
+              />
             </div>
 
             {/* ── Heure & Service ── */}
@@ -2126,6 +2712,34 @@ export function AdminEstablishmentDetailsPage() {
                     {profile.label}
                   </Button>
                 ))}
+                {/* Personnalisé — actif quand les % ne correspondent à aucun profil */}
+                {(() => {
+                  const profiles = [
+                    { paid: 88, free: 6, buffer: 6 },
+                    { paid: 50, free: 30, buffer: 20 },
+                    { paid: 30, free: 60, buffer: 10 },
+                  ];
+                  const matchesAny = profiles.some(
+                    (p) => ftourPaidPercent === p.paid && ftourFreePercent === p.free && ftourBufferPercent === p.buffer,
+                  );
+                  return (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={!matchesAny ? "default" : "outline"}
+                      className="text-xs h-7 px-2"
+                      onClick={() => {
+                        if (matchesAny) {
+                          setFtourPaidPercent(0);
+                          setFtourFreePercent(0);
+                          setFtourBufferPercent(0);
+                        }
+                      }}
+                    >
+                      Personnalisé
+                    </Button>
+                  );
+                })()}
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <div className="space-y-0.5">
@@ -2220,8 +2834,8 @@ export function AdminEstablishmentDetailsPage() {
               </div>
             </div>
 
-            {/* ── Répéter sur certains jours ── */}
-            <div className="space-y-2 rounded-lg border p-3">
+            {/* ── Répéter sur plusieurs jours ── */}
+            <div className="space-y-3 rounded-lg border p-3">
               <label className="flex items-center gap-2 cursor-pointer">
                 <Checkbox
                   checked={ftourRepeatEnabled}
@@ -2229,67 +2843,86 @@ export function AdminEstablishmentDetailsPage() {
                 />
                 <div className="flex items-center gap-1.5 text-xs font-medium">
                   <Repeat className="h-3.5 w-3.5" />
-                  Répéter sur certains jours uniquement
+                  Répéter sur plusieurs jours
                 </div>
               </label>
 
               {ftourRepeatEnabled && (
-                <div className="space-y-1.5 pt-1">
-                  <Label className="text-[11px] text-slate-500">Jours de la semaine</Label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {([
-                      { value: 1, label: "Lun" },
-                      { value: 2, label: "Mar" },
-                      { value: 3, label: "Mer" },
-                      { value: 4, label: "Jeu" },
-                      { value: 5, label: "Ven" },
-                      { value: 6, label: "Sam" },
-                      { value: 0, label: "Dim" },
-                    ] as const).map((day) => {
-                      const isActive = ftourRepeatDays.includes(day.value);
-                      return (
-                        <button
-                          key={day.value}
-                          type="button"
-                          onClick={() => {
-                            setFtourRepeatDays((prev) =>
+                <div className="space-y-3 pt-1">
+                  {/* Répéter jusqu'au */}
+                  <div className="space-y-1">
+                    <Label className="text-xs font-medium">Répéter jusqu'au</Label>
+                    <Input
+                      type="date"
+                      value={ftourDateEnd}
+                      min={ftourDateStart || undefined}
+                      onChange={(e) => setFtourDateEnd(e.target.value)}
+                    />
+                  </div>
+
+                  {/* Jours de la semaine */}
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] text-slate-500">Jours de la semaine</Label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {([
+                        { value: 1, label: "Lun" },
+                        { value: 2, label: "Mar" },
+                        { value: 3, label: "Mer" },
+                        { value: 4, label: "Jeu" },
+                        { value: 5, label: "Ven" },
+                        { value: 6, label: "Sam" },
+                        { value: 0, label: "Dim" },
+                      ] as const).map((day) => {
+                        const isActive = ftourRepeatDays.includes(day.value);
+                        return (
+                          <button
+                            key={day.value}
+                            type="button"
+                            onClick={() => {
+                              setFtourRepeatDays((prev) =>
+                                isActive
+                                  ? prev.filter((d) => d !== day.value)
+                                  : [...prev, day.value],
+                              );
+                            }}
+                            className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border transition ${
                               isActive
-                                ? prev.filter((d) => d !== day.value)
-                                : [...prev, day.value],
-                            );
-                          }}
-                          className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border transition ${
-                            isActive
-                              ? "bg-primary text-white border-primary"
-                              : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
-                          }`}
-                        >
-                          {day.label}
-                        </button>
-                      );
-                    })}
+                                ? "bg-primary text-white border-primary"
+                                : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
+                            }`}
+                          >
+                            {day.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               )}
             </div>
 
             {/* ── Résumé ── */}
-            {ftourDateStart && ftourDateEnd && (
+            {ftourDateStart && (
               <div className="text-xs text-slate-500 bg-slate-50 rounded p-2">
                 {(() => {
                   const start = new Date(ftourDateStart);
-                  const end = new Date(ftourDateEnd);
-                  if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) return "Dates invalides";
+                  if (isNaN(start.getTime())) return "Date invalide";
 
-                  let days = 0;
-                  if (ftourRepeatEnabled && ftourRepeatDays.length > 0) {
-                    const cursor = new Date(start);
-                    while (cursor <= end) {
-                      if (ftourRepeatDays.includes(cursor.getDay())) days++;
-                      cursor.setDate(cursor.getDate() + 1);
+                  let days = 1;
+                  if (ftourRepeatEnabled && ftourDateEnd) {
+                    const end = new Date(ftourDateEnd);
+                    if (isNaN(end.getTime()) || end < start) return "Dates invalides";
+
+                    days = 0;
+                    if (ftourRepeatDays.length > 0) {
+                      const cursor = new Date(start);
+                      while (cursor <= end) {
+                        if (ftourRepeatDays.includes(cursor.getDay())) days++;
+                        cursor.setDate(cursor.getDate() + 1);
+                      }
+                    } else {
+                      days = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
                     }
-                  } else {
-                    days = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
                   }
 
                   const priceStr = ftourBasePrice.trim() ? ` — ${ftourBasePrice} MAD` : " — Gratuit";
@@ -2305,7 +2938,7 @@ export function AdminEstablishmentDetailsPage() {
             </Button>
             <Button
               onClick={() => void handleCreateFtourSlots()}
-              disabled={ftourCreating || !ftourDateStart || !ftourDateEnd}
+              disabled={ftourCreating || !ftourDateStart || (ftourRepeatEnabled && !ftourDateEnd)}
             >
               {ftourCreating ? (
                 <>
@@ -2318,6 +2951,71 @@ export function AdminEstablishmentDetailsPage() {
                   Créer les créneaux
                 </>
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog : Refuser un pack */}
+      <Dialog open={rejectDialogOpen} onOpenChange={(open) => {
+        setRejectDialogOpen(open);
+        if (!open) { setRejectPackId(null); setRejectReason(""); }
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Refuser le pack</DialogTitle>
+            <DialogDescription>Indiquez la raison du refus. Le Pro sera notifié.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="reject_reason">Raison du refus</Label>
+            <Input
+              id="reject_reason"
+              placeholder="Ex: photos non conformes, prix incohérent…"
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>Annuler</Button>
+            <Button
+              variant="destructive"
+              disabled={!rejectReason.trim() || packActionLoading === rejectPackId}
+              onClick={() => void handlePackReject()}
+            >
+              {packActionLoading === rejectPackId ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+              Refuser
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog : Demander modification */}
+      <Dialog open={modifDialogOpen} onOpenChange={(open) => {
+        setModifDialogOpen(open);
+        if (!open) { setModifPackId(null); setModifNote(""); }
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Demander une modification</DialogTitle>
+            <DialogDescription>Décrivez les modifications nécessaires. Le Pro sera notifié.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="modif_note">Note de modification</Label>
+            <Input
+              id="modif_note"
+              placeholder="Ex: veuillez ajouter une description plus détaillée…"
+              value={modifNote}
+              onChange={(e) => setModifNote(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModifDialogOpen(false)}>Annuler</Button>
+            <Button
+              disabled={!modifNote.trim() || packActionLoading === modifPackId}
+              onClick={() => void handlePackRequestModification()}
+            >
+              {packActionLoading === modifPackId ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+              Envoyer
             </Button>
           </DialogFooter>
         </DialogContent>

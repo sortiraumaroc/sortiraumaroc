@@ -1,8 +1,28 @@
 import type { RequestHandler } from "express";
+import type { Express } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { requireAdminKey } from "./admin";
 import { sendTemplateEmail } from "../emailService";
 import { emitAdminNotification } from "../adminNotifications";
+import { createModuleLogger } from "../lib/logger";
+import { zBody, zParams, zIdParam } from "../lib/validate";
+import {
+  CreateSupportTicketSchema,
+  AddSupportTicketMessageSchema,
+  UpdateSupportTicketStatusSchema,
+  GetOrCreateChatSessionSchema,
+  SendChatMessageSchema,
+  PostAdminSupportTicketMessageSchema,
+  UpdateAdminSupportTicketSchema,
+  SendAdminChatMessageSchema,
+  ToggleAgentStatusSchema,
+  UpdateTicketInternalNotesSchema,
+  SupportSessionIdParams,
+  SupportUserIdParams,
+  SupportEstablishmentIdParams,
+} from "../schemas/support";
+
+const log = createModuleLogger("support");
 
 // ============================================================================
 // TYPES
@@ -112,7 +132,7 @@ export const listSupportTickets: RequestHandler = async (req, res) => {
       .limit(100);
 
     if (error) {
-      console.error("[listSupportTickets] Error:", error);
+      log.error({ err: error }, "listSupportTickets query failed");
       res.status(500).json({ error: "Erreur serveur" });
       return;
     }
@@ -137,7 +157,7 @@ export const listSupportTickets: RequestHandler = async (req, res) => {
 
     res.json({ ok: true, tickets: ticketsWithUnread });
   } catch (e) {
-    console.error("[listSupportTickets] Exception:", e);
+    log.error({ err: e }, "listSupportTickets exception");
     res.status(500).json({ error: "Erreur inattendue" });
   }
 };
@@ -208,14 +228,14 @@ export const createSupportTicket: RequestHandler = async (req, res) => {
       .single();
 
     if (error) {
-      console.error("[createSupportTicket] Error:", error);
+      log.error({ err: error }, "createSupportTicket insert failed");
       res.status(500).json({ error: "Erreur lors de la création du ticket" });
       return;
     }
 
     res.json({ ok: true, ticket });
   } catch (e) {
-    console.error("[createSupportTicket] Exception:", e);
+    log.error({ err: e }, "createSupportTicket exception");
     res.status(500).json({ error: "Erreur inattendue" });
   }
 };
@@ -271,7 +291,7 @@ export const getSupportTicket: RequestHandler = async (req, res) => {
       .order("created_at", { ascending: true });
 
     if (messagesError) {
-      console.error("[getSupportTicket] Messages error:", messagesError);
+      log.error({ err: messagesError }, "getSupportTicket messages query failed");
     }
 
     // Mark messages as read
@@ -284,7 +304,7 @@ export const getSupportTicket: RequestHandler = async (req, res) => {
 
     res.json({ ok: true, ticket, messages: messages ?? [] });
   } catch (e) {
-    console.error("[getSupportTicket] Exception:", e);
+    log.error({ err: e }, "getSupportTicket exception");
     res.status(500).json({ error: "Erreur inattendue" });
   }
 };
@@ -360,7 +380,7 @@ export const addSupportTicketMessage: RequestHandler = async (req, res) => {
       .single();
 
     if (messageError) {
-      console.error("[addSupportTicketMessage] Error:", messageError);
+      log.error({ err: messageError }, "addSupportTicketMessage insert failed");
       res.status(500).json({ error: "Erreur lors de l'envoi du message" });
       return;
     }
@@ -387,12 +407,12 @@ export const addSupportTicketMessage: RequestHandler = async (req, res) => {
         const clientName = authData?.user?.user_metadata?.full_name || "Client";
 
         void notifyAdminOfClientMessage(ticketId, clientName, ticketData?.subject || "Support");
-      } catch { /* best-effort */ }
+      } catch (err) { log.warn({ err }, "Failed to notify admin of client message"); }
     })();
 
     res.json({ ok: true, message });
   } catch (e) {
-    console.error("[addSupportTicketMessage] Exception:", e);
+    log.error({ err: e }, "addSupportTicketMessage exception");
     res.status(500).json({ error: "Erreur inattendue" });
   }
 };
@@ -465,14 +485,14 @@ export const updateSupportTicketStatus: RequestHandler = async (req, res) => {
       .eq("id", ticketId);
 
     if (updateError) {
-      console.error("[updateSupportTicketStatus] Error:", updateError);
+      log.error({ err: updateError }, "updateSupportTicketStatus update failed");
       res.status(500).json({ error: "Erreur lors de la mise à jour" });
       return;
     }
 
     res.json({ ok: true });
   } catch (e) {
-    console.error("[updateSupportTicketStatus] Exception:", e);
+    log.error({ err: e }, "updateSupportTicketStatus exception");
     res.status(500).json({ error: "Erreur inattendue" });
   }
 };
@@ -547,14 +567,14 @@ export const getOrCreateChatSession: RequestHandler = async (req, res) => {
       .single();
 
     if (error) {
-      console.error("[getOrCreateChatSession] Error:", error);
+      log.error({ err: error }, "getOrCreateChatSession insert failed");
       res.status(500).json({ error: "Erreur lors de la création de la session" });
       return;
     }
 
     res.json({ ok: true, session: newSession, messages: [] });
   } catch (e) {
-    console.error("[getOrCreateChatSession] Exception:", e);
+    log.error({ err: e }, "getOrCreateChatSession exception");
     res.status(500).json({ error: "Erreur inattendue" });
   }
 };
@@ -628,7 +648,7 @@ export const sendChatMessage: RequestHandler = async (req, res) => {
       .single();
 
     if (messageError) {
-      console.error("[sendChatMessage] Error:", messageError);
+      log.error({ err: messageError }, "sendChatMessage insert failed");
       res.status(500).json({ error: "Erreur lors de l'envoi du message" });
       return;
     }
@@ -653,7 +673,7 @@ export const sendChatMessage: RequestHandler = async (req, res) => {
 
     res.json({ ok: true, message });
   } catch (e) {
-    console.error("[sendChatMessage] Exception:", e);
+    log.error({ err: e }, "sendChatMessage exception");
     res.status(500).json({ error: "Erreur inattendue" });
   }
 };
@@ -717,14 +737,14 @@ export const getChatMessages: RequestHandler = async (req, res) => {
     const { data: messages, error: messagesError } = await query;
 
     if (messagesError) {
-      console.error("[getChatMessages] Error:", messagesError);
+      log.error({ err: messagesError }, "getChatMessages query failed");
       res.status(500).json({ error: "Erreur serveur" });
       return;
     }
 
     res.json({ ok: true, messages: messages ?? [] });
   } catch (e) {
-    console.error("[getChatMessages] Exception:", e);
+    log.error({ err: e }, "getChatMessages exception");
     res.status(500).json({ error: "Erreur inattendue" });
   }
 };
@@ -772,7 +792,7 @@ export const listAdminSupportTickets: RequestHandler = async (req, res) => {
     const { data: tickets, error } = await query;
 
     if (error) {
-      console.error("[listAdminSupportTickets] Error:", error);
+      log.error({ err: error }, "listAdminSupportTickets query failed");
       res.status(500).json({ error: "Erreur serveur" });
       return;
     }
@@ -796,7 +816,7 @@ export const listAdminSupportTickets: RequestHandler = async (req, res) => {
 
     res.json({ ok: true, items: ticketsWithUnread });
   } catch (e) {
-    console.error("[listAdminSupportTickets] Exception:", e);
+    log.error({ err: e }, "listAdminSupportTickets exception");
     res.status(500).json({ error: "Erreur inattendue" });
   }
 };
@@ -833,7 +853,7 @@ export const getAdminSupportTicket: RequestHandler = async (req, res) => {
 
     res.json({ ok: true, item: ticket });
   } catch (e) {
-    console.error("[getAdminSupportTicket] Exception:", e);
+    log.error({ err: e }, "getAdminSupportTicket exception");
     res.status(500).json({ error: "Erreur inattendue" });
   }
 };
@@ -861,7 +881,7 @@ export const listAdminSupportTicketMessages: RequestHandler = async (req, res) =
       .order("created_at", { ascending: true });
 
     if (error) {
-      console.error("[listAdminSupportTicketMessages] Error:", error);
+      log.error({ err: error }, "listAdminSupportTicketMessages query failed");
       res.status(500).json({ error: "Erreur serveur" });
       return;
     }
@@ -876,7 +896,7 @@ export const listAdminSupportTicketMessages: RequestHandler = async (req, res) =
 
     res.json({ ok: true, items: messages ?? [] });
   } catch (e) {
-    console.error("[listAdminSupportTicketMessages] Exception:", e);
+    log.error({ err: e }, "listAdminSupportTicketMessages exception");
     res.status(500).json({ error: "Erreur inattendue" });
   }
 };
@@ -936,7 +956,7 @@ export const postAdminSupportTicketMessage: RequestHandler = async (req, res) =>
       .single();
 
     if (messageError) {
-      console.error("[postAdminSupportTicketMessage] Error:", messageError);
+      log.error({ err: messageError }, "postAdminSupportTicketMessage insert failed");
       res.status(500).json({ error: "Erreur lors de l'envoi du message" });
       return;
     }
@@ -957,7 +977,7 @@ export const postAdminSupportTicketMessage: RequestHandler = async (req, res) =>
 
     res.json({ ok: true, message });
   } catch (e) {
-    console.error("[postAdminSupportTicketMessage] Exception:", e);
+    log.error({ err: e }, "postAdminSupportTicketMessage exception");
     res.status(500).json({ error: "Erreur inattendue" });
   }
 };
@@ -1004,14 +1024,14 @@ export const updateAdminSupportTicket: RequestHandler = async (req, res) => {
       .eq("id", ticketId);
 
     if (error) {
-      console.error("[updateAdminSupportTicket] Error:", error);
+      log.error({ err: error }, "updateAdminSupportTicket update failed");
       res.status(500).json({ error: "Erreur lors de la mise à jour" });
       return;
     }
 
     res.json({ ok: true });
   } catch (e) {
-    console.error("[updateAdminSupportTicket] Exception:", e);
+    log.error({ err: e }, "updateAdminSupportTicket exception");
     res.status(500).json({ error: "Erreur inattendue" });
   }
 };
@@ -1045,14 +1065,14 @@ export const listAdminChatSessions: RequestHandler = async (req, res) => {
     const { data: sessions, error } = await query;
 
     if (error) {
-      console.error("[listAdminChatSessions] Error:", error);
+      log.error({ err: error }, "listAdminChatSessions query failed");
       res.status(500).json({ error: "Erreur serveur" });
       return;
     }
 
     res.json({ ok: true, items: sessions ?? [] });
   } catch (e) {
-    console.error("[listAdminChatSessions] Exception:", e);
+    log.error({ err: e }, "listAdminChatSessions exception");
     res.status(500).json({ error: "Erreur inattendue" });
   }
 };
@@ -1080,14 +1100,14 @@ export const getAdminChatMessages: RequestHandler = async (req, res) => {
       .order("created_at", { ascending: true });
 
     if (error) {
-      console.error("[getAdminChatMessages] Error:", error);
+      log.error({ err: error }, "getAdminChatMessages query failed");
       res.status(500).json({ error: "Erreur serveur" });
       return;
     }
 
     res.json({ ok: true, items: messages ?? [] });
   } catch (e) {
-    console.error("[getAdminChatMessages] Exception:", e);
+    log.error({ err: e }, "getAdminChatMessages exception");
     res.status(500).json({ error: "Erreur inattendue" });
   }
 };
@@ -1146,7 +1166,7 @@ export const sendAdminChatMessage: RequestHandler = async (req, res) => {
       .single();
 
     if (messageError) {
-      console.error("[sendAdminChatMessage] Error:", messageError);
+      log.error({ err: messageError }, "sendAdminChatMessage insert failed");
       res.status(500).json({ error: "Erreur lors de l'envoi du message" });
       return;
     }
@@ -1163,7 +1183,7 @@ export const sendAdminChatMessage: RequestHandler = async (req, res) => {
 
     res.json({ ok: true, message });
   } catch (e) {
-    console.error("[sendAdminChatMessage] Exception:", e);
+    log.error({ err: e }, "sendAdminChatMessage exception");
     res.status(500).json({ error: "Erreur inattendue" });
   }
 };
@@ -1188,14 +1208,14 @@ export const checkAgentOnline: RequestHandler = async (_req, res) => {
       .limit(1);
 
     if (error) {
-      console.error("[checkAgentOnline] Error:", error);
+      log.error({ err: error }, "checkAgentOnline query failed");
       res.json({ ok: true, online: false });
       return;
     }
 
     res.json({ ok: true, online: (data?.length ?? 0) > 0 });
   } catch (e) {
-    console.error("[checkAgentOnline] Exception:", e);
+    log.error({ err: e }, "checkAgentOnline exception");
     res.json({ ok: true, online: false });
   }
 };
@@ -1233,7 +1253,7 @@ export const toggleAgentStatus: RequestHandler = async (req, res) => {
 
     res.json({ ok: true, is_online: isOnline });
   } catch (e) {
-    console.error("[toggleAgentStatus] Exception:", e);
+    log.error({ err: e }, "toggleAgentStatus exception");
     res.status(500).json({ error: "Erreur inattendue" });
   }
 };
@@ -1319,7 +1339,7 @@ export const getClientProfile: RequestHandler = async (req, res) => {
 
     res.json({ ok: true, profile });
   } catch (e) {
-    console.error("[getClientProfile] Exception:", e);
+    log.error({ err: e }, "getClientProfile exception");
     res.status(500).json({ error: "Erreur inattendue" });
   }
 };
@@ -1416,7 +1436,7 @@ export const getEstablishmentProfile: RequestHandler = async (req, res) => {
 
     res.json({ ok: true, profile });
   } catch (e) {
-    console.error("[getEstablishmentProfile] Exception:", e);
+    log.error({ err: e }, "getEstablishmentProfile exception");
     res.status(500).json({ error: "Erreur inattendue" });
   }
 };
@@ -1450,14 +1470,14 @@ export const updateTicketInternalNotes: RequestHandler = async (req, res) => {
       .eq("id", ticketId);
 
     if (error) {
-      console.error("[updateTicketInternalNotes] Error:", error);
+      log.error({ err: error }, "updateTicketInternalNotes update failed");
       res.status(500).json({ error: "Erreur lors de la mise à jour" });
       return;
     }
 
     res.json({ ok: true });
   } catch (e) {
-    console.error("[updateTicketInternalNotes] Exception:", e);
+    log.error({ err: e }, "updateTicketInternalNotes exception");
     res.status(500).json({ error: "Erreur inattendue" });
   }
 };
@@ -1514,7 +1534,7 @@ async function notifyClientOfAdminReply(ticketId: string, messagePreview: string
       .update({ last_email_notified_at: new Date().toISOString() })
       .eq("id", ticketId);
   } catch (e) {
-    console.error("[notifyClientOfAdminReply] Error (non-blocking):", e);
+    log.error({ err: e }, "notifyClientOfAdminReply failed (non-blocking)");
   }
 }
 
@@ -1530,6 +1550,41 @@ async function notifyAdminOfClientMessage(ticketId: string, clientName: string, 
       data: { ticket_id: ticketId },
     });
   } catch (e) {
-    console.error("[notifyAdminOfClientMessage] Error (non-blocking):", e);
+    log.error({ err: e }, "notifyAdminOfClientMessage failed (non-blocking)");
   }
+}
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerSupportRoutes(app: Express) {
+  // Consumer/Pro support tickets
+  app.get("/api/support/tickets", listSupportTickets);
+  app.post("/api/support/tickets", zBody(CreateSupportTicketSchema), createSupportTicket);
+  app.get("/api/support/tickets/:id", zParams(zIdParam), getSupportTicket);
+  app.post("/api/support/tickets/:id/messages", zParams(zIdParam), zBody(AddSupportTicketMessageSchema), addSupportTicketMessage);
+  app.patch("/api/support/tickets/:id", zParams(zIdParam), zBody(UpdateSupportTicketStatusSchema), updateSupportTicketStatus);
+
+  // Support chat (consumer/pro)
+  app.post("/api/support/chat/session", zBody(GetOrCreateChatSessionSchema), getOrCreateChatSession);
+  app.post("/api/support/chat/messages", zBody(SendChatMessageSchema), sendChatMessage);
+  app.get("/api/support/chat/:sessionId/messages", zParams(SupportSessionIdParams), getChatMessages);
+
+  // Support agent online check (public)
+  app.get("/api/support/agent-online", checkAgentOnline);
+
+  // Admin support routes
+  app.get("/api/admin/support/tickets", listAdminSupportTickets);
+  app.get("/api/admin/support/tickets/:id", zParams(zIdParam), getAdminSupportTicket);
+  app.get("/api/admin/support/tickets/:id/messages", zParams(zIdParam), listAdminSupportTicketMessages);
+  app.post("/api/admin/support/tickets/:id/messages", zParams(zIdParam), zBody(PostAdminSupportTicketMessageSchema), postAdminSupportTicketMessage);
+  app.patch("/api/admin/support/tickets/:id", zParams(zIdParam), zBody(UpdateAdminSupportTicketSchema), updateAdminSupportTicket);
+  app.patch("/api/admin/support/tickets/:id/notes", zParams(zIdParam), zBody(UpdateTicketInternalNotesSchema), updateTicketInternalNotes);
+  app.get("/api/admin/support/chat/sessions", listAdminChatSessions);
+  app.get("/api/admin/support/chat/:sessionId/messages", zParams(SupportSessionIdParams), getAdminChatMessages);
+  app.post("/api/admin/support/chat/:sessionId/messages", zParams(SupportSessionIdParams), zBody(SendAdminChatMessageSchema), sendAdminChatMessage);
+  app.post("/api/admin/support/agent-status", zBody(ToggleAgentStatusSchema), toggleAgentStatus);
+  app.get("/api/admin/support/client-profile/:userId", zParams(SupportUserIdParams), getClientProfile);
+  app.get("/api/admin/support/establishment-profile/:establishmentId", zParams(SupportEstablishmentIdParams), getEstablishmentProfile);
 }

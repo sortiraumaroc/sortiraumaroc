@@ -172,6 +172,7 @@ const ar: Partial<Record<TranslationKey, string>> = {
   "footer.section.discover": "اكتشفوا",
   "footer.install_app": "تثبيت التطبيق",
   "footer.copyright_suffix": ". جميع الحقوق محفوظة.",
+  "footer.ramadan_moubarak": "رمضان مبارك",
   "pwa.update_available": "نسخة جديدة متاحة",
   "pwa.update_description": "انقروا للتحديث.",
   "pwa.update_button": "تحديث",
@@ -282,6 +283,17 @@ const ar: Partial<Record<TranslationKey, string>> = {
   "home.sections.themed.ramadan": "اختيارات الفطور والسحور",
   "home.sections.ramadan.title": "خاص رمضان",
   "home.sections.ramadan.subtitle": "اكتشفوا أفضل عروض الإفطار",
+
+  // ليالي ألف ليلة وليلة — رمضان 2026
+  "home.ramadan.hero.title": "رمضان مبارك",
+  "home.ramadan.hero.subtitle": "عيشوا أمسيات استثنائية مع أفضل العناوين في المغرب",
+  "home.ramadan.announcement": "رمضان مبارك! اكتشفوا عروضنا الخاصة للإفطار والسحور",
+  "home.ramadan.cta.title": "عيشوا رمضان استثنائي",
+  "home.ramadan.cta.description": "أفضل المطاعم في المملكة في انتظاركم لإفطار لا يُنسى",
+  "home.ramadan.cta.button": "اكتشفوا عروض رمضان",
+  "home.ramadan.category.ftour": "إفطار رمضان",
+  "home.ramadan.badge.ftour": "إفطار",
+
   "home.categories.restaurants.title": "ما الذي ترغبون فيه الآن؟",
   "home.categories.sport.title": "أي نشاط يستهويكم؟",
   "home.categories.loisirs.title": "رغبة في الترفيه؟",
@@ -547,7 +559,7 @@ const ar: Partial<Record<TranslationKey, string>> = {
   "suggestions.section.offers": "العروض",
   "suggestions.section.trending": "الرائج",
     "booking.steps.details": "التفاصيل",
-    "booking.steps.payment": "الدفع",
+    "booking.steps.payment": "ملخص",
     "booking.steps.info": "المعلومات",
     "booking.steps.confirmation": "التأكيد",
     "booking.step_header.label": "الخطوة {step} من {total}",
@@ -687,6 +699,7 @@ const ar: Partial<Record<TranslationKey, string>> = {
     "booking.form.placeholder.last_name": "مثال: بنعلي",
     "booking.form.placeholder.email": "مثال: amina@example.com",
     "booking.form.placeholder.phone": "مثال: +212 6 12 34 56 78",
+    "booking.form.placeholder.phone_local": "6 12 34 56 78",
     "booking.form.placeholder.message": "مثال: حساسيات غذائية، مناسبة خاصة…",
     "booking.form.placeholder.message_long": "صِفوا المناسبة (عيد ميلاد، لقاء...)، اذكروا الأنظمة الغذائية أو الطلبات الخاصة...",
     "booking.step3.privacy_notice": "🔒 بياناتكم محمية ولن تُشارك إلا مع المطعم لغرض حجزكم.",
@@ -700,7 +713,7 @@ const ar: Partial<Record<TranslationKey, string>> = {
     "booking.step4.banner.title.confirmed": "تم تأكيد الحجز!",
     "booking.step4.banner.title.pending": "تم تقديم الطلب",
     "booking.step4.banner.body.confirmed": "مكانكم مضمون. تم إرسال رسالة SMS للتأكيد.",
-    "booking.step4.banner.body.pending": "سيؤكد المطعم حجزكم عبر SMS أو WhatsApp قريبًا.",
+    "booking.step4.banner.body.pending": "سيؤكد المطعم حجزكم عبر SMS أو البريد الإلكتروني قريبًا.",
     "booking.step4.contact.title": "التواصل",
     "booking.step4.contact.confirmation_sent": "تم إرسال التأكيد إلى الرقم المُقدَّم",
     "booking.step4.reference.title": "مرجع الحجز",

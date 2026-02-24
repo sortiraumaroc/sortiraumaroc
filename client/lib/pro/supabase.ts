@@ -37,5 +37,9 @@ export const proSupabase = createClient(supabaseUrl, supabaseAnonKey, {
     storageKey: PRO_AUTH_STORAGE_KEY,
     persistSession: true,
     autoRefreshToken: true,
+    // [FIX-AUTH] Disable auto-detection of OAuth/PKCE codes in the URL.
+    // Without this, the Pro client could accidentally consume a PKCE code
+    // that was intended for the Consumer OAuth flow.
+    detectSessionInUrl: false,
   },
 });

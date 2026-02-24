@@ -16,7 +16,10 @@
  */
 
 import type { Router, Request, Response, RequestHandler } from "express";
+import { createModuleLogger } from "../lib/logger";
 import { getAdminSupabase } from "../supabaseAdmin";
+
+const log = createModuleLogger("packsPublic");
 import { confirmPackPurchase, validatePackPromoCode } from "../packPurchaseLogic";
 import { requestPackRefund } from "../packRefundLogic";
 import { getModuleStatus } from "../moduleActivationLogic";
@@ -28,6 +31,17 @@ import {
   packReadRateLimiter,
 } from "../middleware/rateLimiter";
 import { sanitizeText, sanitizePlain, isValidUUID } from "../sanitizeV2";
+import { zBody, zQuery, zParams, zIdParam } from "../lib/validate";
+import {
+  PurchasePackSchema,
+  ValidatePackPromoSchema,
+  RequestPackRefundSchema,
+  ListActivePacksQuery,
+  ListMyPacksQuery,
+  ListMyTransactionsQuery,
+  PackIdParams,
+  PurchaseIdParams,
+} from "../schemas/packsPublic";
 import { auditClientAction } from "../auditLogV2";
 import { getClientIp } from "../middleware/rateLimiter";
 
@@ -49,7 +63,8 @@ async function getConsumerUserId(req: Request): Promise<ConsumerAuthResult> {
     const { data, error } = await supabase.auth.getUser(token);
     if (error || !data.user) return { ok: false, status: 401, error: "unauthorized" };
     return { ok: true, userId: data.user.id };
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "Consumer auth token verification failed");
     return { ok: false, status: 401, error: "unauthorized" };
   }
 }
@@ -154,7 +169,7 @@ const listActivePacks: RequestHandler = async (req, res) => {
 
     res.json({ packs: data ?? [], total: count ?? 0, page, perPage });
   } catch (err) {
-    console.error("[PacksPublic] listActivePacks error:", err);
+    log.error({ err }, "listActivePacks error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -177,7 +192,7 @@ const getPackDetail: RequestHandler = async (req, res) => {
       .from("packs")
       .select(`
         *,
-        establishments (id, name, slug, city, address, cover_url, phone, latitude, longitude)
+        establishments (id, name, slug, city, address, cover_url, phone, lat, lng)
       `)
       .eq("id", packId)
       .maybeSingle();
@@ -200,7 +215,7 @@ const getPackDetail: RequestHandler = async (req, res) => {
 
     res.json({ pack: data });
   } catch (err) {
-    console.error("[PacksPublic] getPackDetail error:", err);
+    log.error({ err }, "getPackDetail error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -245,7 +260,7 @@ const getEstablishmentPacks: RequestHandler = async (req, res) => {
 
     res.json({ packs: data ?? [] });
   } catch (err) {
-    console.error("[PacksPublic] getEstablishmentPacks error:", err);
+    log.error({ err }, "getEstablishmentPacks error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -296,7 +311,7 @@ const purchasePack: RequestHandler = async (req, res) => {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PacksPublic] purchasePack error:", err);
+    log.error({ err }, "purchasePack error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -338,7 +353,7 @@ const validatePromo: RequestHandler = async (req, res) => {
 
     res.json(result);
   } catch (err) {
-    console.error("[PacksPublic] validatePromo error:", err);
+    log.error({ err }, "validatePromo error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -438,7 +453,7 @@ const getMyPacks: RequestHandler = async (req, res) => {
 
     res.json({ purchases: enriched });
   } catch (err) {
-    console.error("[PacksPublic] getMyPacks error:", err);
+    log.error({ err }, "getMyPacks error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -477,7 +492,7 @@ const getMyPackDetail: RequestHandler = async (req, res) => {
 
     res.json({ purchase: data });
   } catch (err) {
-    console.error("[PacksPublic] getMyPackDetail error:", err);
+    log.error({ err }, "getMyPackDetail error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -523,7 +538,7 @@ const requestRefund: RequestHandler = async (req, res) => {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PacksPublic] requestRefund error:", err);
+    log.error({ err }, "requestRefund error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -562,7 +577,7 @@ const getMyTransactions: RequestHandler = async (req, res) => {
 
     res.json({ transactions: data ?? [], total: count ?? 0, page, perPage });
   } catch (err) {
-    console.error("[PacksPublic] getMyTransactions error:", err);
+    log.error({ err }, "getMyTransactions error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -593,7 +608,7 @@ const getMyReceipts: RequestHandler = async (req, res) => {
 
     res.json({ receipts: data ?? [] });
   } catch (err) {
-    console.error("[PacksPublic] getMyReceipts error:", err);
+    log.error({ err }, "getMyReceipts error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -627,7 +642,7 @@ const downloadReceipt: RequestHandler = async (req, res) => {
     const pdfUrl = getDocumentPdfDownloadUrl(Number(receiptId));
     res.redirect(pdfUrl);
   } catch (err) {
-    console.error("[PacksPublic] downloadReceipt error:", err);
+    log.error({ err }, "downloadReceipt error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -638,17 +653,17 @@ const downloadReceipt: RequestHandler = async (req, res) => {
 
 export function registerPacksPublicRoutes(app: Router): void {
   // Public (no auth required) — rate limited for anti-scraping
-  app.get("/api/packs", packReadRateLimiter, listActivePacks);
-  app.get("/api/packs/:id", packReadRateLimiter, getPackDetail);
-  app.get("/api/establishments/:id/packs", packReadRateLimiter, getEstablishmentPacks);
+  app.get("/api/packs", packReadRateLimiter, zQuery(ListActivePacksQuery), listActivePacks);
+  app.get("/api/packs/:id", zParams(PackIdParams), packReadRateLimiter, getPackDetail);
+  app.get("/api/establishments/:id/packs", zParams(zIdParam), packReadRateLimiter, getEstablishmentPacks);
 
   // Authenticated consumer — rate limited
-  app.post("/api/packs/:id/purchase", packPurchaseRateLimiter, purchasePack);
-  app.post("/api/packs/validate-promo", packPromoValidateRateLimiter, validatePromo);
-  app.get("/api/me/packs", getMyPacks);
-  app.get("/api/me/packs/:purchaseId", getMyPackDetail);
-  app.post("/api/me/packs/:purchaseId/refund", packRefundRateLimiter, requestRefund);
-  app.get("/api/me/transactions", getMyTransactions);
+  app.post("/api/packs/:id/purchase", zParams(PackIdParams), packPurchaseRateLimiter, zBody(PurchasePackSchema), purchasePack);
+  app.post("/api/packs/validate-promo", packPromoValidateRateLimiter, zBody(ValidatePackPromoSchema), validatePromo);
+  app.get("/api/me/packs", zQuery(ListMyPacksQuery), getMyPacks);
+  app.get("/api/me/packs/:purchaseId", zParams(PurchaseIdParams), getMyPackDetail);
+  app.post("/api/me/packs/:purchaseId/refund", zParams(PurchaseIdParams), packRefundRateLimiter, zBody(RequestPackRefundSchema), requestRefund);
+  app.get("/api/me/transactions", zQuery(ListMyTransactionsQuery), getMyTransactions);
   app.get("/api/me/receipts", getMyReceipts);
-  app.get("/api/me/receipts/:id/download", downloadReceipt);
+  app.get("/api/me/receipts/:id/download", zParams(zIdParam), downloadReceipt);
 }

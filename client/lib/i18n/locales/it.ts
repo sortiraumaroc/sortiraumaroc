@@ -689,7 +689,7 @@ const it: Partial<Record<TranslationKey, string>> = {
 
     // Prenotazione (percorsi prioritari)
     "booking.steps.details": "Dettagli",
-    "booking.steps.payment": "Pagamento",
+    "booking.steps.payment": "Riepilogo",
     "booking.steps.info": "Info",
     "booking.steps.confirmation": "Conferma",
     "booking.step_header.label": "PASSO {step} DI {total}",
@@ -899,6 +899,7 @@ const it: Partial<Record<TranslationKey, string>> = {
     "booking.form.placeholder.last_name": "Es: Benali",
     "booking.form.placeholder.email": "Es: amina@example.com",
     "booking.form.placeholder.phone": "Es: +212 6 12 34 56 78",
+    "booking.form.placeholder.phone_local": "6 12 34 56 78",
     "booking.form.placeholder.message": "Es: Allergie, occasione speciale…",
     "booking.form.placeholder.message_long":
       "Descrivi l'occasione (compleanno, appuntamento...), menziona diete alimentari o richieste speciali...",
@@ -923,7 +924,7 @@ const it: Partial<Record<TranslationKey, string>> = {
     "booking.step4.banner.body.confirmed":
       "Il tuo posto è garantito. Un SMS di conferma è stato inviato.",
     "booking.step4.banner.body.pending":
-      "Il ristorante confermerà la tua prenotazione via SMS o WhatsApp a breve.",
+      "Il ristorante confermerà la tua prenotazione via SMS o e-mail a breve.",
 
     "booking.step4.contact.title": "CONTATTO",
     "booking.step4.contact.confirmation_sent":

@@ -11,10 +11,15 @@
 
 import type { Router, Request, Response, RequestHandler } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("wheelPublic");
 import { getActiveWheel, canUserSpin, spinWheel, getSpinHistory, getUserWheelGifts } from "../wheelOfFortuneLogic";
 import { createRateLimiter, getClientIp } from "../middleware/rateLimiter";
 import { isValidUUID } from "../sanitizeV2";
 import { auditClientAction } from "../auditLogV2";
+import { zBody, zParams, zQuery } from "../lib/validate";
+import { SpinWheelSchema, WheelIdParams, WheelHistoryQuery } from "../schemas/publicRoutes";
 
 // =============================================================================
 // Rate limiters
@@ -48,7 +53,8 @@ async function getConsumerUserId(req: Request): Promise<ConsumerAuthResult> {
     const { data, error } = await supabase.auth.getUser(token);
     if (error || !data.user) return { ok: false, status: 401, error: "unauthorized" };
     return { ok: true, userId: data.user.id };
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "Consumer auth token verification failed");
     return { ok: false, status: 401, error: "unauthorized" };
   }
 }
@@ -90,7 +96,7 @@ async function getActiveWheelHandler(req: Request, res: Response) {
 
     res.json({ ok: true, wheel, canSpin });
   } catch (err) {
-    console.error("[getActiveWheel] Error:", err);
+    log.error({ err }, "getActiveWheel error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -134,12 +140,12 @@ async function spinWheelHandler(req: Request, res: Response) {
             ip,
           },
         );
-      } catch { /* best effort */ }
+      } catch (err) { log.warn({ err }, "Best-effort: wheel spin audit log failed"); }
     })();
 
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[spinWheel] Error:", err);
+    log.error({ err }, "spinWheel error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -164,7 +170,7 @@ async function getSpinHistoryHandler(req: Request, res: Response) {
 
     res.json({ ok: true, history });
   } catch (err) {
-    console.error("[getSpinHistory] Error:", err);
+    log.error({ err }, "getSpinHistory error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -182,7 +188,7 @@ async function getUserWheelGiftsHandler(req: Request, res: Response) {
 
     res.json({ ok: true, gifts });
   } catch (err) {
-    console.error("[getUserWheelGifts] Error:", err);
+    log.error({ err }, "getUserWheelGifts error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -219,13 +225,13 @@ async function getWheelPreview(req: Request, res: Response) {
       .order("position", { ascending: true });
 
     if (prizesError) {
-      console.error("[getWheelPreview] prizes error:", prizesError);
+      log.error({ err: prizesError }, "getWheelPreview prizes error");
       return res.status(500).json({ error: "internal_error" });
     }
 
     res.json({ ok: true, wheel, prizes: prizes ?? [] });
   } catch (err) {
-    console.error("[getWheelPreview] Error:", err);
+    log.error({ err }, "getWheelPreview error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -236,8 +242,8 @@ async function getWheelPreview(req: Request, res: Response) {
 
 export function registerWheelPublicRoutes(app: Router): void {
   app.get("/api/wheel/active", wheelReadRateLimiter, getActiveWheelHandler);
-  app.post("/api/wheel/spin", wheelSpinRateLimiter, spinWheelHandler);
-  app.get("/api/me/wheel/history", wheelReadRateLimiter, getSpinHistoryHandler);
+  app.post("/api/wheel/spin", wheelSpinRateLimiter, zBody(SpinWheelSchema), spinWheelHandler);
+  app.get("/api/me/wheel/history", zQuery(WheelHistoryQuery), wheelReadRateLimiter, getSpinHistoryHandler);
   app.get("/api/me/wheel/gifts", wheelReadRateLimiter, getUserWheelGiftsHandler);
-  app.get("/api/wheel/:id/preview", wheelReadRateLimiter, getWheelPreview);
+  app.get("/api/wheel/:id/preview", zParams(WheelIdParams), wheelReadRateLimiter, getWheelPreview);
 }

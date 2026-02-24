@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import {
   AlertCircle,
@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
+import { AdminVisibilityNav } from "@/pages/admin/visibility/AdminVisibilityNav";
 import { AdminDataTable } from "@/components/admin/table/AdminDataTable";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -3299,6 +3300,7 @@ export function AdminVisibilityPage() {
 
   return (
     <div className="space-y-6">
+      <AdminVisibilityNav />
       <AdminPageHeader
         title="Visibilité (SAM Media)"
         description="Catalogue unique (offres) + devis + factures + commandes (workflow vidéo)."
@@ -3324,6 +3326,12 @@ export function AdminVisibilityPage() {
           <TabsTrigger value="quotes">Devis</TabsTrigger>
           <TabsTrigger value="invoices">Factures</TabsTrigger>
           <TabsTrigger value="orders">Commandes</TabsTrigger>
+          <Link
+            to="/admin/username-subscriptions"
+            className="inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium text-muted-foreground ring-offset-background transition-all hover:bg-background/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            Liens Perso
+          </Link>
         </TabsList>
 
         <TabsContent value="offers" className="space-y-4">

@@ -6,6 +6,9 @@
  */
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("platformSettings");
 
 // Types
 export type PlatformMode = "test" | "commercial" | "maintenance";
@@ -199,7 +202,7 @@ export async function loadPlatformSettings(): Promise<Map<string, PlatformSettin
       .order("key");
 
     if (error) {
-      console.warn("[PlatformSettings] Load error (using defaults):", error.message);
+      log.warn({ err: error.message }, "Load error, using defaults");
       // Return stale cache if available, otherwise use defaults
       if (settingsCache) return settingsCache;
       settingsCache = new Map(DEFAULT_SETTINGS.map((s) => [s.key, s]));
@@ -209,7 +212,7 @@ export async function loadPlatformSettings(): Promise<Map<string, PlatformSettin
 
     // If no data, use defaults
     if (!data || data.length === 0) {
-      console.warn("[PlatformSettings] No settings in database, using defaults");
+      log.warn("No settings in database, using defaults");
       settingsCache = new Map(DEFAULT_SETTINGS.map((s) => [s.key, s]));
       cacheTimestamp = now;
       return settingsCache;
@@ -220,7 +223,7 @@ export async function loadPlatformSettings(): Promise<Map<string, PlatformSettin
 
     return settingsCache;
   } catch (err) {
-    console.warn("[PlatformSettings] Unexpected error (using defaults):", err);
+    log.warn({ err }, "Unexpected error, using defaults");
     // Return stale cache if available, otherwise use defaults
     if (settingsCache) return settingsCache;
     settingsCache = new Map(DEFAULT_SETTINGS.map((s) => [s.key, s]));
@@ -347,7 +350,7 @@ export async function updatePlatformSetting(
     .single();
 
   if (error) {
-    console.error("[PlatformSettings] Update error:", error);
+    log.error({ err: error }, "Update error");
     throw error;
   }
 

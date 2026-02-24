@@ -1,6 +1,13 @@
 import type { RequestHandler } from "express";
+import type { Express } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { sendSAMEmail } from "../email";
+import { createModuleLogger } from "../lib/logger";
+import { createRateLimiter } from "../middleware/rateLimiter";
+import { zBody } from "../lib/validate";
+import { SubmitBugReportSchema } from "../schemas/bugReports";
+
+const log = createModuleLogger("bugReports");
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === "object" && !Array.isArray(v);
@@ -70,7 +77,7 @@ export const submitBugReport: RequestHandler = async (req, res) => {
       .single();
 
     if (error) {
-      console.error("[submitBugReport] Error:", error);
+      log.error({ err: error }, "submitBugReport error");
       res.status(500).json({ error: "Erreur lors de l'envoi du rapport" });
       return;
     }
@@ -79,7 +86,7 @@ export const submitBugReport: RequestHandler = async (req, res) => {
     sendSAMEmail({
       emailId: `bug-report-${data.id}`,
       fromKey: "noreply",
-      to: ["developer@sortiraumaroc.ma"],
+      to: ["developer@sam.ma"],
       subject: `🐛 Nouveau bug report — ${url}`,
       bodyText: [
         `Un nouveau bug a été signalé sur le site.`,
@@ -97,12 +104,20 @@ export const submitBugReport: RequestHandler = async (req, res) => {
       ctaLabel: "Voir dans l'admin",
       ctaUrl: `https://sam.ma/admin/support`,
     }).catch((err) => {
-      console.error("[submitBugReport] Email notification failed:", err);
+      log.error({ err }, "Email notification failed");
     });
 
     res.json({ ok: true, id: data.id });
   } catch (e) {
-    console.error("[submitBugReport] Exception:", e);
+    log.error({ err: e }, "submitBugReport exception");
     res.status(500).json({ error: "Erreur inattendue" });
   }
 };
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerBugReportRoutes(app: Express) {
+  app.post("/api/bug-reports", createRateLimiter("bug-reports", { windowMs: 15 * 60 * 1000, maxRequests: 5 }), zBody(SubmitBugReportSchema), submitBugReport);
+}

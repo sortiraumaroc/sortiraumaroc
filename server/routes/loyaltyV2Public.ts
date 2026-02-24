@@ -13,6 +13,11 @@
 
 import type { Router, Request, Response } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
+import { zParams } from "../lib/validate";
+import { CardIdParams, GiftIdParams, LoyaltyEstablishmentIdParams } from "../schemas/loyaltyV2Public";
+
+const log = createModuleLogger("loyaltyV2Public");
 import { isLoyalCustomer } from "../loyaltyV2Logic";
 import {
   getMyPlatformGifts,
@@ -45,7 +50,8 @@ async function getConsumerUserId(req: Request): Promise<ConsumerAuthResult> {
     const { data, error } = await supabase.auth.getUser(token);
     if (error || !data.user) return { ok: false, status: 401, error: "unauthorized" };
     return { ok: true, userId: data.user.id };
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "Consumer auth token verification failed");
     return { ok: false, status: 401, error: "unauthorized" };
   }
 }
@@ -114,7 +120,7 @@ async function getMyLoyalty(req: Request, res: Response) {
       pending_rewards: rewards ?? [],
     });
   } catch (err) {
-    console.error("[getMyLoyalty] Error:", err);
+    log.error({ err }, "getMyLoyalty error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -180,7 +186,7 @@ async function getMyLoyaltyCard(req: Request, res: Response) {
       },
     });
   } catch (err) {
-    console.error("[getMyLoyaltyCard] Error:", err);
+    log.error({ err }, "getMyLoyaltyCard error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -214,7 +220,7 @@ async function getMyLoyaltyRewards(req: Request, res: Response) {
 
     res.json({ ok: true, active, used, expired });
   } catch (err) {
-    console.error("[getMyLoyaltyRewards] Error:", err);
+    log.error({ err }, "getMyLoyaltyRewards error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -231,7 +237,7 @@ async function getMyGifts(req: Request, res: Response) {
     const result = await getMyPlatformGifts(auth.userId);
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[getMyGifts] Error:", err);
+    log.error({ err }, "getMyGifts error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -275,7 +281,7 @@ async function getEstablishmentLoyalty(req: Request, res: Response) {
 
     res.json({ ok: true, programs: data ?? [], my_cards: myCards });
   } catch (err) {
-    console.error("[getEstablishmentLoyalty] Error:", err);
+    log.error({ err }, "getEstablishmentLoyalty error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -305,7 +311,7 @@ async function claimGift(req: Request, res: Response) {
 
     res.status(result.ok ? 200 : 400).json(result);
   } catch (err) {
-    console.error("[claimGift] Error:", err);
+    log.error({ err }, "claimGift error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -319,7 +325,7 @@ async function getAvailableGifts(_req: Request, res: Response) {
     const gifts = await listPublicGifts();
     res.json({ ok: true, gifts });
   } catch (err) {
-    console.error("[getAvailableGifts] Error:", err);
+    log.error({ err }, "getAvailableGifts error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -332,11 +338,11 @@ export function registerLoyaltyV2PublicRoutes(app: Router): void {
   // Client (auth required) — rate limited reads
   app.get("/api/me/loyalty", loyaltyReadRateLimiter, getMyLoyalty);
   app.get("/api/me/loyalty/rewards", loyaltyReadRateLimiter, getMyLoyaltyRewards);
-  app.get("/api/me/loyalty/:cardId", loyaltyReadRateLimiter, getMyLoyaltyCard);
+  app.get("/api/me/loyalty/:cardId", zParams(CardIdParams), loyaltyReadRateLimiter, getMyLoyaltyCard);
   app.get("/api/me/gifts", loyaltyReadRateLimiter, getMyGifts);
-  app.post("/api/gifts/:giftId/claim", loyaltyGiftClaimRateLimiter, claimGift);
+  app.post("/api/gifts/:giftId/claim", zParams(GiftIdParams), loyaltyGiftClaimRateLimiter, claimGift);
 
   // Public — rate limited reads
-  app.get("/api/establishments/:id/loyalty", loyaltyReadRateLimiter, getEstablishmentLoyalty);
+  app.get("/api/establishments/:id/loyalty", zParams(LoyaltyEstablishmentIdParams), loyaltyReadRateLimiter, getEstablishmentLoyalty);
   app.get("/api/gifts/available", loyaltyReadRateLimiter, getAvailableGifts);
 }

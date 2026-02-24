@@ -1,3 +1,14 @@
+import { zBody, zParams, zIdParam } from "../lib/validate";
+import {
+  createVehicleSchema,
+  updateVehicleSchema,
+  createVehicleBlockSchema,
+  createRentalOptionSchema,
+  updateRentalOptionSchema,
+  kycValidateSchema,
+  VehicleIdBlockIdParams,
+} from "../schemas/rentalPro";
+
 /**
  * Rental Pro Routes — Pro-facing vehicle rental management
  *
@@ -29,8 +40,11 @@
  */
 
 import type { Router, RequestHandler } from "express";
+import { createModuleLogger } from "../lib/logger";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { generateRentalContractData } from "../rentalLogic";
+
+const log = createModuleLogger("rentalPro");
 import type {
   RentalVehicleCategory,
   RentalVehicleStatus,
@@ -157,7 +171,7 @@ const listVehicles: RequestHandler = async (req, res) => {
 
     res.json({ vehicles: data ?? [] });
   } catch (err) {
-    console.error("[RentalPro] listVehicles error:", err);
+    log.error({ err }, "listVehicles error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -230,7 +244,7 @@ const createVehicle: RequestHandler = async (req, res) => {
 
     res.status(201).json(data);
   } catch (err) {
-    console.error("[RentalPro] createVehicle error:", err);
+    log.error({ err }, "createVehicle error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -325,7 +339,7 @@ const updateVehicle: RequestHandler = async (req, res) => {
 
     res.json(data);
   } catch (err) {
-    console.error("[RentalPro] updateVehicle error:", err);
+    log.error({ err }, "updateVehicle error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -374,7 +388,7 @@ const deleteVehicle: RequestHandler = async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("[RentalPro] deleteVehicle error:", err);
+    log.error({ err }, "deleteVehicle error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -439,7 +453,7 @@ const listDateBlocks: RequestHandler = async (req, res) => {
 
     res.json({ blocks: data ?? [] });
   } catch (err) {
-    console.error("[RentalPro] listDateBlocks error:", err);
+    log.error({ err }, "listDateBlocks error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -501,7 +515,7 @@ const createDateBlock: RequestHandler = async (req, res) => {
 
     res.status(201).json(data);
   } catch (err) {
-    console.error("[RentalPro] createDateBlock error:", err);
+    log.error({ err }, "createDateBlock error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -551,7 +565,7 @@ const deleteDateBlock: RequestHandler = async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("[RentalPro] deleteDateBlock error:", err);
+    log.error({ err }, "deleteDateBlock error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -587,7 +601,7 @@ const listOptions: RequestHandler = async (req, res) => {
 
     res.json({ options: data ?? [] });
   } catch (err) {
-    console.error("[RentalPro] listOptions error:", err);
+    log.error({ err }, "listOptions error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -633,7 +647,7 @@ const createOption: RequestHandler = async (req, res) => {
 
     res.status(201).json(data);
   } catch (err) {
-    console.error("[RentalPro] createOption error:", err);
+    log.error({ err }, "createOption error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -700,7 +714,7 @@ const updateOption: RequestHandler = async (req, res) => {
 
     res.json(data);
   } catch (err) {
-    console.error("[RentalPro] updateOption error:", err);
+    log.error({ err }, "updateOption error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -749,7 +763,7 @@ const deleteOption: RequestHandler = async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("[RentalPro] deleteOption error:", err);
+    log.error({ err }, "deleteOption error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -795,7 +809,7 @@ const listReservations: RequestHandler = async (req, res) => {
 
     res.json({ reservations: data ?? [] });
   } catch (err) {
-    console.error("[RentalPro] listReservations error:", err);
+    log.error({ err }, "listReservations error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -914,7 +928,7 @@ const validateKyc: RequestHandler = async (req, res) => {
       res.json(updated);
     }
   } catch (err) {
-    console.error("[RentalPro] validateKyc error:", err);
+    log.error({ err }, "validateKyc error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -959,7 +973,7 @@ const generateContract: RequestHandler = async (req, res) => {
 
     res.json({ contract_data: contractData });
   } catch (err) {
-    console.error("[RentalPro] generateContract error:", err);
+    log.error({ err }, "generateContract error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -1040,7 +1054,7 @@ const getStats: RequestHandler = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("[RentalPro] getStats error:", err);
+    log.error({ err }, "getStats error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -1052,26 +1066,26 @@ const getStats: RequestHandler = async (req, res) => {
 export function registerRentalProRoutes(app: Router): void {
   // Vehicles
   app.get("/api/pro/rental/vehicles", listVehicles);
-  app.post("/api/pro/rental/vehicles", createVehicle);
-  app.put("/api/pro/rental/vehicles/:id", updateVehicle);
-  app.delete("/api/pro/rental/vehicles/:id", deleteVehicle);
-  app.post("/api/pro/rental/vehicles/:id/photos", uploadVehiclePhotos);
+  app.post("/api/pro/rental/vehicles", zBody(createVehicleSchema), createVehicle);
+  app.put("/api/pro/rental/vehicles/:id", zParams(zIdParam), zBody(updateVehicleSchema), updateVehicle);
+  app.delete("/api/pro/rental/vehicles/:id", zParams(zIdParam), deleteVehicle);
+  app.post("/api/pro/rental/vehicles/:id/photos", zParams(zIdParam), uploadVehiclePhotos);
 
   // Date blocks
-  app.get("/api/pro/rental/vehicles/:id/blocks", listDateBlocks);
-  app.post("/api/pro/rental/vehicles/:id/blocks", createDateBlock);
-  app.delete("/api/pro/rental/vehicles/:vehicleId/blocks/:blockId", deleteDateBlock);
+  app.get("/api/pro/rental/vehicles/:id/blocks", zParams(zIdParam), listDateBlocks);
+  app.post("/api/pro/rental/vehicles/:id/blocks", zParams(zIdParam), zBody(createVehicleBlockSchema), createDateBlock);
+  app.delete("/api/pro/rental/vehicles/:vehicleId/blocks/:blockId", zParams(VehicleIdBlockIdParams), deleteDateBlock);
 
   // Options
   app.get("/api/pro/rental/options", listOptions);
-  app.post("/api/pro/rental/options", createOption);
-  app.put("/api/pro/rental/options/:id", updateOption);
-  app.delete("/api/pro/rental/options/:id", deleteOption);
+  app.post("/api/pro/rental/options", zBody(createRentalOptionSchema), createOption);
+  app.put("/api/pro/rental/options/:id", zParams(zIdParam), zBody(updateRentalOptionSchema), updateOption);
+  app.delete("/api/pro/rental/options/:id", zParams(zIdParam), deleteOption);
 
   // Reservations
   app.get("/api/pro/rental/reservations", listReservations);
-  app.put("/api/pro/rental/reservations/:id/kyc-validate", validateKyc);
-  app.post("/api/pro/rental/reservations/:id/contract", generateContract);
+  app.put("/api/pro/rental/reservations/:id/kyc-validate", zParams(zIdParam), zBody(kycValidateSchema), validateKyc);
+  app.post("/api/pro/rental/reservations/:id/contract", zParams(zIdParam), generateContract);
 
   // Stats
   app.get("/api/pro/rental/stats", getStats);

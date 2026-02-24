@@ -20,7 +20,7 @@ export async function initSentry(): Promise<void> {
   const dsn = import.meta.env.VITE_SENTRY_DSN;
 
   if (!dsn) {
-    console.warn("[Sentry] VITE_SENTRY_DSN not configured. Client error monitoring disabled.");
+    // Sentry DSN not configured — client error monitoring disabled
     return;
   }
 
@@ -79,9 +79,9 @@ export async function initSentry(): Promise<void> {
     });
 
     initialized = true;
-    console.log("[Sentry] Client error monitoring initialized");
+    // Sentry client error monitoring initialized
   } catch (err) {
-    console.warn("[Sentry] @sentry/react not installed or initialization failed:", err);
+    // @sentry/react not installed or initialization failed
   }
 }
 
@@ -130,7 +130,7 @@ export function captureMessage(
   level: "fatal" | "error" | "warning" | "info" | "debug" = "info"
 ): void {
   if (!Sentry || !initialized) {
-    console.log(`[${level.toUpperCase()}]`, message);
+    // Sentry not initialized, message not captured
     return;
   }
 

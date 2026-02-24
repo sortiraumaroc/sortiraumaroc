@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
+import { AdminEstablishmentsNav } from "./establishments/AdminEstablishmentsNav";
 import type { ColumnDef } from "@tanstack/react-table";
 
 import {
@@ -232,8 +233,10 @@ function CategoryBadge({ category }: { category: string }) {
 
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
-export default function AdminClaimRequestsPage() {
-  const [activeTab, setActiveTab] = useState<"claims" | "leads">("claims");
+export default function AdminClaimRequestsPage({ defaultTab }: { defaultTab?: "claims" | "leads" }) {
+  const [searchParams] = useSearchParams();
+  const initialTab = defaultTab ?? (searchParams.get("tab") === "leads" ? "leads" : "claims");
+  const [activeTab, setActiveTab] = useState<"claims" | "leads">(initialTab);
 
   // ── Claims state ──
   const [claimItems, setClaimItems] = useState<ClaimRow[]>([]);
@@ -563,9 +566,10 @@ export default function AdminClaimRequestsPage() {
 
   return (
     <div className="space-y-6">
+      <AdminEstablishmentsNav />
       <AdminPageHeader
-        title="Revendications & Leads"
-        description="Gérez les demandes de revendication et les nouveaux établissements."
+        title={initialTab === "leads" ? "Nouveaux établissements" : "Revendications"}
+        description={initialTab === "leads" ? "Gérez les nouveaux établissements à contacter et approuver." : "Gérez les demandes de revendication."}
       />
 
       {/* Tabs */}

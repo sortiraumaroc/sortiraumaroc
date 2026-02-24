@@ -1,4 +1,7 @@
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("financeEscrow");
 
 import { DEFAULT_TIME_ZONE, getTimeZoneParts } from "../../shared/datetime";
 
@@ -168,7 +171,7 @@ export async function ensureEscrowHoldForReservation(args: {
 
   if (insErr) {
     // The unique index on reservation_id gives us concurrency safety.
-    console.error("ensureEscrowHoldForReservation insert escrow_holds failed", insErr);
+    log.error({ err: insErr }, "ensureEscrowHoldForReservation insert escrow_holds failed");
   }
 }
 

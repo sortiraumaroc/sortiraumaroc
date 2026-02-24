@@ -18,7 +18,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { AdminMarketingNav } from "@/pages/admin/marketing/AdminMarketingNav";
+import { AdminVisibilityNav } from "@/pages/admin/visibility/AdminVisibilityNav";
 
 // =============================================================================
 // Admin auth helper
@@ -1104,7 +1104,7 @@ export default function AdminWheelDashboard({ className }: { className?: string 
   return (
     <div className={cn("space-y-4", className)}>
       {/* Marketing sub-navigation */}
-      <AdminMarketingNav />
+      <AdminVisibilityNav />
 
       {/* Header */}
       <div className="flex items-center justify-between">

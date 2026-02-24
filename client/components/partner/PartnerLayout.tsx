@@ -19,6 +19,7 @@ import {
   Bell,
   Megaphone,
   BookOpen,
+  Trash2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -148,6 +149,7 @@ export function PartnerLayout({ user, onSignOut }: Props) {
     unreadCount: notificationsUnread,
     markAsRead,
     markAllAsRead,
+    deleteNotification,
   } = usePartnerNotifications();
 
   const loadProfile = async (showRefresh = false) => {
@@ -250,11 +252,9 @@ export function PartnerLayout({ user, onSignOut }: Props) {
             {/* Actions */}
             <div className="flex items-center gap-2">
               {/* Notification Bell */}
-              <DropdownMenu onOpenChange={(open) => {
-                if (open && notificationsUnread > 0) {
-                  void markAllAsRead();
-                }
-              }}>
+              {/* [FIX] Suppression du auto-markAllAsRead à l'ouverture.
+                  Le partenaire doit voir les notifications non-lues d'abord. */}
+              <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
@@ -299,7 +299,7 @@ export function PartnerLayout({ user, onSignOut }: Props) {
                       <DropdownMenuItem
                         key={n.id}
                         className={cn(
-                          "flex flex-col items-start gap-0.5 py-2 cursor-pointer",
+                          "flex items-start justify-between gap-2 py-2 cursor-pointer",
                           !n.read_at && "bg-red-50",
                         )}
                         onClick={() => {
@@ -308,20 +308,33 @@ export function PartnerLayout({ user, onSignOut }: Props) {
                             navigate(`/partners/dashboard?job=${n.job_id}`);
                         }}
                       >
-                        <span className="text-sm font-medium">{n.title}</span>
-                        {n.body && (
-                          <span className="text-xs text-slate-500 line-clamp-2">
-                            {n.body}
+                        <div className="flex flex-col gap-0.5 min-w-0">
+                          <span className="text-sm font-medium">{n.title}</span>
+                          {n.body && (
+                            <span className="text-xs text-slate-500 line-clamp-2">
+                              {n.body}
+                            </span>
+                          )}
+                          <span className="text-[10px] text-slate-400">
+                            {new Date(n.created_at).toLocaleDateString("fr-FR", {
+                              day: "2-digit",
+                              month: "short",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
                           </span>
-                        )}
-                        <span className="text-[10px] text-slate-400">
-                          {new Date(n.created_at).toLocaleDateString("fr-FR", {
-                            day: "2-digit",
-                            month: "short",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
+                        </div>
+                        <button
+                          type="button"
+                          className="shrink-0 p-1 text-slate-400 hover:text-red-500 transition"
+                          title="Supprimer"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void deleteNotification(n.id);
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </DropdownMenuItem>
                     ))
                   )}

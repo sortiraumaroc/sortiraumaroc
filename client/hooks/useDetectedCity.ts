@@ -144,7 +144,7 @@ export function useDetectedCity(autoDetect: boolean = true): UseDetectedCityResu
       (error) => {
         // Only warn once to avoid console spam on re-renders
         if (!(window as any).__geoWarnLogged) {
-          console.warn("[useDetectedCity] Geolocation error:", error.message);
+          // Geolocation error (logged once)
           (window as any).__geoWarnLogged = true;
         }
         setStatus(error.code === 1 ? "denied" : "unavailable");

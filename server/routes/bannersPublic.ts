@@ -10,6 +10,11 @@
 
 import type { Router, Request, Response, RequestHandler } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
+import { zBody, zParams, zQuery } from "../lib/validate";
+import { BannerViewSchema, BannerClickSchema, BannerFormSubmitSchema, BannerIdParams, EligibleBannerQuery } from "../schemas/bannersPublic";
+
+const log = createModuleLogger("bannersPublic");
 import { getEligibleBanner, trackBannerAction } from "../bannerLogic";
 import { submitFormResponse } from "../bannerFormLogic";
 import { createRateLimiter } from "../middleware/rateLimiter";
@@ -46,7 +51,8 @@ async function getConsumerUserId(req: Request): Promise<ConsumerAuthResult> {
     const { data, error } = await supabase.auth.getUser(token);
     if (error || !data.user) return { ok: false, status: 401, error: "unauthorized" };
     return { ok: true, userId: data.user.id };
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "Auth token verification failed");
     return { ok: false, status: 401, error: "unauthorized" };
   }
 }
@@ -88,7 +94,7 @@ async function getEligibleBannerHandler(req: Request, res: Response) {
 
     res.json({ ok: true, banner });
   } catch (err) {
-    console.error("[getEligibleBanner] Error:", err);
+    log.error({ err }, "getEligibleBanner error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -111,7 +117,7 @@ async function trackBannerView(req: Request, res: Response) {
 
     res.json({ ok: true });
   } catch (err) {
-    console.error("[trackBannerView] Error:", err);
+    log.error({ err }, "trackBannerView error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -134,7 +140,7 @@ async function trackBannerClick(req: Request, res: Response) {
 
     res.json({ ok: true });
   } catch (err) {
-    console.error("[trackBannerClick] Error:", err);
+    log.error({ err }, "trackBannerClick error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -161,7 +167,7 @@ async function submitBannerForm(req: Request, res: Response) {
 
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[submitBannerForm] Error:", err);
+    log.error({ err }, "submitBannerForm error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -171,8 +177,8 @@ async function submitBannerForm(req: Request, res: Response) {
 // =============================================================================
 
 export function registerBannerPublicRoutes(app: Router): void {
-  app.get("/api/banners/eligible", bannerTrackingRateLimiter, getEligibleBannerHandler);
-  app.post("/api/banners/:id/view", bannerTrackingRateLimiter, trackBannerView);
-  app.post("/api/banners/:id/click", bannerTrackingRateLimiter, trackBannerClick);
-  app.post("/api/banners/:id/form-submit", bannerFormRateLimiter, submitBannerForm);
+  app.get("/api/banners/eligible", zQuery(EligibleBannerQuery), bannerTrackingRateLimiter, getEligibleBannerHandler);
+  app.post("/api/banners/:id/view", zParams(BannerIdParams), bannerTrackingRateLimiter, zBody(BannerViewSchema), trackBannerView);
+  app.post("/api/banners/:id/click", zParams(BannerIdParams), bannerTrackingRateLimiter, zBody(BannerClickSchema), trackBannerClick);
+  app.post("/api/banners/:id/form-submit", zParams(BannerIdParams), bannerFormRateLimiter, zBody(BannerFormSubmitSchema), submitBannerForm);
 }

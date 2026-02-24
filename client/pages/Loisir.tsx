@@ -799,7 +799,7 @@ export default function Loisir() {
         </div>
       </div>
 
-      <EstablishmentTabs universe="loisir" />
+      <EstablishmentTabs universe="loisir" hideTabs={data.reviews.length === 0 ? ["avis"] : undefined} />
 
       <main className="container mx-auto px-4 pt-6 pb-8 space-y-10">
         <CeAdvantageSection establishmentId={bookingEstablishmentId} />
@@ -813,6 +813,7 @@ export default function Loisir() {
           <LoisirTreatmentsTab treatments={data.treatments} onGoToSlots={() => setBookingOpen(true)} />
         </section>
 
+        {data.reviews.length > 0 && (
         <section id="section-avis" data-tab="avis" className="scroll-mt-28 space-y-6">
           <div>
             <h2 className="text-xl font-bold mb-2">Avis clients</h2>
@@ -844,6 +845,7 @@ export default function Loisir() {
             })}
           </div>
         </section>
+        )}
 
         <section id="section-infos" data-tab="infos" className="scroll-mt-28">
           <div className="space-y-8">

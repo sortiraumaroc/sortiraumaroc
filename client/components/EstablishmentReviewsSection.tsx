@@ -563,3 +563,33 @@ export function EstablishmentReviewsSection({
 }
 
 export default EstablishmentReviewsSection;
+
+/**
+ * Hook pour vérifier si un établissement a des avis publiés.
+ * Utile pour conditionner l'affichage de l'onglet "avis" dans EstablishmentTabs.
+ */
+export function useHasReviews(establishmentId: string | null): boolean {
+  const [hasReviews, setHasReviews] = useState(false);
+
+  useEffect(() => {
+    if (!establishmentId) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const ref = encodeURIComponent(establishmentId);
+        const res = await fetch(`/api/public/v2/establishments/${ref}/reviews/summary`);
+        const data = await res.json();
+        if (!cancelled && data.ok && data.summary && data.summary.total_reviews > 0) {
+          setHasReviews(true);
+        }
+      } catch {
+        // silent
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [establishmentId]);
+
+  return hasReviews;
+}

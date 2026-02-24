@@ -49,7 +49,7 @@ import {
   type AdminPartnerInvoiceRequest,
 } from "@/lib/adminApi";
 import { formatDateTimeShort } from "@/components/mediaFactory/mediaFactoryStatus";
-import { AdminMediaFactoryNav } from "./media-factory/AdminMediaFactoryNav";
+import { AdminVisibilityNav } from "@/pages/admin/visibility/AdminVisibilityNav";
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
 
 function shortId(id: string): string {
@@ -168,7 +168,7 @@ export function AdminMediaFactoryComptaPage() {
         description="Comptabilité - Factures Partenaires"
       />
 
-      <AdminMediaFactoryNav />
+      <AdminVisibilityNav />
 
       <div className="flex items-center justify-end gap-3">
         <div className="flex items-center gap-2">

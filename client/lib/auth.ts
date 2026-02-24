@@ -157,8 +157,8 @@ function splitFullName(fullName: string): { first: string; last: string } {
   return { first: parts[0]!, last: parts.slice(1).join(" ") };
 }
 
-function syncProfileFromServer(opts?: SyncProfileOpts): void {
-  if (syncProfileInFlight) return;
+function syncProfileFromServer(opts?: SyncProfileOpts): Promise<void> {
+  if (syncProfileInFlight) return syncProfileInFlight;
 
   syncProfileInFlight = (async () => {
     try {
@@ -215,12 +215,14 @@ function syncProfileFromServer(opts?: SyncProfileOpts): void {
           window.dispatchEvent(new CustomEvent(ONBOARDING_NEEDED_EVENT, { detail }));
         }
       }
-    } catch {
-      // Silently ignore – this is a best-effort sync
+    } catch (e) {
+      // Failed to sync profile from server
     }
   })().finally(() => {
     syncProfileInFlight = null;
   });
+
+  return syncProfileInFlight;
 }
 
 export function initConsumerAuth(): void {
@@ -252,8 +254,13 @@ export function initConsumerAuth(): void {
   const { data } = consumerSupabase.auth.onAuthStateChange((event, session) => {
     setAuthedFlag(Boolean(session));
     if (session) {
-      clearOtherSessionsForConsumer();
+      // [FIX-AUTH] Only clear other sessions on a FRESH sign-in, NOT on
+      // token refresh / initial session restore. This prevents wiping
+      // Pro/Admin sessions every time the consumer token auto-refreshes.
       const isNewSignIn = event === "SIGNED_IN";
+      if (isNewSignIn) {
+        clearOtherSessionsForConsumer();
+      }
       syncProfileFromServer(
         isNewSignIn
           ? {

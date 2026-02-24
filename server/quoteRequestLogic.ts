@@ -16,6 +16,9 @@ import { notifyProMembers } from "./proNotifications";
 import { sendTemplateEmail } from "./emailService";
 import { RESERVATION_TIMINGS } from "../shared/reservationTypesV2";
 import type { QuoteStatus, EventType, QuoteSenderType } from "../shared/reservationTypesV2";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("quoteRequest");
 
 // =============================================================================
 // Types
@@ -89,7 +92,7 @@ export async function submitQuoteRequest(args: {
     .single();
 
   if (error) {
-    console.error("[submitQuoteRequest] Insert error:", error);
+    log.error({ err: error }, "submitQuoteRequest insert error");
     return { ok: false, error: "Erreur lors de la soumission du devis" };
   }
 
@@ -296,7 +299,7 @@ export async function acceptQuote(args: {
     .single();
 
   if (resError) {
-    console.error("[acceptQuote] Reservation insert error:", resError);
+    log.error({ err: resError }, "acceptQuote reservation insert error");
     return { ok: false, error: "Erreur lors de la création de la réservation" };
   }
 
@@ -427,7 +430,7 @@ export async function sendQuoteMessage(args: {
     .single();
 
   if (insertError) {
-    console.error("[sendQuoteMessage] Insert error:", insertError);
+    log.error({ err: insertError }, "sendQuoteMessage insert error");
     return { ok: false, error: "Erreur lors de l'envoi du message" };
   }
 
@@ -458,7 +461,7 @@ export async function expireUnacknowledgedQuotes(args: {
     .select("id, user_id, establishment_id");
 
   if (error) {
-    console.error("[expireUnacknowledgedQuotes] Error:", error);
+    log.error({ err: error }, "expireUnacknowledgedQuotes error");
     return { expired: 0 };
   }
 
@@ -496,7 +499,7 @@ export async function expireUnsentQuotes(args: {
     .select("id, user_id, establishment_id");
 
   if (error) {
-    console.error("[expireUnsentQuotes] Error:", error);
+    log.error({ err: error }, "expireUnsentQuotes error");
     return { expired: 0 };
   }
 
@@ -555,6 +558,6 @@ async function notifyQuoteClient(args: {
       },
     });
   } catch (err) {
-    console.error("[notifyQuoteClient] Error:", err);
+    log.error({ err }, "notifyQuoteClient error");
   }
 }

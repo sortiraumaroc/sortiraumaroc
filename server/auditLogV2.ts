@@ -11,6 +11,9 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAdminSupabase } from "./supabaseAdmin";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("auditLogV2");
 
 // =============================================================================
 // Types
@@ -146,7 +149,7 @@ export async function writeAuditLog(
     details: entry.details,
     ip: entry.ip,
   };
-  console.log(`[AUDIT] ${JSON.stringify(logLine)}`);
+  log.info(logLine, "Audit event");
 
   // 2. Best-effort write to DB
   void (async () => {
@@ -164,7 +167,7 @@ export async function writeAuditLog(
       });
     } catch (err) {
       // Never fail the parent operation for audit logging
-      console.error("[writeAuditLog] DB write failed:", err);
+      log.error({ err }, "DB write failed");
     }
   })();
 }

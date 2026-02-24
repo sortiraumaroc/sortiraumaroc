@@ -30,6 +30,9 @@ import { expireUnrespondedDisputes } from "./noShowDisputeLogic";
 import { autoLiftExpiredSuspensions, recomputeClientScoreV2 } from "./clientScoringV2";
 import { expireUnacknowledgedQuotes, expireUnsentQuotes } from "./quoteRequestLogic";
 import { recordHonoredReservation } from "./clientScoringV2";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("reservationCronV2");
 
 const BASE_URL = process.env.VITE_APP_URL || "https://sam.ma";
 
@@ -68,7 +71,7 @@ export async function expireUnprocessedReservations(): Promise<CronResult> {
     .not("pro_processing_deadline", "is", null);
 
   if (error) {
-    console.error("[expireUnprocessedReservations] Fetch error:", error);
+    log.error({ err: error }, "fetch error in expireUnprocessedReservations");
     return { job: "expire_unprocessed", processed: 0, errors: 1 };
   }
 
@@ -76,7 +79,7 @@ export async function expireUnprocessedReservations(): Promise<CronResult> {
     return { job: "expire_unprocessed", processed: 0, errors: 0 };
   }
 
-  console.log(`[expireUnprocessedReservations] Found ${expired.length} reservations to expire`);
+  log.info({ count: expired.length }, "found reservations to expire");
 
   for (const row of expired as Record<string, unknown>[]) {
     try {
@@ -112,7 +115,7 @@ export async function expireUnprocessedReservations(): Promise<CronResult> {
 
       processed++;
     } catch (err) {
-      console.error("[expireUnprocessedReservations] Error:", err);
+      log.error({ err }, "error processing reservation in expireUnprocessedReservations");
       errors++;
     }
   }
@@ -181,7 +184,7 @@ export async function remindProUnprocessedReservations(): Promise<CronResult> {
 
       processed++;
     } catch (err) {
-      console.error("[remindProUnprocessedReservations] Error:", err);
+      log.error({ err }, "error processing reminder in remindProUnprocessedReservations");
       errors++;
     }
   }
@@ -221,7 +224,7 @@ export async function requestVenueConfirmation(): Promise<CronResult> {
     return { job: "venue_confirmation_h12", processed: 0, errors: error ? 1 : 0 };
   }
 
-  console.log(`[requestVenueConfirmation] Found ${reservations.length} reservations for H+12 confirmation`);
+  log.info({ count: reservations.length }, "found reservations for H+12 confirmation");
 
   for (const row of reservations as Record<string, unknown>[]) {
     try {
@@ -256,7 +259,7 @@ export async function requestVenueConfirmation(): Promise<CronResult> {
 
       processed++;
     } catch (err) {
-      console.error("[requestVenueConfirmation] Error:", err);
+      log.error({ err }, "error requesting venue confirmation");
       errors++;
     }
   }
@@ -326,7 +329,7 @@ export async function remindVenueConfirmation(): Promise<CronResult> {
 
       processed++;
     } catch (err) {
-      console.error("[remindVenueConfirmation] Error:", err);
+      log.error({ err }, "error reminding venue confirmation");
       errors++;
     }
   }
@@ -363,7 +366,7 @@ export async function autoValidateVenue(): Promise<CronResult> {
     return { job: "auto_validate_h24", processed: 0, errors: error ? 1 : 0 };
   }
 
-  console.log(`[autoValidateVenue] Found ${reservations.length} reservations for H+24 auto-validation`);
+  log.info({ count: reservations.length }, "found reservations for H+24 auto-validation");
 
   for (const row of reservations as Record<string, unknown>[]) {
     try {
@@ -408,7 +411,7 @@ export async function autoValidateVenue(): Promise<CronResult> {
 
       processed++;
     } catch (err) {
-      console.error("[autoValidateVenue] Error:", err);
+      log.error({ err }, "error auto-validating venue");
       errors++;
     }
   }
@@ -431,7 +434,7 @@ export async function expireNoShowDisputesCron(): Promise<CronResult> {
     const result = await expireUnrespondedDisputes({ supabase });
     return { job: "expire_no_show_disputes", processed: result.expired, errors: 0 };
   } catch (err) {
-    console.error("[expireNoShowDisputesCron] Error:", err);
+    log.error({ err }, "error expiring no-show disputes");
     return { job: "expire_no_show_disputes", processed: 0, errors: 1 };
   }
 }
@@ -497,7 +500,7 @@ export async function freezeBufferSlots(): Promise<CronResult> {
 
       processed++;
     } catch (err) {
-      console.error("[freezeBufferSlots] Error:", err);
+      log.error({ err }, "error freezing buffer slots");
       errors++;
     }
   }
@@ -718,7 +721,7 @@ export async function recalculateProTrustScores(): Promise<CronResult> {
 
       processed++;
     } catch (err) {
-      console.error("[recalculateProTrustScores] Error for", estId, err);
+      log.error({ err, establishmentId: estId }, "error recalculating pro trust score");
       errors++;
     }
   }
@@ -741,11 +744,11 @@ export async function autoLiftClientSuspensionsCron(): Promise<CronResult> {
   try {
     const lifted = await autoLiftExpiredSuspensions({ supabase });
     if (lifted > 0) {
-      console.log(`[autoLiftClientSuspensions] Lifted ${lifted} expired suspensions`);
+      log.info({ count: lifted }, "lifted expired client suspensions");
     }
     return { job: "auto_lift_client_suspensions", processed: lifted, errors: 0 };
   } catch (err) {
-    console.error("[autoLiftClientSuspensionsCron] Error:", err);
+    log.error({ err }, "error lifting client suspensions");
     return { job: "auto_lift_client_suspensions", processed: 0, errors: 1 };
   }
 }
@@ -798,10 +801,10 @@ export async function autoLiftProDeactivationsCron(): Promise<CronResult> {
       });
     }
 
-    console.log(`[autoLiftProDeactivations] Lifted ${expired.length} deactivations`);
+    log.info({ count: expired.length }, "lifted expired pro deactivations");
     return { job: "auto_lift_pro_deactivations", processed: expired.length, errors: 0 };
   } catch (err) {
-    console.error("[autoLiftProDeactivationsCron] Error:", err);
+    log.error({ err }, "error lifting pro deactivations");
     return { job: "auto_lift_pro_deactivations", processed: 0, errors: 1 };
   }
 }
@@ -876,7 +879,7 @@ export async function detectScoringPatterns(): Promise<CronResult> {
 
     return { job: "detect_scoring_patterns", processed: alerts.length, errors: 0 };
   } catch (err) {
-    console.error("[detectScoringPatterns] Error:", err);
+    log.error({ err }, "error detecting scoring patterns");
     return { job: "detect_scoring_patterns", processed: 0, errors: 1 };
   }
 }
@@ -905,7 +908,7 @@ export async function expireQuotesCron(): Promise<CronResult> {
       details: { unacknowledged: r1.expired, unsent: r2.expired },
     };
   } catch (err) {
-    console.error("[expireQuotesCron] Error:", err);
+    log.error({ err }, "error expiring quotes");
     return { job: "expire_quotes", processed: 0, errors: 1 };
   }
 }
@@ -1006,7 +1009,7 @@ export async function runAllCronJobs(args?: {
     // Smart scheduling: only run jobs that are due
     const now = new Date();
     jobsToRun = Object.entries(CRON_JOB_CONFIGS).filter(([, config]) => isJobDueNow(config, now));
-    console.log(`[runAllCronJobs] Smart mode: ${jobsToRun.length}/${Object.keys(CRON_JOB_CONFIGS).length} jobs due at ${now.toISOString()}`);
+    log.info({ dueCount: jobsToRun.length, totalCount: Object.keys(CRON_JOB_CONFIGS).length, timestamp: now.toISOString() }, "smart mode: jobs due now");
   } else {
     // Force all
     jobsToRun = Object.entries(CRON_JOB_CONFIGS);
@@ -1019,11 +1022,11 @@ export async function runAllCronJobs(args?: {
     try {
       const result = await config.fn();
       const durationMs = Date.now() - start;
-      console.log(`[runAllCronJobs] ✓ ${name} processed=${result.processed} errors=${result.errors} (${durationMs}ms)`);
+      log.info({ job: name, processed: result.processed, errors: result.errors, durationMs }, "cron job completed");
       results.push(result);
     } catch (err) {
       const durationMs = Date.now() - start;
-      console.error(`[runAllCronJobs] ✗ ${name} FAILED after ${durationMs}ms:`, err);
+      log.error({ err, job: name, durationMs }, "cron job failed");
       results.push({ job: name, processed: 0, errors: 1, details: String(err) });
     }
   }
@@ -1084,7 +1087,7 @@ async function notifyUserReservationExpired(args: {
       },
     });
   } catch (err) {
-    console.error("[notifyUserReservationExpired] Error:", err);
+    log.error({ err }, "error notifying user about reservation expiry");
   }
 }
 
@@ -1135,7 +1138,7 @@ async function notifyUserProtectionWindow(args: {
       },
     });
   } catch (err) {
-    console.error("[notifyUserProtectionWindow] Error:", err);
+    log.error({ err }, "error notifying user about protection window");
   }
 }
 
@@ -1188,6 +1191,6 @@ async function notifyUserUpgradeReminder(args: {
       },
     });
   } catch (err) {
-    console.error("[notifyUserUpgradeReminder] Error:", err);
+    log.error({ err }, "error notifying user about upgrade reminder");
   }
 }

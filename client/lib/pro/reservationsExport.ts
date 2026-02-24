@@ -1,5 +1,3 @@
-import { jsPDF } from "jspdf";
-
 import type { Reservation } from "@/lib/pro/types";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -142,11 +140,12 @@ export function downloadReservationsCsv(args: {
   });
 }
 
-export function downloadReservationsPdf(args: {
+export async function downloadReservationsPdf(args: {
   reservations: Reservation[];
   dayYmd: string;
   establishmentName?: string | null;
-}): void {
+}): Promise<void> {
+  const { jsPDF } = await import("jspdf");
   const rows = args.reservations
     .slice()
     .sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime())

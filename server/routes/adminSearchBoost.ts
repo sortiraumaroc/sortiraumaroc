@@ -12,6 +12,11 @@
 import type { Express, Request, Response } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { requireAdminKey } from "./admin";
+import { zBody, zParams, zIdParam } from "../lib/validate";
+import { CreateBoostEventSchema, UpdateBoostEventSchema } from "../schemas/adminSearchBoost";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("adminSearchBoost");
 import {
   getAllHardcodedRules,
   getContextualBoostsForNow,
@@ -55,7 +60,7 @@ export function registerAdminSearchBoostRoutes(app: Express): void {
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Internal error";
-      console.error("[admin/search/boost-rules] error:", msg);
+      log.error({ err: msg }, "boost-rules error");
       return res.status(500).json({ error: msg });
     }
   });
@@ -63,7 +68,7 @@ export function registerAdminSearchBoostRoutes(app: Express): void {
   // ───────────────────────────────────────────────────────────────────
   // POST /api/admin/search/boost-events
   // ───────────────────────────────────────────────────────────────────
-  app.post("/api/admin/search/boost-events", async (req: Request, res: Response) => {
+  app.post("/api/admin/search/boost-events", zBody(CreateBoostEventSchema), async (req: Request, res: Response) => {
     if (!requireAdminKey(req, res)) return;
 
     try {
@@ -103,7 +108,7 @@ export function registerAdminSearchBoostRoutes(app: Express): void {
       return res.json({ ok: true, event: data });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Internal error";
-      console.error("[admin/search/boost-events] create error:", msg);
+      log.error({ err: msg }, "boost-events create error");
       return res.status(500).json({ error: msg });
     }
   });
@@ -111,7 +116,7 @@ export function registerAdminSearchBoostRoutes(app: Express): void {
   // ───────────────────────────────────────────────────────────────────
   // PUT /api/admin/search/boost-events/:id
   // ───────────────────────────────────────────────────────────────────
-  app.put("/api/admin/search/boost-events/:id", async (req: Request, res: Response) => {
+  app.put("/api/admin/search/boost-events/:id", zParams(zIdParam), zBody(UpdateBoostEventSchema), async (req: Request, res: Response) => {
     if (!requireAdminKey(req, res)) return;
 
     try {
@@ -149,7 +154,7 @@ export function registerAdminSearchBoostRoutes(app: Express): void {
       return res.json({ ok: true, event: data });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Internal error";
-      console.error("[admin/search/boost-events] update error:", msg);
+      log.error({ err: msg }, "boost-events update error");
       return res.status(500).json({ error: msg });
     }
   });
@@ -157,7 +162,7 @@ export function registerAdminSearchBoostRoutes(app: Express): void {
   // ───────────────────────────────────────────────────────────────────
   // DELETE /api/admin/search/boost-events/:id (soft-delete)
   // ───────────────────────────────────────────────────────────────────
-  app.delete("/api/admin/search/boost-events/:id", async (req: Request, res: Response) => {
+  app.delete("/api/admin/search/boost-events/:id", zParams(zIdParam), async (req: Request, res: Response) => {
     if (!requireAdminKey(req, res)) return;
 
     try {
@@ -176,7 +181,7 @@ export function registerAdminSearchBoostRoutes(app: Express): void {
       return res.json({ ok: true });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Internal error";
-      console.error("[admin/search/boost-events] delete error:", msg);
+      log.error({ err: msg }, "boost-events delete error");
       return res.status(500).json({ error: msg });
     }
   });
@@ -200,7 +205,7 @@ export function registerAdminSearchBoostRoutes(app: Express): void {
       return res.json({ ok: true, date: dateParam, boosts });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Internal error";
-      console.error("[admin/search/boost-debug] error:", msg);
+      log.error({ err: msg }, "boost-debug error");
       return res.status(500).json({ error: msg });
     }
   });

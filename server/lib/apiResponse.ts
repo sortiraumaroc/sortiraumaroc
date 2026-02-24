@@ -4,6 +4,9 @@
  */
 
 import type { Response } from "express";
+import { createModuleLogger } from "./logger";
+
+const log = createModuleLogger("apiResponse");
 
 // ============================================
 // TYPES DE RÉPONSE
@@ -210,7 +213,7 @@ export const errors = {
   internal: (res: Response, error?: unknown) => {
     // Log l'erreur côté serveur
     if (error) {
-      console.error("[Internal Error]", error);
+      log.error({ err: error }, "Internal error");
     }
     sendError(res, "Erreur serveur interne", 500, ERROR_CODES.INTERNAL_ERROR);
   },
@@ -220,7 +223,7 @@ export const errors = {
    */
   database: (res: Response, error?: unknown) => {
     if (error) {
-      console.error("[Database Error]", error);
+      log.error({ err: error }, "Database error");
     }
     sendError(res, "Erreur de base de données", 500, ERROR_CODES.DATABASE_ERROR);
   },
@@ -230,7 +233,7 @@ export const errors = {
    */
   externalService: (res: Response, serviceName: string, error?: unknown) => {
     if (error) {
-      console.error(`[External Service Error: ${serviceName}]`, error);
+      log.error({ err: error, serviceName }, "External service error");
     }
     sendError(res, `Erreur du service externe: ${serviceName}`, 502, ERROR_CODES.EXTERNAL_SERVICE_ERROR);
   },

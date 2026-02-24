@@ -9,6 +9,7 @@
  *  - POST   /api/pro/packs/:id/suspend      — suspend sales
  *  - POST   /api/pro/packs/:id/resume       — resume sales
  *  - POST   /api/pro/packs/:id/close        — close permanently
+ *  - DELETE /api/pro/packs/:id              — delete (draft/rejected only)
  *  - POST   /api/pro/packs/:id/duplicate    — duplicate
  *  - GET    /api/pro/packs/:id/stats        — pack stats
  *  - POST   /api/pro/packs/scan             — scan QR & consume
@@ -35,7 +36,10 @@
  */
 
 import type { Router, RequestHandler } from "express";
+import { createModuleLogger } from "../lib/logger";
 import { getAdminSupabase } from "../supabaseAdmin";
+
+const log = createModuleLogger("packsPro");
 import {
   createPackV2,
   updatePackV2,
@@ -43,6 +47,7 @@ import {
   suspendPack,
   resumePack,
   closePack,
+  deletePack,
   duplicatePack,
 } from "../packLifecycleLogic";
 import {
@@ -67,6 +72,17 @@ import {
 } from "../middleware/rateLimiter";
 import { sanitizeText, sanitizePlain, isValidUUID } from "../sanitizeV2";
 import { auditProAction } from "../auditLogV2";
+import { zBody, zParams, zIdParam } from "../lib/validate";
+import {
+  CreatePackSchema,
+  UpdatePackSchema,
+  ScanAndConsumeSchema,
+  CreatePromoSchema,
+  UpdatePromoSchema,
+  CreateBillingDisputeSchema,
+  TopupWalletSchema,
+  PackIdParams,
+} from "../schemas/packsPro";
 
 // =============================================================================
 // Auth helpers (same pattern as reservationV2Pro.ts)
@@ -190,7 +206,7 @@ const listProPacks: RequestHandler = async (req, res) => {
 
     res.json({ packs: data ?? [] });
   } catch (err) {
-    console.error("[PacksPro] listProPacks error:", err);
+    log.error({ err }, "listProPacks error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -271,7 +287,7 @@ const createPack: RequestHandler = async (req, res) => {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PacksPro] createPack error:", err);
+    log.error({ err }, "createPack error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -313,7 +329,7 @@ const updatePack: RequestHandler = async (req, res) => {
 
     res.json(result.data);
   } catch (err) {
-    console.error("[PacksPro] updatePack error:", err);
+    log.error({ err }, "updatePack error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -357,7 +373,7 @@ const submitForModeration: RequestHandler = async (req, res) => {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PacksPro] submitForModeration error:", err);
+    log.error({ err }, "submitForModeration error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -396,7 +412,7 @@ const suspendPackRoute: RequestHandler = async (req, res) => {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PacksPro] suspendPack error:", err);
+    log.error({ err }, "suspendPack error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -435,7 +451,7 @@ const resumePackRoute: RequestHandler = async (req, res) => {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PacksPro] resumePack error:", err);
+    log.error({ err }, "resumePack error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -474,7 +490,46 @@ const closePackRoute: RequestHandler = async (req, res) => {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PacksPro] closePack error:", err);
+    log.error({ err }, "closePack error");
+    res.status(500).json({ error: "internal_error" });
+  }
+};
+
+// DELETE /api/pro/packs/:id — delete draft/rejected pack
+const deletePackRoute: RequestHandler = async (req, res) => {
+  const user = await getProUser(req, res);
+  if (!user) return;
+
+  try {
+    const packId = req.params.id;
+    const supabase = getAdminSupabase();
+    const { data: pack } = await supabase
+      .from("packs")
+      .select("establishment_id")
+      .eq("id", packId)
+      .maybeSingle();
+
+    if (!pack || !(await ensureEstablishmentMember(user.id, (pack as any).establishment_id))) {
+      res.status(403).json({ error: "not_a_member" });
+      return;
+    }
+
+    const result = await deletePack(packId, (pack as any).establishment_id);
+    if (!result.ok) {
+      const err = result as { ok: false; error: string; errorCode?: string };
+      res.status(400).json({ error: err.error, errorCode: err.errorCode });
+      return;
+    }
+    res.json({ ok: true });
+
+    void auditProAction("pro.pack.delete", {
+      proUserId: user.id,
+      targetType: "pack",
+      targetId: req.params.id,
+      ip: getClientIp(req),
+    });
+  } catch (err) {
+    log.error({ err }, "deletePack error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -506,7 +561,7 @@ const duplicatePackRoute: RequestHandler = async (req, res) => {
     }
     res.json(result.data);
   } catch (err) {
-    console.error("[PacksPro] duplicatePack error:", err);
+    log.error({ err }, "duplicatePack error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -562,7 +617,7 @@ const getPackStats: RequestHandler = async (req, res) => {
       refundCount: refundCount ?? 0,
     });
   } catch (err) {
-    console.error("[PacksPro] getPackStats error:", err);
+    log.error({ err }, "getPackStats error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -636,7 +691,7 @@ const scanAndConsume: RequestHandler = async (req, res) => {
 
     res.json(packs.data);
   } catch (err) {
-    console.error("[PacksPro] scanAndConsume error:", err);
+    log.error({ err }, "scanAndConsume error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -670,7 +725,7 @@ const listPromos: RequestHandler = async (req, res) => {
     }
     res.json({ promos: data ?? [] });
   } catch (err) {
-    console.error("[PacksPro] listPromos error:", err);
+    log.error({ err }, "listPromos error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -718,7 +773,7 @@ const createPromo: RequestHandler = async (req, res) => {
     }
     res.status(201).json(data);
   } catch (err) {
-    console.error("[PacksPro] createPromo error:", err);
+    log.error({ err }, "createPromo error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -771,7 +826,7 @@ const updatePromo: RequestHandler = async (req, res) => {
     }
     res.json(data);
   } catch (err) {
-    console.error("[PacksPro] updatePromo error:", err);
+    log.error({ err }, "updatePromo error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -807,7 +862,7 @@ const deletePromo: RequestHandler = async (req, res) => {
     }
     res.json({ ok: true });
   } catch (err) {
-    console.error("[PacksPro] deletePromo error:", err);
+    log.error({ err }, "deletePromo error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -856,7 +911,7 @@ const getCurrentPeriod: RequestHandler = async (req, res) => {
       transactions: transactions ?? [],
     });
   } catch (err) {
-    console.error("[PacksPro] getCurrentPeriod error:", err);
+    log.error({ err }, "getCurrentPeriod error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -890,7 +945,7 @@ const listBillingPeriods: RequestHandler = async (req, res) => {
     }
     res.json({ periods: data ?? [] });
   } catch (err) {
-    console.error("[PacksPro] listBillingPeriods error:", err);
+    log.error({ err }, "listBillingPeriods error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -934,7 +989,7 @@ const getBillingPeriodDetail: RequestHandler = async (req, res) => {
       transactions: transactions ?? [],
     });
   } catch (err) {
-    console.error("[PacksPro] getBillingPeriodDetail error:", err);
+    log.error({ err }, "getBillingPeriodDetail error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -981,7 +1036,7 @@ const callToInvoiceRoute: RequestHandler = async (req, res) => {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PacksPro] callToInvoice error:", err);
+    log.error({ err }, "callToInvoice error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -1012,7 +1067,7 @@ const listInvoices: RequestHandler = async (req, res) => {
     }
     res.json({ invoices: data ?? [] });
   } catch (err) {
-    console.error("[PacksPro] listInvoices error:", err);
+    log.error({ err }, "listInvoices error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -1051,7 +1106,7 @@ const downloadInvoice: RequestHandler = async (req, res) => {
     const pdfUrl = getDocumentPdfDownloadUrl(Number(p.vosfactures_invoice_id));
     res.redirect(pdfUrl);
   } catch (err) {
-    console.error("[PacksPro] downloadInvoice error:", err);
+    log.error({ err }, "downloadInvoice error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -1105,7 +1160,7 @@ const createDisputeRoute: RequestHandler = async (req, res) => {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PacksPro] createDispute error:", err);
+    log.error({ err }, "createDispute error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -1135,7 +1190,7 @@ const listDisputes: RequestHandler = async (req, res) => {
     }
     res.json({ disputes: data ?? [] });
   } catch (err) {
-    console.error("[PacksPro] listDisputes error:", err);
+    log.error({ err }, "listDisputes error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -1179,7 +1234,7 @@ const getBillingStats: RequestHandler = async (req, res) => {
       transactionCount: txns.length,
     });
   } catch (err) {
-    console.error("[PacksPro] getBillingStats error:", err);
+    log.error({ err }, "getBillingStats error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -1223,7 +1278,7 @@ const getWallet: RequestHandler = async (req, res) => {
       transactions: transactions ?? [],
     });
   } catch (err) {
-    console.error("[PacksPro] getWallet error:", err);
+    log.error({ err }, "getWallet error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -1292,7 +1347,7 @@ const topupWallet: RequestHandler = async (req, res) => {
 
     res.json({ ok: true, newBalance: ((wallet as any)?.balance || 0) + amount });
   } catch (err) {
-    console.error("[PacksPro] topupWallet error:", err);
+    log.error({ err }, "topupWallet error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -1324,7 +1379,7 @@ const getProReceipts: RequestHandler = async (req, res) => {
     }
     res.json({ receipts: data ?? [] });
   } catch (err) {
-    console.error("[PacksPro] getProReceipts error:", err);
+    log.error({ err }, "getProReceipts error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -1336,33 +1391,34 @@ const getProReceipts: RequestHandler = async (req, res) => {
 export function registerPacksProRoutes(app: Router): void {
   // Pack management — rate limited
   app.get("/api/pro/packs", listProPacks);
-  app.post("/api/pro/packs", packProActionRateLimiter, createPack);
-  app.put("/api/pro/packs/:id", packProActionRateLimiter, updatePack);
-  app.post("/api/pro/packs/:id/submit", packProActionRateLimiter, submitForModeration);
-  app.post("/api/pro/packs/:id/suspend", packProActionRateLimiter, suspendPackRoute);
-  app.post("/api/pro/packs/:id/resume", packProActionRateLimiter, resumePackRoute);
-  app.post("/api/pro/packs/:id/close", packProActionRateLimiter, closePackRoute);
-  app.post("/api/pro/packs/:id/duplicate", packProActionRateLimiter, duplicatePackRoute);
-  app.get("/api/pro/packs/:id/stats", getPackStats);
-  app.post("/api/pro/packs/scan", packScanRateLimiter, scanAndConsume);
+  app.post("/api/pro/packs", packProActionRateLimiter, zBody(CreatePackSchema), createPack);
+  app.put("/api/pro/packs/:id", zParams(zIdParam), packProActionRateLimiter, zBody(UpdatePackSchema), updatePack);
+  app.post("/api/pro/packs/:id/submit", zParams(zIdParam), packProActionRateLimiter, submitForModeration);
+  app.post("/api/pro/packs/:id/suspend", zParams(zIdParam), packProActionRateLimiter, suspendPackRoute);
+  app.post("/api/pro/packs/:id/resume", zParams(zIdParam), packProActionRateLimiter, resumePackRoute);
+  app.post("/api/pro/packs/:id/close", zParams(zIdParam), packProActionRateLimiter, closePackRoute);
+  app.delete("/api/pro/packs/:id", zParams(zIdParam), packProActionRateLimiter, deletePackRoute);
+  app.post("/api/pro/packs/:id/duplicate", zParams(zIdParam), packProActionRateLimiter, duplicatePackRoute);
+  app.get("/api/pro/packs/:id/stats", zParams(zIdParam), getPackStats);
+  app.post("/api/pro/packs/scan", packScanRateLimiter, zBody(ScanAndConsumeSchema), scanAndConsume);
 
   // Promo codes
   app.get("/api/pro/pack-promos", listPromos);
-  app.post("/api/pro/pack-promos", packProActionRateLimiter, createPromo);
-  app.put("/api/pro/pack-promos/:id", updatePromo);
-  app.delete("/api/pro/pack-promos/:id", deletePromo);
+  app.post("/api/pro/pack-promos", packProActionRateLimiter, zBody(CreatePromoSchema), createPromo);
+  app.put("/api/pro/pack-promos/:id", zParams(zIdParam), zBody(UpdatePromoSchema), updatePromo);
+  app.delete("/api/pro/pack-promos/:id", zParams(zIdParam), deletePromo);
 
   // Billing — rate limited
   app.get("/api/pro/billing/current-period", getCurrentPeriod);
   app.get("/api/pro/billing/periods", listBillingPeriods);
-  app.get("/api/pro/billing/periods/:id", getBillingPeriodDetail);
-  app.post("/api/pro/billing/periods/:id/call-to-invoice", billingCallToInvoiceRateLimiter, callToInvoiceRoute);
+  app.get("/api/pro/billing/periods/:id", zParams(zIdParam), getBillingPeriodDetail);
+  app.post("/api/pro/billing/periods/:id/call-to-invoice", zParams(zIdParam), billingCallToInvoiceRateLimiter, callToInvoiceRoute);
   app.get("/api/pro/billing/invoices", listInvoices);
-  app.get("/api/pro/billing/invoices/:id/download", downloadInvoice);
-  app.post("/api/pro/billing/disputes", billingDisputeRateLimiter, createDisputeRoute);
+  app.get("/api/pro/billing/invoices/:id/download", zParams(zIdParam), downloadInvoice);
+  app.post("/api/pro/billing/disputes", billingDisputeRateLimiter, zBody(CreateBillingDisputeSchema), createDisputeRoute);
   app.get("/api/pro/billing/disputes", listDisputes);
   app.get("/api/pro/billing/stats", getBillingStats);
   app.get("/api/pro/wallet", getWallet);
-  app.post("/api/pro/wallet/topup", packProActionRateLimiter, topupWallet);
+  app.post("/api/pro/wallet/topup", packProActionRateLimiter, zBody(TopupWalletSchema), topupWallet);
   app.get("/api/pro/receipts", getProReceipts);
 }

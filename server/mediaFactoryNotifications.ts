@@ -19,9 +19,9 @@ function asString(v: unknown): string {
 
 // Admin RC email (from environment or hardcoded fallback)
 const RC_EMAIL =
-  process.env.MEDIA_FACTORY_RC_EMAIL || "production@sortiraumaroc.ma";
+  process.env.MEDIA_FACTORY_RC_EMAIL || "production@sam.ma";
 const COMPTA_EMAIL =
-  process.env.MEDIA_FACTORY_COMPTA_EMAIL || "compta@sortiraumaroc.ma";
+  process.env.MEDIA_FACTORY_COMPTA_EMAIL || "compta@sam.ma";
 
 type NotifyResult = { ok: true } | { ok: false; error: string };
 
@@ -195,7 +195,7 @@ export async function notifyAppointmentConfirmed(args: {
           dateStyle: "full",
           timeStyle: "short",
         });
-      } catch {
+      } catch { /* intentional: date may be invalid */
         return iso;
       }
     };

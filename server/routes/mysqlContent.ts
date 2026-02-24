@@ -1,14 +1,40 @@
 import type { RequestHandler } from "express";
+import type { Express } from "express";
 import fs from "fs/promises";
 import path from "path";
 
-import { assertAdminApiEnabled, checkAdminKey, getAdminSupabase } from "../supabaseAdmin";
-import { getSessionCookieName, parseCookies, verifyAdminSessionToken } from "../adminSession";
+import { createModuleLogger } from "../lib/logger";
+import { getAdminSupabase } from "../supabaseAdmin";
+import { requireAdminKey } from "./adminHelpers";
+import { zBody, zParams } from "../lib/validate";
+import { createRateLimiter } from "../middleware/rateLimiter";
+
+const blogReadRateLimiter = createRateLimiter("blog-read", {
+  windowMs: 60_000,
+  maxRequests: 30,
+});
+
+const blogVoteRateLimiter = createRateLimiter("blog-vote", {
+  windowMs: 60_000,
+  maxRequests: 10,
+});
+import {
+  updateFixedPageSchema,
+  createBlogArticleSchema,
+  updateBlogArticleSchema,
+  voteBlogPollSchema,
+  BlogSlugParams,
+  BlogPollParams,
+  ContentKeyParams,
+  BlogArticleIdParams,
+} from "../schemas/mysqlContent";
 import {
   FIXED_CONTENT_PAGES,
   getFixedContentPageDefinition,
   type FixedContentPageKey,
 } from "../../shared/fixedContentPages";
+
+const log = createModuleLogger("mysqlContent");
 
 type MysqlContentRow = {
   id: number;
@@ -76,7 +102,7 @@ async function readStore(): Promise<StoreShape> {
       blog_category: Array.isArray(parsed.blog_category) ? (parsed.blog_category as MysqlBlogCategoryRow[]) : [],
       blog_author: Array.isArray(parsed.blog_author) ? (parsed.blog_author as MysqlBlogAuthorRow[]) : [],
     };
-  } catch {
+  } catch { /* intentional: store file may not exist */
     return { content: [], blog_article: [], blog_category: [], blog_author: [] };
   }
 }
@@ -84,38 +110,6 @@ async function readStore(): Promise<StoreShape> {
 async function writeStore(next: StoreShape): Promise<void> {
   await ensureStoreDir();
   await fs.writeFile(STORE_PATH, JSON.stringify(next, null, 2), "utf8");
-}
-
-function parseAdminSessionToken(req: Parameters<RequestHandler>[0]): { token: string; source: "header" | "cookie" } | null {
-  const header = req.header("x-admin-session");
-  if (header && header.trim()) return { token: header.trim(), source: "header" };
-
-  const cookies = parseCookies(req.header("cookie"));
-  const cookie = cookies[getSessionCookieName()];
-  if (cookie && cookie.trim()) return { token: cookie.trim(), source: "cookie" };
-
-  return null;
-}
-
-function requireAdminKey(req: Parameters<RequestHandler>[0], res: Parameters<RequestHandler>[1]): boolean {
-  const enabled = assertAdminApiEnabled();
-  if (enabled.ok === false) {
-    res.status(503).json({ error: enabled.message });
-    return false;
-  }
-
-  const session = parseAdminSessionToken(req);
-  if (session && verifyAdminSessionToken(session.token) !== null) {
-    return true;
-  }
-
-  const header = req.header("x-admin-key") ?? undefined;
-  if (!checkAdminKey(header)) {
-    res.status(401).json({ error: "Unauthorized" });
-    return false;
-  }
-
-  return true;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -440,8 +434,8 @@ export const listPublicBlogArticles: RequestHandler = async (req, res) => {
       const items = (data as any[]).map((row) => mapPublicBlogListItem(row, lang));
       return res.json({ items });
     }
-  } catch {
-    // ignore and fall back to MODE A
+  } catch (err) {
+    log.warn({ err }, "blog list Supabase failed, falling back");
   }
 
   // MODE A fallback (JSON store)
@@ -533,8 +527,8 @@ export const getPublicBlogAuthorBySlug: RequestHandler = async (req, res) => {
     if (authorErr && (authorErr as any).code === "PGRST116") {
       return res.status(404).json({ error: "Not found" });
     }
-  } catch {
-    // ignore and fall back to MODE A
+  } catch (err) {
+    log.warn({ err }, "blog author Supabase failed, falling back");
   }
 
   // MODE A fallback (JSON store)
@@ -679,8 +673,8 @@ export const getPublicBlogArticleBySlug: RequestHandler = async (req, res) => {
 
       return res.json({ item });
     }
-  } catch {
-    // ignore and fall back to MODE A
+  } catch (err) {
+    log.warn({ err }, "blog article Supabase failed, falling back");
   }
 
   // MODE A fallback (JSON store)
@@ -723,8 +717,8 @@ export const markPublicBlogArticleRead: RequestHandler = async (req, res) => {
     if (updateErr) return res.status(500).json({ error: updateErr.message });
 
     return res.json({ ok: true, read_count: next });
-  } catch {
-    // ignore and fall back to MODE A
+  } catch (err) {
+    log.warn({ err }, "blog read count Supabase failed, falling back");
   }
 
   // MODE A fallback: read_count is not supported in the demo store.
@@ -1003,8 +997,8 @@ export const listPublicBlogRelatedArticles: RequestHandler = async (req, res) =>
       const items = (data as any[]).map((row) => mapPublicBlogListItem(row, lang));
       return res.json({ items });
     }
-  } catch {
-    // ignore and fall back to MODE A
+  } catch (err) {
+    log.warn({ err }, "blog related Supabase failed, falling back");
   }
 
   // MODE A fallback (JSON store)
@@ -1020,3 +1014,28 @@ export const listPublicBlogRelatedArticles: RequestHandler = async (req, res) =>
 
   return res.json({ items });
 };
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerMysqlContentRoutes(app: Express) {
+  // Public blog routes
+  app.get("/api/public/blog", listPublicBlogArticles);
+  app.get("/api/public/blog/author/:slug", zParams(BlogSlugParams), getPublicBlogAuthorBySlug);
+  app.get("/api/public/blog/:slug", zParams(BlogSlugParams), getPublicBlogArticleBySlug);
+  app.get("/api/public/blog/:slug/related", zParams(BlogSlugParams), listPublicBlogRelatedArticles);
+  app.post("/api/public/blog/:slug/read", zParams(BlogSlugParams), blogReadRateLimiter, markPublicBlogArticleRead);
+  app.post("/api/public/blog/:slug/polls/:pollId/vote", zParams(BlogPollParams), blogVoteRateLimiter, zBody(voteBlogPollSchema), votePublicBlogPoll);
+  app.post("/api/public/blog/:slug/polls/:pollId/results", zParams(BlogPollParams), blogReadRateLimiter, getPublicBlogPollResults);
+
+  // Admin content routes
+  app.get("/api/admin/mysql/content/pages", listAdminFixedPages);
+  app.get("/api/admin/mysql/content/pages/:key", zParams(ContentKeyParams), getAdminFixedPage);
+  app.post("/api/admin/mysql/content/pages/:key/update", zParams(ContentKeyParams), zBody(updateFixedPageSchema), updateAdminFixedPage);
+  app.get("/api/admin/mysql/blog/categories", listAdminBlogCategories);
+  app.get("/api/admin/mysql/blog/authors", listAdminBlogAuthors);
+  app.get("/api/admin/mysql/blog/articles", listAdminBlogArticles);
+  app.post("/api/admin/mysql/blog/articles", zBody(createBlogArticleSchema), createAdminBlogArticle);
+  app.post("/api/admin/mysql/blog/articles/:id/update", zParams(BlogArticleIdParams), zBody(updateBlogArticleSchema), updateAdminBlogArticle);
+}

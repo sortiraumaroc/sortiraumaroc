@@ -6,6 +6,9 @@ import { fileURLToPath } from "url";
 import { existsSync, statSync } from "fs";
 import { purgeOldAuditLogs } from "./routes/admin";
 import { prerenderMiddleware } from "./prerender";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("server");
 
 // Polyfill: make `require` available globally for ESM bundles.
 // Libraries like @sentry/node (via OpenTelemetry) use `require.cache`
@@ -21,22 +24,24 @@ const app = createServer();
 // Vérifier les variables d'environnement Plesk communes
 const port = process.env.PORT || process.env.PLESK_NODE_PORT || process.env.APP_PORT || 3000;
 
-console.log(`🔧 Configuration serveur :`);
-console.log(`   - Port: ${port}`);
-console.log(`   - NODE_ENV: ${process.env.NODE_ENV || "non défini"}`);
-console.log(`   - Working directory: ${process.cwd()}`);
+log.info({
+  port,
+  nodeEnv: process.env.NODE_ENV || "non défini",
+  cwd: process.cwd(),
+}, "Server configuration");
 
 // Ajouter des logs pour déboguer les requêtes API
 // IMPORTANT : Doit être AVANT toutes les routes pour capturer toutes les requêtes
 app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (req.path.startsWith("/api/")) {
-    console.log(`[API Request] ${req.method} ${req.path}`);
-    console.log(`[API Headers]`, {
+    log.info({
+      method: req.method,
+      path: req.path,
       origin: req.headers.origin,
-      "user-agent": req.headers["user-agent"]?.substring(0, 50),
-      "content-type": req.headers["content-type"],
+      ua: req.headers["user-agent"]?.substring(0, 50),
+      contentType: req.headers["content-type"],
       host: req.headers.host,
-    });
+    }, "API request");
   }
   next();
 });
@@ -56,23 +61,15 @@ const possiblePaths = [
 let distPath = possiblePaths.find((p) => existsSync(p));
 
 if (!distPath) {
-  console.error("❌ Erreur : Impossible de trouver le répertoire dist/spa");
-  console.error("Chemins testés :", possiblePaths);
-  console.error("Répertoire courant :", process.cwd());
-  console.error("__dirname :", __dirname);
+  log.error({
+    possiblePaths,
+    cwd: process.cwd(),
+    __dirname,
+  }, "Cannot find dist/spa directory");
   process.exit(1);
 }
 
-console.log(`✅ Servir les fichiers statiques depuis : ${distPath}`);
-
-// Ajouter des logs pour déboguer les requêtes API
-// IMPORTANT : Doit être AVANT toutes les routes pour capturer toutes les requêtes
-app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
-  if (req.path.startsWith("/api/")) {
-    console.log(`[API Request] ${req.method} ${req.path}`);
-  }
-  next();
-});
+log.info({ distPath }, "Serving static files");
 
 // Coming-soon page removed — site is officially launched
 
@@ -188,13 +185,16 @@ app.get(/.*/, (req, res) => {
   }
 
   // Only treat requests that explicitly accept HTML as SPA navigations.
+  // Bots (GPTBot, Bingbot, etc.) often send Accept: */* instead of text/html,
+  // so we also accept wildcard Accept headers for SPA fallback.
   const accept = String(req.headers.accept ?? "");
   const acceptsHtml = accept.includes("text/html");
+  const acceptsAnything = accept.includes("*/*");
 
   // Si la requête a une extension de fichier, ce n'est probablement pas une navigation SPA
   const hasExtension = path.extname(req.path) !== "";
 
-  if (!acceptsHtml || hasExtension) {
+  if ((!acceptsHtml && !acceptsAnything) || hasExtension) {
     return res.status(404).end();
   }
 
@@ -204,27 +204,25 @@ app.get(/.*/, (req, res) => {
     return res.sendFile(indexPath);
   }
 
-  console.error(`❌ index.html introuvable dans ${distPath}`);
+  log.error({ distPath }, "index.html introuvable");
   return res.status(500).send("Internal Server Error: index.html not found");
 });
 
 app.listen(port, () => {
-  console.log(`🚀 Fusion Starter server running on port ${port}`);
-  console.log(`📱 Frontend: http://localhost:${port}`);
-  console.log(`🔧 API: http://localhost:${port}/api`);
-  console.log(`✅ Routes API configurées : /api/ping, /api/public/*, /api/consumer/*, /api/pro/*, /api/admin/*`);
-  console.log(`✅ Route payment: POST /api/payments/lacaissepay/session`);
-  console.log(`✅ Route webhook: POST /api/payments/webhook`);
-  console.log(`✅ Toutes les routes sont enregistrées dans createServer()`);
+  log.info({
+    port,
+    frontend: `http://localhost:${port}`,
+    api: `http://localhost:${port}/api`,
+  }, "Server started — all routes registered");
 
   // Auto-purge audit logs older than 30 days on startup + every 24h
   purgeOldAuditLogs().catch((err) =>
-    console.error("[AuditLogCleanup] Startup purge failed:", err)
+    log.error({ err }, "AuditLogCleanup startup purge failed")
   );
   const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
   setInterval(() => {
     purgeOldAuditLogs().catch((err) =>
-      console.error("[AuditLogCleanup] Scheduled purge failed:", err)
+      log.error({ err }, "AuditLogCleanup scheduled purge failed")
     );
   }, TWENTY_FOUR_HOURS);
 });
@@ -232,11 +230,11 @@ app.listen(port, () => {
 
 // Graceful shutdown
 process.on("SIGTERM", () => {
-  console.log("🛑 Received SIGTERM, shutting down gracefully");
+  log.info("Received SIGTERM, shutting down gracefully");
   process.exit(0);
 });
 
 process.on("SIGINT", () => {
-  console.log("🛑 Received SIGINT, shutting down gracefully");
+  log.info("Received SIGINT, shutting down gracefully");
   process.exit(0);
 });

@@ -88,6 +88,7 @@ export type ProCeAdvantage = {
   deleted_at: string | null;
 };
 
+/** @deprecated Use B2bScan from shared/b2bScanTypes instead */
 export type CeScan = {
   id: string;
   employee_id: string;

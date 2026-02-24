@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3, CalendarDays, Check, CheckCircle, ChevronLeft, ChevronRight, Clock, Copy, Download, Edit3, Eye, Filter, LayoutList, ListPlus, Loader2, MessageSquareText, Search, Settings2, ShieldAlert, Users, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, BarChart3, CalendarDays, Check, CheckCircle, ChevronLeft, ChevronRight, Clock, Copy, Download, Edit3, Eye, Filter, LayoutList, ListPlus, Loader2, MessageSquareText, Search, Settings2, ShieldAlert, Users, XCircle } from "lucide-react";
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
@@ -49,12 +49,14 @@ import {
   getClientRiskScore,
   getComputedReservationKind,
   getGuestInfo,
+  getEstablishmentNoShows,
   getNoShowCount,
   getPaymentBadge,
   getRiskBadge,
   getRiskLevel,
   getStatusBadges,
   getSuggestedSlots,
+  hasEstablishmentNoShow,
   hasProposedChange,
   isGuaranteedReservation,
   isPastGracePeriod,
@@ -265,7 +267,7 @@ export function ProReservationsTab({ establishment, role }: Props) {
   const [selectedDay, setSelectedDay] = useState<string>(() => todayYmd());
   const [showAll, setShowAll] = useState(true);
   const [workflowFilter, setWorkflowFilter] = useState<"all" | "modif" | "proposition">("all");
-  const [timeFilter, setTimeFilter] = useState<"current" | "expired" | "all">("current");
+  const [timeFilter, setTimeFilter] = useState<"current" | "expired" | "all">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -1425,6 +1427,12 @@ export function ProReservationsTab({ establishment, role }: Props) {
                                   return <Badge className={`${payment.cls} whitespace-nowrap`}>{payment.label}</Badge>;
                                 })()}
                                 <Badge className={`${riskBadge.cls} whitespace-nowrap`}>{riskBadge.label}</Badge>
+                                {hasEstablishmentNoShow(r) ? (
+                                  <Badge className="bg-orange-100 text-orange-700 border-orange-200 whitespace-nowrap gap-1">
+                                    <AlertTriangle className="w-3 h-3" />
+                                    No-show chez vous
+                                  </Badge>
+                                ) : null}
                                 {needsGuarantee ? (
                                   <Badge className="bg-red-50 text-red-700 border-red-200 whitespace-nowrap">Garantie obligatoire</Badge>
                                 ) : null}
@@ -1771,6 +1779,20 @@ export function ProReservationsTab({ establishment, role }: Props) {
                             </div>
                             {getNoShowCount(r) ? (
                               <div className="text-xs text-slate-500">No-show: {getNoShowCount(r)}</div>
+                            ) : null}
+                            {hasEstablishmentNoShow(r) ? (
+                              <div className="mt-1 flex items-start gap-1 rounded-md bg-orange-50 border border-orange-200 px-2 py-1">
+                                <AlertTriangle className="w-3.5 h-3.5 text-orange-600 mt-0.5 shrink-0" />
+                                <div className="text-xs text-orange-700 font-medium">
+                                  No-show chez vous
+                                  {(() => {
+                                    const nsList = getEstablishmentNoShows(r);
+                                    if (!nsList.length) return null;
+                                    const last = nsList[0];
+                                    return ` (${last.date}, ${last.party_size} pers.)`;
+                                  })()}
+                                </div>
+                              </div>
                             ) : null}
                           </TableCell>
 

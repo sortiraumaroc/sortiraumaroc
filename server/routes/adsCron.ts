@@ -11,8 +11,12 @@
  */
 
 import type { Request, Response } from "express";
+import type { Express } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { createCampaignInvoice } from "../ads/invoicing";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("adsCron");
 
 // ---------------------------------------------------------------------------
 // Helper functions
@@ -57,10 +61,10 @@ export async function cronAdsDailyReset(req: Request, res: Response) {
 
     if (resetError) {
       stats.errors.push(`Reset error: ${resetError.message}`);
-      console.error("[adsCron] Reset daily budgets error:", resetError);
+      log.error({ err: resetError }, "Reset daily budgets error");
     } else {
       stats.daily_reset_count = resetCampaigns?.length ?? 0;
-      console.log(`[adsCron] Reset daily budgets for ${stats.daily_reset_count} campaigns`);
+      log.info({ count: stats.daily_reset_count }, "Reset daily budgets for campaigns");
     }
 
     // Step 2: Reactivate campaigns that were paused due to daily budget exhaustion
@@ -84,10 +88,10 @@ export async function cronAdsDailyReset(req: Request, res: Response) {
 
     if (reactivateError) {
       stats.errors.push(`Reactivate error: ${reactivateError.message}`);
-      console.error("[adsCron] Reactivate campaigns error:", reactivateError);
+      log.error({ err: reactivateError }, "Reactivate campaigns error");
     } else {
       stats.reactivated_count = reactivated?.length ?? 0;
-      console.log(`[adsCron] Reactivated ${stats.reactivated_count} campaigns`);
+      log.info({ count: stats.reactivated_count }, "Reactivated campaigns");
     }
 
     // Step 3: Pause campaigns with exhausted total budget
@@ -132,7 +136,7 @@ export async function cronAdsDailyReset(req: Request, res: Response) {
       stats.paused_count = paused?.length ?? 0;
     }
 
-    console.log(`[adsCron] Paused ${stats.paused_count} campaigns with exhausted budget`);
+    log.info({ count: stats.paused_count }, "Paused campaigns with exhausted budget");
 
     // Step 4: End campaigns past their end date
     const { error: endError } = await supabase
@@ -146,7 +150,7 @@ export async function cronAdsDailyReset(req: Request, res: Response) {
 
     if (endError) {
       stats.errors.push(`End campaigns error: ${endError.message}`);
-      console.error("[adsCron] End campaigns error:", endError);
+      log.error({ err: endError }, "End campaigns error");
     }
 
     return res.json({
@@ -156,7 +160,7 @@ export async function cronAdsDailyReset(req: Request, res: Response) {
       executed_at: now,
     });
   } catch (err) {
-    console.error("[adsCron] Unexpected error:", err);
+    log.error({ err }, "Unexpected error in daily reset");
     return res.status(500).json({
       ok: false,
       error: "Internal server error",
@@ -205,7 +209,7 @@ export async function cronAdsCheckBudgets(req: Request, res: Response) {
       }
     }
 
-    console.log(`[adsCron] Budget check: paused ${pausedCount} campaigns`);
+    log.info({ pausedCount }, "Budget check completed");
 
     return res.json({
       ok: true,
@@ -214,7 +218,7 @@ export async function cronAdsCheckBudgets(req: Request, res: Response) {
       checked_at: now,
     });
   } catch (err) {
-    console.error("[adsCron] Budget check error:", err);
+    log.error({ err }, "Budget check error");
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 }
@@ -273,7 +277,7 @@ export async function cronAdsBillImpressions(req: Request, res: Response) {
       });
 
       if (debitError) {
-        console.error(`[adsCron] Failed to bill campaign ${campaignId}:`, debitError);
+        log.error({ err: debitError, campaignId }, "Failed to bill campaign");
         continue;
       }
 
@@ -298,7 +302,7 @@ export async function cronAdsBillImpressions(req: Request, res: Response) {
       totalBilledCents += costCents;
     }
 
-    console.log(`[adsCron] Billed ${billedCount} CPM campaigns, total: ${totalBilledCents} cents`);
+    log.info({ billedCount, totalBilledCents }, "Billed CPM campaigns");
 
     return res.json({
       ok: true,
@@ -308,7 +312,7 @@ export async function cronAdsBillImpressions(req: Request, res: Response) {
       billed_at: now.toISOString(),
     });
   } catch (err) {
-    console.error("[adsCron] Impressions billing error:", err);
+    log.error({ err }, "Impressions billing error");
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 }
@@ -329,7 +333,7 @@ export async function cronAdsRecalculateQuality(req: Request, res: Response) {
     const supabase = getAdminSupabase();
     const result = await recalculateQualityScores(supabase);
 
-    console.log(`[adsCron] Quality scores recalculated: ${result.updated} updated, ${result.errors} errors`);
+    log.info({ updated: result.updated, errors: result.errors }, "Quality scores recalculated");
 
     return res.json({
       ok: true,
@@ -338,7 +342,7 @@ export async function cronAdsRecalculateQuality(req: Request, res: Response) {
       executed_at: new Date().toISOString(),
     });
   } catch (err) {
-    console.error("[adsCron] Quality score recalculation error:", err);
+    log.error({ err }, "Quality score recalculation error");
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 }
@@ -423,16 +427,16 @@ export async function cronAdsGenerateInvoices(req: Request, res: Response) {
         if (invoice) {
           invoicedCount++;
           totalInvoicedCents += spentCents;
-          console.log(`[adsCron] Invoice generated for campaign ${campaignId}: ${(spentCents / 100).toFixed(2)} MAD`);
+          log.info({ campaignId, amountMAD: (spentCents / 100).toFixed(2) }, "Invoice generated for campaign");
         }
       } catch (err) {
         const msg = `Failed to invoice campaign ${campaignId}: ${err instanceof Error ? err.message : "unknown"}`;
         errors.push(msg);
-        console.error(`[adsCron] ${msg}`);
+        log.error({ campaignId }, msg);
       }
     }
 
-    console.log(`[adsCron] Monthly invoicing: ${invoicedCount} invoices, total ${(totalInvoicedCents / 100).toFixed(2)} MAD`);
+    log.info({ invoicedCount, totalMAD: (totalInvoicedCents / 100).toFixed(2) }, "Monthly invoicing completed");
 
     return res.json({
       ok: true,
@@ -444,7 +448,19 @@ export async function cronAdsGenerateInvoices(req: Request, res: Response) {
       executed_at: now.toISOString(),
     });
   } catch (err) {
-    console.error("[adsCron] Monthly invoicing error:", err);
+    log.error({ err }, "Monthly invoicing error");
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerAdsCronRoutes(app: Express) {
+  app.post("/api/admin/cron/ads-daily-reset", cronAdsDailyReset);
+  app.post("/api/admin/cron/ads-check-budgets", cronAdsCheckBudgets);
+  app.post("/api/admin/cron/ads-bill-impressions", cronAdsBillImpressions);
+  app.post("/api/admin/cron/ads-recalculate-quality", cronAdsRecalculateQuality);
+  app.post("/api/admin/cron/ads-generate-invoices", cronAdsGenerateInvoices);
 }

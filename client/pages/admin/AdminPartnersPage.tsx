@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
-import { AdminMediaFactoryNav } from "./media-factory/AdminMediaFactoryNav";
+import { AdminVisibilityNav } from "@/pages/admin/visibility/AdminVisibilityNav";
 import { AdminDataTable } from "@/components/admin/table/AdminDataTable";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -406,7 +406,7 @@ export function AdminPartnersPage() {
         description="Prestataires (caméramans, monteurs, blogueurs...)"
       />
 
-      <AdminMediaFactoryNav />
+      <AdminVisibilityNav />
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between pb-3">

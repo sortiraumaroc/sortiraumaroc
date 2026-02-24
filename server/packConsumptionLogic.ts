@@ -11,6 +11,9 @@
 
 import { getAdminSupabase } from "./supabaseAdmin";
 import { emitConsumerUserEvent } from "./consumerNotifications";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("packConsumptionLogic");
 
 // =============================================================================
 // Types
@@ -272,7 +275,7 @@ export async function consumePack(
           })
           .eq("id", p.pack_id);
       }
-    } catch { /* best-effort */ }
+    } catch (err) { log.warn({ err }, "Best-effort: pack consumed_count update failed"); }
   })();
 
   // ── Step 12: Notify client ──────────────────────────────────
@@ -294,7 +297,7 @@ export async function consumePack(
             uses_remaining: newUsesRemaining,
           },
         });
-      } catch { /* best-effort */ }
+      } catch (err) { log.warn({ err }, "Best-effort: pack consumed notification failed"); }
     })();
   }
 

@@ -24,6 +24,19 @@ import {
   PACK_EDITABLE_STATUSES,
   calculateDiscountPercentage,
 } from "../shared/packsBillingTypes";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("packLifecycleLogic");
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Return the value if it's a valid UUID, otherwise null. */
+function safeUUID(v: string | null | undefined): string | null {
+  return v && UUID_RE.test(v) ? v : null;
+}
 
 // =============================================================================
 // Types
@@ -211,7 +224,7 @@ export async function submitPackForModeration(
         body: `Le Pack "${(pack as any).title}" a ete soumis pour moderation.`,
         data: { pack_id: packId, establishment_id: establishmentId },
       });
-    } catch { /* best-effort */ }
+    } catch (err) { log.warn({ err, packId }, "Failed to notify admin of pack moderation submission"); }
   })();
 
   return { ok: true, data: undefined };
@@ -223,7 +236,7 @@ export async function submitPackForModeration(
 
 export async function approvePack(
   packId: string,
-  adminUserId: string,
+  adminUserId: string | null,
   note?: string,
 ): Promise<OpResult> {
   const supabase = getAdminSupabase();
@@ -254,18 +267,20 @@ export async function approvePack(
 
   const targetStatus: PackModerationStatus = shouldActivateNow ? "active" : "approved";
 
-  await supabase
+  const { error: updateError } = await supabase
     .from("packs")
     .update({
       moderation_status: targetStatus,
       active: targetStatus === "active",
-      moderated_by: adminUserId,
+      moderated_by: safeUUID(adminUserId),
       moderated_at: now.toISOString(),
       moderation_note: note ?? null,
       rejection_reason: null,
       updated_at: now.toISOString(),
     })
     .eq("id", packId);
+
+  if (updateError) return { ok: false, error: updateError.message };
 
   // Notify pro
   void (async () => {
@@ -280,7 +295,7 @@ export async function approvePack(
           : `Votre Pack "${(pack as any).title}" a ete approuve et sera mis en vente le ${saleStartDate}.`,
         data: { pack_id: packId, status: targetStatus },
       });
-    } catch { /* best-effort */ }
+    } catch (err) { log.warn({ err, packId }, "Failed to notify pro of pack approval"); }
   })();
 
   return { ok: true, data: undefined };
@@ -292,7 +307,7 @@ export async function approvePack(
 
 export async function rejectPack(
   packId: string,
-  adminUserId: string,
+  adminUserId: string | null,
   reason: string,
 ): Promise<OpResult> {
   const supabase = getAdminSupabase();
@@ -310,17 +325,19 @@ export async function rejectPack(
     return { ok: false, error: "Le Pack n'est pas en attente de moderation.", errorCode: "invalid_transition" };
   }
 
-  await supabase
+  const { error: updateError } = await supabase
     .from("packs")
     .update({
       moderation_status: "rejected",
       active: false,
-      moderated_by: adminUserId,
+      moderated_by: safeUUID(adminUserId),
       moderated_at: new Date().toISOString(),
       rejection_reason: reason,
       updated_at: new Date().toISOString(),
     })
     .eq("id", packId);
+
+  if (updateError) return { ok: false, error: updateError.message };
 
   void (async () => {
     try {
@@ -332,7 +349,7 @@ export async function rejectPack(
         body: `Votre Pack "${(pack as any).title}" a ete rejete. Motif : ${reason}`,
         data: { pack_id: packId, reason },
       });
-    } catch { /* best-effort */ }
+    } catch (err) { log.warn({ err, packId }, "Failed to notify pro of pack rejection"); }
   })();
 
   return { ok: true, data: undefined };
@@ -344,7 +361,7 @@ export async function rejectPack(
 
 export async function requestPackModification(
   packId: string,
-  adminUserId: string,
+  adminUserId: string | null,
   note: string,
 ): Promise<OpResult> {
   const supabase = getAdminSupabase();
@@ -362,17 +379,19 @@ export async function requestPackModification(
     return { ok: false, error: "Le Pack n'est pas en attente de moderation.", errorCode: "invalid_transition" };
   }
 
-  await supabase
+  const { error: updateError } = await supabase
     .from("packs")
     .update({
       moderation_status: "modification_requested",
       active: false,
-      moderated_by: adminUserId,
+      moderated_by: safeUUID(adminUserId),
       moderated_at: new Date().toISOString(),
       moderation_note: note,
       updated_at: new Date().toISOString(),
     })
     .eq("id", packId);
+
+  if (updateError) return { ok: false, error: updateError.message };
 
   void (async () => {
     try {
@@ -384,7 +403,7 @@ export async function requestPackModification(
         body: `Des modifications ont ete demandees pour "${(pack as any).title}": ${note}`,
         data: { pack_id: packId, note },
       });
-    } catch { /* best-effort */ }
+    } catch (err) { log.warn({ err, packId }, "Failed to notify pro of pack modification request"); }
   })();
 
   return { ok: true, data: undefined };
@@ -606,6 +625,42 @@ export async function closePack(
 }
 
 // =============================================================================
+// 9b. Delete pack (pro — draft/rejected only)
+// =============================================================================
+
+export async function deletePack(
+  packId: string,
+  establishmentId: string,
+): Promise<OpResult> {
+  const supabase = getAdminSupabase();
+
+  const { data: pack, error } = await supabase
+    .from("packs")
+    .select("id, moderation_status")
+    .eq("id", packId)
+    .eq("establishment_id", establishmentId)
+    .maybeSingle();
+
+  if (error) return { ok: false, error: error.message };
+  if (!pack) return { ok: false, error: "Pack introuvable.", errorCode: "not_found" };
+
+  const status = (pack as any).moderation_status as string;
+  const canDelete = ["draft", "rejected", "ended"].includes(status);
+  if (!canDelete) {
+    return { ok: false, error: `Impossible de supprimer un Pack en statut "${status}". Seuls les brouillons, packs refusés et terminés peuvent être supprimés.`, errorCode: "invalid_transition" };
+  }
+
+  const { error: delError } = await supabase
+    .from("packs")
+    .delete()
+    .eq("id", packId);
+
+  if (delError) return { ok: false, error: delError.message };
+
+  return { ok: true, data: undefined };
+}
+
+// =============================================================================
 // 10. Duplicate (pro)
 // =============================================================================
 
@@ -728,14 +783,14 @@ export async function activateScheduledPacks(): Promise<number> {
           body: `Votre Pack "${(pack as any).title}" est maintenant en vente.`,
           data: { pack_id: (pack as any).id },
         });
-      } catch { /* best-effort */ }
+      } catch (err) { log.warn({ err, packId: (pack as any).id }, "Failed to notify pro of scheduled pack activation"); }
     })();
 
     activated++;
   }
 
   if (activated > 0) {
-    console.log(`[Pack Lifecycle] Activated ${activated} scheduled packs`);
+    log.info({ activated }, "Activated scheduled packs");
   }
 
   return activated;
@@ -780,14 +835,14 @@ export async function endExpiredPacks(): Promise<number> {
           body: `La vente de votre Pack "${(pack as any).title}" est terminee. Les Packs deja vendus restent valables.`,
           data: { pack_id: (pack as any).id },
         });
-      } catch { /* best-effort */ }
+      } catch (err) { log.warn({ err, packId: (pack as any).id }, "Failed to notify pro of expired pack ending"); }
     })();
 
     ended++;
   }
 
   if (ended > 0) {
-    console.log(`[Pack Lifecycle] Ended ${ended} expired packs`);
+    log.info({ ended }, "Ended expired packs");
   }
 
   return ended;

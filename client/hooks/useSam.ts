@@ -30,7 +30,7 @@ export interface SamMessage {
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useSam(universe?: string | null) {
+export function useSam(universe?: string | null, establishmentId?: string | null) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<SamMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -39,9 +39,22 @@ export function useSam(universe?: string | null) {
   const messageIdCounter = useRef(0);
   const universeRef = useRef(universe);
   universeRef.current = universe;
+  const establishmentIdRef = useRef(establishmentId);
   /** Message en attente de connexion pour reprendre le flow réservation */
   const pendingAuthRetry = useRef<boolean>(false);
   const wasAuthed = useRef(isAuthed());
+
+  // Quand l'establishmentId change, reset la conversation (nouveau contexte)
+  useEffect(() => {
+    if (establishmentIdRef.current !== establishmentId) {
+      establishmentIdRef.current = establishmentId;
+      // Reset conversation pour le nouveau contexte
+      abortRef.current?.abort();
+      setMessages([]);
+      setConversationId(null);
+      setIsLoading(false);
+    }
+  }, [establishmentId]);
 
   // Nettoyer l'AbortController au démontage
   useEffect(() => {
@@ -107,6 +120,7 @@ export function useSam(universe?: string | null) {
         conversationId: conversationId ?? undefined,
         sessionId,
         universe: universeRef.current ?? undefined,
+        establishment_id: establishmentIdRef.current ?? undefined,
 
         onTextDelta: (delta) => {
           setMessages((prev) =>
@@ -215,5 +229,6 @@ export function useSam(universe?: string | null) {
     conversationId,
     isAuthenticated: isAuthed(),
     universe,
+    establishmentId,
   };
 }

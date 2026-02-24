@@ -8,6 +8,9 @@
 import type { Express, Request, Response } from "express";
 import OpenAI from "openai";
 import { Readable } from "node:stream";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("samVoice");
 
 let openaiClient: OpenAI | null = null;
 function getOpenAI(): OpenAI {
@@ -57,7 +60,7 @@ async function handleTranscribe(req: Request, res: Response) {
       duration: (transcription as any).duration ?? null,
     });
   } catch (err: any) {
-    console.error("[Sam Voice] transcribe error:", err?.message);
+    log.error({ err: err?.message }, "Transcribe error");
     res.status(500).json({ error: "Transcription failed" });
   }
 }
@@ -94,7 +97,7 @@ async function handleSpeak(req: Request, res: Response) {
     const readable = Readable.from(buffer);
     readable.pipe(res);
   } catch (err: any) {
-    console.error("[Sam Voice] speak error:", err?.message);
+    log.error({ err: err?.message }, "Speak error");
     if (!res.headersSent) {
       res.status(500).json({ error: "Speech synthesis failed" });
     }

@@ -1,11 +1,62 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import type { RequestHandler } from "express";
+import express from "express";
+import type { Express, RequestHandler } from "express";
+import multer from "multer";
 import PDFDocument from "pdfkit";
 import QRCode from "qrcode";
 
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
 import { requireAdminKey } from "./admin";
+import { zBody, zQuery, zParams, zIdParam } from "../lib/validate";
+import {
+  UpdateAdminMediaFactoryJobSchema,
+  ApproveAdminMediaBriefSchema,
+  CreateAdminMediaScheduleSlotSchema,
+  AssignAdminDeliverablePartnerSchema,
+  ReviewAdminDeliverableSchema,
+  SaveProMediaBriefDraftSchema,
+  SubmitProMediaBriefSchema,
+  SelectProMediaScheduleSlotSchema,
+  ConfirmProMediaCheckinSchema,
+  UpdatePartnerProfileSchema,
+  RequestPartnerInvoiceSchema,
+  UpdateAdminInvoiceRequestSchema,
+  PublicMediaCheckinSchema,
+  CreateAdminPartnerSchema,
+  UpdateAdminPartnerSchema,
+  UpdateAdminPartnerBillingSchema,
+  SendProMessageSchema,
+  SendPartnerMessageSchema,
+  SendAdminMessageSchema,
+  AdminSendMessageWithAttachmentsSchema,
+  ProSendMessageWithAttachmentsSchema,
+  PartnerSendMessageWithAttachmentsSchema,
+  CreateAdminCommunicationLogSchema,
+  CreateQuickReplyTemplateSchema,
+  UpdateQuickReplyTemplateSchema,
+  CreatePartnerBloggerArticleSchema,
+  UpdatePartnerBloggerArticleSchema,
+  ListAdminMediaJobsQuery,
+  ListAdminInvoiceRequestsQuery,
+  AdminMediaBriefPdfQuery,
+  ListProMediaThreadsQuery,
+  ListAdminMediaThreadsQuery,
+  ListAdminCommunicationLogsQuery,
+  ListQuickReplyTemplatesQuery,
+  JobIdParams,
+  DeliverableIdParams,
+  ThreadIdParams,
+  MediaIdParams,
+  MediaCheckinTokenParams,
+  MessageIdParams,
+  MediaEstablishmentIdParams,
+  EstablishmentIdJobIdParams,
+  EstablishmentIdThreadIdParams,
+} from "../schemas/mediaFactory";
+
+const log = createModuleLogger("mediaFactory");
 import {
   notifyBriefSubmitted,
   notifyBriefApproved,
@@ -644,8 +695,8 @@ export const reviewAdminDeliverable: RequestHandler = async (req, res) => {
           notifyJobDelivered({ jobId: data.job_id }).catch(() => {});
         }
       }
-    } catch {
-      // Best-effort: don't fail the main request if auto-transition fails
+    } catch (err) {
+      log.warn({ err }, "deliverable auto-transition failed");
     }
   }
 
@@ -1317,8 +1368,8 @@ export const uploadPartnerAvatar: RequestHandler = async (req, res) => {
       if (oldPath) {
         await supabase.storage.from("partner-avatars").remove([oldPath]);
       }
-    } catch {
-      // Ignore errors when deleting old avatar
+    } catch (err) {
+      log.warn({ err }, "delete old avatar failed");
     }
   }
 
@@ -1376,8 +1427,8 @@ export const deletePartnerAvatar: RequestHandler = async (req, res) => {
       if (path) {
         await supabase.storage.from("partner-avatars").remove([path]);
       }
-    } catch {
-      // Ignore errors
+    } catch (err) {
+      log.warn({ err }, "delete avatar from storage failed");
     }
   }
 
@@ -2047,8 +2098,8 @@ export const generateAdminMediaBriefPdf: RequestHandler = async (req, res) => {
     const checkinUrl = `${process.env.VITE_SUPABASE_URL ? "https://sam.ma" : "http://localhost:3000"}/media/checkin?token=${encodeURIComponent(checkinToken)}`;
     try {
       qrDataUrl = await QRCode.toDataURL(checkinUrl, { width: 200, margin: 1 });
-    } catch {
-      // Skip QR if generation fails
+    } catch (err) {
+      log.warn({ err }, "QR code generation failed");
     }
   }
 
@@ -2238,10 +2289,7 @@ export const generateAdminMediaBriefPdf: RequestHandler = async (req, res) => {
 // ---------------------------------------------------------------------------
 
 export const listAdminPartners: RequestHandler = async (req, res) => {
-  console.log("[listAdminPartners] called", {
-    method: req.method,
-    path: req.path,
-  });
+  log.info({ method: req.method, path: req.path }, "listAdminPartners called");
   if (!requireAdminKey(req, res)) return;
 
   const supabase = getAdminSupabase();
@@ -2303,13 +2351,10 @@ export const getAdminPartner: RequestHandler = async (req, res) => {
 };
 
 export const createAdminPartner: RequestHandler = async (req, res) => {
-  console.log("[createAdminPartner] called", {
-    method: req.method,
-    path: req.path,
-  });
+  log.info({ method: req.method, path: req.path }, "createAdminPartner called");
   if (!requireAdminKey(req, res)) return;
   if (!isRecord(req.body)) {
-    console.log("[createAdminPartner] invalid_body", req.body);
+    log.warn("createAdminPartner invalid_body");
     return res.status(400).json({ error: "invalid_body" });
   }
 
@@ -3869,6 +3914,31 @@ export const markAllNotificationsRead: RequestHandler = async (req, res) => {
   res.json({ ok: true });
 };
 
+// Suppression d'une notification partner
+export const deletePartnerNotification: RequestHandler = async (req, res) => {
+  const user = await getUserFromBearerToken(req);
+  if (!user) return res.status(401).json({ error: "unauthorized" });
+
+  const notificationId = typeof req.params.id === "string" ? req.params.id : "";
+  if (!notificationId)
+    return res.status(400).json({ error: "missing_notification_id" });
+
+  const supabase = getAdminSupabase();
+
+  const { data, error } = await supabase
+    .from("media_notifications")
+    .delete()
+    .eq("id", notificationId)
+    .eq("user_id", user.id)
+    .select("id")
+    .maybeSingle();
+
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(404).json({ error: "Not found" });
+
+  res.json({ ok: true });
+};
+
 // Admin notifications
 export const getAdminNotifications: RequestHandler = async (req, res) => {
   if (!requireAdminKey(req, res)) return;
@@ -4259,7 +4329,7 @@ async function uploadMessageAttachment(
     });
 
   if (uploadError) {
-    console.error("[uploadMessageAttachment] storage error:", uploadError);
+    log.error({ err: uploadError }, "uploadMessageAttachment storage error");
     return { ok: false, error: "upload_failed" };
   }
 
@@ -4283,7 +4353,7 @@ async function uploadMessageAttachment(
   if (insertError) {
     // Try to clean up uploaded file
     await supabase.storage.from("media-message-attachments").remove([path]);
-    console.error("[uploadMessageAttachment] insert error:", insertError);
+    log.error({ err: insertError }, "uploadMessageAttachment insert error");
     return { ok: false, error: "db_insert_failed" };
   }
 
@@ -5045,7 +5115,7 @@ export const listPartnerBloggerArticles: RequestHandler = async (req, res) => {
       .single();
 
     if (createError) {
-      console.error("[listPartnerBloggerArticles] Error creating author:", createError);
+      log.error({ err: createError }, "listPartnerBloggerArticles error creating author");
       return res.status(500).json({ error: createError.message });
     }
 
@@ -5276,7 +5346,7 @@ export const createPartnerBloggerArticle: RequestHandler = async (req, res) => {
     .single();
 
   if (error) {
-    console.error("[createPartnerBloggerArticle]", error);
+    log.error({ err: error }, "createPartnerBloggerArticle error");
     return res.status(500).json({ error: error.message });
   }
 
@@ -5590,7 +5660,7 @@ export const requestPartnerBloggerArticlePayment: RequestHandler = async (req, r
     .single();
 
   if (error) {
-    console.error("[requestPartnerBloggerArticlePayment]", error);
+    log.error({ err: error }, "requestPartnerBloggerArticlePayment error");
     return res.status(500).json({ error: error.message });
   }
 
@@ -5668,3 +5738,313 @@ export const getPartnerBloggerStats: RequestHandler = async (req, res) => {
 
   res.json({ ok: true, stats });
 };
+
+// ---------------------------------------------------------------------------
+// Route registration
+// ---------------------------------------------------------------------------
+
+export function registerMediaFactoryRoutes(app: Express) {
+  const partnerAvatarUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 },
+  });
+
+  // ── Partners Portal ─────────────────────────────────────────────────────
+  app.get("/api/partners/me", getPartnerMe);
+  app.post("/api/partners/me/profile", zBody(UpdatePartnerProfileSchema), updatePartnerProfile);
+  app.post(
+    "/api/partners/me/avatar",
+    partnerAvatarUpload.single("avatar"),
+    uploadPartnerAvatar,
+  );
+  app.delete("/api/partners/me/avatar", deletePartnerAvatar);
+  app.get("/api/partners/missions", listPartnerMissions);
+  app.get("/api/partners/missions/:jobId", zParams(JobIdParams), getPartnerMission);
+  app.post(
+    "/api/partners/deliverables/:deliverableId/upload",
+    zParams(DeliverableIdParams),
+    express.raw({ type: () => true, limit: "30mb" }),
+    uploadPartnerDeliverableFile,
+  );
+  app.post(
+    "/api/partners/missions/:jobId/invoice-request",
+    zParams(JobIdParams),
+    zBody(RequestPartnerInvoiceSchema),
+    requestPartnerInvoice,
+  );
+
+  // ── Partner Messaging ───────────────────────────────────────────────────
+  app.get("/api/partners/messages/threads", listPartnerMessageThreads);
+  app.get(
+    "/api/partners/messages/threads/:threadId",
+    zParams(ThreadIdParams),
+    getPartnerThreadMessages,
+  );
+  app.post("/api/partners/messages/threads/:threadId", zParams(ThreadIdParams), zBody(SendPartnerMessageSchema), sendPartnerMessage);
+  app.post(
+    "/api/partners/messages/threads/:threadId/with-attachments",
+    zParams(ThreadIdParams),
+    zBody(PartnerSendMessageWithAttachmentsSchema),
+    partnerSendMessageWithAttachments,
+  );
+  app.post(
+    "/api/partners/messages/threads/:threadId/read",
+    zParams(ThreadIdParams),
+    markPartnerThreadRead,
+  );
+
+  // ── Partner Unread count & Notifications ────────────────────────────────
+  app.get("/api/partners/media/messages/unread-count", getPartnerUnreadCount);
+  app.get("/api/partners/media/notifications", getPartnerNotifications);
+  app.post("/api/partners/media/notifications/:id/read", zParams(zIdParam), markNotificationRead);
+  app.post(
+    "/api/partners/media/notifications/read-all",
+    markAllNotificationsRead,
+  );
+  app.delete(
+    "/api/partners/media/notifications/:id",
+    zParams(zIdParam),
+    deletePartnerNotification,
+  );
+
+  // ── Partner Blogger Portal ──────────────────────────────────────────────
+  app.get("/api/partner/blogger/articles", listPartnerBloggerArticles);
+  app.get("/api/partner/blogger/articles/:id", zParams(zIdParam), getPartnerBloggerArticle);
+  app.post("/api/partner/blogger/articles", zBody(CreatePartnerBloggerArticleSchema), createPartnerBloggerArticle);
+  app.post("/api/partner/blogger/articles/:id", zParams(zIdParam), zBody(UpdatePartnerBloggerArticleSchema), updatePartnerBloggerArticle);
+  app.post(
+    "/api/partner/blogger/articles/:id/submit",
+    zParams(zIdParam),
+    submitPartnerBloggerArticleForModeration,
+  );
+  app.get(
+    "/api/partner/blogger/articles/:id/payment-status",
+    zParams(zIdParam),
+    getPartnerBloggerArticlePaymentStatus,
+  );
+  app.post(
+    "/api/partner/blogger/articles/:id/request-payment",
+    zParams(zIdParam),
+    requestPartnerBloggerArticlePayment,
+  );
+  app.get("/api/partner/blogger/stats", getPartnerBloggerStats);
+
+  // ── Admin Production (Media Factory) ────────────────────────────────────
+  app.get("/api/admin/production/jobs", zQuery(ListAdminMediaJobsQuery), listAdminMediaFactoryJobs);
+  app.get("/api/admin/production/jobs/:id", zParams(zIdParam), getAdminMediaFactoryJob);
+  app.post(
+    "/api/admin/production/jobs/:id/update",
+    zParams(zIdParam),
+    zBody(UpdateAdminMediaFactoryJobSchema),
+    updateAdminMediaFactoryJob,
+  );
+  app.post(
+    "/api/admin/production/jobs/:id/brief/approve",
+    zParams(zIdParam),
+    zBody(ApproveAdminMediaBriefSchema),
+    approveAdminMediaBrief,
+  );
+  app.post(
+    "/api/admin/production/jobs/:id/schedule-slots",
+    zParams(zIdParam),
+    zBody(CreateAdminMediaScheduleSlotSchema),
+    createAdminMediaScheduleSlot,
+  );
+  app.post(
+    "/api/admin/production/deliverables/:id/assign-partner",
+    zParams(zIdParam),
+    zBody(AssignAdminDeliverablePartnerSchema),
+    assignAdminDeliverablePartner,
+  );
+  app.post(
+    "/api/admin/production/deliverables/:id/review",
+    zParams(zIdParam),
+    zBody(ReviewAdminDeliverableSchema),
+    reviewAdminDeliverable,
+  );
+  app.post(
+    "/api/admin/production/jobs/:id/checkin-token",
+    zParams(zIdParam),
+    createAdminMediaCheckinToken,
+  );
+  app.get(
+    "/api/admin/production/jobs/:id/brief.pdf",
+    zParams(zIdParam),
+    zQuery(AdminMediaBriefPdfQuery),
+    generateAdminMediaBriefPdf,
+  );
+
+  // ── Admin Compta (Invoice management) ───────────────────────────────────
+  app.get(
+    "/api/admin/production/invoice-requests",
+    zQuery(ListAdminInvoiceRequestsQuery),
+    listAdminPartnerInvoiceRequests,
+  );
+  app.post(
+    "/api/admin/production/invoice-requests/:id",
+    zParams(zIdParam),
+    zBody(UpdateAdminInvoiceRequestSchema),
+    updateAdminInvoiceRequest,
+  );
+
+  // ── Admin Partner Management ────────────────────────────────────────────
+  app.get("/api/admin/partners", listAdminPartners);
+  app.get("/api/admin/partners/:id", zParams(zIdParam), getAdminPartner);
+  app.post("/api/admin/partners", zBody(CreateAdminPartnerSchema), createAdminPartner);
+  app.post("/api/admin/partners/:id", zParams(zIdParam), zBody(UpdateAdminPartnerSchema), updateAdminPartner);
+  app.post("/api/admin/partners/:id/billing", zParams(zIdParam), zBody(UpdateAdminPartnerBillingSchema), updateAdminPartnerBilling);
+
+  // ── Public media check-in (no auth required) ───────────────────────────
+  app.get("/api/media/checkin/:token", zParams(MediaCheckinTokenParams), getPublicMediaCheckinInfo);
+  app.post("/api/media/checkin", zBody(PublicMediaCheckinSchema), publicMediaCheckin);
+
+  // ── Admin Messaging (Media Factory) ─────────────────────────────────────
+  app.get("/api/admin/production/messages/threads", zQuery(ListAdminMediaThreadsQuery), listAdminMessageThreads);
+  app.get(
+    "/api/admin/production/messages/threads/:threadId",
+    zParams(ThreadIdParams),
+    getAdminThreadMessages,
+  );
+  app.post(
+    "/api/admin/production/messages/threads/:threadId",
+    zParams(ThreadIdParams),
+    zBody(SendAdminMessageSchema),
+    sendAdminMessage,
+  );
+  app.post(
+    "/api/admin/production/messages/threads/:threadId/read",
+    zParams(ThreadIdParams),
+    markAdminThreadRead,
+  );
+  app.post(
+    "/api/admin/production/messages/threads/:threadId/close",
+    zParams(ThreadIdParams),
+    closeAdminThread,
+  );
+  app.post(
+    "/api/admin/production/messages/threads/:threadId/reopen",
+    zParams(ThreadIdParams),
+    reopenAdminThread,
+  );
+  app.get(
+    "/api/admin/production/communication-logs",
+    zQuery(ListAdminCommunicationLogsQuery),
+    listAdminCommunicationLogs,
+  );
+  app.post(
+    "/api/admin/production/jobs/:jobId/communication-logs",
+    zParams(JobIdParams),
+    zBody(CreateAdminCommunicationLogSchema),
+    createAdminCommunicationLog,
+  );
+
+  // ── Admin Quick Reply Templates ─────────────────────────────────────────
+  app.get("/api/admin/production/quick-replies", zQuery(ListQuickReplyTemplatesQuery), listQuickReplyTemplates);
+  app.post("/api/admin/production/quick-replies", zBody(CreateQuickReplyTemplateSchema), createQuickReplyTemplate);
+  app.post(
+    "/api/admin/production/quick-replies/:id",
+    zParams(zIdParam),
+    zBody(UpdateQuickReplyTemplateSchema),
+    updateQuickReplyTemplate,
+  );
+  app.delete(
+    "/api/admin/production/quick-replies/:id",
+    zParams(zIdParam),
+    deleteQuickReplyTemplate,
+  );
+
+  // ── Admin Read receipts ─────────────────────────────────────────────────
+  app.get(
+    "/api/admin/production/messages/:messageId/reads",
+    zParams(MessageIdParams),
+    getMessageReadReceipts,
+  );
+
+  // ── Admin Attachments ───────────────────────────────────────────────────
+  app.get("/api/admin/production/attachments/:id/url", zParams(zIdParam), getAttachmentUrl);
+  app.get(
+    "/api/admin/production/messages/:messageId/attachments",
+    zParams(MessageIdParams),
+    getMessageAttachments,
+  );
+  app.post(
+    "/api/admin/production/messages/threads/:threadId/with-attachments",
+    zParams(ThreadIdParams),
+    zBody(AdminSendMessageWithAttachmentsSchema),
+    adminSendMessageWithAttachments,
+  );
+
+  // ── Admin Media Notifications ───────────────────────────────────────────
+  app.get("/api/admin/production/notifications", getAdminNotifications);
+
+  // ── Pro Media Factory ───────────────────────────────────────────────────
+  app.get(
+    "/api/pro/establishments/:establishmentId/media/jobs",
+    zParams(MediaEstablishmentIdParams),
+    listProMediaJobs,
+  );
+  app.get(
+    "/api/pro/establishments/:establishmentId/media/jobs/:jobId",
+    zParams(EstablishmentIdJobIdParams),
+    getProMediaJob,
+  );
+  app.post(
+    "/api/pro/establishments/:establishmentId/media/jobs/:jobId/brief/save",
+    zParams(EstablishmentIdJobIdParams),
+    zBody(SaveProMediaBriefDraftSchema),
+    saveProMediaBriefDraft,
+  );
+  app.post(
+    "/api/pro/establishments/:establishmentId/media/jobs/:jobId/brief/submit",
+    zParams(EstablishmentIdJobIdParams),
+    zBody(SubmitProMediaBriefSchema),
+    submitProMediaBrief,
+  );
+  app.post(
+    "/api/pro/establishments/:establishmentId/media/jobs/:jobId/schedule/select",
+    zParams(EstablishmentIdJobIdParams),
+    zBody(SelectProMediaScheduleSlotSchema),
+    selectProMediaScheduleSlot,
+  );
+  app.post("/api/pro/media/checkin/confirm", zBody(ConfirmProMediaCheckinSchema), confirmProMediaCheckin);
+
+  // ── Pro Messaging (Media Factory) ───────────────────────────────────────
+  app.get(
+    "/api/pro/establishments/:establishmentId/media/messages/threads",
+    zParams(MediaEstablishmentIdParams),
+    zQuery(ListProMediaThreadsQuery),
+    listProMessageThreads,
+  );
+  app.get(
+    "/api/pro/establishments/:establishmentId/media/messages/threads/:threadId",
+    zParams(EstablishmentIdThreadIdParams),
+    getProThreadMessages,
+  );
+  app.post(
+    "/api/pro/establishments/:establishmentId/media/messages/threads/:threadId",
+    zParams(EstablishmentIdThreadIdParams),
+    zBody(SendProMessageSchema),
+    sendProMessage,
+  );
+  app.post(
+    "/api/pro/establishments/:establishmentId/media/messages/threads/:threadId/with-attachments",
+    zParams(EstablishmentIdThreadIdParams),
+    zBody(ProSendMessageWithAttachmentsSchema),
+    proSendMessageWithAttachments,
+  );
+  app.post(
+    "/api/pro/establishments/:establishmentId/media/messages/threads/:threadId/read",
+    zParams(EstablishmentIdThreadIdParams),
+    markProThreadRead,
+  );
+
+  // ── Pro Unread count & Notifications ────────────────────────────────────
+  app.get(
+    "/api/pro/establishments/:establishmentId/media/messages/unread-count",
+    zParams(MediaEstablishmentIdParams),
+    getProUnreadCount,
+  );
+  app.get("/api/pro/media/notifications", getProNotifications);
+  app.post("/api/pro/media/notifications/:id/read", zParams(zIdParam), markNotificationRead);
+  app.post("/api/pro/media/notifications/read-all", markAllNotificationsRead);
+}

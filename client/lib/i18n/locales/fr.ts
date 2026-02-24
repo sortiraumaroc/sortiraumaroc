@@ -234,6 +234,7 @@ const fr: Record<TranslationKey, string> = {
     "footer.install_app": "Installer l'application",
 
     "footer.copyright_suffix": ". Tous droits réservés.",
+    "footer.ramadan_moubarak": "Ramadan Moubarak",
 
     // PWA
     "pwa.update_available": "Nouvelle version disponible",
@@ -385,6 +386,16 @@ const fr: Record<TranslationKey, string> = {
     "home.sections.themed.ramadan": "Sélection Ftour & Shour",
     "home.sections.ramadan.title": "Spécial Ramadan",
     "home.sections.ramadan.subtitle": "Découvrez les meilleures formules Ftour",
+
+    // Thème Mille et Une Nuits — Ramadan 2026
+    "home.ramadan.hero.title": "Ramadan Moubarak",
+    "home.ramadan.hero.subtitle": "Vivez des soirées d'exception avec les meilleures adresses du Maroc",
+    "home.ramadan.announcement": "Ramadan Moubarak ! Découvrez nos offres spéciales Ftour & S'hour",
+    "home.ramadan.cta.title": "Vivez un Ramadan d'exception",
+    "home.ramadan.cta.description": "Les meilleures tables du Royaume vous attendent pour un Ftour inoubliable",
+    "home.ramadan.cta.button": "Voir les offres Ramadan",
+    "home.ramadan.category.ftour": "Ftour Ramadan",
+    "home.ramadan.badge.ftour": "Ftour",
 
     "home.categories.restaurants.title": "Votre envie du moment ?",
     "home.categories.sport.title": "Quelle activité vous tente ?",
@@ -770,7 +781,7 @@ const fr: Record<TranslationKey, string> = {
 
     // Booking (high priority paths)
     "booking.steps.details": "Détails",
-    "booking.steps.payment": "Paiement",
+    "booking.steps.payment": "Résumé",
     "booking.steps.info": "Infos",
     "booking.steps.confirmation": "Confirmation",
     "booking.step_header.label": "ÉTAPE {step} SUR {total}",
@@ -980,6 +991,7 @@ const fr: Record<TranslationKey, string> = {
     "booking.form.placeholder.last_name": "Ex: Benali",
     "booking.form.placeholder.email": "Ex: amina@example.com",
     "booking.form.placeholder.phone": "Ex: +212 6 12 34 56 78",
+    "booking.form.placeholder.phone_local": "6 12 34 56 78",
     "booking.form.placeholder.message": "Ex: Allergies, occasion spéciale…",
     "booking.form.placeholder.message_long":
       "Décrivez l'occasion (anniversaire, rendez-vous...), mentionnez régimes alimentaires, ou demandes spéciales...",
@@ -1004,7 +1016,7 @@ const fr: Record<TranslationKey, string> = {
     "booking.step4.banner.body.confirmed":
       "Votre place est garantie. Un SMS de confirmation a été envoyé.",
     "booking.step4.banner.body.pending":
-      "Le restaurant confirmera votre réservation par SMS ou WhatsApp sous peu.",
+      "Le restaurant confirmera votre réservation par SMS ou e-mail sous peu.",
 
     "booking.step4.contact.title": "CONTACT",
     "booking.step4.contact.confirmation_sent":

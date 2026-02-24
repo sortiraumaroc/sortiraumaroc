@@ -1,6 +1,11 @@
 import type { RequestHandler, Router } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { requireAdminKey, requireSuperadmin } from "./admin";
+import { createModuleLogger } from "../lib/logger";
+import { zBody } from "../lib/validate";
+import { AdminActivityHeartbeatSchema } from "../schemas/adminActivityTracking";
+
+const log = createModuleLogger("adminActivityTracking");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Admin Activity Tracking — heartbeat-based active time measurement
@@ -11,7 +16,7 @@ export function registerAdminActivityTrackingRoutes(router: Router): void {
   // Called every 30s by the client activity tracker for any logged-in admin.
   // Stores a heartbeat with the number of active seconds detected since last tick.
   // ──────────────────────────────────────────────────────────────────────────
-  router.post("/api/admin/activity/heartbeat", (async (req, res) => {
+  router.post("/api/admin/activity/heartbeat", zBody(AdminActivityHeartbeatSchema), (async (req, res) => {
     if (!requireAdminKey(req, res)) return;
 
     try {
@@ -45,13 +50,13 @@ export function registerAdminActivityTrackingRoutes(router: Router): void {
       });
 
       if (error) {
-        console.error("[activity-heartbeat] insert error:", error.message);
+        log.error({ err: error.message }, "heartbeat insert error");
         return res.status(500).json({ error: "Failed to record heartbeat" });
       }
 
       return res.json({ ok: true });
     } catch (err: any) {
-      console.error("[activity-heartbeat] error:", err?.message ?? err);
+      log.error({ err }, "heartbeat error");
       return res.status(500).json({ error: "Internal error" });
     }
   }) as RequestHandler);
@@ -94,17 +99,17 @@ export function registerAdminActivityTrackingRoutes(router: Router): void {
       ]);
 
       if (activityResult.error) {
-        console.error("[activity-stats] rpc get_admin_activity_stats error:", activityResult.error.message);
+        log.error({ err: activityResult.error.message }, "rpc get_admin_activity_stats error");
         return res.status(500).json({ error: "Failed to fetch activity stats" });
       }
 
       if (establishmentResult.error) {
-        console.error("[activity-stats] rpc get_admin_establishment_counts error:", establishmentResult.error.message);
+        log.error({ err: establishmentResult.error.message }, "rpc get_admin_establishment_counts error");
         return res.status(500).json({ error: "Failed to fetch establishment counts" });
       }
 
       if (collaboratorsResult.error) {
-        console.error("[activity-stats] collaborators query error:", collaboratorsResult.error.message);
+        log.error({ err: collaboratorsResult.error.message }, "collaborators query error");
         return res.status(500).json({ error: "Failed to fetch collaborators" });
       }
 
@@ -178,7 +183,7 @@ export function registerAdminActivityTrackingRoutes(router: Router): void {
         collaborators,
       });
     } catch (err: any) {
-      console.error("[activity-stats] error:", err?.message ?? err);
+      log.error({ err }, "activity stats error");
       return res.status(500).json({ error: "Internal error" });
     }
   }) as RequestHandler);

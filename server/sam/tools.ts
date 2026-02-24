@@ -20,6 +20,9 @@ import {
   getEstablishmentPacks,
 } from "../lib/samDataAccess";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("samTools");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,8 +71,8 @@ async function hasUserConfirmation(conversationId: string): Promise<boolean> {
       }
     }
     return false;
-  } catch {
-    // En cas d'erreur DB, on laisse passer (best-effort)
+  } catch (err) {
+    log.warn({ err }, "Best-effort: booking confirmation check failed, allowing");
     return true;
   }
 }
@@ -450,6 +453,35 @@ export const SAM_TOOLS: ChatCompletionTool[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Tool selection by mode (general vs establishment-scoped)
+// ---------------------------------------------------------------------------
+
+/**
+ * Retourne les tools appropriés selon le mode.
+ * En mode scoped (establishment page), on retire les tools de recherche générale
+ * car toutes les infos sont déjà injectées dans le system prompt.
+ */
+export function getToolsForMode(
+  establishmentId?: string,
+): ChatCompletionTool[] {
+  if (!establishmentId) return SAM_TOOLS;
+
+  const SCOPED_EXCLUDED = new Set([
+    "search_establishments",
+    "get_trending",
+    "get_categories",
+    "get_popular_searches",
+    "surprise_me",
+    "get_establishment_details", // Déjà dans le prompt
+    "get_establishment_packs", // Déjà dans le prompt
+  ]);
+
+  return SAM_TOOLS.filter(
+    (t) => !SCOPED_EXCLUDED.has(t.function.name),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Exécution des tools
 // ---------------------------------------------------------------------------
 
@@ -627,7 +659,8 @@ export async function executeTool(
           .eq("id", context.conversationId);
 
         return { data: { ok: true, preferences: updated } };
-      } catch {
+      } catch (err) {
+        log.warn({ err }, "Failed to persist user preferences");
         return { data: { ok: true, note: "Failed to persist preferences" } };
       }
     }
@@ -649,7 +682,7 @@ export async function executeTool(
             .eq("id", context.conversationId)
             .single();
           preferences = ((conv?.metadata as any)?.preferences as Record<string, unknown>) ?? {};
-        } catch { /* ignore */ }
+        } catch { /* intentional: conversation metadata may not exist */ }
       }
 
       // Recherche avec tri "best" pour avoir les mieux notés

@@ -7,6 +7,10 @@
  */
 
 import type { Router, Request, Response } from "express";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("reservationV2Cron");
+
 import {
   expireUnprocessedReservations,
   remindProUnprocessedReservations,
@@ -45,7 +49,7 @@ async function cronExpireUnprocessed(req: Request, res: Response) {
     const result = await expireUnprocessedReservations();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[cronExpireUnprocessed] Error:", err);
+    log.error({ err }, "cronExpireUnprocessed error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 }
@@ -56,7 +60,7 @@ async function cronRemindProUnprocessed(req: Request, res: Response) {
     const result = await remindProUnprocessedReservations();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[cronRemindProUnprocessed] Error:", err);
+    log.error({ err }, "cronRemindProUnprocessed error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 }
@@ -67,7 +71,7 @@ async function cronVenueConfirmationH12(req: Request, res: Response) {
     const result = await requestVenueConfirmation();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[cronVenueConfirmationH12] Error:", err);
+    log.error({ err }, "cronVenueConfirmationH12 error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 }
@@ -78,7 +82,7 @@ async function cronVenueConfirmationH18(req: Request, res: Response) {
     const result = await remindVenueConfirmation();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[cronVenueConfirmationH18] Error:", err);
+    log.error({ err }, "cronVenueConfirmationH18 error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 }
@@ -89,7 +93,7 @@ async function cronAutoValidateH24(req: Request, res: Response) {
     const result = await autoValidateVenue();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[cronAutoValidateH24] Error:", err);
+    log.error({ err }, "cronAutoValidateH24 error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 }
@@ -100,7 +104,7 @@ async function cronExpireNoShowDisputes(req: Request, res: Response) {
     const result = await expireNoShowDisputesCron();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[cronExpireNoShowDisputes] Error:", err);
+    log.error({ err }, "cronExpireNoShowDisputes error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 }
@@ -111,7 +115,7 @@ async function cronFreezeBuffer(req: Request, res: Response) {
     const result = await freezeBufferSlots();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[cronFreezeBuffer] Error:", err);
+    log.error({ err }, "cronFreezeBuffer error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 }
@@ -122,7 +126,7 @@ async function cronUpgradeReminders(req: Request, res: Response) {
     const result = await sendUpgradeReminders();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[cronUpgradeReminders] Error:", err);
+    log.error({ err }, "cronUpgradeReminders error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 }
@@ -133,7 +137,7 @@ async function cronRecalcProTrust(req: Request, res: Response) {
     const result = await recalculateProTrustScores();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[cronRecalcProTrust] Error:", err);
+    log.error({ err }, "cronRecalcProTrust error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 }
@@ -144,7 +148,7 @@ async function cronLiftClientSuspensions(req: Request, res: Response) {
     const result = await autoLiftClientSuspensionsCron();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[cronLiftClientSuspensions] Error:", err);
+    log.error({ err }, "cronLiftClientSuspensions error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 }
@@ -155,7 +159,7 @@ async function cronLiftProDeactivations(req: Request, res: Response) {
     const result = await autoLiftProDeactivationsCron();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[cronLiftProDeactivations] Error:", err);
+    log.error({ err }, "cronLiftProDeactivations error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 }
@@ -166,7 +170,7 @@ async function cronDetectPatterns(req: Request, res: Response) {
     const result = await detectScoringPatterns();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[cronDetectPatterns] Error:", err);
+    log.error({ err }, "cronDetectPatterns error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 }
@@ -177,7 +181,7 @@ async function cronExpireQuotes(req: Request, res: Response) {
     const result = await expireQuotesCron();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[cronExpireQuotes] Error:", err);
+    log.error({ err }, "cronExpireQuotes error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 }
@@ -197,7 +201,7 @@ async function cronRunAll(req: Request, res: Response) {
     const results = await runAllCronJobs({ only, smart });
     res.json({ ok: true, jobsRun: results.length, results });
   } catch (err) {
-    console.error("[cronRunAll] Error:", err);
+    log.error({ err }, "cronRunAll error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 }

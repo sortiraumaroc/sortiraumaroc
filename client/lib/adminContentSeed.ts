@@ -311,12 +311,12 @@ const SEED_PAGES: readonly SeedPage[] = [
       }),
       bullets({
         fr: [
-          "Email support : support@sortiraumaroc.ma",
+          "Email support : support@sam.ma",
           "Délai cible : réponse sous 48h ouvrées",
           "En cas d’urgence liée à une réservation imminente : mentionnez URGENT dans l’objet",
         ],
         en: [
-          "Support email: support@sortiraumaroc.ma",
+          "Support email: support@sam.ma",
           "Target response time: within 2 business days",
           "For urgent issues about an imminent booking: include URGENT in the subject",
         ],
@@ -827,8 +827,8 @@ const SEED_PAGES: readonly SeedPage[] = [
       toc(),
       heading({ anchor: "editor", fr: "1. Éditeur du Service", en: "1. Service publisher" }),
       paragraph({
-        fr: "Sortir Au Maroc (dénomination commerciale). Adresse provisoire : Casablanca, Maroc. Contact : support@sortiraumaroc.ma.",
-        en: "Sortir Au Maroc (brand name). Provisional address: Casablanca, Morocco. Contact: support@sortiraumaroc.ma.",
+        fr: "Sortir Au Maroc (dénomination commerciale). Adresse provisoire : Casablanca, Maroc. Contact : support@sam.ma.",
+        en: "Sortir Au Maroc (brand name). Provisional address: Casablanca, Morocco. Contact: support@sam.ma.",
       }),
       heading({ anchor: "hosting", fr: "2. Hébergement", en: "2. Hosting" }),
       paragraph({

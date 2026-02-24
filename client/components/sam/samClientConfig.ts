@@ -286,3 +286,38 @@ export const SAM_CONFIG = {
   // Keep backward-compat defaults
   ...UNIVERSE_CONFIGS.default,
 } as const;
+
+// ---------------------------------------------------------------------------
+// Establishment-scoped mode config
+// ---------------------------------------------------------------------------
+
+export const ESTABLISHMENT_SCOPED_CONFIG = {
+  welcomeMessage: {
+    fr: (name: string) =>
+      `Salut ! Je suis Sam, ton assistant pour **${name}**. Pose-moi tes questions sur le menu, les offres, les horaires, ou réserve directement ! 🌟`,
+    en: (name: string) =>
+      `Hi! I'm Sam, your assistant for **${name}**. Ask me about the menu, offers, hours, or book directly! 🌟`,
+    ar: (name: string) =>
+      `أهلاً! أنا سام، مساعدك في **${name}**. اسألني عن القائمة والعروض أو احجز مباشرة! 🌟`,
+  },
+  suggestions: {
+    fr: [
+      "Montre-moi le menu",
+      "Quels sont les packs disponibles ?",
+      "Je voudrais réserver",
+      "Y a-t-il des offres Ramadan ?",
+    ],
+    en: [
+      "Show me the menu",
+      "What packs are available?",
+      "I'd like to book",
+      "Any Ramadan offers?",
+    ],
+    ar: [
+      "أرني القائمة",
+      "ما هي الباقات المتوفرة؟",
+      "أريد الحجز",
+      "هل هناك عروض رمضان؟",
+    ],
+  },
+};

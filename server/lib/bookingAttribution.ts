@@ -101,7 +101,7 @@ export function getBookingAttribution(req: Request): BookingAttribution | null {
       timestamp: data.t,
       source: "direct_link",
     };
-  } catch {
+  } catch { /* intentional: cookie may be malformed or expired */
     return null;
   }
 }

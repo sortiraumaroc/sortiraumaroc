@@ -11,10 +11,26 @@
  */
 
 import type { Request, Response } from "express";
+import type { Express } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
 import crypto from "crypto";
 import Twilio from "twilio";
 import { isTrustedDevice, issueTrustedDevice, revokeAllTrustedDevices } from "../trustedDeviceLogic";
+import { createModuleLogger } from "../lib/logger";
+import { authRateLimiter } from "../middleware/rateLimiter";
+import { zBody } from "../lib/validate";
+import {
+  sendCodeSchema,
+  verifyCodeSchema,
+  verifyLoginSchema,
+  lookupSchema,
+  loginPasswordSchema,
+  trustedLoginSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+} from "../schemas/twilioAuth";
+
+const log = createModuleLogger("twilioAuth");
 
 // Twilio configuration
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
@@ -207,7 +223,7 @@ export async function sendPhoneCode(req: Request, res: Response): Promise<void> 
       attempts: 0,
     });
 
-    console.log(`[TwilioAuth] Sending OTP via SMS to: ${cleanPhone}`);
+    log.info({ phone: cleanPhone }, "sending OTP via SMS");
 
     // Send SMS via Twilio Messages API (not Verify)
     const message = await client.messages.create({
@@ -216,7 +232,7 @@ export async function sendPhoneCode(req: Request, res: Response): Promise<void> 
       body: `Sortir Au Maroc : votre code de vérification est ${otpCode}. Il expire dans 5 minutes.`,
     });
 
-    console.log("[TwilioAuth] SMS sent, SID:", message.sid, "status:", message.status);
+    log.info({ sid: message.sid, status: message.status }, "SMS sent");
 
     res.json({
       success: true,
@@ -224,7 +240,7 @@ export async function sendPhoneCode(req: Request, res: Response): Promise<void> 
       message: "Code de vérification envoyé par SMS",
     });
   } catch (error: unknown) {
-    console.error("[TwilioAuth] Error sending SMS:", error);
+    log.error({ err: error }, "error sending SMS");
 
     const twilioError = error as { code?: number; message?: string; status?: number };
 
@@ -293,7 +309,7 @@ export async function verifyPhoneCode(req: Request, res: Response): Promise<void
     // Code is valid — delete it so it can't be reused
     otpStore.delete(cleanPhone);
 
-    console.log("[TwilioAuth] OTP verified for:", cleanPhone);
+    log.info({ phone: cleanPhone }, "OTP verified");
 
     // ─── Phone verified! Now create or find the Supabase user ───
     //
@@ -316,7 +332,7 @@ export async function verifyPhoneCode(req: Request, res: Response): Promise<void
 
     if (existingAuthUser) {
       // User already exists — refuse signup, they should login instead
-      console.log("[TwilioAuth] Phone already registered:", cleanPhone, "userId:", existingAuthUser.id);
+      log.info({ phone: cleanPhone, userId: existingAuthUser.id }, "phone already registered");
       res.status(409).json({
         error: "Un compte existe déjà avec ce numéro de téléphone",
         code: "PHONE_ALREADY_EXISTS",
@@ -343,7 +359,7 @@ export async function verifyPhoneCode(req: Request, res: Response): Promise<void
         });
 
       if (authError) {
-        console.error("[TwilioAuth] Error creating auth user:", authError);
+        log.error({ err: authError }, "error creating auth user");
         res.status(500).json({ error: "Échec de la création du compte" });
         return;
       }
@@ -366,10 +382,10 @@ export async function verifyPhoneCode(req: Request, res: Response): Promise<void
         .single();
 
       if (profileError) {
-        console.error("[TwilioAuth] Error creating consumer profile:", profileError);
+        log.error({ err: profileError }, "error creating consumer profile");
       }
 
-      console.log("[TwilioAuth] New user created:", userId);
+      log.info({ userId }, "new user created");
 
       // Handle referral code if provided (only for new users)
       if (referralCode && typeof referralCode === "string" && consumerUser?.id) {
@@ -391,13 +407,13 @@ export async function verifyPhoneCode(req: Request, res: Response): Promise<void
               });
 
             if (linkError) {
-              console.warn("[TwilioAuth] Failed to create referral link:", linkError);
+              log.warn({ err: linkError }, "failed to create referral link");
             } else {
-              console.log("[TwilioAuth] Referral link created for user:", consumerUser.id);
+              log.info({ userId: consumerUser.id }, "referral link created");
             }
           }
         } catch (refError) {
-          console.error("[TwilioAuth] Error processing referral:", refError);
+          log.error({ err: refError }, "error processing referral");
         }
       }
     }
@@ -413,7 +429,7 @@ export async function verifyPhoneCode(req: Request, res: Response): Promise<void
       });
 
     if (sessionError) {
-      console.error("[TwilioAuth] Error generating session:", sessionError);
+      log.error({ err: sessionError }, "error generating session");
       res.status(500).json({ error: "Échec de la création de la session" });
       return;
     }
@@ -433,8 +449,8 @@ export async function verifyPhoneCode(req: Request, res: Response): Promise<void
             is_new_user: isNewUser,
           },
         });
-    } catch {
-      /* ignore logging errors */
+    } catch (err) {
+      log.warn({ err }, "Best-effort: auth audit log failed");
     }
 
     // Issue trusted device cookie for new user (best-effort, non-blocking)
@@ -447,7 +463,7 @@ export async function verifyPhoneCode(req: Request, res: Response): Promise<void
       actionLink: sessionData?.properties?.action_link,
     });
   } catch (error: unknown) {
-    console.error("[TwilioAuth] Unexpected error:", error);
+    log.error({ err: error }, "unexpected error in verifyPhoneCode");
     res.status(500).json({ error: "Erreur de vérification" });
   }
 }
@@ -507,7 +523,7 @@ export async function verifyPhoneLogin(req: Request, res: Response): Promise<voi
     // Code is valid — delete it
     otpStore.delete(cleanPhone);
 
-    console.log("[TwilioAuth] Login OTP verified for:", cleanPhone);
+    log.info({ phone: cleanPhone }, "login OTP verified");
 
     const supabase = getAdminSupabase();
     const phoneEmail = `${cleanPhone.replace(/\+/g, "")}@phone.sortiraumaroc.ma`;
@@ -532,7 +548,7 @@ export async function verifyPhoneLogin(req: Request, res: Response): Promise<voi
       });
 
     if (sessionError) {
-      console.error("[TwilioAuth] Error generating login session:", sessionError);
+      log.error({ err: sessionError }, "error generating login session");
       res.status(500).json({ error: "Échec de la création de la session" });
       return;
     }
@@ -552,8 +568,8 @@ export async function verifyPhoneLogin(req: Request, res: Response): Promise<voi
             is_new_user: false,
           },
         });
-    } catch {
-      /* ignore logging errors */
+    } catch (err) {
+      log.warn({ err }, "Best-effort: auth audit log failed");
     }
 
     // Issue trusted device cookie (best-effort, non-blocking)
@@ -566,7 +582,7 @@ export async function verifyPhoneLogin(req: Request, res: Response): Promise<voi
       actionLink: sessionData?.properties?.action_link,
     });
   } catch (error: unknown) {
-    console.error("[TwilioAuth] Phone login verify error:", error);
+    log.error({ err: error }, "phone login verify error");
     res.status(500).json({ error: "Erreur de vérification" });
   }
 }
@@ -609,7 +625,7 @@ export async function lookupPhone(req: Request, res: Response): Promise<void> {
       res.json({ exists: false });
     }
   } catch (error) {
-    console.error("[TwilioAuth] Phone lookup error:", error);
+    log.error({ err: error }, "phone lookup error");
     res.json({ exists: false });
   }
 }
@@ -676,7 +692,7 @@ export async function loginPhonePassword(req: Request, res: Response): Promise<v
     });
 
     if (signInErr) {
-      console.log("[TwilioAuth] Password login failed for:", cleanPhone, signInErr.message);
+      log.info({ phone: cleanPhone, errorMessage: signInErr.message }, "password login failed");
       res.status(401).json({ error: "Mot de passe incorrect" });
       return;
     }
@@ -692,7 +708,7 @@ export async function loginPhonePassword(req: Request, res: Response): Promise<v
       });
 
     if (sessionError) {
-      console.error("[TwilioAuth] Error generating login session:", sessionError);
+      log.error({ err: sessionError }, "error generating login session");
       res.status(500).json({ error: "Échec de la création de la session" });
       return;
     }
@@ -712,8 +728,8 @@ export async function loginPhonePassword(req: Request, res: Response): Promise<v
             is_new_user: false,
           },
         });
-    } catch {
-      /* ignore logging errors */
+    } catch (err) {
+      log.warn({ err }, "Best-effort: auth audit log failed");
     }
 
     // Issue trusted device cookie (best-effort, non-blocking)
@@ -726,7 +742,7 @@ export async function loginPhonePassword(req: Request, res: Response): Promise<v
       actionLink: sessionData?.properties?.action_link,
     });
   } catch (error: unknown) {
-    console.error("[TwilioAuth] Phone password login error:", error);
+    log.error({ err: error }, "phone password login error");
     res.status(500).json({ error: "Erreur de connexion" });
   }
 }
@@ -770,7 +786,7 @@ export async function trustedDeviceLogin(req: Request, res: Response): Promise<v
     }
 
     // Step 3: Device is trusted — generate session directly (no OTP needed)
-    console.log("[TwilioAuth] Trusted device login for:", cleanPhone);
+    log.info({ phone: cleanPhone }, "trusted device login");
 
     const userEmail = existingUser.email || phoneEmail;
     const { data: sessionData, error: sessionError } =
@@ -783,7 +799,7 @@ export async function trustedDeviceLogin(req: Request, res: Response): Promise<v
       });
 
     if (sessionError) {
-      console.error("[TwilioAuth] Error generating trusted device session:", sessionError);
+      log.error({ err: sessionError }, "error generating trusted device session");
       res.status(500).json({ trusted: false, error: "Échec de la création de la session" });
       return;
     }
@@ -803,8 +819,8 @@ export async function trustedDeviceLogin(req: Request, res: Response): Promise<v
             is_new_user: false,
           },
         });
-    } catch {
-      /* ignore logging errors */
+    } catch (err) {
+      log.warn({ err }, "Best-effort: auth audit log failed");
     }
 
     // Refresh the trust token (extend expiry)
@@ -818,7 +834,7 @@ export async function trustedDeviceLogin(req: Request, res: Response): Promise<v
       actionLink: sessionData?.properties?.action_link,
     });
   } catch (error: unknown) {
-    console.error("[TwilioAuth] Trusted device login error:", error);
+    log.error({ err: error }, "trusted device login error");
     res.json({ trusted: false });
   }
 }
@@ -917,7 +933,7 @@ export async function forgotPhonePassword(req: Request, res: Response): Promise<
     // Send code via chosen channel
     const client = getTwilioClient();
     if (!client) {
-      console.error("[TwilioAuth] Twilio not configured for password reset");
+      log.error("Twilio not configured for password reset");
       res.status(500).json({ error: "Service SMS indisponible" });
       return;
     }
@@ -938,11 +954,11 @@ export async function forgotPhonePassword(req: Request, res: Response): Promise<
       });
     }
 
-    console.log(`[TwilioAuth] Password reset code sent via ${channel} to:`, cleanPhone);
+    log.info({ channel, phone: cleanPhone }, "password reset code sent");
 
     res.json({ success: true });
   } catch (error: unknown) {
-    console.error("[TwilioAuth] Forgot password error:", error);
+    log.error({ err: error }, "forgot password error");
     res.status(500).json({ error: "Erreur lors de l'envoi du code" });
   }
 }
@@ -1014,7 +1030,7 @@ export async function resetPhonePassword(req: Request, res: Response): Promise<v
     );
 
     if (updateErr) {
-      console.error("[TwilioAuth] Password update error:", updateErr);
+      log.error({ err: updateErr }, "password update error");
       res.status(500).json({ error: "Erreur lors de la mise à jour du mot de passe" });
       return;
     }
@@ -1023,10 +1039,10 @@ export async function resetPhonePassword(req: Request, res: Response): Promise<v
     try {
       const revokedCount = await revokeAllTrustedDevices(resetRecord.userId);
       if (revokedCount > 0) {
-        console.log(`[TwilioAuth] Revoked ${revokedCount} trusted devices after password reset for:`, cleanPhone);
+        log.info({ revokedCount, phone: cleanPhone }, "revoked trusted devices after password reset");
       }
-    } catch {
-      /* ignore revocation errors */
+    } catch (err) {
+      log.warn({ err }, "Best-effort: revoke trusted devices after password reset failed");
     }
 
     // Log event
@@ -1043,15 +1059,31 @@ export async function resetPhonePassword(req: Request, res: Response): Promise<v
             method: "phone_reset_code",
           },
         });
-    } catch {
-      /* ignore logging errors */
+    } catch (err) {
+      log.warn({ err }, "Best-effort: auth audit log failed");
     }
 
-    console.log("[TwilioAuth] Password reset successfully for:", cleanPhone);
+    log.info({ phone: cleanPhone }, "password reset successfully");
 
     res.json({ success: true });
   } catch (error: unknown) {
-    console.error("[TwilioAuth] Reset password error:", error);
+    log.error({ err: error }, "reset password error");
     res.status(500).json({ error: "Erreur lors de la réinitialisation" });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerTwilioAuthRoutes(app: Express) {
+  app.post("/api/consumer/auth/phone/send-code", authRateLimiter, zBody(sendCodeSchema), sendPhoneCode);
+  app.post("/api/consumer/auth/phone/verify-code", authRateLimiter, zBody(verifyCodeSchema), verifyPhoneCode);
+  app.post("/api/consumer/auth/phone/verify-login", authRateLimiter, zBody(verifyLoginSchema), verifyPhoneLogin);
+  app.post("/api/consumer/auth/phone/lookup", authRateLimiter, zBody(lookupSchema), lookupPhone);
+  app.post("/api/consumer/auth/phone/login-password", authRateLimiter, zBody(loginPasswordSchema), loginPhonePassword);
+  app.post("/api/consumer/auth/phone/trusted-login", authRateLimiter, zBody(trustedLoginSchema), trustedDeviceLogin);
+  app.post("/api/consumer/auth/phone/forgot-password", authRateLimiter, zBody(forgotPasswordSchema), forgotPhonePassword);
+  app.post("/api/consumer/auth/phone/reset-password", authRateLimiter, zBody(resetPasswordSchema), resetPhonePassword);
+  app.get("/api/consumer/auth/phone/status", checkPhoneAuthStatus);
 }

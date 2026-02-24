@@ -243,8 +243,8 @@ export function AdminPacksModerationDashboard({ className }: { className?: strin
     try {
       const res = await getModerationQueue(filter);
       setPacks(res.packs);
-    } catch {
-      // silent
+    } catch (err) {
+      console.error("[PacksModeration] fetchQueue error:", err);
     } finally {
       setLoading(false);
     }
@@ -280,8 +280,9 @@ export function AdminPacksModerationDashboard({ className }: { className?: strin
           setMsg({ type: "success", text: "Mise en avant retirée" });
           break;
       }
-      fetchQueue();
+      await fetchQueue();
     } catch (e: any) {
+      console.error("[PacksModeration] Action error:", action, packId, e);
       setMsg({ type: "error", text: e.message ?? "Erreur" });
     } finally {
       setActionLoading(false);

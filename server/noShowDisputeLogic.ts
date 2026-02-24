@@ -21,6 +21,9 @@ import { sendTemplateEmail } from "./emailService";
 import { recordNoShow } from "./clientScoringV2";
 import { RESERVATION_TIMINGS } from "../shared/reservationTypesV2";
 import type { DisputeStatus, ClientDisputeResponse } from "../shared/reservationTypesV2";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("noShowDispute");
 
 // =============================================================================
 // Types
@@ -122,7 +125,7 @@ export async function declareNoShow(args: {
     .single();
 
   if (insertError) {
-    console.error("[declareNoShow] Insert error:", insertError);
+    log.error({ err: insertError }, "declareNoShow insert error");
     return { ok: false, error: "failed_to_create_dispute" };
   }
 
@@ -580,7 +583,7 @@ async function notifyClientOfNoShow(args: {
       },
     });
   } catch (err) {
-    console.error("[notifyClientOfNoShow] Error:", err);
+    log.error({ err }, "notifyClientOfNoShow error");
   }
 }
 
@@ -632,7 +635,7 @@ async function notifyArbitrationResult(args: {
       },
     });
   } catch (err) {
-    console.error("[notifyArbitrationResult] Error:", err);
+    log.error({ err }, "notifyArbitrationResult error");
   }
 }
 

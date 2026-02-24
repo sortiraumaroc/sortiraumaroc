@@ -38,7 +38,7 @@ function getMessagingInstance() {
     try {
       messagingInstance = getMessaging(app);
     } catch (error) {
-      console.warn("[PushNotifications] Messaging not supported:", error);
+      // Messaging not supported in this environment
       return null;
     }
   }
@@ -75,7 +75,7 @@ export function getNotificationPermission(): NotificationPermission {
 
 export async function requestNotificationPermission(): Promise<NotificationPermission> {
   if (!("Notification" in window)) {
-    console.warn("[PushNotifications] Notifications not supported");
+    // Notifications not supported
     return "denied";
   }
 
@@ -89,19 +89,19 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
 
 export async function getFCMToken(): Promise<string | null> {
   if (!isPushSupported()) {
-    console.warn("[PushNotifications] Push not supported");
+    // Push not supported
     return null;
   }
 
   const permission = getNotificationPermission();
   if (permission !== "granted") {
-    console.warn("[PushNotifications] Permission not granted");
+    // Permission not granted
     return null;
   }
 
   const messaging = getMessagingInstance();
   if (!messaging) {
-    console.warn("[PushNotifications] Messaging not available");
+    // Messaging not available
     return null;
   }
 
@@ -129,7 +129,7 @@ export async function getFCMToken(): Promise<string | null> {
 export async function registerPushToken(token: string): Promise<boolean> {
   const accessToken = await getConsumerAccessToken();
   if (!accessToken) {
-    console.warn("[PushNotifications] Not authenticated, cannot register token");
+    // Not authenticated, cannot register token
     return false;
   }
 

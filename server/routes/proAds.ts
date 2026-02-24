@@ -9,7 +9,10 @@
 
 import type { Router, RequestHandler } from "express";
 import { randomUUID } from "node:crypto";
+import { createModuleLogger } from "../lib/logger";
 import { getAdminSupabase } from "../supabaseAdmin";
+
+const log = createModuleLogger("proAds");
 import { notifyProMembers } from "../proNotifications";
 import { emitAdminNotification } from "../adminNotifications";
 import { createLacaissePaySessionInternal, buildLacaissePayCheckoutUrlServer } from "./lacaissepay";
@@ -23,6 +26,15 @@ import {
 } from "../ads/types";
 import { validateBid, calculateSuggestedBid } from "../ads/auction";
 import { checkCampaignBudget } from "../ads/billing";
+import { zBody, zParams } from "../lib/validate";
+import {
+  InitiateWalletRechargeSchema,
+  CreateAdCampaignSchema,
+  UpdateAdCampaignSchema,
+  ReserveHomeTakeoverDaySchema,
+  ProAdsIdParams,
+  ProAdsIdCampaignIdParams,
+} from "../schemas/proAds";
 
 // =============================================================================
 // TYPES & HELPERS
@@ -115,7 +127,7 @@ export const getWallet: RequestHandler = async (req, res) => {
         .single();
 
       if (createError) {
-        console.error("[proAds] Error creating wallet:", createError);
+        log.error({ err: createError }, "error creating wallet");
         return res.status(500).json({ error: "Erreur création wallet" });
       }
 
@@ -124,7 +136,7 @@ export const getWallet: RequestHandler = async (req, res) => {
 
     return res.json({ ok: true, wallet });
   } catch (error) {
-    console.error("[proAds] getWallet error:", error);
+    log.error({ err: error }, "getWallet error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -180,13 +192,13 @@ export const getWalletTransactions: RequestHandler = async (req, res) => {
       .range(offset, offset + limit - 1);
 
     if (error) {
-      console.error("[proAds] Error fetching transactions:", error);
+      log.error({ err: error }, "error fetching transactions");
       return res.status(500).json({ error: "Erreur récupération transactions" });
     }
 
     return res.json({ ok: true, transactions: transactions ?? [], total: count ?? 0 });
   } catch (error) {
-    console.error("[proAds] getWalletTransactions error:", error);
+    log.error({ err: error }, "getWalletTransactions error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -352,7 +364,7 @@ export const initiateWalletRecharge: RequestHandler = async (req, res) => {
       amount_cents: Math.round(amountMad * 100),
     });
   } catch (error) {
-    console.error("[proAds] initiateWalletRecharge error:", error);
+    log.error({ err: error }, "initiateWalletRecharge error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -410,7 +422,7 @@ export const listCampaigns: RequestHandler = async (req, res) => {
     const { data: campaigns, error } = await query;
 
     if (error) {
-      console.error("[proAds] Error listing campaigns:", error);
+      log.error({ err: error }, "error listing campaigns");
       return res.status(500).json({ error: "Erreur récupération campagnes" });
     }
 
@@ -427,7 +439,7 @@ export const listCampaigns: RequestHandler = async (req, res) => {
       wallet_balance_cents: wallet?.balance_cents ?? 0,
     });
   } catch (error) {
-    console.error("[proAds] listCampaigns error:", error);
+    log.error({ err: error }, "listCampaigns error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -517,7 +529,7 @@ export const getCampaign: RequestHandler = async (req, res) => {
       stats,
     });
   } catch (error) {
-    console.error("[proAds] getCampaign error:", error);
+    log.error({ err: error }, "getCampaign error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -617,13 +629,13 @@ export const createCampaign: RequestHandler = async (req, res) => {
       .single();
 
     if (error) {
-      console.error("[proAds] Error creating campaign:", error);
+      log.error({ err: error }, "error creating campaign");
       return res.status(500).json({ error: "Erreur création campagne" });
     }
 
     return res.json({ ok: true, campaign });
   } catch (error) {
-    console.error("[proAds] createCampaign error:", error);
+    log.error({ err: error }, "createCampaign error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -740,13 +752,13 @@ export const updateCampaign: RequestHandler = async (req, res) => {
       .single();
 
     if (updateError) {
-      console.error("[proAds] Error updating campaign:", updateError);
+      log.error({ err: updateError }, "error updating campaign");
       return res.status(500).json({ error: "Erreur mise à jour" });
     }
 
     return res.json({ ok: true, campaign: updated });
   } catch (error) {
-    console.error("[proAds] updateCampaign error:", error);
+    log.error({ err: error }, "updateCampaign error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -827,7 +839,7 @@ export const submitCampaign: RequestHandler = async (req, res) => {
       .single();
 
     if (updateError) {
-      console.error("[proAds] Error submitting campaign:", updateError);
+      log.error({ err: updateError }, "error submitting campaign");
       return res.status(500).json({ error: "Erreur soumission" });
     }
 
@@ -849,12 +861,12 @@ export const submitCampaign: RequestHandler = async (req, res) => {
           body: `${updated.title} (${updated.type}) — ${(updated.budget_cents / 100).toFixed(0)} MAD`,
           data: { campaign_id: campaignId, establishment_id: establishmentId },
         });
-      } catch { /* best-effort */ }
+      } catch (err) { log.warn({ err }, "Best-effort: admin notification for ad campaign submitted"); }
     })();
 
     return res.json({ ok: true, campaign: updated });
   } catch (error) {
-    console.error("[proAds] submitCampaign error:", error);
+    log.error({ err: error }, "submitCampaign error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -914,13 +926,13 @@ export const deleteCampaign: RequestHandler = async (req, res) => {
       .eq("id", campaignId);
 
     if (deleteError) {
-      console.error("[proAds] Error deleting campaign:", deleteError);
+      log.error({ err: deleteError }, "error deleting campaign");
       return res.status(500).json({ error: "Erreur suppression" });
     }
 
     return res.json({ ok: true });
   } catch (error) {
-    console.error("[proAds] deleteCampaign error:", error);
+    log.error({ err: error }, "deleteCampaign error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -964,7 +976,7 @@ export const getAuctionConfig: RequestHandler = async (req, res) => {
     const { data: configs, error } = await query;
 
     if (error) {
-      console.error("[proAds] Error fetching auction config:", error);
+      log.error({ err: error }, "error fetching auction config");
       return res.status(500).json({ error: "Erreur récupération configuration" });
     }
 
@@ -995,7 +1007,7 @@ export const getAuctionConfig: RequestHandler = async (req, res) => {
       configs: campaignType ? configsWithSuggested[0] : configsWithSuggested,
     });
   } catch (error) {
-    console.error("[proAds] getAuctionConfig error:", error);
+    log.error({ err: error }, "getAuctionConfig error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -1074,7 +1086,7 @@ export const getAdsStats: RequestHandler = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("[proAds] getAdsStats error:", error);
+    log.error({ err: error }, "getAdsStats error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -1133,7 +1145,7 @@ export const getHomeTakeoverCalendar: RequestHandler = async (req, res) => {
       .order("date", { ascending: true });
 
     if (error) {
-      console.error("[proAds] Error fetching calendar:", error);
+      log.error({ err: error }, "error fetching home takeover calendar");
       return res.status(500).json({ error: "Erreur serveur" });
     }
 
@@ -1186,7 +1198,7 @@ export const getHomeTakeoverCalendar: RequestHandler = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("[proAds] getHomeTakeoverCalendar error:", error);
+    log.error({ err: error }, "getHomeTakeoverCalendar error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -1306,7 +1318,7 @@ export const reserveHomeTakeoverDay: RequestHandler = async (req, res) => {
                 data: { date: (existingEntry as any).date },
               });
             }
-          } catch { /* best-effort */ }
+          } catch (err) { log.warn({ err }, "Best-effort: pro notification for outbid home takeover"); }
         })();
       }
     }
@@ -1335,7 +1347,7 @@ export const reserveHomeTakeoverDay: RequestHandler = async (req, res) => {
     });
 
     if (campaignError) {
-      console.error("[proAds] Error creating campaign:", campaignError);
+      log.error({ err: campaignError }, "error creating home takeover campaign");
       return res.status(500).json({ error: "Erreur création campagne" });
     }
 
@@ -1370,7 +1382,7 @@ export const reserveHomeTakeoverDay: RequestHandler = async (req, res) => {
       message: "Réservation en attente de validation admin",
     });
   } catch (error) {
-    console.error("[proAds] reserveHomeTakeoverDay error:", error);
+    log.error({ err: error }, "reserveHomeTakeoverDay error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -1414,7 +1426,7 @@ export const getAdInvoices: RequestHandler = async (req, res) => {
       .order("issued_at", { ascending: false });
 
     if (error) {
-      console.error("[proAds] Error fetching invoices:", error);
+      log.error({ err: error }, "error fetching invoices");
       return res.status(500).json({ error: "Erreur serveur" });
     }
 
@@ -1423,7 +1435,7 @@ export const getAdInvoices: RequestHandler = async (req, res) => {
       invoices: invoices ?? [],
     });
   } catch (error) {
-    console.error("[proAds] getAdInvoices error:", error);
+    log.error({ err: error }, "getAdInvoices error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -1434,26 +1446,26 @@ export const getAdInvoices: RequestHandler = async (req, res) => {
 
 export function registerProAdsRoutes(app: Router) {
   // Wallet
-  app.get("/api/pro/establishments/:id/ads/wallet", getWallet);
-  app.get("/api/pro/establishments/:id/ads/wallet/transactions", getWalletTransactions);
-  app.post("/api/pro/establishments/:id/ads/wallet/recharge", initiateWalletRecharge);
+  app.get("/api/pro/establishments/:id/ads/wallet", zParams(ProAdsIdParams), getWallet);
+  app.get("/api/pro/establishments/:id/ads/wallet/transactions", zParams(ProAdsIdParams), getWalletTransactions);
+  app.post("/api/pro/establishments/:id/ads/wallet/recharge", zParams(ProAdsIdParams), zBody(InitiateWalletRechargeSchema), initiateWalletRecharge);
 
   // Campaigns
-  app.get("/api/pro/establishments/:id/ads/campaigns", listCampaigns);
-  app.get("/api/pro/establishments/:id/ads/campaigns/:campaignId", getCampaign);
-  app.post("/api/pro/establishments/:id/ads/campaigns", createCampaign);
-  app.patch("/api/pro/establishments/:id/ads/campaigns/:campaignId", updateCampaign);
-  app.post("/api/pro/establishments/:id/ads/campaigns/:campaignId/submit", submitCampaign);
-  app.delete("/api/pro/establishments/:id/ads/campaigns/:campaignId", deleteCampaign);
+  app.get("/api/pro/establishments/:id/ads/campaigns", zParams(ProAdsIdParams), listCampaigns);
+  app.get("/api/pro/establishments/:id/ads/campaigns/:campaignId", zParams(ProAdsIdCampaignIdParams), getCampaign);
+  app.post("/api/pro/establishments/:id/ads/campaigns", zParams(ProAdsIdParams), zBody(CreateAdCampaignSchema), createCampaign);
+  app.patch("/api/pro/establishments/:id/ads/campaigns/:campaignId", zParams(ProAdsIdCampaignIdParams), zBody(UpdateAdCampaignSchema), updateCampaign);
+  app.post("/api/pro/establishments/:id/ads/campaigns/:campaignId/submit", zParams(ProAdsIdCampaignIdParams), submitCampaign);
+  app.delete("/api/pro/establishments/:id/ads/campaigns/:campaignId", zParams(ProAdsIdCampaignIdParams), deleteCampaign);
 
   // Config & Stats
-  app.get("/api/pro/establishments/:id/ads/auction-config", getAuctionConfig);
-  app.get("/api/pro/establishments/:id/ads/stats", getAdsStats);
+  app.get("/api/pro/establishments/:id/ads/auction-config", zParams(ProAdsIdParams), getAuctionConfig);
+  app.get("/api/pro/establishments/:id/ads/stats", zParams(ProAdsIdParams), getAdsStats);
 
   // Home Takeover Calendar
-  app.get("/api/pro/establishments/:id/ads/home-takeover/calendar", getHomeTakeoverCalendar);
-  app.post("/api/pro/establishments/:id/ads/home-takeover/reserve", reserveHomeTakeoverDay);
+  app.get("/api/pro/establishments/:id/ads/home-takeover/calendar", zParams(ProAdsIdParams), getHomeTakeoverCalendar);
+  app.post("/api/pro/establishments/:id/ads/home-takeover/reserve", zParams(ProAdsIdParams), zBody(ReserveHomeTakeoverDaySchema), reserveHomeTakeoverDay);
 
   // Invoices
-  app.get("/api/pro/establishments/:id/ads/invoices", getAdInvoices);
+  app.get("/api/pro/establishments/:id/ads/invoices", zParams(ProAdsIdParams), getAdInvoices);
 }

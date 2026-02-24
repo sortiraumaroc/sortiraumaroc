@@ -415,7 +415,7 @@ async function main() {
 
     console.log(`\n[${template.audience.toUpperCase()}] ${template.key}`);
     console.log(`  Name: ${template.name}`);
-    console.log(`  From: ${fromKey}@sortiraumaroc.ma`);
+    console.log(`  From: ${fromKey}@sam.ma`);
 
     try {
       const result = await sendTemplateEmail({

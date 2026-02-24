@@ -7,6 +7,9 @@
 import { getAdminSupabase } from "./supabaseAdmin";
 import { LOYALTY_FRAUD_THRESHOLDS } from "../shared/loyaltyTypesV2";
 import { emitAdminNotification } from "./adminNotifications";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("loyaltyFraudDetection");
 
 // =============================================================================
 // 2.3a — DÉTECTION DE TAMPONNAGE SUSPECT (côté client)
@@ -74,7 +77,7 @@ export async function detectSuspiciousStamping(args: {
       `Tamponnage suspect détecté : ${count} tampons en ${periodDays} jours`
     );
   } catch (err) {
-    console.error("[fraudDetection] detectSuspiciousStamping error:", err);
+    log.error({ err }, "detectSuspiciousStamping error");
   }
 }
 
@@ -202,7 +205,7 @@ export async function detectHighValueReward(args: {
       `Cadeau haute valeur détecté : ${numericValue} MAD`
     );
   } catch (err) {
-    console.error("[fraudDetection] detectHighValueReward error:", err);
+    log.error({ err }, "detectHighValueReward error");
   }
 }
 
@@ -349,7 +352,7 @@ export async function alertProgramCreated(args: {
       `Nouveau programme fidélité : "${args.programName}"`
     );
   } catch (err) {
-    console.error("[fraudDetection] alertProgramCreated error:", err);
+    log.error({ err }, "alertProgramCreated error");
   }
 }
 
@@ -432,7 +435,7 @@ async function notifyAdminAlert(type: string, message: string): Promise<void> {
       body: message,
       data: { alert_type: type },
     });
-  } catch {
-    // best-effort
+  } catch (err) {
+    log.warn({ err }, "Best-effort: admin fraud alert notification failed");
   }
 }

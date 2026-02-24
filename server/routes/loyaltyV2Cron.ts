@@ -11,6 +11,7 @@
  */
 
 import type { Router, Request, Response } from "express";
+import { createModuleLogger } from "../lib/logger";
 import {
   runAllLoyaltyCronJobs,
   getLoyaltyCronSchedules,
@@ -24,6 +25,8 @@ import {
   runFraudDetection,
   sendPendingNotifications,
 } from "../loyaltyCronV2";
+
+const log = createModuleLogger("loyaltyV2Cron");
 
 // =============================================================================
 // Cron auth (same pattern as reservationV2Cron.ts)
@@ -45,7 +48,7 @@ async function cronExpireCards(req: Request, res: Response) {
     const result = await expireLoyaltyCards();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[cronExpireCards]", err);
+    log.error({ err }, "cronExpireCards error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -56,7 +59,7 @@ async function cronExpireRewards(req: Request, res: Response) {
     const result = await expireLoyaltyRewards();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[cronExpireRewards]", err);
+    log.error({ err }, "cronExpireRewards error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -67,7 +70,7 @@ async function cronExpireGifts(req: Request, res: Response) {
     const result = await expirePlatformGiftDistributions();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[cronExpireGifts]", err);
+    log.error({ err }, "cronExpireGifts error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -78,7 +81,7 @@ async function cronRemindCardsJ15(req: Request, res: Response) {
     const result = await remindExpiringCards();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[cronRemindCardsJ15]", err);
+    log.error({ err }, "cronRemindCardsJ15 error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -89,7 +92,7 @@ async function cronRemindRewardsJ7(req: Request, res: Response) {
     const result = await remindExpiringRewardsJ7();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[cronRemindRewardsJ7]", err);
+    log.error({ err }, "cronRemindRewardsJ7 error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -100,7 +103,7 @@ async function cronRemindRewardsJ2(req: Request, res: Response) {
     const result = await remindExpiringRewardsJ2();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[cronRemindRewardsJ2]", err);
+    log.error({ err }, "cronRemindRewardsJ2 error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -111,7 +114,7 @@ async function cronRemindGiftsJ7(req: Request, res: Response) {
     const result = await remindExpiringPlatformGiftsJ7();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[cronRemindGiftsJ7]", err);
+    log.error({ err }, "cronRemindGiftsJ7 error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -122,7 +125,7 @@ async function cronFraudDetection(req: Request, res: Response) {
     const result = await runFraudDetection();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[cronFraudDetection]", err);
+    log.error({ err }, "cronFraudDetection error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -133,7 +136,7 @@ async function cronSendPendingNotifications(req: Request, res: Response) {
     const result = await sendPendingNotifications();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[cronSendPendingNotifications]", err);
+    log.error({ err }, "cronSendPendingNotifications error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -149,7 +152,7 @@ async function cronRunAll(req: Request, res: Response) {
     const { results } = await runAllLoyaltyCronJobs({ smart: !forceAll, forceAll });
     res.json({ ok: true, results });
   } catch (err) {
-    console.error("[cronRunAll]", err);
+    log.error({ err }, "cronRunAll error");
     res.status(500).json({ error: "internal_error" });
   }
 }

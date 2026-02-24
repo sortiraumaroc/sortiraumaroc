@@ -11,7 +11,12 @@
  */
 
 import type { Router, Request, Response, RequestHandler } from "express";
+import { createModuleLogger } from "../lib/logger";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { zBody, zParams } from "../lib/validate";
+import { CreateRentalReservationSchema, UploadKycDocumentSchema, CancelRentalReservationSchema, RentalReservationIdParams } from "../schemas/rentalConsumer";
+
+const log = createModuleLogger("rentalConsumer");
 import {
   checkVehicleAvailability,
   calculateRentalPrice,
@@ -37,7 +42,8 @@ async function getConsumerUserId(req: Request): Promise<ConsumerAuthResult> {
     const { data, error } = await supabase.auth.getUser(token);
     if (error || !data.user) return { ok: false, status: 401, error: "unauthorized" };
     return { ok: true, userId: data.user.id };
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "Consumer auth token verification failed");
     return { ok: false, status: 401, error: "unauthorized" };
   }
 }
@@ -181,14 +187,14 @@ const createReservation: RequestHandler = async (req, res) => {
       .single();
 
     if (insertErr) {
-      console.error("[RentalConsumer] createReservation insert error:", insertErr);
+      log.error({ err: insertErr }, "createReservation insert error");
       res.status(500).json({ error: "internal_error" });
       return;
     }
 
     res.status(201).json({ reservation, quote });
   } catch (err) {
-    console.error("[RentalConsumer] createReservation error:", err);
+    log.error({ err }, "createReservation error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -222,14 +228,14 @@ const listMyReservations: RequestHandler = async (req, res) => {
     const { data, error } = await query;
 
     if (error) {
-      console.error("[RentalConsumer] listMyReservations error:", error);
+      log.error({ err: error }, "listMyReservations error");
       res.status(500).json({ error: "internal_error" });
       return;
     }
 
     res.json({ reservations: data || [] });
   } catch (err) {
-    console.error("[RentalConsumer] listMyReservations error:", err);
+    log.error({ err }, "listMyReservations error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -270,7 +276,7 @@ const getReservationDetail: RequestHandler = async (req, res) => {
 
     res.json({ reservation: data });
   } catch (err) {
-    console.error("[RentalConsumer] getReservationDetail error:", err);
+    log.error({ err }, "getReservationDetail error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -334,14 +340,14 @@ const uploadKycDocument: RequestHandler = async (req, res) => {
       .single();
 
     if (docErr) {
-      console.error("[RentalConsumer] uploadKycDocument error:", docErr);
+      log.error({ err: docErr }, "uploadKycDocument error");
       res.status(500).json({ error: "internal_error" });
       return;
     }
 
     res.status(201).json({ document: doc });
   } catch (err) {
-    console.error("[RentalConsumer] uploadKycDocument error:", err);
+    log.error({ err }, "uploadKycDocument error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -397,14 +403,14 @@ const cancelReservation: RequestHandler = async (req, res) => {
       .single();
 
     if (updateErr) {
-      console.error("[RentalConsumer] cancelReservation error:", updateErr);
+      log.error({ err: updateErr }, "cancelReservation error");
       res.status(500).json({ error: "internal_error" });
       return;
     }
 
     res.json({ reservation: updated });
   } catch (err) {
-    console.error("[RentalConsumer] cancelReservation error:", err);
+    log.error({ err }, "cancelReservation error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -431,7 +437,7 @@ const checkReusableKyc: RequestHandler = async (req, res) => {
       .order("created_at", { ascending: false });
 
     if (error) {
-      console.error("[RentalConsumer] checkReusableKyc error:", error);
+      log.error({ err: error }, "checkReusableKyc error");
       res.status(500).json({ error: "internal_error" });
       return;
     }
@@ -447,7 +453,7 @@ const checkReusableKyc: RequestHandler = async (req, res) => {
 
     res.json({ reusable, documents });
   } catch (err) {
-    console.error("[RentalConsumer] checkReusableKyc error:", err);
+    log.error({ err }, "checkReusableKyc error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -457,10 +463,10 @@ const checkReusableKyc: RequestHandler = async (req, res) => {
 // =============================================================================
 
 export function registerRentalConsumerRoutes(app: Router): void {
-  app.post("/api/rental/reservations", createReservation);
+  app.post("/api/rental/reservations", zBody(CreateRentalReservationSchema), createReservation);
   app.get("/api/rental/reservations", listMyReservations);
-  app.get("/api/rental/reservations/:id", getReservationDetail);
-  app.post("/api/rental/reservations/:id/kyc", uploadKycDocument);
-  app.put("/api/rental/reservations/:id/cancel", cancelReservation);
+  app.get("/api/rental/reservations/:id", zParams(RentalReservationIdParams), getReservationDetail);
+  app.post("/api/rental/reservations/:id/kyc", zParams(RentalReservationIdParams), zBody(UploadKycDocumentSchema), uploadKycDocument);
+  app.put("/api/rental/reservations/:id/cancel", zParams(RentalReservationIdParams), zBody(CancelRentalReservationSchema), cancelReservation);
   app.get("/api/rental/kyc/reuse", checkReusableKyc);
 }

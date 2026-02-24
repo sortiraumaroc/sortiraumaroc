@@ -13,6 +13,9 @@
 import type { Request, Response, NextFunction, RequestHandler } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { getClientIp } from "./rateLimiter";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("reviewSecurity");
 
 // =============================================================================
 // CONTENT SANITIZATION
@@ -211,8 +214,8 @@ export async function checkReviewCooldown(userId: string): Promise<string | null
     }
 
     return null; // No issues
-  } catch {
-    // On error, allow the review (don't block on failed checks)
+  } catch (err) {
+    log.warn({ err }, "Review cooldown check failed, allowing review");
     return null;
   }
 }
@@ -324,7 +327,8 @@ export async function checkDuplicateContent(
     }
 
     return null;
-  } catch {
-    return null; // Don't block on errors
+  } catch (err) {
+    log.warn({ err }, "Duplicate content check failed, allowing review");
+    return null;
   }
 }

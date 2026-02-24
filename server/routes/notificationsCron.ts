@@ -15,7 +15,10 @@
  */
 
 import type { Router, Request, Response, RequestHandler } from "express";
+import { createModuleLogger } from "../lib/logger";
 import { processScheduledCampaigns } from "../pushCampaignLogic";
+
+const log = createModuleLogger("notificationsCron");
 import { expireOldBanners } from "../bannerLogic";
 import {
   sendDailyNotPlayedReminders,
@@ -52,7 +55,7 @@ const cronSendScheduledCampaigns: RequestHandler = async (req, res) => {
     const count = await processScheduledCampaigns();
     res.json({ ok: true, count });
   } catch (err) {
-    console.error("[NotificationsCron] sendScheduledCampaigns error:", err);
+    log.error({ err }, "sendScheduledCampaigns error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 };
@@ -68,7 +71,7 @@ const cronExpireBanners: RequestHandler = async (req, res) => {
     const count = await expireOldBanners();
     res.json({ ok: true, count });
   } catch (err) {
-    console.error("[NotificationsCron] expireBanners error:", err);
+    log.error({ err }, "expireBanners error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 };
@@ -84,7 +87,7 @@ const cronDailyReminders: RequestHandler = async (req, res) => {
     const count = await sendDailyNotPlayedReminders();
     res.json({ ok: true, count });
   } catch (err) {
-    console.error("[NotificationsCron] dailyReminders error:", err);
+    log.error({ err }, "dailyReminders error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 };
@@ -100,7 +103,7 @@ const cronPrizeExpiryReminders: RequestHandler = async (req, res) => {
     const count = await sendPrizeExpirationReminders();
     res.json({ ok: true, count });
   } catch (err) {
-    console.error("[NotificationsCron] prizeExpiryReminders error:", err);
+    log.error({ err }, "prizeExpiryReminders error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 };
@@ -116,7 +119,7 @@ const cronExpirePrizes: RequestHandler = async (req, res) => {
     const count = await expireUnconsumedPrizes();
     res.json({ ok: true, count });
   } catch (err) {
-    console.error("[NotificationsCron] expirePrizes error:", err);
+    log.error({ err }, "expirePrizes error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 };
@@ -132,7 +135,7 @@ const cronAdminRecap: RequestHandler = async (req, res) => {
     const result = await sendDailyAdminRecap();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[NotificationsCron] adminRecap error:", err);
+    log.error({ err }, "adminRecap error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 };
@@ -148,7 +151,7 @@ const cronEndExpiredWheels: RequestHandler = async (req, res) => {
     const count = await endExpiredWheels();
     res.json({ ok: true, count });
   } catch (err) {
-    console.error("[NotificationsCron] endExpiredWheels error:", err);
+    log.error({ err }, "endExpiredWheels error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 };
@@ -164,7 +167,7 @@ const cronAlertDepleted: RequestHandler = async (req, res) => {
     const count = await alertDepletedPrizes();
     res.json({ ok: true, count });
   } catch (err) {
-    console.error("[NotificationsCron] alertDepleted error:", err);
+    log.error({ err }, "alertDepleted error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 };
@@ -180,7 +183,7 @@ const cronDetectFraud: RequestHandler = async (req, res) => {
     const result = await runFraudDetectionScan();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[NotificationsCron] detectFraud error:", err);
+    log.error({ err }, "detectFraud error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 };
@@ -253,13 +256,13 @@ const cronRunAll: RequestHandler = async (req, res) => {
       results[job.name] = { ok: true, result };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`[NotificationsCron] ${job.name} failed:`, message);
+      log.error({ err, jobName: job.name }, "Cron job failed");
       results[job.name] = { ok: false, error: message };
     }
   }
 
   const jobsRun = Object.keys(results).length;
-  console.log(`[NotificationsCron] run-all: ${jobsRun} jobs executed`);
+  log.info({ jobsRun }, "run-all completed");
 
   res.json({ ok: true, jobsRun, results });
 };

@@ -8,6 +8,10 @@
  * 4. Copy your DSN and add to .env: SENTRY_DSN=https://xxx@xxx.ingest.sentry.io/xxx
  */
 
+import { createModuleLogger } from "./logger";
+
+const log = createModuleLogger("sentry");
+
 let Sentry: any = null;
 
 // Dynamic import to avoid errors if @sentry/node is not installed
@@ -15,8 +19,8 @@ async function loadSentry() {
   try {
     Sentry = await import("@sentry/node");
     return true;
-  } catch {
-    console.warn("[Sentry] @sentry/node not installed. Error monitoring disabled.");
+  } catch { /* intentional: @sentry/node may not be installed */
+    log.warn("@sentry/node not installed, error monitoring disabled");
     return false;
   }
 }
@@ -33,7 +37,7 @@ export async function initSentry(): Promise<void> {
   const dsn = process.env.SENTRY_DSN;
 
   if (!dsn) {
-    console.warn("[Sentry] SENTRY_DSN not configured. Error monitoring disabled.");
+    log.warn("SENTRY_DSN not configured, error monitoring disabled");
     return;
   }
 
@@ -50,14 +54,23 @@ export async function initSentry(): Promise<void> {
       // (incompatible with Vite ESM bundles where modules are inlined, not loaded via require)
       registerEsmLoaderHooks: false,
 
-      // Disable performance tracing to avoid require-in-the-middle instrumentation
-      // which crashes with "ReferenceError: require is not defined" in ESM bundles
-      tracesSampleRate: 0,
-      autoSessionTracking: false,
+      // Sample 10% of transactions for performance monitoring.
+      // CJS-based auto-instrumentation (Http, Express) is disabled (ESM incompatible),
+      // but manual spans + error capture benefit from a non-zero rate.
+      tracesSampleRate: 0.1,
+      autoSessionTracking: true,
 
-      // Strip all default integrations that rely on require/CJS hooks
+      // Only use integrations that don't rely on CJS require hooks.
+      // The default auto-discovery tries to patch http/express via require-in-the-middle
+      // which crashes in Vite ESM bundles ("require is not defined").
       defaultIntegrations: false,
-      integrations: [],
+      integrations: [
+        // Safe ESM-compatible integrations from @sentry/node
+        ...(Sentry.inboundFiltersIntegration ? [Sentry.inboundFiltersIntegration()] : []),
+        ...(Sentry.functionToStringIntegration ? [Sentry.functionToStringIntegration()] : []),
+        ...(Sentry.linkedErrorsIntegration ? [Sentry.linkedErrorsIntegration()] : []),
+        ...(Sentry.dedupeIntegration ? [Sentry.dedupeIntegration()] : []),
+      ],
 
       // Filter sensitive data
       beforeSend(event: any) {
@@ -92,9 +105,9 @@ export async function initSentry(): Promise<void> {
     });
 
     initialized = true;
-    console.log("[Sentry] Error monitoring initialized");
+    log.info("error monitoring initialized");
   } catch (err) {
-    console.error("[Sentry] Failed to initialize:", err);
+    log.error({ err }, "failed to initialize");
   }
 }
 
@@ -111,7 +124,7 @@ export function captureException(
   }
 ): void {
   if (!Sentry || !initialized) {
-    console.error("[Error]", error);
+    log.error({ err: error }, "unhandled error (Sentry not initialized)");
     return;
   }
 
@@ -152,7 +165,7 @@ export function captureMessage(
   }
 ): void {
   if (!Sentry || !initialized) {
-    console.log(`[${level.toUpperCase()}]`, message);
+    log.info({ level }, message);
     return;
   }
 

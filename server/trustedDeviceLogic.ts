@@ -15,6 +15,9 @@ import crypto from "crypto";
 import type { Request, Response } from "express";
 import { getAdminSupabase } from "./supabaseAdmin";
 import { parseCookies } from "./adminSession";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("trustedDeviceLogic");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -129,7 +132,7 @@ export async function isTrustedDevice(
 
     return true;
   } catch (err) {
-    console.error("[TrustedDevice] Error checking trust:", err);
+    log.error({ err }, "error checking trust");
     return false;
   }
 }
@@ -185,7 +188,7 @@ export async function issueTrustedDevice(
       });
 
     if (insertError) {
-      console.error("[TrustedDevice] Failed to store device:", insertError);
+      log.error({ err: insertError }, "failed to store device");
       return;
     }
 
@@ -198,11 +201,9 @@ export async function issueTrustedDevice(
       path: "/",
     });
 
-    console.log(
-      `[TrustedDevice] Issued trust token for user ${userId} — device: ${deviceName}`
-    );
+    log.info({ userId, deviceName }, "issued trust token");
   } catch (err) {
-    console.error("[TrustedDevice] Error issuing token:", err);
+    log.error({ err }, "error issuing token");
     // Non-blocking — don't fail the login
   }
 }
@@ -231,7 +232,7 @@ export async function revokeCurrentDevice(req: Request, res: Response): Promise<
       path: "/",
     });
   } catch (err) {
-    console.error("[TrustedDevice] Error revoking current device:", err);
+    log.error({ err }, "error revoking current device");
   }
 }
 
@@ -343,7 +344,7 @@ export async function cleanupExpiredDevices(): Promise<number> {
 
   const total = (expired?.length || 0) + (revoked?.length || 0);
   if (total > 0) {
-    console.log(`[TrustedDevice] Cleaned up ${total} expired/revoked devices`);
+    log.info({ total }, "cleaned up expired/revoked devices");
   }
   return total;
 }
@@ -387,7 +388,8 @@ export async function getTrustedDeviceUserId(
       .then(() => {});
 
     return data.user_id;
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "Trusted device verification failed");
     return null;
   }
 }

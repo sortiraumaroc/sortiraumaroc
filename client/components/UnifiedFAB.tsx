@@ -275,8 +275,13 @@ export function UnifiedFAB() {
   const isActive = sam.isOpen || supportOpen || expanded;
   const MainIcon = isActive ? X : Plus;
 
-  // Don't render on admin pages
-  if (isAdminPage) return null;
+  // Don't render on admin, onboarding, or booking pages
+  const isOnboardingPage = location.pathname.startsWith("/onboarding");
+  const isBookingFlow =
+    location.pathname.includes("/booking") ||
+    location.pathname.includes("/hotel-booking") ||
+    location.pathname.includes("/rental-booking");
+  if (isAdminPage || isOnboardingPage || isBookingFlow) return null;
 
   return (
     <>
@@ -407,7 +412,9 @@ export function UnifiedFAB() {
 
       {/* Capturing spinner (shown over the FAB position) */}
       {bugState === "capturing" && (
-        <div className="fixed bottom-6 end-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-white shadow-lg border border-gray-200">
+        <div
+          className="fixed bottom-6 end-6 z-50 flex h-10 w-10 md:h-14 md:w-14 items-center justify-center rounded-full bg-white shadow-lg border border-gray-200"
+        >
           <Loader2 className="h-5 w-5 animate-spin text-gray-500" />
         </div>
       )}
@@ -419,21 +426,25 @@ export function UnifiedFAB() {
 
       {/* FAB container */}
       {bugState !== "capturing" && (
-        <div id="unified-fab" className="fixed bottom-6 end-6 z-50 flex flex-col-reverse items-end gap-3">
+        <div
+          id="unified-fab"
+          className="fixed bottom-6 end-6 z-50 flex flex-col-reverse items-end gap-3"
+        >
           {/* Main button */}
           <button
             type="button"
             onClick={handleMainClick}
             aria-label={isActive ? "Fermer" : "Menu actions"}
             className={cn(
-              "flex h-14 w-14 items-center justify-center rounded-full shadow-lg",
+              "flex items-center justify-center rounded-full shadow-lg",
+              "h-10 w-10 md:h-14 md:w-14",
               "transition-all duration-300 hover:scale-105 active:scale-95",
               isActive
                 ? "bg-gray-700 text-white"
                 : "bg-primary text-white",
             )}
           >
-            <MainIcon className={cn("h-6 w-6 transition-transform duration-300", expanded && "rotate-45")} />
+            <MainIcon className={cn("h-5 w-5 md:h-6 md:w-6 transition-transform duration-300", expanded && "rotate-45")} />
           </button>
 
           {/* Sub-buttons (only when expanded, not when sam/bug open) */}

@@ -1,5 +1,10 @@
 import type { Express, RequestHandler } from "express";
+import { createModuleLogger } from "../lib/logger";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { zBody, zParams, zIdParam } from "../lib/validate";
+import { createConversationSchema, sendMessageSchema } from "../schemas/messaging";
+
+const log = createModuleLogger("messaging");
 
 // ============================================================================
 // HELPERS
@@ -45,7 +50,7 @@ const listConversations: RequestHandler = async (req, res) => {
       .eq("user_id", userId);
 
     if (partError) {
-      console.error("[messaging/listConversations] Error:", partError);
+      log.error({ err: partError }, "listConversations error");
       res.status(500).json({ error: "Erreur serveur" });
       return;
     }
@@ -123,8 +128,8 @@ const listConversations: RequestHandler = async (req, res) => {
                 avatar: meta.avatar_url || meta.avatar || null,
               };
             }
-          } catch {
-            // Ignore user fetch errors
+          } catch (err) {
+            log.warn({ err, otherUserId }, "Failed to fetch conversation participant data");
           }
         }
 
@@ -143,7 +148,7 @@ const listConversations: RequestHandler = async (req, res) => {
 
     res.json(enrichedConversations);
   } catch (err) {
-    console.error("[messaging/listConversations] Error:", err);
+    log.error({ err }, "listConversations error");
     res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -201,7 +206,7 @@ const createOrGetConversation: RequestHandler = async (req, res) => {
       .single();
 
     if (convError || !conv) {
-      console.error("[messaging/createConversation] Error:", convError);
+      log.error({ err: convError }, "createConversation error");
       res.status(500).json({ error: "Erreur lors de la création de la conversation" });
       return;
     }
@@ -233,7 +238,7 @@ const createOrGetConversation: RequestHandler = async (req, res) => {
 
     res.status(201).json(conv);
   } catch (err) {
-    console.error("[messaging/createConversation] Error:", err);
+    log.error({ err }, "createConversation error");
     res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -281,7 +286,7 @@ const getMessages: RequestHandler = async (req, res) => {
     const { data: messages, error } = await query;
 
     if (error) {
-      console.error("[messaging/getMessages] Error:", error);
+      log.error({ err: error }, "getMessages error");
       res.status(500).json({ error: "Erreur serveur" });
       return;
     }
@@ -289,7 +294,7 @@ const getMessages: RequestHandler = async (req, res) => {
     // Return in chronological order (reversed from desc query)
     res.json((messages ?? []).reverse());
   } catch (err) {
-    console.error("[messaging/getMessages] Error:", err);
+    log.error({ err }, "getMessages error");
     res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -339,7 +344,7 @@ const sendMessage: RequestHandler = async (req, res) => {
       .single();
 
     if (error) {
-      console.error("[messaging/sendMessage] Error:", error);
+      log.error({ err: error }, "sendMessage error");
       res.status(500).json({ error: "Erreur lors de l'envoi du message" });
       return;
     }
@@ -363,7 +368,7 @@ const sendMessage: RequestHandler = async (req, res) => {
 
     res.status(201).json(message);
   } catch (err) {
-    console.error("[messaging/sendMessage] Error:", err);
+    log.error({ err }, "sendMessage error");
     res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -384,14 +389,14 @@ const markAsRead: RequestHandler = async (req, res) => {
       .eq("user_id", userId);
 
     if (error) {
-      console.error("[messaging/markAsRead] Error:", error);
+      log.error({ err: error }, "markAsRead error");
       res.status(500).json({ error: "Erreur serveur" });
       return;
     }
 
     res.json({ ok: true });
   } catch (err) {
-    console.error("[messaging/markAsRead] Error:", err);
+    log.error({ err }, "markAsRead error");
     res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -438,7 +443,7 @@ const getUnreadCount: RequestHandler = async (req, res) => {
 
     res.json({ count: totalUnread });
   } catch (err) {
-    console.error("[messaging/getUnreadCount] Error:", err);
+    log.error({ err }, "getUnreadCount error");
     res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -450,14 +455,14 @@ const getUnreadCount: RequestHandler = async (req, res) => {
 export function registerMessagingRoutes(app: Express) {
   // Conversations
   app.get("/api/consumer/messages/conversations", listConversations);
-  app.post("/api/consumer/messages/conversations", createOrGetConversation);
+  app.post("/api/consumer/messages/conversations", zBody(createConversationSchema), createOrGetConversation);
 
   // Messages
-  app.get("/api/consumer/messages/conversations/:id/messages", getMessages);
-  app.post("/api/consumer/messages/conversations/:id/messages", sendMessage);
+  app.get("/api/consumer/messages/conversations/:id/messages", zParams(zIdParam), getMessages);
+  app.post("/api/consumer/messages/conversations/:id/messages", zParams(zIdParam), zBody(sendMessageSchema), sendMessage);
 
   // Read status
-  app.post("/api/consumer/messages/conversations/:id/read", markAsRead);
+  app.post("/api/consumer/messages/conversations/:id/read", zParams(zIdParam), markAsRead);
 
   // Unread count
   app.get("/api/consumer/messages/unread-count", getUnreadCount);

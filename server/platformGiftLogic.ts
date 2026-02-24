@@ -5,6 +5,9 @@
 
 import { getAdminSupabase } from "./supabaseAdmin";
 import { randomUUID } from "crypto";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("platformGiftLogic");
 import type {
   PlatformGiftType,
   PlatformGiftStatus,
@@ -71,7 +74,7 @@ export async function offerPlatformGift(args: {
     .single();
 
   if (error) {
-    console.error("[platformGift] offer error:", error);
+    log.error({ err: error }, "Offer error");
     return { ok: false, message: error.message };
   }
 
@@ -219,7 +222,7 @@ export async function distributeManual(args: {
     .insert(distributions);
 
   if (insertErr) {
-    console.error("[platformGift] distribute manual error:", insertErr);
+    log.error({ err: insertErr }, "Distribute manual error");
     return { ok: false, distributed: 0, message: insertErr.message };
   }
 
@@ -545,8 +548,8 @@ export async function consumePlatformGift(args: {
           .update({ consumed_count: (g.consumed_count ?? 0) + 1 })
           .eq("id", gift.id);
       }
-    } catch {
-      // best-effort
+    } catch (err) {
+      log.warn({ err }, "Best-effort: increment consumed_count failed");
     }
   }
 
@@ -729,8 +732,8 @@ async function createHighValueAlert(
       metadata: { gift_id: giftId, value, description },
       status: "pending",
     });
-  } catch {
-    // best-effort
+  } catch (err) {
+    log.warn({ err }, "Best-effort: high-value gift alert insert failed");
   }
 }
 
@@ -746,8 +749,8 @@ async function notifyAdminNewGift(
       body: `Un pro a soumis un cadeau : "${description}"`,
       data: { gift_id: giftId, establishment_id: establishmentId },
     });
-  } catch {
-    // best-effort
+  } catch (err) {
+    log.warn({ err }, "Best-effort: notifyAdminNewGift failed");
   }
 }
 
@@ -771,7 +774,7 @@ async function notifyGiftRecipients(
     if (notifications.length > 0) {
       await supabase.from("loyalty_notifications").insert(notifications);
     }
-  } catch {
-    // best-effort
+  } catch (err) {
+    log.warn({ err }, "Best-effort: notifyGiftRecipients failed");
   }
 }

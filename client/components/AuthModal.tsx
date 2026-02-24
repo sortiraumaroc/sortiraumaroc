@@ -565,7 +565,7 @@ export function AuthModal({ isOpen, onClose, onAuthed, contextTitle, contextSubt
       });
 
       if (signInError) {
-        console.warn("[Signup] Auto sign-in failed, redirecting via actionLink:", signInError.message);
+        // Auto sign-in failed, redirecting via actionLink
         // Fallback: use actionLink if signIn fails
         if (signupData.actionLink) {
           window.location.assign(signupData.actionLink);

@@ -13,7 +13,17 @@
  */
 
 import type { Router, RequestHandler } from "express";
+import { createModuleLogger } from "../lib/logger";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { zBody, zParams, zIdParam } from "../lib/validate";
+import {
+  CreateInsurancePlanSchema,
+  UpdateInsurancePlanSchema,
+  SetCommissionSchema,
+  ModerateVehicleSchema,
+} from "../schemas/rentalAdmin";
+
+const log = createModuleLogger("rentalAdmin");
 
 // =============================================================================
 // Helpers
@@ -45,14 +55,14 @@ const listInsurancePlans: RequestHandler = async (_req, res) => {
       .order("sort_order", { ascending: true });
 
     if (error) {
-      console.error("[RentalAdmin] listInsurancePlans error:", error);
+      log.error({ err: error }, "listInsurancePlans error");
       res.status(500).json({ error: "internal_error" });
       return;
     }
 
     res.json({ plans: data || [] });
   } catch (err) {
-    console.error("[RentalAdmin] listInsurancePlans error:", err);
+    log.error({ err }, "listInsurancePlans error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -95,14 +105,14 @@ const createInsurancePlan: RequestHandler = async (req, res) => {
       .single();
 
     if (error) {
-      console.error("[RentalAdmin] createInsurancePlan error:", error);
+      log.error({ err: error }, "createInsurancePlan error");
       res.status(500).json({ error: "internal_error" });
       return;
     }
 
     res.status(201).json({ plan: data });
   } catch (err) {
-    console.error("[RentalAdmin] createInsurancePlan error:", err);
+    log.error({ err }, "createInsurancePlan error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -144,14 +154,14 @@ const updateInsurancePlan: RequestHandler = async (req, res) => {
       .single();
 
     if (error) {
-      console.error("[RentalAdmin] updateInsurancePlan error:", error);
+      log.error({ err: error }, "updateInsurancePlan error");
       res.status(500).json({ error: "internal_error" });
       return;
     }
 
     res.json({ plan: data });
   } catch (err) {
-    console.error("[RentalAdmin] updateInsurancePlan error:", err);
+    log.error({ err }, "updateInsurancePlan error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -175,14 +185,14 @@ const deleteInsurancePlan: RequestHandler = async (req, res) => {
       .eq("id", id);
 
     if (error) {
-      console.error("[RentalAdmin] deleteInsurancePlan error:", error);
+      log.error({ err: error }, "deleteInsurancePlan error");
       res.status(500).json({ error: "internal_error" });
       return;
     }
 
     res.json({ success: true });
   } catch (err) {
-    console.error("[RentalAdmin] deleteInsurancePlan error:", err);
+    log.error({ err }, "deleteInsurancePlan error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -222,14 +232,14 @@ const setEstablishmentCommission: RequestHandler = async (req, res) => {
       .eq("id", establishmentId);
 
     if (error) {
-      console.error("[RentalAdmin] setEstablishmentCommission error:", error);
+      log.error({ err: error }, "setEstablishmentCommission error");
       res.status(500).json({ error: "internal_error" });
       return;
     }
 
     res.json({ success: true, commission_percent: commissionPercent });
   } catch (err) {
-    console.error("[RentalAdmin] setEstablishmentCommission error:", err);
+    log.error({ err }, "setEstablishmentCommission error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -259,14 +269,14 @@ const listPendingVehicles: RequestHandler = async (req, res) => {
       .range(offset, offset + perPage - 1);
 
     if (error) {
-      console.error("[RentalAdmin] listPendingVehicles error:", error);
+      log.error({ err: error }, "listPendingVehicles error");
       res.status(500).json({ error: "internal_error" });
       return;
     }
 
     res.json({ vehicles: data || [], total: count ?? 0, page, per_page: perPage });
   } catch (err) {
-    console.error("[RentalAdmin] listPendingVehicles error:", err);
+    log.error({ err }, "listPendingVehicles error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -300,14 +310,14 @@ const moderateVehicle: RequestHandler = async (req, res) => {
       .single();
 
     if (error) {
-      console.error("[RentalAdmin] moderateVehicle error:", error);
+      log.error({ err: error }, "moderateVehicle error");
       res.status(500).json({ error: "internal_error" });
       return;
     }
 
     res.json({ vehicle: data, action });
   } catch (err) {
-    console.error("[RentalAdmin] moderateVehicle error:", err);
+    log.error({ err }, "moderateVehicle error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -386,7 +396,7 @@ const getGlobalStats: RequestHandler = async (_req, res) => {
       },
     });
   } catch (err) {
-    console.error("[RentalAdmin] getGlobalStats error:", err);
+    log.error({ err }, "getGlobalStats error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -398,16 +408,16 @@ const getGlobalStats: RequestHandler = async (_req, res) => {
 export function registerRentalAdminRoutes(app: Router): void {
   // Insurance plans CRUD
   app.get("/api/admin/rental/insurance-plans", listInsurancePlans);
-  app.post("/api/admin/rental/insurance-plans", createInsurancePlan);
-  app.put("/api/admin/rental/insurance-plans/:id", updateInsurancePlan);
-  app.delete("/api/admin/rental/insurance-plans/:id", deleteInsurancePlan);
+  app.post("/api/admin/rental/insurance-plans", zBody(CreateInsurancePlanSchema), createInsurancePlan);
+  app.put("/api/admin/rental/insurance-plans/:id", zParams(zIdParam), zBody(UpdateInsurancePlanSchema), updateInsurancePlan);
+  app.delete("/api/admin/rental/insurance-plans/:id", zParams(zIdParam), deleteInsurancePlan);
 
   // Commission
-  app.put("/api/admin/rental/establishments/:id/commission", setEstablishmentCommission);
+  app.put("/api/admin/rental/establishments/:id/commission", zParams(zIdParam), zBody(SetCommissionSchema), setEstablishmentCommission);
 
   // Moderation
   app.get("/api/admin/rental/vehicles/pending", listPendingVehicles);
-  app.put("/api/admin/rental/vehicles/:id/moderate", moderateVehicle);
+  app.put("/api/admin/rental/vehicles/:id/moderate", zParams(zIdParam), zBody(ModerateVehicleSchema), moderateVehicle);
 
   // Stats
   app.get("/api/admin/rental/stats", getGlobalStats);

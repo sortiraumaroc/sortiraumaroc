@@ -486,11 +486,12 @@ export async function validateCeScan(
     return { valid: false, employee_name: null, company_name: company.name, advantage: null, refusal_reason: "Cet avantage n'est pas disponible pour votre entreprise." };
   }
 
-  // 9. Check quotas
+  // 9. Check quotas (read from b2b_scans)
   if (advantage.max_uses_per_employee > 0) {
     const { count } = await sb
-      .from("ce_scans")
+      .from("b2b_scans")
       .select("id", { count: "exact", head: true })
+      .eq("scan_type", "ce")
       .eq("employee_id", decoded.employeeId)
       .eq("advantage_id", advantage.id)
       .eq("status", "validated");
@@ -502,8 +503,9 @@ export async function validateCeScan(
 
   if (advantage.max_uses_total > 0) {
     const { count } = await sb
-      .from("ce_scans")
+      .from("b2b_scans")
       .select("id", { count: "exact", head: true })
+      .eq("scan_type", "ce")
       .eq("advantage_id", advantage.id)
       .eq("status", "validated");
 
@@ -521,10 +523,11 @@ export async function validateCeScan(
 
   const employeeName = formatEmployeeName(user?.full_name ?? null);
 
-  // 11. Record scan
+  // 11. Record scan (write to b2b_scans)
   const { data: scan } = await sb
-    .from("ce_scans")
+    .from("b2b_scans")
     .insert({
+      scan_type: "ce",
       employee_id: decoded.employeeId,
       company_id: emp.company_id,
       establishment_id: establishmentId,
@@ -589,16 +592,28 @@ export async function syncCeFlags(userId: string, companyId: string): Promise<vo
 export async function syncEstablishmentCeFlag(establishmentId: string): Promise<void> {
   const sb = supabase();
 
-  const { count } = await sb
-    .from("pro_ce_advantages")
-    .select("id", { count: "exact", head: true })
-    .eq("establishment_id", establishmentId)
-    .eq("is_active", true)
-    .is("deleted_at", null);
+  // Check both pro_ce_advantages AND agreement_lines (module ce/both)
+  const [ceAdv, agreementLines] = await Promise.all([
+    sb
+      .from("pro_ce_advantages")
+      .select("id", { count: "exact", head: true })
+      .eq("establishment_id", establishmentId)
+      .eq("is_active", true)
+      .is("deleted_at", null),
+    sb
+      .from("agreement_lines")
+      .select("id", { count: "exact", head: true })
+      .eq("establishment_id", establishmentId)
+      .eq("is_active", true)
+      .is("deleted_at", null)
+      .in("module", ["ce", "both"]),
+  ]);
+
+  const hasAdvantages = ((ceAdv.count ?? 0) + (agreementLines.count ?? 0)) > 0;
 
   await sb
     .from("establishments")
-    .update({ has_ce_advantages: (count ?? 0) > 0 })
+    .update({ has_ce_advantages: hasAdvantages })
     .eq("id", establishmentId);
 }
 
@@ -624,9 +639,10 @@ export async function getEmployeeAdvantages(
   const page = options.page ?? 1;
   const limit = options.limit ?? 20;
   const offset = (page - 1) * limit;
+  const today = new Date().toISOString().split("T")[0];
 
-  // Get advantages targeted at this company or "all"
-  let query = sb
+  // ── 1. Classic pro_ce_advantages ──
+  let ceQuery = sb
     .from("pro_ce_advantages")
     .select(`
       id, establishment_id, advantage_type, advantage_value, description, conditions,
@@ -640,38 +656,95 @@ export async function getEmployeeAdvantages(
     .is("deleted_at", null)
     .eq("establishments.status", "active");
 
-  // Date filtering
-  const today = new Date().toISOString().split("T")[0];
-  query = query.or(`start_date.is.null,start_date.lte.${today}`);
-  query = query.or(`end_date.is.null,end_date.gte.${today}`);
+  ceQuery = ceQuery.or(`start_date.is.null,start_date.lte.${today}`);
+  ceQuery = ceQuery.or(`end_date.is.null,end_date.gte.${today}`);
 
   if (options.universe) {
-    query = query.eq("establishments.universe", options.universe);
+    ceQuery = ceQuery.eq("establishments.universe", options.universe);
   }
   if (options.city) {
-    query = query.ilike("establishments.city", `%${options.city}%`);
+    ceQuery = ceQuery.ilike("establishments.city", `%${options.city}%`);
   }
   if (options.search) {
-    query = query.or(
+    ceQuery = ceQuery.or(
       `description.ilike.%${options.search}%,establishments.name.ilike.%${options.search}%`,
     );
   }
 
-  query = query.range(offset, offset + limit - 1);
+  // ── 2. Partnership agreement_lines (module = ce or both) ──
+  let alQuery = sb
+    .from("agreement_lines")
+    .select(`
+      id, establishment_id, advantage_type, advantage_value, description, conditions,
+      start_date, end_date, max_uses_per_employee, max_uses_total, target_companies,
+      establishments!inner (
+        id, name, slug, cover_url, city, universe, category,
+        lat, lng, status
+      )
+    `)
+    .eq("is_active", true)
+    .is("deleted_at", null)
+    .in("module", ["ce", "both"])
+    .eq("establishments.status", "active");
 
-  const { data: advantages, error } = await query;
+  alQuery = alQuery.or(`start_date.is.null,start_date.lte.${today}`);
+  alQuery = alQuery.or(`end_date.is.null,end_date.gte.${today}`);
 
-  if (error || !advantages) return { data: [], total: 0 };
+  if (options.universe) {
+    alQuery = alQuery.eq("establishments.universe", options.universe);
+  }
+  if (options.city) {
+    alQuery = alQuery.ilike("establishments.city", `%${options.city}%`);
+  }
+  if (options.search) {
+    alQuery = alQuery.or(
+      `description.ilike.%${options.search}%,establishments.name.ilike.%${options.search}%`,
+    );
+  }
 
-  // Filter by target_companies
-  const filtered = advantages.filter((a: any) => {
+  // ── 3. Fetch both in parallel ──
+  const [ceRes, alRes] = await Promise.all([ceQuery, alQuery]);
+
+  const ceData = ceRes.data ?? [];
+  const alData = alRes.data ?? [];
+
+  // ── 4. Filter by target_companies ──
+  const filterByTarget = (a: any) => {
     const targets = a.target_companies;
     if (targets === "all" || targets === '"all"') return true;
     if (Array.isArray(targets)) return targets.includes(companyId);
     return true;
-  });
+  };
 
-  return { data: filtered, total: filtered.length };
+  const ceFiltered = ceData.filter(filterByTarget);
+  const alFiltered = alData.filter(filterByTarget);
+
+  // ── 5. Merge & deduplicate by establishment_id (agreement_lines take priority) ──
+  const seen = new Set<string>();
+  const merged: any[] = [];
+
+  // Agreement lines first (higher priority)
+  for (const item of alFiltered) {
+    const estId = item.establishment_id;
+    if (!seen.has(estId)) {
+      seen.add(estId);
+      merged.push({ ...item, _source: "agreement_line" });
+    }
+  }
+  // Then classic CE advantages
+  for (const item of ceFiltered) {
+    const estId = item.establishment_id;
+    if (!seen.has(estId)) {
+      seen.add(estId);
+      merged.push({ ...item, _source: "pro_ce_advantage" });
+    }
+  }
+
+  // ── 6. Paginate merged results ──
+  const total = merged.length;
+  const paginated = merged.slice(offset, offset + limit);
+
+  return { data: paginated, total };
 }
 
 export async function getCeHomeFeed(
@@ -682,36 +755,72 @@ export async function getCeHomeFeed(
   const sb = supabase();
   const today = new Date().toISOString().split("T")[0];
 
-  const { data } = await sb
-    .from("pro_ce_advantages")
-    .select(`
-      id, advantage_type, advantage_value, description,
-      establishments!inner (
-        id, name, slug, cover_url, city, universe, category, lat, lng
-      )
-    `)
-    .eq("is_active", true)
-    .is("deleted_at", null)
-    .eq("establishments.status", "active")
-    .or(`start_date.is.null,start_date.lte.${today}`)
-    .or(`end_date.is.null,end_date.gte.${today}`)
-    .limit(limit * 2); // Fetch more and filter
+  // Fetch both sources in parallel
+  const [ceRes, alRes] = await Promise.all([
+    sb
+      .from("pro_ce_advantages")
+      .select(`
+        id, establishment_id, advantage_type, advantage_value, description, target_companies,
+        establishments!inner (
+          id, name, slug, cover_url, city, universe, category, lat, lng
+        )
+      `)
+      .eq("is_active", true)
+      .is("deleted_at", null)
+      .eq("establishments.status", "active")
+      .or(`start_date.is.null,start_date.lte.${today}`)
+      .or(`end_date.is.null,end_date.gte.${today}`)
+      .limit(limit * 2),
+    sb
+      .from("agreement_lines")
+      .select(`
+        id, establishment_id, advantage_type, advantage_value, description, target_companies,
+        establishments!inner (
+          id, name, slug, cover_url, city, universe, category, lat, lng
+        )
+      `)
+      .eq("is_active", true)
+      .is("deleted_at", null)
+      .in("module", ["ce", "both"])
+      .eq("establishments.status", "active")
+      .or(`start_date.is.null,start_date.lte.${today}`)
+      .or(`end_date.is.null,end_date.gte.${today}`)
+      .limit(limit * 2),
+  ]);
 
-  if (!data) return [];
+  const ceData = ceRes.data ?? [];
+  const alData = alRes.data ?? [];
 
-  // Filter by target, shuffle, and limit
-  const filtered = data.filter((a: any) => {
+  // Filter by target_companies
+  const filterByTarget = (a: any) => {
     const targets = a.target_companies;
     if (targets === "all" || targets === '"all"') return true;
     if (Array.isArray(targets)) return targets.includes(companyId);
     return true;
-  });
+  };
 
-  // Shuffle
-  for (let i = filtered.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [filtered[i], filtered[j]] = [filtered[j], filtered[i]];
+  // Merge with agreement_lines priority, deduplicate by establishment_id
+  const seen = new Set<string>();
+  const merged: any[] = [];
+
+  for (const item of alData.filter(filterByTarget)) {
+    if (!seen.has(item.establishment_id)) {
+      seen.add(item.establishment_id);
+      merged.push(item);
+    }
+  }
+  for (const item of ceData.filter(filterByTarget)) {
+    if (!seen.has(item.establishment_id)) {
+      seen.add(item.establishment_id);
+      merged.push(item);
+    }
   }
 
-  return filtered.slice(0, limit);
+  // Shuffle
+  for (let i = merged.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [merged[i], merged[j]] = [merged[j], merged[i]];
+  }
+
+  return merged.slice(0, limit);
 }

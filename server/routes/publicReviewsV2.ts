@@ -7,7 +7,14 @@
  */
 
 import type { RequestHandler } from "express";
+import type { Express } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
+import { zParams } from "../lib/validate";
+import { EstablishmentRefParams } from "../schemas/publicRoutes";
+
+const log = createModuleLogger("publicReviewsV2");
+import { reviewPublicReadRateLimiter } from "../middleware/rateLimiter";
 import { getUserDisplayName } from "../reviewLogic";
 import { publicListReviewsSchema } from "../schemas/reviews";
 
@@ -81,7 +88,7 @@ export const listPublicReviewsV2: RequestHandler = async (req, res) => {
     const { data: reviews, error, count } = await query;
 
     if (error) {
-      console.error("[publicReviewsV2] listPublicReviews error:", error);
+      log.error({ err: error }, "listPublicReviews error");
       return res.status(500).json({ ok: false, error: error.message });
     }
 
@@ -143,7 +150,7 @@ export const listPublicReviewsV2: RequestHandler = async (req, res) => {
       limit,
     });
   } catch (err) {
-    console.error("[publicReviewsV2] listPublicReviews exception:", err);
+    log.error({ err }, "listPublicReviews exception");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 };
@@ -176,7 +183,7 @@ export const getPublicReviewSummaryV2: RequestHandler = async (req, res) => {
 
     if (error && error.code !== "PGRST116") {
       // PGRST116 = no rows (not an error)
-      console.error("[publicReviewsV2] getReviewSummary error:", error);
+      log.error({ err: error }, "getReviewSummary error");
     }
 
     // Get establishment universe for criteria context
@@ -224,7 +231,16 @@ export const getPublicReviewSummaryV2: RequestHandler = async (req, res) => {
       universe: establishment?.universe ?? "restaurant",
     });
   } catch (err) {
-    console.error("[publicReviewsV2] getReviewSummary exception:", err);
+    log.error({ err }, "getReviewSummary exception");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 };
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerPublicReviewsV2Routes(app: Express) {
+  app.get("/api/public/v2/establishments/:ref/reviews", zParams(EstablishmentRefParams), reviewPublicReadRateLimiter, listPublicReviewsV2);
+  app.get("/api/public/v2/establishments/:ref/reviews/summary", zParams(EstablishmentRefParams), getPublicReviewSummaryV2);
+}

@@ -15,7 +15,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { AdminMarketingNav } from "@/pages/admin/marketing/AdminMarketingNav";
+import { AdminVisibilityNav } from "@/pages/admin/visibility/AdminVisibilityNav";
 
 // =============================================================================
 // Types
@@ -1117,7 +1117,7 @@ export default function AdminPushCampaignsDashboard({ className }: { className?:
   return (
     <div className={cn("space-y-4", className)}>
       {/* Marketing sub-navigation */}
-      <AdminMarketingNav />
+      <AdminVisibilityNav />
 
       {/* Header */}
       <div className="flex items-center justify-between gap-3">

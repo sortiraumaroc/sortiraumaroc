@@ -556,6 +556,7 @@ export const TAG_CONFIG: Record<string, {
   tags: string[];
   amenities: string[];
   ambiance: string[];
+  service_types?: string[];
 }> = {
   restaurants: {
     specialties: [
@@ -580,6 +581,9 @@ export const TAG_CONFIG: Record<string, {
       "Cosy", "Chic", "Lounge", "Calme", "Festif", "Convivial", "Intimiste",
       "Moderne", "Traditionnel", "Romantique", "Speakeasy",
       "Ambiance club", "Live band", "DJ set", "Candlelight", "Ambiance marocaine",
+    ],
+    service_types: [
+      "Buffet à volonté", "Servi à table", "À la carte",
     ],
   },
   loisirs: {
@@ -782,6 +786,7 @@ export type WizardData = {
   hours: Record<string, DaySchedule>;
   // Step 7
   ambiance_tags: string[];
+  service_types: string[];
   general_tags: string[];
   amenities: string[];
   highlights: string[];
@@ -835,6 +840,7 @@ export function createInitialWizardData(): WizardData {
     galleryUrls: [],
     hours,
     ambiance_tags: [],
+    service_types: [],
     general_tags: [],
     amenities: [],
     highlights: [],

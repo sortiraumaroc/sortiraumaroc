@@ -580,7 +580,7 @@ export default function Step1Selection() {
         : t("booking.step1.choose_date");
 
   return (
-    <div className={cn("space-y-8", isMobile ? "pb-28" : "")}>
+    <div className={cn("space-y-8", isMobile && showRecap ? "pb-36" : isMobile ? "pb-6" : "")}>
       {selectedPack && (
         <div className="rounded-xl border border-[#a3001d]/20 bg-[#a3001d]/[0.04] p-4">
           <div className="flex items-start justify-between gap-3">
@@ -1014,7 +1014,7 @@ export default function Step1Selection() {
 
       {/* Sticky recap (mobile) */}
       {isMobile && showRecap ? (
-        <div className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
+        <div data-sticky-bottom-bar className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
           <div className="mx-auto max-w-3xl px-4 py-3 flex items-center gap-3">
             <div className="min-w-0 flex-1">
               <div className="text-sm font-semibold text-slate-900 truncate">{stickyTitle}</div>

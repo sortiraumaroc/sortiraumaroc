@@ -13,6 +13,9 @@
 
 import { getAdminSupabase } from "./supabaseAdmin";
 import { sendPushNotification } from "./pushNotifications";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("pushCampaignSender");
 import { sendTemplateEmail } from "./emailService";
 import { emitConsumerUserEvent } from "./consumerNotifications";
 import type { PushCampaignPriority, PushCampaignType } from "../shared/notificationsBannersWheelTypes";
@@ -81,7 +84,7 @@ export async function sendCampaignBatch(
         break;
       }
       default:
-        console.warn(`[CampaignSender] Unknown channel: ${channel}`);
+        log.warn({ channel }, "unknown channel");
     }
   }
 
@@ -182,7 +185,7 @@ async function sendViaPush(
   for (let i = 0; i < deliveryRows.length; i += insertBatchSize) {
     const batch = deliveryRows.slice(i, i + insertBatchSize);
     const { error: insErr } = await supabase.from("push_campaign_deliveries").insert(batch);
-    if (insErr) console.error("[CampaignSender] Delivery insert error:", insErr.message);
+    if (insErr) log.error({ err: insErr.message }, "delivery insert error");
   }
 
   // Log in notification_logs (batch)
@@ -202,7 +205,7 @@ async function sendViaPush(
   for (let i = 0; i < logRows.length; i += insertBatchSize) {
     const batch = logRows.slice(i, i + insertBatchSize);
     const { error: logErr } = await supabase.from("notification_logs").insert(batch);
-    if (logErr) console.error("[CampaignSender] Notification log insert error:", logErr.message);
+    if (logErr) log.error({ err: logErr.message }, "notification log insert error");
   }
 
   return { sent, failed };
@@ -239,7 +242,8 @@ async function sendViaInApp(
         },
       });
       sent++;
-    } catch {
+    } catch (err) {
+      log.warn({ err, userId }, "Push campaign: in-app notification send failed");
       failed++;
     }
   }
@@ -257,7 +261,7 @@ async function sendViaInApp(
   for (let i = 0; i < deliveryRows.length; i += insertBatchSize) {
     const batch = deliveryRows.slice(i, i + insertBatchSize);
     const { error: insErr } = await supabase.from("push_campaign_deliveries").insert(batch);
-    if (insErr) console.error("[CampaignSender] In-app delivery insert error:", insErr.message);
+    if (insErr) log.error({ err: insErr.message }, "in-app delivery insert error");
   }
 
   return { sent, failed };
@@ -328,7 +332,8 @@ async function sendViaEmail(
           const errorMsg = result.ok === false ? result.error : "unknown_email_error";
           return { userId, status: "failed" as const, error: errorMsg };
         }
-      } catch {
+      } catch (err) {
+        log.warn({ err, userId }, "Push campaign: email send failed");
         failed++;
         return { userId, status: "failed" as const, error: "email_exception" };
       }
@@ -360,7 +365,7 @@ async function sendViaEmail(
   for (let i = 0; i < deliveryRows.length; i += insertBatchSize) {
     const batch = deliveryRows.slice(i, i + insertBatchSize);
     const { error: insErr } = await supabase.from("push_campaign_deliveries").insert(batch);
-    if (insErr) console.error("[CampaignSender] Email delivery insert error:", insErr.message);
+    if (insErr) log.error({ err: insErr.message }, "email delivery insert error");
   }
 
   // Log in notification_logs
@@ -380,7 +385,7 @@ async function sendViaEmail(
   for (let i = 0; i < logRows.length; i += insertBatchSize) {
     const batch = logRows.slice(i, i + insertBatchSize);
     const { error: logErr } = await supabase.from("notification_logs").insert(batch);
-    if (logErr) console.error("[CampaignSender] Email log insert error:", logErr.message);
+    if (logErr) log.error({ err: logErr.message }, "email log insert error");
   }
 
   return { sent, failed };

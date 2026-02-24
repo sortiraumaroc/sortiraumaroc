@@ -7,11 +7,21 @@
  */
 
 import type { Request, Response } from "express";
+import type { Express } from "express";
 import { sendLoggedEmail } from "../emailService";
 import { verifyRecaptchaToken, isRecaptchaConfigured } from "./recaptcha";
 import { getAdminSupabase } from "../supabaseAdmin";
 import crypto from "crypto";
 import { issueTrustedDevice } from "../trustedDeviceLogic";
+import { createModuleLogger } from "../lib/logger";
+import { zBody } from "../lib/validate";
+import {
+  emailSendCodeSchema,
+  emailVerifyCodeSchema,
+  emailSignupSchema,
+  setEmailPasswordSchema,
+} from "../schemas/emailVerification";
+const log = createModuleLogger("emailVerification");
 
 // In-memory store for verification codes (in production, use Redis or similar)
 const verificationCodes = new Map<string, { code: string; expiresAt: number }>();
@@ -73,7 +83,7 @@ export async function sendEmailVerificationCode(req: Request, res: Response) {
     );
 
     if (existingUser) {
-      console.log(`[EmailVerification] Email already registered: ${normalizedEmail}`);
+      log.info({ email: normalizedEmail }, "email already registered");
       return res.status(409).json({
         error: "Un compte existe déjà avec cet email. Veuillez vous connecter.",
         code: "EMAIL_ALREADY_EXISTS",
@@ -84,7 +94,7 @@ export async function sendEmailVerificationCode(req: Request, res: Response) {
     const now = Date.now();
     const attempts = emailAttempts.get(normalizedEmail);
     if (attempts && attempts.resetAt > now && attempts.count >= MAX_ATTEMPTS_PER_HOUR) {
-      console.warn(`[EmailVerification] Rate limit exceeded for ${normalizedEmail}`);
+      log.warn({ email: normalizedEmail }, "rate limit exceeded");
       return res.status(429).json({ error: "Trop de tentatives. Réessayez dans une heure." });
     }
 
@@ -100,8 +110,8 @@ export async function sendEmailVerificationCode(req: Request, res: Response) {
         if (meta?.auth_method === "phone") {
           isAuthenticatedPhoneUser = true;
         }
-      } catch {
-        // ignore — will fall through to reCAPTCHA check
+      } catch (err) {
+        log.warn({ err }, "Non-fatal: phone auth check failed, falling through to reCAPTCHA");
       }
     }
 
@@ -115,7 +125,7 @@ export async function sendEmailVerificationCode(req: Request, res: Response) {
       const recaptchaValid = await verifyRecaptchaToken(recaptchaToken, clientIp);
 
       if (!recaptchaValid) {
-        console.warn(`[EmailVerification] reCAPTCHA verification failed for ${normalizedEmail}`);
+        log.warn({ email: normalizedEmail }, "reCAPTCHA verification failed");
         return res.status(400).json({ error: "Vérification reCAPTCHA échouée" });
       }
     }
@@ -150,7 +160,7 @@ export async function sendEmailVerificationCode(req: Request, res: Response) {
     });
 
     if (result.ok === false) {
-      console.error("[EmailVerification] Failed to send email:", result.error);
+      log.error({ err: result.error }, "failed to send verification email");
 
       // Detect SES sandbox rejection
       const isSandbox =
@@ -158,10 +168,7 @@ export async function sendEmailVerificationCode(req: Request, res: Response) {
         result.error.includes("identities failed the check");
 
       if (isSandbox) {
-        console.error(
-          `[EmailVerification] AWS SES sandbox: recipient ${normalizedEmail} is not a verified identity. ` +
-            `Add it in the SES console or request production access.`,
-        );
+        log.error({ email: normalizedEmail }, "AWS SES sandbox: recipient is not a verified identity");
         return res.status(500).json({
           error:
             "Impossible d'envoyer l'email : l'adresse destinataire n'est pas vérifiée dans Amazon SES (mode sandbox). " +
@@ -172,10 +179,10 @@ export async function sendEmailVerificationCode(req: Request, res: Response) {
       return res.status(500).json({ error: "Impossible d'envoyer l'email" });
     }
 
-    console.log(`[EmailVerification] Code sent to ${normalizedEmail}`);
+    log.info({ email: normalizedEmail }, "verification code sent");
     return res.json({ ok: true });
   } catch (error) {
-    console.error("[EmailVerification] Error:", error);
+    log.error({ err: error }, "sendEmailVerificationCode failed");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 }
@@ -215,10 +222,10 @@ export async function verifyEmailCode(req: Request, res: Response) {
       expiresAt: Date.now() + VERIFIED_EMAIL_EXPIRY_MS,
     });
 
-    console.log(`[EmailVerification] Email verified: ${normalizedEmail}`);
+    log.info({ email: normalizedEmail }, "email verified");
     return res.json({ ok: true, verified: true });
   } catch (error) {
-    console.error("[EmailVerification] Verify error:", error);
+    log.error({ err: error }, "verifyEmailCode failed");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 }
@@ -282,7 +289,7 @@ export async function signupWithEmail(req: Request, res: Response) {
       });
 
     if (authError) {
-      console.error("[EmailSignup] Error creating auth user:", authError);
+      log.error({ err: authError }, "error creating auth user");
 
       // Handle weak password error from Supabase
       if (authError.message?.includes("weak") || authError.message?.includes("password")) {
@@ -293,7 +300,7 @@ export async function signupWithEmail(req: Request, res: Response) {
     }
 
     const userId = authData.user.id;
-    console.log("[EmailSignup] Auth user created:", userId);
+    log.info({ userId }, "auth user created");
 
     // Create consumer_users profile
     const { error: profileError } = await supabase
@@ -308,7 +315,7 @@ export async function signupWithEmail(req: Request, res: Response) {
       });
 
     if (profileError) {
-      console.error("[EmailSignup] Error creating consumer profile:", profileError);
+      log.error({ err: profileError, userId }, "error creating consumer profile");
     }
 
     // Handle referral code if provided
@@ -331,13 +338,13 @@ export async function signupWithEmail(req: Request, res: Response) {
             });
 
           if (linkError) {
-            console.warn("[EmailSignup] Failed to create referral link:", linkError);
+            log.warn({ err: linkError, userId }, "failed to create referral link");
           } else {
-            console.log("[EmailSignup] Referral link created for user:", userId);
+            log.info({ userId }, "referral link created");
           }
         }
       } catch (refError) {
-        console.error("[EmailSignup] Error processing referral:", refError);
+        log.error({ err: refError, userId }, "error processing referral");
       }
     }
 
@@ -352,7 +359,7 @@ export async function signupWithEmail(req: Request, res: Response) {
       });
 
     if (sessionError) {
-      console.error("[EmailSignup] Error generating session:", sessionError);
+      log.error({ err: sessionError, userId }, "error generating session");
       return res.status(500).json({ error: "Échec de la création de la session" });
     }
 
@@ -369,11 +376,11 @@ export async function signupWithEmail(req: Request, res: Response) {
           is_new_user: true,
         },
       });
-    } catch {
-      /* ignore logging errors */
+    } catch (err) {
+      log.warn({ err }, "Best-effort: auth audit log failed");
     }
 
-    console.log("[EmailSignup] Account created successfully:", userId);
+    log.info({ userId }, "account created successfully");
 
     // Issue trusted device cookie for new email user (best-effort, non-blocking)
     await issueTrustedDevice(req, res, userId);
@@ -385,7 +392,7 @@ export async function signupWithEmail(req: Request, res: Response) {
       actionLink: sessionData?.properties?.action_link,
     });
   } catch (error) {
-    console.error("[EmailSignup] Unexpected error:", error);
+    log.error({ err: error }, "signupWithEmail unexpected error");
     return res.status(500).json({ error: "Erreur lors de la création du compte" });
   }
 }
@@ -491,7 +498,7 @@ export async function setPhoneUserEmailPassword(req: Request, res: Response) {
     });
 
     if (updateErr) {
-      console.error("[SetEmailPassword] Error updating auth user:", updateErr);
+      log.error({ err: updateErr, userId }, "error updating auth user email/password");
 
       // Handle weak password error from Supabase
       if (updateErr.message?.includes("weak") || updateErr.message?.includes("password")) {
@@ -508,7 +515,7 @@ export async function setPhoneUserEmailPassword(req: Request, res: Response) {
       .eq("id", userId);
 
     if (profileErr) {
-      console.error("[SetEmailPassword] Error updating consumer_users email:", profileErr);
+      log.error({ err: profileErr, userId }, "error updating consumer_users email");
       // Non-blocking — auth user is already updated
     }
 
@@ -525,15 +532,26 @@ export async function setPhoneUserEmailPassword(req: Request, res: Response) {
           previous_email: currentEmail,
         },
       });
-    } catch {
-      /* ignore logging errors */
+    } catch (err) {
+      log.warn({ err }, "Best-effort: auth audit log failed");
     }
 
-    console.log(`[SetEmailPassword] Email updated for user ${userId}: ${currentEmail} → ${normalizedEmail}`);
+    log.info({ userId, previousEmail: currentEmail, newEmail: normalizedEmail }, "email updated for user");
 
     return res.json({ ok: true });
   } catch (error) {
-    console.error("[SetEmailPassword] Unexpected error:", error);
+    log.error({ err: error }, "setPhoneUserEmailPassword unexpected error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerEmailVerificationRoutes(app: Express) {
+  app.post("/api/consumer/verify-email/send", zBody(emailSendCodeSchema), sendEmailVerificationCode);
+  app.post("/api/consumer/verify-email/verify", zBody(emailVerifyCodeSchema), verifyEmailCode);
+  app.post("/api/consumer/auth/email/signup", zBody(emailSignupSchema), signupWithEmail);
+  app.post("/api/consumer/account/set-email-password", zBody(setEmailPasswordSchema), setPhoneUserEmailPassword);
 }

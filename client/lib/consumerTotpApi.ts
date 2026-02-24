@@ -152,7 +152,7 @@ async function requestAuthedJson<T>(
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     if (attempt > 0) {
-      console.warn(`[consumerTotpApi] Retry ${attempt}/${MAX_RETRIES} for ${path}`);
+      // Retrying request
       await wait(RETRY_DELAY_MS * attempt);
     }
 
@@ -182,11 +182,7 @@ async function requestAuthedJson<T>(
       const text = await res.text().catch(() => "");
       payload = text;
       if (!res.ok) {
-        console.error(
-          "[consumerTotpApi] Non-JSON response on", path,
-          "status:", res.status,
-          "body:", typeof text === "string" ? text.slice(0, 200) : text,
-        );
+        // Non-JSON error response
       }
     }
 
@@ -199,7 +195,7 @@ async function requestAuthedJson<T>(
   }
 
   // ── 4. All retries exhausted ───────────────────────────────────────
-  console.error("[consumerTotpApi] All retries exhausted for", path, lastError);
+  // All retries exhausted
   throw new ConsumerTotpApiError(
     "Impossible de contacter le serveur. Vérifiez votre connexion et réessayez.",
     0,

@@ -18,9 +18,22 @@
  *  - POST   /api/admin/wheel/:id/validate-probabilities — validate probabilities
  */
 
-import type { Router, Request, Response, RequestHandler } from "express";
-import { assertAdminApiEnabled, checkAdminKey, getAdminSupabase } from "../supabaseAdmin";
-import { getSessionCookieName, parseCookies, verifyAdminSessionToken } from "../adminSession";
+import type { Router, Request, Response } from "express";
+import { createModuleLogger } from "../lib/logger";
+import { getAdminSupabase } from "../supabaseAdmin";
+import { zBody, zParams, zQuery, zIdParam } from "../lib/validate";
+import {
+  CreateWheelEventSchema,
+  UpdateWheelEventSchema,
+  AddPrizeSchema,
+  UpdatePrizeSchema,
+  UploadExternalCodesSchema,
+  WheelPrizeIdParams,
+  ListWheelEventsQuery,
+} from "../schemas/wheelAdmin";
+
+const log = createModuleLogger("wheelAdmin");
+import { requireAdminKey } from "./adminHelpers";
 import {
   createWheelEvent,
   updateWheelEvent,
@@ -39,54 +52,6 @@ import {
 import { auditAdminAction } from "../auditLogV2";
 import { isValidUUID, sanitizeText } from "../sanitizeV2";
 import { wheelAdminRateLimiter } from "../middleware/rateLimiter";
-
-// =============================================================================
-// Admin auth
-// =============================================================================
-
-function getAdminSessionToken(req: Parameters<RequestHandler>[0]): { token: string; source: "cookie" | "header" } | null {
-  const cookies = parseCookies(req.header("cookie") ?? undefined);
-  const cookieToken = cookies[getSessionCookieName()];
-  if (cookieToken) return { token: cookieToken, source: "cookie" };
-  const headerToken = req.header("x-admin-session") ?? undefined;
-  if (headerToken && headerToken.trim()) return { token: headerToken.trim(), source: "header" };
-  const authHeader = req.header("authorization") ?? undefined;
-  if (authHeader && authHeader.toLowerCase().startsWith("bearer ")) {
-    const bearer = authHeader.slice(7).trim();
-    if (bearer) return { token: bearer, source: "header" };
-  }
-  return null;
-}
-
-function isSafeMethod(method: string | undefined): boolean {
-  const m = (method || "GET").toUpperCase();
-  return m === "GET" || m === "HEAD" || m === "OPTIONS";
-}
-
-function isSameOrigin(req: Parameters<RequestHandler>[0]): boolean {
-  const originHeader = req.header("origin");
-  if (!originHeader) return true;
-  let origin: URL;
-  try { origin = new URL(originHeader); } catch { return false; }
-  const host = req.header("x-forwarded-host") ?? req.header("host");
-  if (!host) return false;
-  return origin.host === host;
-}
-
-function requireAdminKey(req: Parameters<RequestHandler>[0], res: Parameters<RequestHandler>[1]): boolean {
-  const enabled = assertAdminApiEnabled();
-  if (enabled.ok === false) { res.status(503).json({ error: enabled.message }); return false; }
-  const session = getAdminSessionToken(req);
-  if (session && verifyAdminSessionToken(session.token) !== null) {
-    if (session.source === "cookie" && !isSafeMethod(req.method) && !isSameOrigin(req)) {
-      res.status(403).json({ error: "Forbidden" }); return false;
-    }
-    return true;
-  }
-  const header = req.header("x-admin-key") ?? undefined;
-  if (!checkAdminKey(header)) { res.status(401).json({ error: "Unauthorized" }); return false; }
-  return true;
-}
 
 // =============================================================================
 // Helpers
@@ -128,7 +93,7 @@ async function listWheelEvents(req: Request, res: Response) {
 
     res.json({ events: data ?? [], total: count ?? 0, page, limit });
   } catch (err) {
-    console.error("[WheelAdmin] listWheelEvents error:", err);
+    log.error({ err }, "listWheelEvents error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -165,7 +130,7 @@ async function getWheelEvent(req: Request, res: Response) {
 
     res.json({ event, prizes: prizes ?? [] });
   } catch (err) {
-    console.error("[WheelAdmin] getWheelEvent error:", err);
+    log.error({ err }, "getWheelEvent error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -197,7 +162,7 @@ async function createWheelEventRoute(req: Request, res: Response) {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[WheelAdmin] createWheelEvent error:", err);
+    log.error({ err }, "createWheelEvent error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -229,7 +194,7 @@ async function updateWheelEventRoute(req: Request, res: Response) {
 
     res.json({ ok: true });
   } catch (err) {
-    console.error("[WheelAdmin] updateWheelEvent error:", err);
+    log.error({ err }, "updateWheelEvent error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -260,7 +225,7 @@ async function activateWheelRoute(req: Request, res: Response) {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[WheelAdmin] activateWheel error:", err);
+    log.error({ err }, "activateWheel error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -291,7 +256,7 @@ async function pauseWheelRoute(req: Request, res: Response) {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[WheelAdmin] pauseWheel error:", err);
+    log.error({ err }, "pauseWheel error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -322,7 +287,7 @@ async function endWheelRoute(req: Request, res: Response) {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[WheelAdmin] endWheel error:", err);
+    log.error({ err }, "endWheel error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -360,7 +325,7 @@ async function addPrizeRoute(req: Request, res: Response) {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[WheelAdmin] addPrize error:", err);
+    log.error({ err }, "addPrize error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -386,7 +351,7 @@ async function updatePrizeRoute(req: Request, res: Response) {
 
     res.json({ ok: true });
   } catch (err) {
-    console.error("[WheelAdmin] updatePrize error:", err);
+    log.error({ err }, "updatePrize error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -411,7 +376,7 @@ async function removePrizeRoute(req: Request, res: Response) {
 
     res.json({ ok: true });
   } catch (err) {
-    console.error("[WheelAdmin] removePrize error:", err);
+    log.error({ err }, "removePrize error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -449,7 +414,7 @@ async function uploadExternalCodesRoute(req: Request, res: Response) {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[WheelAdmin] uploadExternalCodes error:", err);
+    log.error({ err }, "uploadExternalCodes error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -474,7 +439,7 @@ async function getWheelStatsRoute(req: Request, res: Response) {
 
     res.json(result);
   } catch (err) {
-    console.error("[WheelAdmin] getWheelStats error:", err);
+    log.error({ err }, "getWheelStats error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -499,7 +464,7 @@ async function getDailyRecapRoute(req: Request, res: Response) {
 
     res.json({ ok: true, recap });
   } catch (err) {
-    console.error("[WheelAdmin] getDailyRecap error:", err);
+    log.error({ err }, "getDailyRecap error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -526,7 +491,7 @@ async function exportSpinsRoute(req: Request, res: Response) {
     res.setHeader("Content-Disposition", `attachment; filename="wheel-${wheelId}-spins.csv"`);
     res.send((result as any).csv);
   } catch (err) {
-    console.error("[WheelAdmin] exportSpins error:", err);
+    log.error({ err }, "exportSpins error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -551,7 +516,7 @@ async function validateProbabilitiesRoute(req: Request, res: Response) {
 
     res.json(result);
   } catch (err) {
-    console.error("[WheelAdmin] validateProbabilities error:", err);
+    log.error({ err }, "validateProbabilities error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -561,19 +526,19 @@ async function validateProbabilitiesRoute(req: Request, res: Response) {
 // =============================================================================
 
 export function registerWheelAdminRoutes(app: Router): void {
-  app.get("/api/admin/wheel", wheelAdminRateLimiter, listWheelEvents);
-  app.get("/api/admin/wheel/:id", wheelAdminRateLimiter, getWheelEvent);
-  app.post("/api/admin/wheel", wheelAdminRateLimiter, createWheelEventRoute);
-  app.put("/api/admin/wheel/:id", wheelAdminRateLimiter, updateWheelEventRoute);
-  app.post("/api/admin/wheel/:id/activate", wheelAdminRateLimiter, activateWheelRoute);
-  app.post("/api/admin/wheel/:id/pause", wheelAdminRateLimiter, pauseWheelRoute);
-  app.post("/api/admin/wheel/:id/end", wheelAdminRateLimiter, endWheelRoute);
-  app.post("/api/admin/wheel/:id/prizes", wheelAdminRateLimiter, addPrizeRoute);
-  app.put("/api/admin/wheel/prizes/:prizeId", wheelAdminRateLimiter, updatePrizeRoute);
-  app.delete("/api/admin/wheel/prizes/:prizeId", wheelAdminRateLimiter, removePrizeRoute);
-  app.post("/api/admin/wheel/prizes/:prizeId/upload-codes", wheelAdminRateLimiter, uploadExternalCodesRoute);
-  app.get("/api/admin/wheel/:id/stats", wheelAdminRateLimiter, getWheelStatsRoute);
-  app.get("/api/admin/wheel/:id/recap", wheelAdminRateLimiter, getDailyRecapRoute);
-  app.get("/api/admin/wheel/:id/export", wheelAdminRateLimiter, exportSpinsRoute);
-  app.post("/api/admin/wheel/:id/validate-probabilities", wheelAdminRateLimiter, validateProbabilitiesRoute);
+  app.get("/api/admin/wheel", zQuery(ListWheelEventsQuery), wheelAdminRateLimiter, listWheelEvents);
+  app.get("/api/admin/wheel/:id", zParams(zIdParam), wheelAdminRateLimiter, getWheelEvent);
+  app.post("/api/admin/wheel", wheelAdminRateLimiter, zBody(CreateWheelEventSchema), createWheelEventRoute);
+  app.put("/api/admin/wheel/:id", zParams(zIdParam), wheelAdminRateLimiter, zBody(UpdateWheelEventSchema), updateWheelEventRoute);
+  app.post("/api/admin/wheel/:id/activate", zParams(zIdParam), wheelAdminRateLimiter, activateWheelRoute);
+  app.post("/api/admin/wheel/:id/pause", zParams(zIdParam), wheelAdminRateLimiter, pauseWheelRoute);
+  app.post("/api/admin/wheel/:id/end", zParams(zIdParam), wheelAdminRateLimiter, endWheelRoute);
+  app.post("/api/admin/wheel/:id/prizes", zParams(zIdParam), wheelAdminRateLimiter, zBody(AddPrizeSchema), addPrizeRoute);
+  app.put("/api/admin/wheel/prizes/:prizeId", zParams(WheelPrizeIdParams), wheelAdminRateLimiter, zBody(UpdatePrizeSchema), updatePrizeRoute);
+  app.delete("/api/admin/wheel/prizes/:prizeId", zParams(WheelPrizeIdParams), wheelAdminRateLimiter, removePrizeRoute);
+  app.post("/api/admin/wheel/prizes/:prizeId/upload-codes", zParams(WheelPrizeIdParams), wheelAdminRateLimiter, zBody(UploadExternalCodesSchema), uploadExternalCodesRoute);
+  app.get("/api/admin/wheel/:id/stats", zParams(zIdParam), wheelAdminRateLimiter, getWheelStatsRoute);
+  app.get("/api/admin/wheel/:id/recap", zParams(zIdParam), wheelAdminRateLimiter, getDailyRecapRoute);
+  app.get("/api/admin/wheel/:id/export", zParams(zIdParam), wheelAdminRateLimiter, exportSpinsRoute);
+  app.post("/api/admin/wheel/:id/validate-probabilities", zParams(zIdParam), wheelAdminRateLimiter, validateProbabilitiesRoute);
 }

@@ -8,6 +8,9 @@
 
 import type { Router, Request, RequestHandler } from "express";
 import { recomputeActiveUserPreferences } from "../lib/userPreferences";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("preferenceCron");
 
 // =============================================================================
 // Cron auth
@@ -34,7 +37,7 @@ const cronRecomputeActive: RequestHandler = async (req, res) => {
     const result = await recomputeActiveUserPreferences();
     res.json({ ok: true, ...result });
   } catch (err) {
-    console.error("[PreferencesCron] recompute-active error:", err);
+    log.error({ err }, "recompute-active error");
     res.status(500).json({ ok: false, error: "internal_error" });
   }
 };
@@ -91,7 +94,7 @@ const cronRunAll: RequestHandler = async (req, res) => {
   }
 
   const jobsRun = Object.keys(results).length;
-  console.log(`[PreferencesCron] run-all: ${jobsRun} jobs executed`);
+  log.info({ jobsRun }, "run-all completed");
   res.json({ ok: true, jobsRun, results });
 };
 

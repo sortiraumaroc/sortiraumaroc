@@ -9,7 +9,13 @@
  */
 
 import type { RequestHandler } from "express";
+import type { Express } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
+import { zParams } from "../lib/validate";
+import { EstablishmentIdParams } from "../schemas/proReservations";
+
+const log = createModuleLogger("menuDigitalSync");
 
 // Environment variable for menu_sam API endpoint
 const MENU_SAM_API_URL = process.env.MENU_SAM_API_URL || "http://localhost:8081";
@@ -210,7 +216,7 @@ export const enableMenuDigital: RequestHandler = async (req, res) => {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("Menu SAM sync error:", errorText);
+      log.error({ errorText }, "menu SAM sync error");
       return res.status(500).json({ error: "Failed to enable menu digital" });
     }
 
@@ -233,7 +239,7 @@ export const enableMenuDigital: RequestHandler = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Menu SAM API error:", error);
+    log.error({ err: error }, "menu SAM API error");
     return res.status(500).json({ error: "Failed to connect to menu digital service" });
   }
 };
@@ -353,7 +359,7 @@ export const syncMenuDigital: RequestHandler = async (req, res) => {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("Menu SAM sync error:", errorText);
+      log.error({ errorText }, "menu SAM sync error");
       return res.status(500).json({ error: "Failed to sync menu" });
     }
 
@@ -376,7 +382,7 @@ export const syncMenuDigital: RequestHandler = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Menu SAM API error:", error);
+    log.error({ err: error }, "menu SAM API error");
     return res.status(500).json({ error: "Failed to connect to menu digital service" });
   }
 };
@@ -413,8 +419,19 @@ export const disableMenuDigital: RequestHandler = async (req, res) => {
     });
   } catch (error) {
     // Log but don't fail - the important thing is SAM side is disabled
-    console.error("Failed to notify menu_sam of disable:", error);
+    log.error({ err: error }, "failed to notify menu_sam of disable");
   }
 
   return res.json({ ok: true, message: "Menu digital disabled" });
 };
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerMenuDigitalRoutes(app: Express) {
+  app.get("/api/pro/establishments/:establishmentId/menu-digital/status", zParams(EstablishmentIdParams), getMenuDigitalStatus);
+  app.post("/api/pro/establishments/:establishmentId/menu-digital/enable", zParams(EstablishmentIdParams), enableMenuDigital);
+  app.post("/api/pro/establishments/:establishmentId/menu-digital/sync", zParams(EstablishmentIdParams), syncMenuDigital);
+  app.post("/api/pro/establishments/:establishmentId/menu-digital/disable", zParams(EstablishmentIdParams), disableMenuDigital);
+}

@@ -14,7 +14,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
-import { AdminMediaFactoryNav } from "./media-factory/AdminMediaFactoryNav";
+import { AdminVisibilityNav } from "@/pages/admin/visibility/AdminVisibilityNav";
 import {
   MediaMessagesPanel,
   type MediaThread,
@@ -340,7 +340,7 @@ export function AdminMessagesPage() {
         description="Messages - Conversations des productions vidéo"
       />
 
-      <AdminMediaFactoryNav />
+      <AdminVisibilityNav />
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">

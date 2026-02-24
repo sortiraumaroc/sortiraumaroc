@@ -11,6 +11,9 @@
  */
 
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "./logger";
+
+const log = createModuleLogger("userPreferences");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -401,14 +404,14 @@ export async function loadOrComputePreferences(
     .maybeSingle();
 
   if (error) {
-    console.warn("[personalization] Failed to load preferences:", error.message);
+    log.warn({ err: error.message }, "failed to load preferences");
     return null;
   }
 
   // If no record exists, trigger async compute and return null (no personalization this time)
   if (!data) {
     void computeUserPreferences(userId).catch((e) => {
-      console.warn("[personalization] Background compute failed:", e?.message ?? e);
+      log.warn({ err: e }, "background compute failed");
     });
     return null;
   }
@@ -417,7 +420,7 @@ export async function loadOrComputePreferences(
   const updatedAt = data.updated_at ? new Date(data.updated_at).getTime() : 0;
   if (Date.now() - updatedAt > STALE_THRESHOLD_MS) {
     void computeUserPreferences(userId).catch((e) => {
-      console.warn("[personalization] Background recompute failed:", e?.message ?? e);
+      log.warn({ err: e }, "background recompute failed");
     });
   }
 
@@ -580,9 +583,7 @@ export async function recomputeActiveUserPreferences(): Promise<{
     }
   }
 
-  console.log(
-    `[personalization-cron] Recomputed ${processed} user preferences (${errors} errors, ${userIds.size} active users)`,
-  );
+  log.info({ processed, errors, activeUsers: userIds.size }, "recomputed user preferences");
 
   return { processed, errors };
 }

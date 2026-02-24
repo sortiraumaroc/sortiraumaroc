@@ -10,6 +10,9 @@
 
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("adsAntifraud");
 
 // =============================================================================
 // CONFIGURATION
@@ -140,7 +143,7 @@ export async function checkClickFraud(
     .gte('created_at', oneHourAgo);
 
   if (error1) {
-    console.error('[antifraud] Error checking clicks:', error1);
+    log.error({ err: error1 }, "Error checking clicks");
     // En cas d'erreur, on laisse passer mais avec un warning
     return { is_valid: true, fraud_reason: null, confidence: 0 };
   }

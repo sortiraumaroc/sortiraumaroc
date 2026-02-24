@@ -509,7 +509,7 @@ export default function VehicleDetail() {
       {/* ------------------------------------------------------------------- */}
       {/* Sticky bottom bar */}
       {/* ------------------------------------------------------------------- */}
-      <div className="fixed bottom-0 inset-x-0 bg-white border-t shadow-lg z-30">
+      <div data-sticky-bottom-bar className="fixed bottom-0 inset-x-0 bg-white border-t shadow-lg z-30">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
           <div>
             <span className="text-xl font-extrabold text-primary">

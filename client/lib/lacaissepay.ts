@@ -56,9 +56,7 @@ export async function createLacaissePaySession(
       text.trim().toLowerCase().includes("<html");
 
     if (isHtml) {
-      console.error("[LacaissePay] API a renvoyé du HTML au lieu de JSON");
-      console.error("[LacaissePay] Content-Type:", contentType);
-      console.error("[LacaissePay] Response preview:", text.substring(0, 200));
+      // API returned HTML instead of JSON — request did not reach Node.js
       throw new Error(
         "L'API de paiement n'a pas répondu correctement (réponse HTML reçue). " +
           "Cela indique que la requête n'a pas atteint Node.js. " +
@@ -74,7 +72,7 @@ export async function createLacaissePaySession(
         errMsg = parsed.message ?? parsed.error ?? parsed.details ?? text;
       } catch (parseError) {
         // Si on ne peut pas parser comme JSON, utiliser le texte brut
-        console.warn("[LacaissePay] Erreur non-JSON reçue:", text.substring(0, 200));
+        // Non-JSON error response received
         errMsg = text.length > 200 ? text.substring(0, 200) + "..." : text;
       }
       throw new Error(`LacaissePay session creation failed: ${errMsg}`);
@@ -84,8 +82,7 @@ export async function createLacaissePaySession(
     try {
       return JSON.parse(text) as LacaissePaySessionResponse;
     } catch (parseError) {
-      console.error("[LacaissePay] Impossible de parser la réponse comme JSON");
-      console.error("[LacaissePay] Response:", text.substring(0, 500));
+      // Failed to parse response as JSON
       throw new Error(
         "L'API de paiement a renvoyé une réponse invalide (non-JSON). " +
           "Vérifiez les logs du serveur pour plus de détails.",
@@ -99,14 +96,14 @@ export async function createLacaissePaySession(
     
     // Sinon, gérer les erreurs de réseau ou autres
     if (e instanceof SyntaxError || (e instanceof Error && e.message?.includes("JSON"))) {
-      console.error("[LacaissePay] Erreur de parsing JSON:", e);
+      // JSON parsing error
       throw new Error(
         "L'API de paiement a renvoyé une réponse invalide. " +
           "Vérifiez que les routes /api/* sont bien servies par Node.js.",
       );
     }
     
-    console.error("[LacaissePay] Erreur lors de la création de session:", e);
+    // Session creation error
     throw e;
   }
 }
@@ -177,7 +174,7 @@ export async function requestLacaissePayCheckoutUrl(args: {
       config,
     });
   } catch (e) {
-    console.error("LacaissePay checkout URL generation failed:", e);
+    // LacaissePay checkout URL generation failed
     throw e;
   }
 }

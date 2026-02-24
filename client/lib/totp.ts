@@ -229,7 +229,7 @@ export async function fetchTOTPSecret(
   try {
     const response = await fetch(`/api/totp/secret/${reservationId}`);
     if (!response.ok) {
-      console.warn("[totp] Failed to fetch secret:", response.status);
+      // Failed to fetch secret
       return null;
     }
     return await response.json();
@@ -248,7 +248,7 @@ export async function fetchTOTPCode(
   try {
     const response = await fetch(`/api/totp/code/${reservationId}`);
     if (!response.ok) {
-      console.warn("[totp] Failed to fetch code:", response.status);
+      // Failed to fetch code
       return null;
     }
     return await response.json();
@@ -269,7 +269,7 @@ export async function regenerateTOTPSecret(
       method: "POST",
     });
     if (!response.ok) {
-      console.warn("[totp] Failed to regenerate secret:", response.status);
+      // Failed to regenerate secret
       return null;
     }
     return await response.json();

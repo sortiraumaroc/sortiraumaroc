@@ -6,6 +6,9 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAdminSupabase } from "./supabaseAdmin";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("loyaltyRealtime");
 import { sendTemplateEmail } from "./emailService";
 import { emitConsumerUserEvent } from "./consumerNotifications";
 import { emitAdminNotification } from "./adminNotifications";
@@ -46,7 +49,8 @@ async function getUserEmailAndName(
       email: email ?? authEmail,
       name: name || authName || "Client",
     };
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "Failed to fetch user email/name for loyalty notification");
     return { email: null, name: "Client" };
   }
 }
@@ -79,7 +83,7 @@ export async function notifyStampValidated(args: {
       },
     });
   } catch (err) {
-    console.error("[loyaltyNotif] notifyStampValidated error:", err);
+    log.error({ err }, "notifyStampValidated error");
   }
 }
 
@@ -111,7 +115,7 @@ export async function notifyConditionalStampRefused(args: {
       },
     });
   } catch (err) {
-    console.error("[loyaltyNotif] notifyConditionalStampRefused error:", err);
+    log.error({ err }, "notifyConditionalStampRefused error");
   }
 }
 
@@ -143,7 +147,7 @@ export async function notifyCardHalfway(args: {
       },
     });
   } catch (err) {
-    console.error("[loyaltyNotif] notifyCardHalfway error:", err);
+    log.error({ err }, "notifyCardHalfway error");
   }
 }
 
@@ -196,7 +200,7 @@ export async function notifyCardAlmostComplete(args: {
       });
     }
   } catch (err) {
-    console.error("[loyaltyNotif] notifyCardAlmostComplete error:", err);
+    log.error({ err }, "notifyCardAlmostComplete error");
   }
 }
 
@@ -259,7 +263,7 @@ export async function notifyRewardUnlocked(args: {
       status: "pending",
     });
   } catch (err) {
-    console.error("[loyaltyNotif] notifyRewardUnlocked error:", err);
+    log.error({ err }, "notifyRewardUnlocked error");
   }
 }
 
@@ -323,7 +327,7 @@ export async function notifyPlatformGiftReceived(args: {
       status: "pending",
     });
   } catch (err) {
-    console.error("[loyaltyNotif] notifyPlatformGiftReceived error:", err);
+    log.error({ err }, "notifyPlatformGiftReceived error");
   }
 }
 
@@ -368,7 +372,7 @@ export async function notifyAdminGiftToApprove(args: {
       meta: { source: "loyaltyRealtimeNotif.giftToApprove", gift_id: args.giftId },
     });
   } catch (err) {
-    console.error("[loyaltyNotif] notifyAdminGiftToApprove error:", err);
+    log.error({ err }, "notifyAdminGiftToApprove error");
   }
 }
 
@@ -396,7 +400,7 @@ export async function notifyProGiftDistributed(args: {
       },
     });
   } catch (err) {
-    console.error("[loyaltyNotif] notifyProGiftDistributed error:", err);
+    log.error({ err }, "notifyProGiftDistributed error");
   }
 }
 
@@ -424,6 +428,6 @@ export async function notifyProGiftConsumed(args: {
       },
     });
   } catch (err) {
-    console.error("[loyaltyNotif] notifyProGiftConsumed error:", err);
+    log.error({ err }, "notifyProGiftConsumed error");
   }
 }

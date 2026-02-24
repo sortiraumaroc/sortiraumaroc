@@ -20,6 +20,9 @@
 import { getAdminSupabase } from "./supabaseAdmin";
 import { emitAdminNotification } from "./adminNotifications";
 import type { PlatformModule } from "../shared/packsBillingTypes";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("moduleActivationLogic");
 
 // =============================================================================
 // Types
@@ -233,10 +236,10 @@ export async function toggleGlobalModule(
         body: `Le module "${module}" a ete ${action} sur toute la plateforme par un administrateur.`,
         data: { module, activate, admin_user_id: adminUserId },
       });
-    } catch { /* best-effort */ }
+    } catch (err) { log.warn({ err }, "Best-effort: module toggle admin notification failed"); }
   })();
 
-  console.log(`[ModuleActivation] Global: ${module} → ${activate ? "ON" : "OFF"} by ${adminUserId}`);
+  log.info({ module, activate, adminUserId }, "Global module toggle");
 
   return { ok: true, data: undefined };
 }
@@ -286,9 +289,7 @@ export async function toggleEstablishmentModule(
 
   if (error) return { ok: false, error: error.message };
 
-  console.log(
-    `[ModuleActivation] Establishment ${establishmentId}: ${module} → ${activate ? "ON" : "OFF"} by ${adminUserId}`,
-  );
+  log.info({ establishmentId, module, activate, adminUserId }, "Establishment module toggle");
 
   return { ok: true, data: undefined };
 }
@@ -328,9 +329,7 @@ export async function deactivateAllModulesForEstablishment(
     if (!error) deactivated++;
   }
 
-  console.log(
-    `[ModuleActivation] Bulk deactivate for ${establishmentId}: ${deactivated}/${ALL_PLATFORM_MODULES.length} modules`,
-  );
+  log.info({ establishmentId, deactivated, total: ALL_PLATFORM_MODULES.length }, "Bulk deactivate modules");
 
   return { ok: true, data: deactivated };
 }
@@ -382,9 +381,7 @@ export async function reactivateAllModulesForEstablishment(
     if (!error) reactivated++;
   }
 
-  console.log(
-    `[ModuleActivation] Bulk reactivate for ${establishmentId}: ${reactivated} modules`,
-  );
+  log.info({ establishmentId, reactivated }, "Bulk reactivate modules");
 
   return { ok: true, data: reactivated };
 }

@@ -9,6 +9,9 @@
  */
 
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("adsInvoicing");
 
 // Types de factures publicitaires
 export type AdInvoiceType =
@@ -88,14 +91,14 @@ export async function createAdInvoice(params: CreateAdInvoiceParams): Promise<Ad
     });
 
     if (error) {
-      console.error("[invoicing] Error creating invoice:", error);
+      log.error({ err: error }, "Error creating invoice");
       return null;
     }
 
-    console.log("[invoicing] Invoice created:", (data as any)?.invoice_number);
+    log.info({ invoiceNumber: (data as any)?.invoice_number }, "Invoice created");
     return data as AdInvoice;
   } catch (err) {
-    console.error("[invoicing] Unexpected error:", err);
+    log.error({ err }, "Unexpected error creating invoice");
     return null;
   }
 }
@@ -177,7 +180,7 @@ export async function getEstablishmentInvoices(establishmentId: string): Promise
     .order("issued_at", { ascending: false });
 
   if (error) {
-    console.error("[invoicing] Error fetching invoices:", error);
+    log.error({ err: error }, "Error fetching invoices");
     return [];
   }
 
@@ -197,7 +200,7 @@ export async function getInvoiceById(invoiceId: string): Promise<AdInvoice | nul
     .maybeSingle();
 
   if (error) {
-    console.error("[invoicing] Error fetching invoice:", error);
+    log.error({ err: error }, "Error fetching invoice by ID");
     return null;
   }
 
@@ -217,7 +220,7 @@ export async function getInvoiceByNumber(invoiceNumber: string): Promise<AdInvoi
     .maybeSingle();
 
   if (error) {
-    console.error("[invoicing] Error fetching invoice:", error);
+    log.error({ err: error }, "Error fetching invoice by number");
     return null;
   }
 
@@ -249,7 +252,7 @@ export async function markInvoicePaid(
     .eq("id", invoiceId);
 
   if (error) {
-    console.error("[invoicing] Error marking invoice paid:", error);
+    log.error({ err: error }, "Error marking invoice paid");
     return false;
   }
 
@@ -271,7 +274,7 @@ export async function cancelInvoice(invoiceId: string): Promise<boolean> {
     .eq("id", invoiceId);
 
   if (error) {
-    console.error("[invoicing] Error cancelling invoice:", error);
+    log.error({ err: error }, "Error cancelling invoice");
     return false;
   }
 

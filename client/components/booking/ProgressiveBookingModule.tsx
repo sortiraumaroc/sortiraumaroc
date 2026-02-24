@@ -215,25 +215,12 @@ function buildFallbackSlots(universe?: BookingUniverse): DateSlots[] {
   }));
 }
 
-function getPromoPercentHeuristic(universe: BookingUniverse | undefined, src: PromoSource): number | null {
-  const u = (universe ?? "").toLowerCase();
-  const min = timeToMinutes(src.time);
-  if (min == null) return null;
-
-  // Restaurant: midi -50%, soir -40% (fallback style TheFork).
-  if (u === "restaurants" || u === "restaurant") {
-    if (min >= 11 * 60 && min <= 15 * 60) return 50;
-    if (min >= 18 * 60 && min <= 23 * 60 + 30) return 40;
-    return null;
-  }
-
-  // Other universes: optional promo, lighter.
-  if (u === "loisirs" || u === "activities" || u === "activity" || u === "sport" || u === "sports" || u === "wellness" || u === "bien-etre") {
-    // Put promo on early/mid slots to communicate availability.
-    if (min >= 9 * 60 && min <= 14 * 60 + 30) return 50;
-    return 40;
-  }
-
+/**
+ * Placeholder — heuristic promos are disabled.
+ * Real promos should come from the server (pack promos, Ramadan offers, etc.).
+ * Kept as a hook for future per-establishment promo logic.
+ */
+function getPromoPercentHeuristic(_universe: BookingUniverse | undefined, _src: PromoSource): number | null {
   return null;
 }
 

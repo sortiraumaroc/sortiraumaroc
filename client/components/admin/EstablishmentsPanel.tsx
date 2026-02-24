@@ -232,12 +232,24 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
     return createDraft.name.trim().length >= 2 && createDraft.city.trim().length >= 2 && email.includes("@");
   }, [createDraft.city, createDraft.name, createDraft.owner_email]);
 
-  const refresh = async () => {
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  // Debounce search input (300ms)
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const refresh = async (serverSearch?: string) => {
     setLoading(true);
     setError(null);
 
     try {
-      const res = await listEstablishments(props.adminKey, statusFilter === "all" ? undefined : statusFilter);
+      const res = await listEstablishments(
+        props.adminKey,
+        statusFilter === "all" ? undefined : statusFilter,
+        serverSearch || undefined,
+      );
       setItems(res.items);
       setDraftStatus({});
     } catch (e) {
@@ -262,10 +274,10 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
   };
 
   useEffect(() => {
-    void refresh();
+    void refresh(debouncedSearch);
     void loadUniverses();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.adminKey, statusFilter]);
+  }, [props.adminKey, statusFilter, debouncedSearch]);
 
   const handleCreate = async () => {
     if (!canCreate || createSaving) return;
@@ -495,7 +507,7 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
   }, [items]);
 
   const visibleItems = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    // Text search is now done server-side; only apply local city/universe filters
     return items.filter((e) => {
       if (cityFilter !== "all") {
         const c = typeof e.city === "string" ? e.city.trim() : "";
@@ -507,11 +519,9 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
         if (u !== universeFilter) return false;
       }
 
-      if (!q) return true;
-      const hay = `${e.id ?? ""} ${e.name ?? ""} ${e.title ?? ""} ${e.city ?? ""} ${String((e as any).universe ?? "")}`.toLowerCase();
-      return hay.includes(q);
+      return true;
     });
-  }, [cityFilter, items, search, universeFilter]);
+  }, [cityFilter, items, universeFilter]);
 
   // Reset page & selection when filters change
   useEffect(() => {

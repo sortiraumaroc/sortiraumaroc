@@ -385,7 +385,7 @@ export function SqlImportTab({ adminKey }: Props) {
       });
 
       if (result.errors.length > 0) {
-        console.warn("SQL Import delete errors:", result.errors);
+        // SQL Import had some delete errors (non-blocking)
       }
     } catch (e) {
       toast({
@@ -441,8 +441,7 @@ export function SqlImportTab({ adminKey }: Props) {
       }, ...prev.filter((h) => !(h.fileName === fileName && (h.status === "parsed" || h.status === "previewed")))].slice(0, 20));
 
       if (result.errorCount > 0 && result.errors.length > 0) {
-        // Log first errors for debugging
-        console.error("[SQL Import] Errors:", result.errors.slice(0, 10));
+        // Import had errors (shown in toast below)
         toast({
           title: `Import SQL : ${result.importedCount} importée(s), ${result.errorCount} erreur(s)`,
           description: result.errors.slice(0, 3).join("\n"),

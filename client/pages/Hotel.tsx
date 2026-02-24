@@ -34,7 +34,7 @@ import { formatDistanceBetweenCoords } from "@/lib/geo";
 import { createRng, makeImageSet, makePhoneMa, makeWebsiteUrl, nextDaysYmd, pickMany, pickOne } from "@/lib/mockData";
 import { useI18n } from "@/lib/i18n";
 import { ReportEstablishmentDialog } from "@/components/ReportEstablishmentDialog";
-import { EstablishmentReviewsSection } from "@/components/EstablishmentReviewsSection";
+import { EstablishmentReviewsSection, useHasReviews } from "@/components/EstablishmentReviewsSection";
 import { isUuid } from "@/lib/pro/visits";
 
 type HotelReview = {
@@ -367,6 +367,10 @@ export default function Hotel() {
 
   // Build hotel data: from API first, then static fallback, then generated
   const hotelId = canonicalEstablishmentId ?? id ?? "304";
+  // Reviews: hide "avis" tab when no reviews exist
+  const hasReviews = useHasReviews(hotelId);
+  // Hide Google reviews if pro toggled it off
+  const hideGoogleReviews = (publicEstablishment as any)?.hide_google_reviews === true;
   // Booking is only enabled if the establishment has an email address registered
   const hasEstablishmentEmail = Boolean(publicEstablishment?.email);
   const hotel = useMemo(() => {
@@ -598,6 +602,7 @@ export default function Hotel() {
 
               <h1 className="mt-2 text-2xl md:text-3xl font-bold text-foreground truncate">{hotel.name}</h1>
 
+              {!hideGoogleReviews && hotel.rating.value > 0 && (
               <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                 <div className="inline-flex items-center gap-2">
                   <RatingStars rating={hotel.rating.value} />
@@ -605,6 +610,7 @@ export default function Hotel() {
                   <span className="text-slate-500">({hotel.rating.reviewCount} avis · {hotel.rating.source})</span>
                 </div>
               </div>
+              )}
 
               <div className="mt-3 flex flex-wrap gap-3 text-sm text-slate-600">
                 <span className="px-3 py-1 bg-slate-100 rounded">Hôtel {hotel.stars}★</span>
@@ -649,7 +655,7 @@ export default function Hotel() {
         </div>
       </div>
 
-      <EstablishmentTabs universe="hotel" />
+      <EstablishmentTabs universe="hotel" hideTabs={hasReviews ? undefined : ["avis"]} />
 
       <main className="container mx-auto px-4 pt-6 pb-8 space-y-10">
         <CeAdvantageSection establishmentId={hotelId} />
@@ -670,6 +676,7 @@ export default function Hotel() {
           </div>
         </section>
 
+        {hasReviews && (
         <section id="section-avis" data-tab="avis" className="scroll-mt-28 space-y-6">
           {/* Published reviews from the database */}
           <EstablishmentReviewsSection establishmentId={hotelId} />
@@ -683,6 +690,7 @@ export default function Hotel() {
             </Button>
           </div>
         </section>
+        )}
 
         <section id="section-infos" data-tab="infos" className="scroll-mt-28 space-y-8">
           <section className="space-y-4">

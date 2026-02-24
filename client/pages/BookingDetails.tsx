@@ -1113,7 +1113,7 @@ export default function BookingDetails() {
                     </Button>
                   </Link>
                   <p className="text-sm text-slate-600">
-                    Presentez votre QR code personnel a l'arrivee.
+                    Présentez votre QR code personnel à l'arrivée.
                   </p>
                   {booking.kind !== "restaurant" ? (
                     <p className="text-xs text-slate-500">

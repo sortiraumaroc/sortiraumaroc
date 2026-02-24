@@ -32,7 +32,9 @@ import { declareNoShow } from "./noShowDisputeLogic";
 import { emitAdminNotification } from "./adminNotifications";
 import { notifyProMembers } from "./proNotifications";
 import { sendTemplateEmail } from "./emailService";
+import { createModuleLogger } from "./lib/logger";
 
+const log = createModuleLogger("reservationV2");
 const BASE_URL = process.env.VITE_APP_URL || "https://sam.ma";
 
 // =============================================================================
@@ -204,6 +206,48 @@ export async function createReservationV2(args: {
 
   const initialStatus = autoAccepted ? "confirmed" : "pending_pro_validation";
 
+  // 11b. Enrich meta with client scoring & per-establishment no-show history
+  const enrichedMeta: Record<string, unknown> = { ...(meta || {}) };
+
+  const { data: userStatsRow } = await supabase
+    .from("consumer_user_stats")
+    .select("reliability_score, no_shows_count")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  const reliabilityScore = typeof (userStatsRow as any)?.reliability_score === "number"
+    ? (userStatsRow as any).reliability_score as number
+    : 90;
+  const globalNoShows = typeof (userStatsRow as any)?.no_shows_count === "number"
+    ? (userStatsRow as any).no_shows_count as number
+    : 0;
+
+  enrichedMeta.client_risk_score = Math.max(0, Math.min(100, Math.round(reliabilityScore)));
+  enrichedMeta.no_show_count = globalNoShows;
+
+  // Query past no-shows at THIS specific establishment
+  const { data: estNoShowRows } = await supabase
+    .from("reservations")
+    .select("starts_at, party_size")
+    .eq("user_id", userId)
+    .eq("establishment_id", establishmentId)
+    .in("status", ["noshow", "no_show_confirmed"])
+    .order("starts_at", { ascending: false })
+    .limit(10);
+
+  const estNoShowList = (estNoShowRows ?? []).map((ns: any) => ({
+    date: new Date(ns.starts_at).toLocaleDateString("fr-FR", { timeZone: "Africa/Casablanca" }),
+    time: new Date(ns.starts_at).toLocaleTimeString("fr-FR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "Africa/Casablanca",
+    }),
+    party_size: typeof ns.party_size === "number" ? ns.party_size : 0,
+  }));
+
+  enrichedMeta.establishment_no_shows = estNoShowList;
+  enrichedMeta.has_establishment_no_show = estNoShowList.length > 0;
+
   // 12. Insert reservation
   const nowIso = new Date().toISOString();
   const { data: reservation, error: insertError } = await supabase
@@ -222,7 +266,7 @@ export async function createReservationV2(args: {
       stock_type: allocation.stockType,
       protection_window_start: protectionWindowStart,
       pro_processing_deadline: proProcessingDeadline,
-      meta: meta || {},
+      meta: enrichedMeta,
       created_at: nowIso,
       updated_at: nowIso,
     })
@@ -230,7 +274,7 @@ export async function createReservationV2(args: {
     .single();
 
   if (insertError) {
-    console.error("[createReservationV2] Insert error:", insertError);
+    log.error({ err: insertError }, "createReservationV2 insert error");
     return { ok: false, error: "Erreur lors de la création de la réservation", errorCode: "insert_failed" };
   }
 
@@ -502,7 +546,7 @@ export async function clientCancelReservation(args: {
     category: "booking",
     title: "Réservation annulée par le client",
     body: `Le client a annulé sa réservation${reason ? ` (motif: ${reason})` : ""}`,
-    data: { action: "booking_cancelled_user", reservationId },
+    data: { action: "booking_cancelled_user", reservationId, targetTab: "reservations" },
   });
 
   return {
@@ -770,16 +814,42 @@ async function dispatchReservationCreatedNotifications(args: {
   try {
     const { supabase, reservation, autoAccepted, establishmentId } = args;
 
+    // Check for per-establishment no-show history in meta
+    const resMeta = reservation.meta && typeof reservation.meta === "object" && !Array.isArray(reservation.meta)
+      ? reservation.meta as Record<string, unknown>
+      : {};
+    const hasEstNoShow = resMeta.has_establishment_no_show === true;
+    const estNoShows = Array.isArray(resMeta.establishment_no_shows)
+      ? resMeta.establishment_no_shows as Array<{ date: string; time: string; party_size: number }>
+      : [];
+
+    // Build warning-enhanced title and body
+    let notifTitle = autoAccepted
+      ? "Nouvelle réservation (acceptée auto)"
+      : "Nouvelle demande de réservation";
+
+    let notifBody = `${reservation.party_size} personne(s) — ${String(reservation.starts_at ?? "").slice(0, 16)}`;
+
+    if (hasEstNoShow && estNoShows.length > 0) {
+      const lastNs = estNoShows[0];
+      notifTitle = autoAccepted
+        ? "⚠️ Réservation auto — Client avec no-show chez vous"
+        : "⚠️ Nouvelle réservation — Client avec no-show chez vous";
+      notifBody += ` | ⚠️ No-show précédent le ${lastNs.date} à ${lastNs.time} (${lastNs.party_size} pers.)`;
+    }
+
     // Notify pro members
     await notifyProMembers({
       supabase,
       establishmentId,
       category: "booking",
-      title: autoAccepted ? "Nouvelle réservation (acceptée auto)" : "Nouvelle demande de réservation",
-      body: `${reservation.party_size} personne(s) — ${String(reservation.starts_at ?? "").slice(0, 16)}`,
+      title: notifTitle,
+      body: notifBody,
       data: {
         action: autoAccepted ? "booking_auto_accepted" : "booking_new_request",
         reservationId: String(reservation.id ?? ""),
+        targetTab: "reservations",
+        hasEstablishmentNoShow: hasEstNoShow,
       },
     });
 
@@ -796,7 +866,7 @@ async function dispatchReservationCreatedNotifications(args: {
       },
     });
   } catch (err) {
-    console.error("[dispatchReservationCreatedNotifications] Error:", err);
+    log.error({ err }, "dispatchReservationCreatedNotifications error");
   }
 }
 

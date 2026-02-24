@@ -7,6 +7,9 @@
 
 import { getAdminSupabase } from "./supabaseAdmin";
 import { emitAdminNotification } from "./adminNotifications";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("wheelAdmin");
 import type {
   WheelEvent,
   WheelEventStatus,
@@ -371,7 +374,7 @@ export async function uploadExternalCodes(
     const batch = rows.slice(i, i + batchSize);
     const { error } = await supabase.from("wheel_external_codes").insert(batch);
     if (error) {
-      console.error("[WheelAdmin] uploadExternalCodes batch error:", error.message);
+      log.error({ err: error.message }, "uploadExternalCodes batch error");
     } else {
       imported += batch.length;
     }

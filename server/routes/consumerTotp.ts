@@ -11,7 +11,11 @@
  */
 
 import type { Request, Response } from "express";
+import type { Express } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { authRateLimiter, createRateLimiter } from "../middleware/rateLimiter";
+import { zBody, zParams } from "../lib/validate";
+import { ValidateConsumerTotpSchema, ConsumerUserIdParams } from "../schemas/consumerTotpRoutes";
 import {
   generateTOTP,
   validateTOTP,
@@ -19,6 +23,9 @@ import {
   generateSecret,
 } from "../lib/totp";
 import { scoreToReliabilityLevel } from "../consumerReliability";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("consumerTotp");
 
 // ============================================================================
 // Types
@@ -62,7 +69,7 @@ async function getUserIdFromRequest(req: Request): Promise<string | null> {
   const auth = String(req.headers.authorization ?? "");
   const token = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7) : "";
   if (!token) {
-    console.warn("[consumerTotp] getUserIdFromRequest: no bearer token in request");
+    log.warn("no bearer token in request");
     return null;
   }
 
@@ -70,16 +77,16 @@ async function getUserIdFromRequest(req: Request): Promise<string | null> {
     const supabase = getAdminSupabase();
     const { data, error } = await supabase.auth.getUser(token);
     if (error) {
-      console.warn("[consumerTotp] getUserIdFromRequest: auth.getUser error:", error.message);
+      log.warn({ error: error.message }, "auth.getUser error");
       return null;
     }
     if (!data.user) {
-      console.warn("[consumerTotp] getUserIdFromRequest: no user in response");
+      log.warn("no user in response");
       return null;
     }
     return typeof data.user.id === "string" ? data.user.id.trim() : null;
   } catch (e) {
-    console.error("[consumerTotp] getUserIdFromRequest: exception:", e);
+    log.error({ err: e }, "getUserIdFromRequest exception");
     return null;
   }
 }
@@ -159,7 +166,7 @@ export async function getConsumerTOTPSecret(
 
       // 23505 = unique_violation (row already exists) — that's fine
       if (insErr && insErr.code !== "23505") {
-        console.error("[consumerTotp] Failed to auto-create consumer_users:", insErr);
+        log.error({ err: insErr }, "failed to auto-create consumer_users");
         res.status(404).json({ error: "User not found" });
         return;
       }
@@ -217,7 +224,7 @@ export async function getConsumerTOTPSecret(
         .single();
 
       if (insertError) {
-        console.error("[consumerTotp] Error creating secret:", insertError);
+        log.error({ err: insertError }, "error creating secret");
         res.status(500).json({ error: "Failed to generate TOTP secret" });
         return;
       }
@@ -237,7 +244,7 @@ export async function getConsumerTOTPSecret(
       secondsRemaining: getSecondsUntilNextPeriod(secretRow.period),
     });
   } catch (error) {
-    console.error("[consumerTotp] Error in getConsumerTOTPSecret:", error);
+    log.error({ err: error }, "error in getConsumerTOTPSecret");
     res.status(500).json({ error: "Internal server error" });
   }
 }
@@ -333,7 +340,7 @@ export async function generateConsumerTOTPCode(
       period: secretRow.period,
     });
   } catch (error) {
-    console.error("[consumerTotp] Error in generateConsumerTOTPCode:", error);
+    log.error({ err: error }, "error in generateConsumerTOTPCode");
     res.status(500).json({ error: "Internal server error" });
   }
 }
@@ -415,7 +422,7 @@ export async function regenerateConsumerTOTPSecret(
       .single();
 
     if (insertError) {
-      console.error("[consumerTotp] Error regenerating secret:", insertError);
+      log.error({ err: insertError }, "error regenerating secret");
       res.status(500).json({ error: "Failed to regenerate secret" });
       return;
     }
@@ -428,10 +435,7 @@ export async function regenerateConsumerTOTPSecret(
       digits: 6,
     });
   } catch (error) {
-    console.error(
-      "[consumerTotp] Error in regenerateConsumerTOTPSecret:",
-      error
-    );
+    log.error({ err: error }, "error in regenerateConsumerTOTPSecret");
     res.status(500).json({ error: "Internal server error" });
   }
 }
@@ -741,7 +745,7 @@ export async function validateConsumerTOTPCode(
       })),
     });
   } catch (error) {
-    console.error("[consumerTotp] Error in validateConsumerTOTPCode:", error);
+    log.error({ err: error }, "error in validateConsumerTOTPCode");
     res.status(500).json({ error: "Internal server error" });
   }
 }
@@ -807,7 +811,7 @@ export async function getConsumerUserInfo(
       },
     });
   } catch (error) {
-    console.error("[consumerTotp] Error in getConsumerUserInfo:", error);
+    log.error({ err: error }, "error in getConsumerUserInfo");
     res.status(500).json({ error: "Internal server error" });
   }
 }
@@ -843,7 +847,7 @@ async function logValidation(
       validated_by_user_id: data.validatorUserId || null,
     });
   } catch (error) {
-    console.error("[consumerTotp] Error logging validation:", error);
+    log.error({ err: error }, "error logging validation");
     // Don't throw - logging failure shouldn't break validation
   }
 }
@@ -899,7 +903,7 @@ export async function consumerTotpHealthCheck(
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error("[consumerTotp] Health check failed:", error);
+    log.error({ err: error }, "health check failed");
     res.status(500).json({
       ok: false,
       service: "consumer-totp",
@@ -907,4 +911,17 @@ export async function consumerTotpHealthCheck(
       timestamp: new Date().toISOString(),
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerConsumerTotpRoutes(app: Express) {
+  app.get("/api/consumer/totp/health", consumerTotpHealthCheck);
+  app.get("/api/consumer/totp/secret", createRateLimiter("totp-secret", { windowMs: 5 * 60 * 1000, maxRequests: 10 }), getConsumerTOTPSecret);
+  app.get("/api/consumer/totp/code", createRateLimiter("totp-code", { windowMs: 5 * 60 * 1000, maxRequests: 10 }), generateConsumerTOTPCode);
+  app.post("/api/consumer/totp/regenerate", authRateLimiter, regenerateConsumerTOTPSecret);
+  app.post("/api/consumer/totp/validate", authRateLimiter, zBody(ValidateConsumerTotpSchema), validateConsumerTOTPCode);
+  app.get("/api/consumer/totp/user-info/:userId", zParams(ConsumerUserIdParams), getConsumerUserInfo);
 }

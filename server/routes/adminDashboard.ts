@@ -1,5 +1,8 @@
 import type { RequestHandler, Router } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("adminDashboard");
 
 // Helper: format date to YYYY-MM-DD
 function formatDate(date: Date): string {
@@ -572,7 +575,7 @@ export function registerAdminDashboardRoutes(router: Router): void {
 
       return res.json(stats);
     } catch (error) {
-      console.error("[Dashboard] Stats error:", error);
+      log.error({ err: error }, "stats error");
       return res.status(500).json({ error: "Erreur lors de la récupération des statistiques" });
     }
   }) as RequestHandler);
@@ -587,7 +590,7 @@ export function registerAdminDashboardRoutes(router: Router): void {
         lastUpdated: new Date().toISOString(),
       });
     } catch (error) {
-      console.error("[Dashboard] Realtime error:", error);
+      log.error({ err: error }, "realtime error");
       return res.status(500).json({ error: "Erreur" });
     }
   }) as RequestHandler);

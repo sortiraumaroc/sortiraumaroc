@@ -10,10 +10,19 @@ import OpenAI from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
 import { SAM_CONFIG } from "./config";
+
+const log = createModuleLogger("samChat");
 import { buildSystemPrompt } from "./systemPrompt";
-import { SAM_TOOLS, executeTool, type ToolContext } from "./tools";
-import { getUserProfile } from "../lib/samDataAccess";
+import { SAM_TOOLS, executeTool, getToolsForMode, type ToolContext } from "./tools";
+import {
+  getUserProfile,
+  getEstablishmentDetails,
+  getEstablishmentPacks,
+  getEstablishmentReviews,
+  getEstablishmentMenu,
+} from "../lib/samDataAccess";
 import { samChatRateLimiter } from "../middleware/rateLimiter";
 
 // ---------------------------------------------------------------------------
@@ -53,7 +62,7 @@ async function getUserIdFromToken(
     } = await supabase.auth.getUser(token);
     if (error || !user) return null;
     return user.id;
-  } catch {
+  } catch { /* intentional: auth token may be invalid */
     return null;
   }
 }
@@ -224,7 +233,7 @@ function saveMessage(
         })
         .eq("id", conversationId);
     } catch (err) {
-      console.error("[Sam] saveMessage error:", err);
+      log.warn({ err }, "sam saveMessage failed");
     }
   })();
 }
@@ -235,6 +244,60 @@ function saveMessage(
 
 function sseEvent(res: Response, data: Record<string, unknown>): void {
   res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+// ---------------------------------------------------------------------------
+// Establishment context loader (mode scoped)
+// ---------------------------------------------------------------------------
+
+export interface EstablishmentFullContext {
+  establishment: Awaited<ReturnType<typeof getEstablishmentDetails>> extends infer T
+    ? T extends null ? never : T
+    : never;
+  packs: Awaited<ReturnType<typeof getEstablishmentPacks>>;
+  reviews: Awaited<ReturnType<typeof getEstablishmentReviews>>;
+  menu: Awaited<ReturnType<typeof getEstablishmentMenu>>;
+  ramadanOffers: Array<Record<string, unknown>>;
+}
+
+async function loadFullEstablishmentContext(
+  ref: string,
+): Promise<EstablishmentFullContext | null> {
+  const [details, packs, reviews, menu] = await Promise.all([
+    getEstablishmentDetails(ref),
+    getEstablishmentPacks(ref).catch(() => ({ packs: [], total: 0 })),
+    getEstablishmentReviews(ref, 5).catch(() => ({
+      reviews: [],
+      average_rating: null,
+      total_count: 0,
+    })),
+    getEstablishmentMenu(ref).catch(() => null),
+  ]);
+
+  if (!details) return null;
+
+  // Charger offres Ramadan si existantes
+  let ramadanOffers: Array<Record<string, unknown>> = [];
+  try {
+    const supabase = getAdminSupabase();
+    const { data } = await supabase
+      .from("ramadan_offers")
+      .select(
+        "id,title,type,price,original_price,time_slots,capacity_per_slot,description,conditions,valid_from,valid_to",
+      )
+      .eq("establishment_id", details.establishment.id)
+      .eq("is_active", true);
+    ramadanOffers = (data ?? []) as Array<Record<string, unknown>>;
+  } catch { /* intentional: ramadan table may not exist */
+  }
+
+  return {
+    establishment: details,
+    packs,
+    reviews,
+    menu,
+    ramadanOffers,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +321,10 @@ async function handleSamChat(req: Request, res: Response): Promise<void> {
       : undefined;
   const universe =
     typeof body.universe === "string" ? body.universe.trim() : undefined;
+  const establishmentId =
+    typeof body.establishment_id === "string"
+      ? body.establishment_id.trim()
+      : undefined;
 
   if (!message) {
     res.status(400).json({ error: "empty_message" });
@@ -296,12 +363,22 @@ async function handleSamChat(req: Request, res: Response): Promise<void> {
     // Charger le profil utilisateur pour le contexte
     const userProfile = userId ? await getUserProfile(userId) : null;
 
+    // Charger le contexte établissement si en mode scoped
+    let establishmentContext: EstablishmentFullContext | null = null;
+    if (establishmentId) {
+      establishmentContext = await loadFullEstablishmentContext(establishmentId);
+    }
+
     // Construire le system prompt
     const systemPrompt = buildSystemPrompt({
       user: userProfile,
       isAuthenticated,
       universe,
+      establishment: establishmentContext,
     });
+
+    // Sélectionner les tools selon le mode (général ou scoped)
+    const tools = getToolsForMode(establishmentId);
 
     // Sauvegarder le message utilisateur
     saveMessage(conversation.id, { role: "user", content: message });
@@ -327,7 +404,7 @@ async function handleSamChat(req: Request, res: Response): Promise<void> {
       const stream = await openai.chat.completions.create({
         model: SAM_CONFIG.model,
         messages: gptMessages,
-        tools: SAM_TOOLS,
+        tools,
         tool_choice: "auto",
         stream: true,
         temperature: SAM_CONFIG.temperature,
@@ -416,7 +493,7 @@ async function handleSamChat(req: Request, res: Response): Promise<void> {
 
         try {
           toolArgs = JSON.parse(tc.function.arguments || "{}");
-        } catch {
+        } catch { /* intentional: JSON parsing */
           toolArgs = {};
         }
 
@@ -445,11 +522,11 @@ async function handleSamChat(req: Request, res: Response): Promise<void> {
             : singleEstablishment
               ? [singleEstablishment]
               : [];
-          console.log(`[Sam] Tool ${toolName} hasEstablishments=true, items.length=${items.length}`);
+          log.info({ toolName, itemsCount: items.length }, "Tool has establishments");
           if (items.length) {
             sseEvent(res, { type: "establishments", items });
           } else {
-            console.warn(`[Sam] Tool ${toolName} claimed hasEstablishments but items array is empty`);
+            log.warn({ toolName }, "Tool claimed hasEstablishments but items array is empty");
           }
         }
 
@@ -492,7 +569,7 @@ async function handleSamChat(req: Request, res: Response): Promise<void> {
       },
     });
   } catch (err: any) {
-    console.error("[Sam] chat error:", err?.status, err?.message, err?.code);
+    log.error({ err, status: err?.status, code: err?.code }, "sam chat error");
 
     // Essayer d'envoyer une erreur SSE si le stream est encore ouvert
     try {
@@ -509,9 +586,7 @@ async function handleSamChat(req: Request, res: Response): Promise<void> {
           code: "internal_error",
         });
       }
-    } catch {
-      // Stream déjà fermé
-    }
+    } catch { /* intentional: SSE stream already closed */ }
   } finally {
     res.end();
   }

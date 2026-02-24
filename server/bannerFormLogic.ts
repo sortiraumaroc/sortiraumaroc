@@ -11,7 +11,10 @@
 
 import { getAdminSupabase } from "./supabaseAdmin";
 import { sendTemplateEmail } from "./emailService";
+import { createModuleLogger } from "./lib/logger";
 import type { BannerFormField } from "../shared/notificationsBannersWheelTypes";
+
+const log = createModuleLogger("bannerForm");
 
 // =============================================================================
 // Types
@@ -184,7 +187,7 @@ export async function submitFormResponse(
   });
 
   if (insertErr) {
-    console.error("[BannerForm] Insert error:", insertErr.message);
+    log.error({ err: insertErr.message }, "Insert error");
     return { ok: false, error: "Erreur lors de la sauvegarde" };
   }
 
@@ -311,6 +314,6 @@ async function sendFormNotificationEmail(
       },
     });
   } catch (err) {
-    console.error("[BannerForm] Notification email error:", err);
+    log.error({ err }, "Notification email error");
   }
 }
