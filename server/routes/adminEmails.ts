@@ -1,9 +1,22 @@
 import { createHmac, randomBytes } from "crypto";
+import express from "express";
 import type { RequestHandler } from "express";
+import type { Express } from "express";
 
 import { renderSambookingEmail, sendSambookingEmail, type SambookingSenderKey } from "../email";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { requireSuperadmin } from "./admin";
+import { createModuleLogger } from "../lib/logger";
+import { zBody, zParams, zIdParam } from "../lib/validate";
+import {
+  UpsertEmailTemplateSchema,
+  UpdateEmailBrandingSchema,
+  CreateEmailCampaignSchema,
+  SendEmailCampaignSchema,
+  PreviewEmailSchema,
+} from "../schemas/adminEmails";
+
+const log = createModuleLogger("adminEmails");
 
 function asString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -688,7 +701,7 @@ export const previewAdminEmail: RequestHandler = async (req, res) => {
   const rendered = await renderSambookingEmail({
     emailId,
     fromKey: (["hello", "support", "pro", "finance", "noreply"].includes(fromKey) ? fromKey : "hello") as SambookingSenderKey,
-    to: ["preview@sortiraumaroc.ma"],
+    to: ["preview@sam.ma"],
     subject,
     bodyText,
     ctaLabel,
@@ -756,7 +769,7 @@ async function ensureEmailAssetsBucket(supabase: ReturnType<typeof getAdminSupab
       await supabase.storage.createBucket(EMAIL_LOGO_BUCKET, { public: true, fileSizeLimit: MAX_EMAIL_LOGO_BYTES });
     }
   } catch (e) {
-    console.error("[ensureEmailAssetsBucket] error:", e);
+    log.error({ err: e }, "ensureEmailAssetsBucket error");
   }
 }
 
@@ -811,7 +824,7 @@ export const uploadEmailBrandingLogo: RequestHandler = async (req, res) => {
   // Auto-update branding settings with new logo URL
   const { error: updateError } = await supabase.from("email_branding_settings").update({ logo_url: publicUrl }).eq("id", 1);
   if (updateError) {
-    console.error("[uploadEmailBrandingLogo] update branding error:", updateError);
+    log.error({ err: updateError }, "uploadEmailBrandingLogo update branding error");
   }
 
   return res.json({
@@ -912,3 +925,24 @@ export const bulkReplaceInEmailTemplates: RequestHandler = async (req, res) => {
 
   return res.json({ ok: true, updated: updatedCount, changes });
 };
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerAdminEmailRoutes(app: Express) {
+  app.get("/api/admin/emails/templates", listAdminEmailTemplates);
+  app.post("/api/admin/emails/templates/upsert", zBody(UpsertEmailTemplateSchema), upsertAdminEmailTemplate);
+  app.post("/api/admin/emails/templates/:id/duplicate", zParams(zIdParam), duplicateAdminEmailTemplate);
+  app.get("/api/admin/emails/branding", getAdminEmailBranding);
+  app.post("/api/admin/emails/branding/update", zBody(UpdateEmailBrandingSchema), updateAdminEmailBranding);
+  app.post("/api/admin/emails/branding/logo/upload", express.raw({ type: "image/*", limit: "2mb" }), uploadEmailBrandingLogo);
+  app.delete("/api/admin/emails/branding/logo", deleteEmailBrandingLogo);
+  app.post("/api/admin/emails/templates/bulk-replace", bulkReplaceInEmailTemplates);
+  app.post("/api/admin/emails/preview", zBody(PreviewEmailSchema), previewAdminEmail);
+  app.get("/api/admin/emails/sends", listAdminEmailSends);
+  app.get("/api/admin/emails/campaigns", listAdminEmailCampaigns);
+  app.post("/api/admin/emails/campaigns", zBody(CreateEmailCampaignSchema), createAdminEmailCampaign);
+  app.post("/api/admin/emails/campaigns/:id/send", zParams(zIdParam), zBody(SendEmailCampaignSchema), sendAdminEmailCampaignNow);
+  app.get("/api/admin/emails/campaigns/:id/recipients", zParams(zIdParam), listAdminEmailCampaignRecipients);
+}

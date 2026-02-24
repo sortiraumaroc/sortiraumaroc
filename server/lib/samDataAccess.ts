@@ -8,6 +8,9 @@
 
 import { getAdminSupabase } from "../supabaseAdmin";
 import { OCCUPYING_RESERVATION_STATUSES } from "../../shared/reservationStates";
+import { createModuleLogger } from "./logger";
+
+const log = createModuleLogger("samDataAccess");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -210,7 +213,7 @@ export async function searchEstablishments(params: {
     );
 
     if (error) {
-      console.error("[Sam] search_establishments_scored error:", error.message, { q: params.q, universe: dbUniverse, city: params.city });
+      log.error({ err: error.message, q: params.q, universe: dbUniverse, city: params.city }, "search_establishments_scored error");
     }
 
     if (error || !scoredResults?.length) {
@@ -263,7 +266,7 @@ export async function searchEstablishments(params: {
   const { data: rows, count, error } = await query;
 
   if (error) {
-    console.error("[Sam] direct query error:", error.message, { universe: dbUniverse, city: params.city, category: params.category });
+    log.error({ err: error.message, universe: dbUniverse, city: params.city, category: params.category }, "Direct query error");
   }
 
   if (error || !rows?.length) {
@@ -620,7 +623,7 @@ export async function createReservation(params: {
     .single();
 
   if (error) {
-    console.error("[Sam] createReservation error:", error);
+    log.error({ err: error }, "createReservation error");
     return { ok: false, error: "db_error" };
   }
 
@@ -921,4 +924,100 @@ export async function getEstablishmentPacks(
   });
 
   return { packs, total: packs.length };
+}
+
+// ---------------------------------------------------------------------------
+// 12. Menu digital d'un établissement (catégories + plats + variantes + prix)
+// ---------------------------------------------------------------------------
+
+export interface SamMenuItem {
+  title: string;
+  description: string | null;
+  category: string | null;
+  price: number | null;
+  currency: string;
+  labels: string[];
+  variants: Array<{ title: string | null; price: number }>;
+}
+
+export interface SamMenuCategory {
+  id: string;
+  title: string;
+  description: string | null;
+}
+
+export interface SamMenu {
+  categories: SamMenuCategory[];
+  items: SamMenuItem[];
+}
+
+export async function getEstablishmentMenu(
+  establishmentId: string,
+): Promise<SamMenu | null> {
+  const supabase = getAdminSupabase();
+
+  // Résoudre l'ID si c'est un slug
+  const resolvedId = await resolveEstablishmentId(establishmentId);
+  if (!resolvedId) return null;
+
+  const [{ data: categories }, { data: items }] = await Promise.all([
+    supabase
+      .from("pro_inventory_categories")
+      .select("id,title,description")
+      .eq("establishment_id", resolvedId)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true }),
+    supabase
+      .from("pro_inventory_items")
+      .select("id,category_id,title,description,base_price,currency,labels")
+      .eq("establishment_id", resolvedId)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .limit(100),
+  ]);
+
+  if (!categories?.length && !items?.length) return null;
+
+  // Charger les variantes pour les items trouvés
+  const itemIds = ((items ?? []) as any[]).map((i) => i.id);
+  let variantsByItem = new Map<string, Array<{ title: string | null; price: number }>>();
+
+  if (itemIds.length > 0) {
+    const { data: variants } = await supabase
+      .from("pro_inventory_variants")
+      .select("item_id,title,price")
+      .in("item_id", itemIds)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true });
+
+    for (const v of (variants ?? []) as any[]) {
+      if (!v.item_id) continue;
+      const list = variantsByItem.get(v.item_id) ?? [];
+      list.push({ title: v.title ?? null, price: typeof v.price === "number" ? v.price : 0 });
+      variantsByItem.set(v.item_id, list);
+    }
+  }
+
+  // Mapper les catégories par ID pour résoudre le nom
+  const catMap = new Map<string, string>();
+  const menuCategories: SamMenuCategory[] = ((categories ?? []) as any[]).map((c) => {
+    catMap.set(c.id, c.title ?? "");
+    return {
+      id: c.id,
+      title: c.title ?? "",
+      description: c.description ?? null,
+    };
+  });
+
+  const menuItems: SamMenuItem[] = ((items ?? []) as any[]).map((i) => ({
+    title: i.title ?? "",
+    description: i.description ?? null,
+    category: catMap.get(i.category_id) ?? null,
+    price: typeof i.base_price === "number" ? i.base_price : null,
+    currency: i.currency ?? "MAD",
+    labels: Array.isArray(i.labels) ? i.labels : [],
+    variants: variantsByItem.get(i.id) ?? [],
+  }));
+
+  return { categories: menuCategories, items: menuItems };
 }

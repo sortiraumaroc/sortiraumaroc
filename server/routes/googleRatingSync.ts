@@ -12,7 +12,11 @@
  */
 
 import type { Request, Response, RequestHandler } from "express";
+import type { Express } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("googleRatingSync");
 
 const GOOGLE_PLACES_BASE_URL = "https://maps.googleapis.com/maps/api/place";
 
@@ -66,8 +70,8 @@ async function extractPlaceId(
     if (data.status === "OK" && data.candidates?.[0]?.place_id) {
       return data.candidates[0].place_id;
     }
-  } catch {
-    // Silently fail
+  } catch (err) {
+    log.warn({ err }, "Google Places findPlaceId API call failed");
   }
 
   return null;
@@ -100,7 +104,8 @@ async function getGoogleRating(
       rating: data.result.rating ?? 0,
       reviewCount: data.result.user_ratings_total ?? 0,
     };
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "Google Places getGoogleRating API call failed");
     return null;
   }
 }
@@ -252,3 +257,11 @@ export const syncGoogleRatings: RequestHandler = async (
     results,
   });
 };
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerGoogleRatingSyncRoutes(app: Express) {
+  app.post("/api/admin/google-rating-sync", syncGoogleRatings);
+}

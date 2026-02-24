@@ -23,6 +23,17 @@ import type { RequestHandler, Router } from "express";
 import { randomUUID } from "node:crypto";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { sendPushToConsumerUser } from "../pushNotifications";
+import { createModuleLogger } from "../lib/logger";
+import { zBody, zParams } from "../lib/validate";
+import {
+  CreateSponsoredNotificationSchema,
+  UpdateSponsoredNotificationSchema,
+  ModerateSponsoredNotificationSchema,
+  SponsoredNotifIdParams,
+  SponsoredNotifIdNotifIdParams,
+  SponsoredNotifNotifIdParams,
+} from "../schemas/sponsoredNotifications";
+const log = createModuleLogger("sponsoredNotifications");
 
 // =============================================================================
 // AUTH HELPERS
@@ -167,7 +178,7 @@ export const createSponsoredNotification: RequestHandler = async (req, res) => {
     });
 
     if (error) {
-      console.error("[sponsoredNotif] Error creating notification:", error);
+      log.error({ err: error }, "error creating notification");
       return res.status(500).json({ error: "Erreur création notification" });
     }
 
@@ -177,7 +188,7 @@ export const createSponsoredNotification: RequestHandler = async (req, res) => {
       status: "draft",
     });
   } catch (error) {
-    console.error("[sponsoredNotif] createSponsoredNotification error:", error);
+    log.error({ err: error }, "createSponsoredNotification failed");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -204,7 +215,7 @@ export const listSponsoredNotifications: RequestHandler = async (req, res) => {
       .order("created_at", { ascending: false });
 
     if (error) {
-      console.error("[sponsoredNotif] Error listing notifications:", error);
+      log.error({ err: error }, "error listing notifications");
       return res.status(500).json({ error: "Erreur serveur" });
     }
 
@@ -213,7 +224,7 @@ export const listSponsoredNotifications: RequestHandler = async (req, res) => {
       notifications: notifications ?? [],
     });
   } catch (error) {
-    console.error("[sponsoredNotif] listSponsoredNotifications error:", error);
+    log.error({ err: error }, "listSponsoredNotifications failed");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -290,13 +301,13 @@ export const updateSponsoredNotification: RequestHandler = async (req, res) => {
       .eq("id", notifId);
 
     if (error) {
-      console.error("[sponsoredNotif] Error updating notification:", error);
+      log.error({ err: error }, "error updating notification");
       return res.status(500).json({ error: "Erreur serveur" });
     }
 
     return res.json({ ok: true, notification_id: notifId });
   } catch (error) {
-    console.error("[sponsoredNotif] updateSponsoredNotification error:", error);
+    log.error({ err: error }, "updateSponsoredNotification failed");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -340,13 +351,13 @@ export const submitSponsoredNotification: RequestHandler = async (req, res) => {
       .eq("id", notifId);
 
     if (error) {
-      console.error("[sponsoredNotif] Error submitting notification:", error);
+      log.error({ err: error }, "error submitting notification");
       return res.status(500).json({ error: "Erreur serveur" });
     }
 
     return res.json({ ok: true, status: "pending_review" });
   } catch (error) {
-    console.error("[sponsoredNotif] submitSponsoredNotification error:", error);
+    log.error({ err: error }, "submitSponsoredNotification failed");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -383,13 +394,13 @@ export const deleteSponsoredNotification: RequestHandler = async (req, res) => {
     const { error } = await supabase.from("sponsored_notifications").delete().eq("id", notifId);
 
     if (error) {
-      console.error("[sponsoredNotif] Error deleting notification:", error);
+      log.error({ err: error }, "error deleting notification");
       return res.status(500).json({ error: "Erreur serveur" });
     }
 
     return res.json({ ok: true });
   } catch (error) {
-    console.error("[sponsoredNotif] deleteSponsoredNotification error:", error);
+    log.error({ err: error }, "deleteSponsoredNotification failed");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -416,7 +427,7 @@ export const getNotificationModerationQueue: RequestHandler = async (req, res) =
       .order("created_at", { ascending: true });
 
     if (error) {
-      console.error("[sponsoredNotif] Error fetching queue:", error);
+      log.error({ err: error }, "error fetching moderation queue");
       return res.status(500).json({ error: "Erreur serveur" });
     }
 
@@ -426,7 +437,7 @@ export const getNotificationModerationQueue: RequestHandler = async (req, res) =
       count: notifications?.length ?? 0,
     });
   } catch (error) {
-    console.error("[sponsoredNotif] getNotificationModerationQueue error:", error);
+    log.error({ err: error }, "getNotificationModerationQueue failed");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -483,13 +494,13 @@ export const moderateSponsoredNotification: RequestHandler = async (req, res) =>
       .eq("id", notifId);
 
     if (error) {
-      console.error("[sponsoredNotif] Error moderating notification:", error);
+      log.error({ err: error }, "error moderating notification");
       return res.status(500).json({ error: "Erreur serveur" });
     }
 
     return res.json({ ok: true, status: updates.status });
   } catch (error) {
-    console.error("[sponsoredNotif] moderateSponsoredNotification error:", error);
+    log.error({ err: error }, "moderateSponsoredNotification failed");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -572,7 +583,7 @@ export const sendSponsoredNotification: RequestHandler = async (req, res) => {
             .eq("notification_id", notifId);
         }
       } catch (e) {
-        console.error(`[sponsoredNotif] Failed to send push to user ${userId}:`, e);
+        log.error({ err: e, userId }, "failed to send push to user");
       }
 
       sentCount++;
@@ -612,7 +623,7 @@ export const sendSponsoredNotification: RequestHandler = async (req, res) => {
       total_cost_cents: totalCost,
     });
   } catch (error) {
-    console.error("[sponsoredNotif] sendSponsoredNotification error:", error);
+    log.error({ err: error }, "sendSponsoredNotification failed");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -659,7 +670,7 @@ export const getConsumerSponsoredNotifications: RequestHandler = async (req, res
       .limit(50);
 
     if (queryError) {
-      console.error("[sponsoredNotif] Error fetching consumer notifications:", queryError);
+      log.error({ err: queryError }, "error fetching consumer notifications");
       return res.status(500).json({ error: "Erreur serveur" });
     }
 
@@ -689,7 +700,7 @@ export const getConsumerSponsoredNotifications: RequestHandler = async (req, res
       unread_count: unreadCount,
     });
   } catch (error) {
-    console.error("[sponsoredNotif] getConsumerSponsoredNotifications error:", error);
+    log.error({ err: error }, "getConsumerSponsoredNotifications failed");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -719,7 +730,7 @@ export const markSponsoredNotificationRead: RequestHandler = async (req, res) =>
       .eq("user_id", user.id);
 
     if (updateError) {
-      console.error("[sponsoredNotif] Error marking as read:", updateError);
+      log.error({ err: updateError }, "error marking notification as read");
       return res.status(500).json({ error: "Erreur serveur" });
     }
 
@@ -739,7 +750,7 @@ export const markSponsoredNotificationRead: RequestHandler = async (req, res) =>
 
     return res.json({ ok: true });
   } catch (error) {
-    console.error("[sponsoredNotif] markSponsoredNotificationRead error:", error);
+    log.error({ err: error }, "markSponsoredNotificationRead failed");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -771,7 +782,7 @@ export const clickSponsoredNotification: RequestHandler = async (req, res) => {
       .eq("user_id", user.id);
 
     if (updateError) {
-      console.error("[sponsoredNotif] Error recording click:", updateError);
+      log.error({ err: updateError }, "error recording click");
       return res.status(500).json({ error: "Erreur serveur" });
     }
 
@@ -791,7 +802,7 @@ export const clickSponsoredNotification: RequestHandler = async (req, res) => {
 
     return res.json({ ok: true });
   } catch (error) {
-    console.error("[sponsoredNotif] clickSponsoredNotification error:", error);
+    log.error({ err: error }, "clickSponsoredNotification failed");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -802,19 +813,19 @@ export const clickSponsoredNotification: RequestHandler = async (req, res) => {
 
 export function registerSponsoredNotificationRoutes(app: Router) {
   // PRO endpoints
-  app.post("/api/pro/establishments/:id/ads/push-notifications", createSponsoredNotification);
-  app.get("/api/pro/establishments/:id/ads/push-notifications", listSponsoredNotifications);
-  app.patch("/api/pro/establishments/:id/ads/push-notifications/:notifId", updateSponsoredNotification);
-  app.post("/api/pro/establishments/:id/ads/push-notifications/:notifId/submit", submitSponsoredNotification);
-  app.delete("/api/pro/establishments/:id/ads/push-notifications/:notifId", deleteSponsoredNotification);
+  app.post("/api/pro/establishments/:id/ads/push-notifications", zParams(SponsoredNotifIdParams), zBody(CreateSponsoredNotificationSchema), createSponsoredNotification);
+  app.get("/api/pro/establishments/:id/ads/push-notifications", zParams(SponsoredNotifIdParams), listSponsoredNotifications);
+  app.patch("/api/pro/establishments/:id/ads/push-notifications/:notifId", zParams(SponsoredNotifIdNotifIdParams), zBody(UpdateSponsoredNotificationSchema), updateSponsoredNotification);
+  app.post("/api/pro/establishments/:id/ads/push-notifications/:notifId/submit", zParams(SponsoredNotifIdNotifIdParams), submitSponsoredNotification);
+  app.delete("/api/pro/establishments/:id/ads/push-notifications/:notifId", zParams(SponsoredNotifIdNotifIdParams), deleteSponsoredNotification);
 
   // Admin endpoints
   app.get("/api/admin/ads/push-notifications/queue", getNotificationModerationQueue);
-  app.post("/api/admin/ads/push-notifications/:notifId/moderate", moderateSponsoredNotification);
-  app.post("/api/admin/ads/push-notifications/:notifId/send", sendSponsoredNotification);
+  app.post("/api/admin/ads/push-notifications/:notifId/moderate", zParams(SponsoredNotifNotifIdParams), zBody(ModerateSponsoredNotificationSchema), moderateSponsoredNotification);
+  app.post("/api/admin/ads/push-notifications/:notifId/send", zParams(SponsoredNotifNotifIdParams), sendSponsoredNotification);
 
   // Consumer endpoints
   app.get("/api/consumer/notifications/sponsored", getConsumerSponsoredNotifications);
-  app.post("/api/consumer/notifications/sponsored/:id/read", markSponsoredNotificationRead);
-  app.post("/api/consumer/notifications/sponsored/:id/click", clickSponsoredNotification);
+  app.post("/api/consumer/notifications/sponsored/:id/read", zParams(SponsoredNotifIdParams), markSponsoredNotificationRead);
+  app.post("/api/consumer/notifications/sponsored/:id/click", zParams(SponsoredNotifIdParams), clickSponsoredNotification);
 }

@@ -124,7 +124,7 @@ export function SignupPhoneScreen({
         throw new Error(result.error || "Échec de l'envoi du code");
       }
 
-      console.log("[SignupPhoneScreen] Code sent successfully:", result.status, "channel:", result.channel);
+      // Code sent successfully
       setStep("code");
       setCanResend(false);
     } catch (err: unknown) {
@@ -176,7 +176,7 @@ export function SignupPhoneScreen({
         throw new Error(result.error || "Échec de la vérification");
       }
 
-      console.log("[SignupPhoneScreen] Verification successful:", result);
+      // Verification successful
 
       // Call parent success handler with the result + phone number
       await onSuccess({ ...result, phoneE164: e164Phone }, referralCode || undefined);

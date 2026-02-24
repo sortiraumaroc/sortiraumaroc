@@ -1,9 +1,20 @@
 import type { RequestHandler } from "express";
+import type { Express } from "express";
 import { randomBytes, scrypt, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 
 import { getAdminSupabase, checkAdminKey } from "../supabaseAdmin";
 import { requireAdminKey } from "./admin";
+import { zBody, zParams, zIdParam } from "../lib/validate";
+import {
+  CreateCollaboratorSchema,
+  UpdateCollaboratorSchema,
+  ResetCollaboratorPasswordSchema,
+  CreateRoleSchema,
+  UpdateRoleSchema,
+  UpdateMyProfileSchema,
+  CollaboratorLoginSchema,
+} from "../schemas/adminCollaborators";
 
 const scryptAsync = promisify(scrypt);
 
@@ -700,7 +711,7 @@ export const getMyProfile: RequestHandler = async (req, res) => {
 
   // For superadmin role without collaborator, auto-create one
   if (!collaboratorId && sessionPayload?.role === "superadmin") {
-    const adminEmail = sessionPayload?.sub || "admin@sortiraumaroc.ma";
+    const adminEmail = sessionPayload?.sub || "admin@sam.ma";
     const adminName = sessionPayload?.name || "Admin";
 
     const { data: newCollab, error: createErr } = await supabase
@@ -975,3 +986,31 @@ export const collaboratorLogin: RequestHandler = async (req, res) => {
       : null,
   });
 };
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerAdminCollaboratorRoutes(app: Express) {
+  // Admin Collaborators (team management)
+  app.get("/api/admin/collaborators", listCollaborators);
+  app.post("/api/admin/collaborators", zBody(CreateCollaboratorSchema), createCollaborator);
+  app.post("/api/admin/collaborators/:id/update", zParams(zIdParam), zBody(UpdateCollaboratorSchema), updateCollaborator);
+  app.post("/api/admin/collaborators/:id/delete", zParams(zIdParam), deleteCollaborator);
+  app.post("/api/admin/collaborators/:id/suspend", zParams(zIdParam), suspendCollaborator);
+  app.post("/api/admin/collaborators/:id/reactivate", zParams(zIdParam), reactivateCollaborator);
+  app.post("/api/admin/collaborators/:id/reset-password", zParams(zIdParam), zBody(ResetCollaboratorPasswordSchema), resetCollaboratorPassword);
+
+  // Current user profile (self-service)
+  app.get("/api/admin/me", getMyProfile);
+  app.post("/api/admin/me", zBody(UpdateMyProfileSchema), updateMyProfile);
+
+  // Admin Roles (permission management)
+  app.get("/api/admin/roles", listRoles);
+  app.post("/api/admin/roles", zBody(CreateRoleSchema), createRole);
+  app.post("/api/admin/roles/:id/update", zParams(zIdParam), zBody(UpdateRoleSchema), updateRole);
+  app.post("/api/admin/roles/:id/delete", zParams(zIdParam), deleteRole);
+
+  // Collaborator login (separate from main admin login)
+  app.post("/api/admin/collaborators/login", zBody(CollaboratorLoginSchema), collaboratorLogin);
+}

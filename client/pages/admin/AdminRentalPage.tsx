@@ -8,6 +8,7 @@ import { lazy, Suspense } from "react";
 import { Car, Shield, Eye, BarChart3 } from "lucide-react";
 
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
+import { AdminSettingsNav } from "@/pages/admin/settings/AdminSettingsNav";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const AdminInsurancePlansPanel = lazy(() =>
@@ -37,6 +38,7 @@ function TabFallback() {
 export function AdminRentalPage() {
   return (
     <div className="p-6 space-y-6">
+      <AdminSettingsNav />
       <AdminPageHeader
         title={
           <span className="flex items-center gap-2">

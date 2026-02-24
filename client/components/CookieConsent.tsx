@@ -140,7 +140,7 @@ export function CookieConsent({ className }: CookieConsentProps) {
   return (
     <div
       className={cn(
-        "fixed bottom-20 sm:bottom-0 left-0 right-0 z-[60] bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-lg",
+        "fixed bottom-0 left-0 right-0 z-[60] bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-lg",
         "animate-in slide-in-from-bottom duration-500",
         className
       )}

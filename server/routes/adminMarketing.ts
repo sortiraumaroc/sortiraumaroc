@@ -7,6 +7,17 @@ import { Router, type RequestHandler } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { sendSAMEmail } from "../email";
 import crypto from "crypto";
+import { createModuleLogger } from "../lib/logger";
+import { zBody } from "../lib/validate";
+import {
+  sendEmailSchema,
+  sendBulkEmailSchema,
+  createCampaignSchema,
+  updateCampaignSchema,
+  previewRecipientsSchema,
+} from "../schemas/adminMarketing";
+
+const log = createModuleLogger("adminMarketing");
 
 // ============================================================================
 // Helpers
@@ -67,7 +78,7 @@ export const getEmailServiceStatus: RequestHandler = async (req, res) => {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erreur inconnue";
-    console.error("Email service status error:", error);
+    log.error({ err: error }, "email service status error");
     res.status(500).json({ error: message });
   }
 };
@@ -87,7 +98,7 @@ export const sendSingleEmail: RequestHandler = async (req, res) => {
   const subject = asString(body.subject);
   const htmlBody = asString(body.html_body);
   const textBody = asString(body.text_body);
-  const fromEmail = asString(body.from_email) || "contact@sortiraumaroc.ma";
+  const fromEmail = asString(body.from_email) || "contact@sam.ma";
   const fromName = asString(body.from_name) || "Sortir Au Maroc";
   const replyTo = asString(body.reply_to);
 
@@ -113,7 +124,7 @@ export const sendSingleEmail: RequestHandler = async (req, res) => {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erreur inconnue";
-    console.error("Email send error:", error);
+    log.error({ err: error }, "email send error");
     res.status(500).json({ error: message });
   }
 };
@@ -194,7 +205,7 @@ export const sendBulkEmails: RequestHandler = async (req, res) => {
 
   // Start sending in background
   sendCampaignEmails(campaignId, campaign, prospects).catch((err) => {
-    console.error("Campaign sending error:", err);
+    log.error({ err }, "campaign sending error");
   });
 
   res.json({
@@ -290,7 +301,7 @@ async function sendCampaignEmails(
           sentCount++;
         } catch (sendErr) {
           errorCount++;
-          console.error(`Failed to send to ${prospect.email}:`, sendErr);
+          log.error({ err: sendErr, email: prospect.email }, "failed to send to prospect");
 
           // Update send record with error
           await supabase
@@ -330,7 +341,7 @@ async function sendCampaignEmails(
       })
       .eq("id", campaignId);
   } catch (error) {
-    console.error("Campaign error:", error);
+    log.error({ err: error }, "campaign error");
 
     // Mark campaign as failed/paused
     await supabase
@@ -422,7 +433,7 @@ export const createCampaign: RequestHandler = async (req, res) => {
   const contentHtml = asString(body.content_html);
   const contentText = asString(body.content_text);
   const fromName = asString(body.from_name) || "Sortir Au Maroc";
-  const fromEmail = asString(body.from_email) || "contact@sortiraumaroc.ma";
+  const fromEmail = asString(body.from_email) || "contact@sam.ma";
   const replyTo = asString(body.reply_to);
   const targetType = asString(body.target_type) || "all";
   const targetTags = asStringArray(body.target_tags) ?? [];
@@ -676,18 +687,18 @@ export function registerAdminMarketingRoutes(router: Router): void {
   router.get("/api/admin/ses/status", getEmailServiceStatus);
 
   // Single email
-  router.post("/api/admin/ses/send", sendSingleEmail);
+  router.post("/api/admin/ses/send", zBody(sendEmailSchema), sendSingleEmail);
 
   // Bulk/campaign emails
-  router.post("/api/admin/ses/send-bulk", sendBulkEmails);
+  router.post("/api/admin/ses/send-bulk", zBody(sendBulkEmailSchema), sendBulkEmails);
 
   // Campaigns
   router.get("/api/admin/marketing/campaigns", listCampaigns);
   router.get("/api/admin/marketing/campaigns/:id", getCampaign);
   router.get("/api/admin/marketing/campaigns/:id/stats", getCampaignStats);
-  router.post("/api/admin/marketing/campaigns", createCampaign);
-  router.put("/api/admin/marketing/campaigns/:id", updateCampaign);
+  router.post("/api/admin/marketing/campaigns", zBody(createCampaignSchema), createCampaign);
+  router.put("/api/admin/marketing/campaigns/:id", zBody(updateCampaignSchema), updateCampaign);
   router.delete("/api/admin/marketing/campaigns/:id", deleteCampaign);
   router.post("/api/admin/marketing/campaigns/:id/pause", pauseCampaign);
-  router.post("/api/admin/marketing/campaigns/preview-recipients", previewCampaignRecipients);
+  router.post("/api/admin/marketing/campaigns/preview-recipients", zBody(previewRecipientsSchema), previewCampaignRecipients);
 }

@@ -1,0 +1,220 @@
+# Sortir Au Maroc (SAM.ma) — Documentation complete
+
+> Plateforme de reservation et decouverte d'etablissements au Maroc.
+> Version resumee : https://sam.ma/llms.txt
+
+SAM.ma (Sortir Au Maroc) est la premiere plateforme marocaine de reservation et decouverte d'etablissements. Elle permet aux utilisateurs de trouver, comparer et reserver des restaurants, hotels, riads, activites de loisirs, spas, sorties culturelles, boutiques et voitures de location a travers tout le Maroc.
+
+## Informations cles
+- URL : https://sam.ma
+- Langues : Francais (principal), Anglais, Espagnol, Italien, Arabe
+- Zone : Maroc (18+ villes)
+- Type : Plateforme de reservation en ligne (marketplace)
+- Gratuit pour les utilisateurs, reservation instantanee
+
+---
+
+## Services et univers
+
+### 1. Restaurants
+- Types : gastronomique, traditionnel marocain, francais, italien, japonais, asiatique, fruits de mer, steakhouse, brunch, cafe, rooftop, fast casual
+- Fonctionnalites : reservation par creneau horaire, nombre de convives, menu a la carte, offres speciales Ramadan (ftour, s'hour, traiteur)
+- URL type : https://sam.ma/restaurant/{slug}
+- Schema.org : Restaurant
+
+### 2. Hebergements
+- Types : hotel, riad, maison d'hotes, villa, auberge, resort, appart-hotel
+- Fonctionnalites : reservation de chambres, comparaison des tarifs, equipements (piscine, spa, parking, wifi)
+- URL type : https://sam.ma/hotel/{slug}
+- Schema.org : LodgingBusiness
+
+### 3. Loisirs et sport
+- Types : clubs de sport, parcours aventure, karting, bowling, paintball, parcs aquatiques, excursions, activites nautiques
+- Fonctionnalites : reservation d'activites, creneaux, groupes
+- URL type : https://sam.ma/loisir/{slug}
+- Schema.org : SportsActivityLocation
+
+### 4. Spa et wellness
+- Types : spa, hammam, centre de beaute, salon de coiffure, institut de massage
+- Fonctionnalites : reservation de soins, forfaits
+- URL type : https://sam.ma/wellness/{slug}
+- Schema.org : HealthAndBeautyBusiness
+
+### 5. Culture et sorties
+- Types : musees, galeries d'art, spectacles, concerts, theatres, festivals, parcs d'attractions
+- URL type : https://sam.ma/culture/{slug}
+- Schema.org : EntertainmentBusiness
+
+### 6. Shopping
+- Types : boutiques, centres commerciaux, artisanat, souks, concept stores
+- URL type : https://sam.ma/shopping/{slug}
+- Schema.org : Store
+
+### 7. Location de voitures
+- Types : berline, SUV, citadine, utilitaire, luxe
+- Fonctionnalites : reservation par dates, agences dans les principales villes et aeroports
+
+---
+
+## Couverture geographique
+
+SAM.ma couvre tout le Maroc. Les principales villes sont :
+
+| Ville | Region |
+|-------|--------|
+| Casablanca | Casablanca-Settat |
+| Marrakech | Marrakech-Safi |
+| Rabat | Rabat-Sale-Kenitra |
+| Tanger | Tanger-Tetouan-Al Hoceima |
+| Agadir | Souss-Massa |
+| Fes | Fes-Meknes |
+| Meknes | Fes-Meknes |
+| Oujda | Oriental |
+| Essaouira | Marrakech-Safi |
+| Chefchaouen | Tanger-Tetouan-Al Hoceima |
+| Ifrane | Fes-Meknes |
+| El Jadida | Casablanca-Settat |
+| Kenitra | Rabat-Sale-Kenitra |
+| Tetouan | Tanger-Tetouan-Al Hoceima |
+| Nador | Oriental |
+| Beni Mellal | Beni Mellal-Khenifra |
+| Safi | Marrakech-Safi |
+| Dakhla | Dakhla-Oued Ed-Dahab |
+
+---
+
+## Donnees structurees par etablissement
+
+Chaque fiche d'etablissement contient les informations suivantes :
+
+- **Identifiant** : UUID unique
+- **Nom** : nom commercial de l'etablissement
+- **Univers** : restaurant, hotel, loisir, wellness, culture, shopping, car-rental
+- **Sous-categorie** : specialite (ex: "francais", "japonais", "hammam traditionnel")
+- **Adresse** : adresse postale, quartier, ville, region, pays
+- **Coordonnees GPS** : latitude et longitude
+- **Telephone** : numero de contact
+- **Site web** : URL du site officiel
+- **Reseaux sociaux** : Instagram, Facebook, TripAdvisor
+- **Photos** : couverture + galerie (URLs publiques)
+- **Description** : en francais (et parfois en anglais/arabe)
+- **Horaires d'ouverture** : par jour de la semaine, dejeuner/diner
+- **Fourchette de prix** : estimation du budget moyen
+- **Note moyenne** : sur 5, basee sur les avis utilisateurs
+- **Nombre d'avis** : total des evaluations
+- **Note Google** : note Google Maps et nombre d'avis Google
+- **Tags** : labels descriptifs (ex: "Terrasse", "Vue mer", "Romantique", "Business")
+- **Equipements** : liste (parking, wifi, terrasse, climatisation, etc.)
+- **Reservation en ligne** : active ou non
+- **Prochains creneaux** : dates et heures disponibles
+
+### Types Schema.org utilises
+- Organization (page d'accueil)
+- Restaurant (fiches restaurant)
+- LodgingBusiness (fiches hotel)
+- SportsActivityLocation (fiches loisir)
+- HealthAndBeautyBusiness (fiches wellness)
+- EntertainmentBusiness (fiches culture)
+- Store (fiches shopping)
+- BreadcrumbList (navigation fil d'Ariane)
+- ItemList (pages de resultats)
+- FAQPage (page FAQ)
+- AggregateRating (notes et avis)
+- GeoCoordinates (localisation)
+- OpeningHoursSpecification (horaires)
+
+---
+
+## API publique (lecture seule)
+
+Toutes les API retournent du JSON. Aucune authentification requise pour la lecture.
+
+### GET /api/public/establishments
+Liste des etablissements avec filtres.
+
+Parametres :
+- `universe` : restaurant, hotel, loisir, wellness, culture, shopping, car-rental
+- `city` : nom de la ville (ex: Casablanca)
+- `query` : recherche textuelle
+- `limit` : nombre de resultats (defaut: 20)
+- `offset` : pagination
+
+Reponse : `{ ok: true, items: [...], meta: { limit, offset }, pagination: { next_cursor } }`
+
+Chaque item contient : id, name, universe, subcategory, city, address, neighborhood, region, lat, lng, cover_url, booking_enabled, avg_rating, review_count, google_rating, google_review_count, tags, _amenities, _price_range
+
+### GET /api/public/establishments/:ref
+Detail complet d'un etablissement par son slug ou ID.
+
+Reponse : objet complet avec toutes les donnees de l'etablissement, y compris description, horaires, photos, equipements.
+
+### GET /api/public/establishments/:id/reviews
+Avis des utilisateurs pour un etablissement.
+
+### GET /api/public/blog
+Liste des articles de blog.
+
+Reponse : tableau d'articles avec titre, slug, extrait, date de publication.
+
+### GET /api/public/blog/:slug
+Detail d'un article de blog.
+
+### GET /api/public/categories
+Taxonomie des categories et sous-categories.
+
+### GET /api/public/search/autocomplete?q={query}
+Suggestions de recherche en temps reel.
+
+### GET /sitemap.xml
+Sitemap XML complet avec toutes les URLs du site, hreflang pour 5 langues.
+
+---
+
+## Navigation du site
+
+### Pages principales
+- `/` : page d'accueil avec recherche, categories, villes populaires
+- `/results` : resultats de recherche avec filtres (ville, categorie, prix, note)
+- `/results?universe=restaurants` : tous les restaurants
+- `/results?universe=hotels` : tous les hotels
+- `/ramadan-offers` : offres speciales Ramadan (ftour, s'hour, traiteur)
+- `/blog` : articles et guides
+- `/faq` : questions frequentes
+- `/aide` : centre d'aide
+
+### Pages d'etablissement
+- `/restaurant/{slug}` : fiche restaurant
+- `/hotel/{slug}` : fiche hotel
+- `/loisir/{slug}` : fiche loisir
+- `/wellness/{slug}` : fiche wellness
+- `/culture/{slug}` : fiche culture
+- `/shopping/{slug}` : fiche shopping
+
+### Pages SEO (landing pages)
+- `/restaurants-{ville}` : restaurants par ville (ex: /restaurants-marrakech)
+- `/hotels-{ville}` : hotels par ville
+- Pages dynamiques par ville + categorie pour toutes les combinaisons
+
+---
+
+## Saisons et evenements
+
+### Ramadan (annuel, fevrier-mars)
+SAM.ma propose des offres speciales Ramadan :
+- Ftour : repas de rupture du jeune au coucher du soleil
+- S'hour : repas avant l'aube
+- Traiteur : service de livraison pour le ftour
+- Pack Famille : offres pour groupes familiaux
+- URL : https://sam.ma/ramadan-offers
+
+### Haute saison touristique
+- Ete (juin-septembre) : Agadir, Essaouira, Tanger, plages
+- Hiver (decembre-mars) : Marrakech, Fes, Ifrane (ski)
+- Printemps/Automne : ideal pour toutes les villes
+
+---
+
+## Contact
+- Site web : https://sam.ma
+- Email : contact@sam.ma
+- Langues du support : Francais, Arabe

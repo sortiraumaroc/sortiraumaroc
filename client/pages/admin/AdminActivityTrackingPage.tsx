@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AdminDataTable } from "@/components/admin/table/AdminDataTable";
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
+import { AdminCollaboratorsNav } from "@/pages/admin/collaborators/AdminCollaboratorsNav";
 
 import {
   getAdminActivityStats,
@@ -248,6 +249,7 @@ export function AdminActivityTrackingPage() {
 
   return (
     <div className="space-y-6">
+      <AdminCollaboratorsNav />
       <AdminPageHeader
         title="Suivi d'activité"
         description="Mesurez le temps de travail actif de chaque collaborateur, corrélé au nombre d'établissements enregistrés. Le suivi ne compte que les périodes d'interaction réelle (clics, frappe, scroll)."

@@ -8,7 +8,32 @@
  */
 
 import type { RequestHandler } from "express";
+import type { Express } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
+import { createRateLimiter } from "../middleware/rateLimiter";
+import { zBody, zQuery, zParams } from "../lib/validate";
+import {
+  trackReferralLinkSchema,
+  applyReferralSchema,
+  updateReferralProfileSchema,
+  updateReferralPartnerSchema,
+  updateReferralConfigSchema,
+  updateReferralUniverseConfigSchema,
+  createReferralPayoutSchema,
+  updateReferralPayoutSchema,
+  ListMyReferreesQuery,
+  ListMyCommissionsQuery,
+  ListMyPayoutsQuery,
+  ListReferralPartnersQuery,
+  ListAllCommissionsQuery,
+  ReferralCodeParams,
+  ReferralPartnerIdParams,
+  ReferralPayoutIdParams,
+  ReferralUniverseParams,
+} from "../schemas/referral";
+
+const log = createModuleLogger("referral");
 
 // =============================================================================
 // HELPERS
@@ -115,7 +140,7 @@ export const validateReferralCode: RequestHandler = async (req, res) => {
   });
 
   if (error) {
-    console.error("[referral] validate_referral_code error:", error);
+    log.error({ err: error }, "validate_referral_code failed");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 
@@ -167,7 +192,7 @@ export const createReferralLink: RequestHandler = async (req, res) => {
   );
 
   if (validationError) {
-    console.error("[referral] validate error:", validationError);
+    log.error({ err: validationError }, "validate referral code failed");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 
@@ -215,7 +240,7 @@ export const createReferralLink: RequestHandler = async (req, res) => {
     .single();
 
   if (linkError) {
-    console.error("[referral] create link error:", linkError);
+    log.error({ err: linkError }, "create referral link failed");
     if (linkError.code === "23505") {
       return res.status(409).json({ error: "Cet utilisateur a déjà un parrain" });
     }
@@ -309,7 +334,7 @@ export const applyAsReferralPartner: RequestHandler = async (req, res) => {
     );
 
     if (genError || !generated) {
-      console.error("[referral] generate code error:", genError);
+      log.error({ err: genError }, "generate unique referral code failed");
       return res.status(500).json({ error: "Erreur lors de la génération du code" });
     }
 
@@ -334,7 +359,7 @@ export const applyAsReferralPartner: RequestHandler = async (req, res) => {
     .single();
 
   if (createError) {
-    console.error("[referral] create partner error:", createError);
+    log.error({ err: createError }, "create referral partner failed");
     return res.status(500).json({ error: "Erreur lors de la création de la demande" });
   }
 
@@ -373,7 +398,7 @@ export const getReferralPartnerMe: RequestHandler = async (req, res) => {
     .maybeSingle();
 
   if (error) {
-    console.error("[referral] get partner error:", error);
+    log.error({ err: error }, "get referral partner profile failed");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 
@@ -462,7 +487,7 @@ export const updateReferralPartnerMe: RequestHandler = async (req, res) => {
     .single();
 
   if (error) {
-    console.error("[referral] update partner error:", error);
+    log.error({ err: error }, "update referral partner profile failed");
     return res.status(500).json({ error: "Erreur lors de la mise à jour" });
   }
 
@@ -520,7 +545,7 @@ export const listMyReferrees: RequestHandler = async (req, res) => {
     .range(offset, offset + limit - 1);
 
   if (error) {
-    console.error("[referral] list referrees error:", error);
+    log.error({ err: error }, "list referrees failed");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 
@@ -653,7 +678,7 @@ export const listMyCommissions: RequestHandler = async (req, res) => {
   const { data: commissions, error, count } = await query;
 
   if (error) {
-    console.error("[referral] list commissions error:", error);
+    log.error({ err: error }, "list commissions failed");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 
@@ -708,7 +733,7 @@ export const listMyPayouts: RequestHandler = async (req, res) => {
     .range(offset, offset + limit - 1);
 
   if (error) {
-    console.error("[referral] list payouts error:", error);
+    log.error({ err: error }, "list payouts failed");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 
@@ -787,7 +812,7 @@ export const listReferralPartners: RequestHandler = async (req, res) => {
   const { data: partners, error, count } = await query;
 
   if (error) {
-    console.error("[referral] admin list partners error:", error);
+    log.error({ err: error }, "admin list referral partners failed");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 
@@ -884,7 +909,7 @@ export const updateReferralPartnerStatus: RequestHandler = async (req, res) => {
     .single();
 
   if (error) {
-    console.error("[referral] update partner status error:", error);
+    log.error({ err: error }, "update referral partner status failed");
     return res.status(500).json({ error: "Erreur lors de la mise à jour" });
   }
 
@@ -916,7 +941,7 @@ export const getReferralConfig: RequestHandler = async (req, res) => {
   ]);
 
   if (configResult.error) {
-    console.error("[referral] get config error:", configResult.error);
+    log.error({ err: configResult.error }, "get referral config failed");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 
@@ -997,7 +1022,7 @@ export const updateReferralConfig: RequestHandler = async (req, res) => {
     .single();
 
   if (error) {
-    console.error("[referral] update config error:", error);
+    log.error({ err: error }, "update referral config failed");
     return res.status(500).json({ error: "Erreur lors de la mise à jour" });
   }
 
@@ -1043,7 +1068,7 @@ export const upsertReferralConfigUniverse: RequestHandler = async (req, res) => 
     .single();
 
   if (error) {
-    console.error("[referral] upsert universe config error:", error);
+    log.error({ err: error }, "upsert referral universe config failed");
     return res.status(500).json({ error: "Erreur lors de la mise à jour" });
   }
 
@@ -1101,7 +1126,7 @@ export const listAllCommissions: RequestHandler = async (req, res) => {
   const { data: commissions, error, count } = await query;
 
   if (error) {
-    console.error("[referral] admin list commissions error:", error);
+    log.error({ err: error }, "admin list commissions failed");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 
@@ -1167,7 +1192,7 @@ export const createReferralPayout: RequestHandler = async (req, res) => {
     .lte("created_at", periodEnd);
 
   if (commError) {
-    console.error("[referral] get commissions for payout error:", commError);
+    log.error({ err: commError }, "get commissions for payout failed");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 
@@ -1193,7 +1218,7 @@ export const createReferralPayout: RequestHandler = async (req, res) => {
     .single();
 
   if (payoutError) {
-    console.error("[referral] create payout error:", payoutError);
+    log.error({ err: payoutError }, "create referral payout failed");
     return res.status(500).json({ error: "Erreur lors de la création du paiement" });
   }
 
@@ -1265,7 +1290,7 @@ export const updateReferralPayout: RequestHandler = async (req, res) => {
     .single();
 
   if (error) {
-    console.error("[referral] update payout error:", error);
+    log.error({ err: error }, "update referral payout failed");
     return res.status(500).json({ error: "Erreur lors de la mise à jour" });
   }
 
@@ -1389,3 +1414,32 @@ export const getReferralStats: RequestHandler = async (req, res) => {
     },
   });
 };
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerReferralRoutes(app: Express) {
+  // Public endpoints
+  app.get("/api/public/referral/validate/:code", zParams(ReferralCodeParams), createRateLimiter("referral-validate", { windowMs: 5 * 60 * 1000, maxRequests: 10 }), validateReferralCode);
+  app.post("/api/public/referral/link", createRateLimiter("referral-link", { windowMs: 15 * 60 * 1000, maxRequests: 5 }), zBody(trackReferralLinkSchema), createReferralLink);
+
+  // Referral Partner endpoints (espace parrain)
+  app.post("/api/referral/apply", zBody(applyReferralSchema), applyAsReferralPartner);
+  app.get("/api/referral/me", getReferralPartnerMe);
+  app.patch("/api/referral/me", zBody(updateReferralProfileSchema), updateReferralPartnerMe);
+  app.get("/api/referral/me/referrees", zQuery(ListMyReferreesQuery), listMyReferrees);
+  app.get("/api/referral/me/commissions", zQuery(ListMyCommissionsQuery), listMyCommissions);
+  app.get("/api/referral/me/payouts", zQuery(ListMyPayoutsQuery), listMyPayouts);
+
+  // Admin referral endpoints
+  app.get("/api/admin/referral/partners", zQuery(ListReferralPartnersQuery), listReferralPartners);
+  app.patch("/api/admin/referral/partners/:id", zParams(ReferralPartnerIdParams), zBody(updateReferralPartnerSchema), updateReferralPartnerStatus);
+  app.get("/api/admin/referral/config", getReferralConfig);
+  app.patch("/api/admin/referral/config", zBody(updateReferralConfigSchema), updateReferralConfig);
+  app.put("/api/admin/referral/config/universes/:universe", zParams(ReferralUniverseParams), zBody(updateReferralUniverseConfigSchema), upsertReferralConfigUniverse);
+  app.get("/api/admin/referral/commissions", zQuery(ListAllCommissionsQuery), listAllCommissions);
+  app.post("/api/admin/referral/payouts", zBody(createReferralPayoutSchema), createReferralPayout);
+  app.patch("/api/admin/referral/payouts/:id", zParams(ReferralPayoutIdParams), zBody(updateReferralPayoutSchema), updateReferralPayout);
+  app.get("/api/admin/referral/stats", getReferralStats);
+}

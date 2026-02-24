@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { AlertCircle, CheckCircle2, Clock, XCircle } from "lucide-react";
 
+import { AdminPaymentsNav } from "./payments/AdminPaymentsNav";
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
 import { AdminDataTable } from "@/components/admin/table/AdminDataTable";
 import { Badge } from "@/components/ui/badge";
@@ -203,6 +204,7 @@ export function AdminPayoutRequestsPage() {
 
   return (
     <div className="space-y-6">
+      <AdminPaymentsNav />
       <AdminPageHeader
         title="Payout"
         description="Gérez et approuvez les demandes de reversement des Pros."

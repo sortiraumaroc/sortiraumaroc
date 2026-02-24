@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 
 const ITEMS: Array<{ label: string; to: string }> = [
   { label: "Réservations", to: "/admin/reservations" },
+  { label: "Ramadan 2026", to: "/admin/ramadan" },
   { label: "Liste d'attente", to: "/admin/waitlist" },
   { label: "Offres & packs", to: "/admin/deals" },
 ];

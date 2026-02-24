@@ -241,7 +241,7 @@ export function CollaboratorFormDialog({ open, onOpenChange, collaborator, roles
               type="email"
               value={form.email}
               onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
-              placeholder="jean.dupont@sortiraumaroc.ma"
+              placeholder="jean.dupont@sam.ma"
               disabled={isEdit}
             />
             {isEdit ? <div className="text-xs text-slate-500">L'email ne peut pas être modifié.</div> : null}

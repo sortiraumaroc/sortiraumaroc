@@ -7,6 +7,24 @@ import { parseCookies, getSessionCookieName, verifyAdminSessionToken, type Admin
 import { getAdminSupabase } from "../supabaseAdmin";
 import { getAuditActorInfo } from "./admin";
 import { transformWizardHoursToOpeningHours, openingHoursToWizardFormat } from "../lib/transformHours";
+import { createModuleLogger } from "../lib/logger";
+import { zBody } from "../lib/validate";
+import {
+  CreateCategorySchema,
+  UpdateCategorySchema,
+  CreateItemSchema,
+  UpdateItemSchema,
+  ReorderItemsSchema,
+  DeleteInventoryImageSchema,
+  UpdateGallerySchema,
+  UpdateContactInfoSchema,
+  ApprovePendingChangeSchema,
+  RejectPendingChangeSchema,
+  UpdateProfileSchema,
+  UpdateTagsServicesSchema,
+} from "../schemas/adminInventory";
+
+const log = createModuleLogger("adminInventory");
 
 // Image compression settings
 const IMAGE_COMPRESSION_CONFIG = {
@@ -93,7 +111,7 @@ async function compressImage(
     finalHeight = newHeight;
   }
 
-  console.log(`[Image Compression] Original: ${(originalSize / 1024).toFixed(1)}KB -> Compressed: ${(compressedBuffer.length / 1024).toFixed(1)}KB (${finalWidth}x${finalHeight}, quality: ${quality})`);
+  log.info({ originalKB: (originalSize / 1024).toFixed(1), compressedKB: (compressedBuffer.length / 1024).toFixed(1), width: finalWidth, height: finalHeight, quality }, "Image compression complete");
 
   return {
     buffer: compressedBuffer,
@@ -263,7 +281,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .order("sort_order", { ascending: true });
 
       if (catError) {
-        console.error("[Admin Inventory] Categories error:", catError);
+        log.error({ err: catError }, "Categories error");
         return res.status(500).json({ error: "Erreur lors de la récupération des catégories" });
       }
 
@@ -275,7 +293,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .order("sort_order", { ascending: true });
 
       if (itemsError) {
-        console.error("[Admin Inventory] Items error:", itemsError);
+        log.error({ err: itemsError }, "Items error");
         return res.status(500).json({ error: "Erreur lors de la récupération des produits" });
       }
 
@@ -285,13 +303,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
         items: items ?? [],
       });
     } catch (error) {
-      console.error("[Admin Inventory] List error:", error);
+      log.error({ err: error }, "List error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // Create category
-  router.post("/api/admin/establishments/:establishmentId/inventory/categories", (async (req, res) => {
+  router.post("/api/admin/establishments/:establishmentId/inventory/categories", zBody(CreateCategorySchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
@@ -343,19 +361,19 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .single();
 
       if (error) {
-        console.error("[Admin Inventory] Create category error:", error);
+        log.error({ err: error }, "Create category DB error");
         return res.status(500).json({ error: "Erreur lors de la création de la catégorie" });
       }
 
       return res.json({ ok: true, category });
     } catch (error) {
-      console.error("[Admin Inventory] Create category error:", error);
+      log.error({ err: error }, "Create category error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // Update category
-  router.post("/api/admin/establishments/:establishmentId/inventory/categories/:categoryId", (async (req, res) => {
+  router.post("/api/admin/establishments/:establishmentId/inventory/categories/:categoryId", zBody(UpdateCategorySchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
@@ -391,13 +409,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .single();
 
       if (error) {
-        console.error("[Admin Inventory] Update category error:", error);
+        log.error({ err: error }, "Update category DB error");
         return res.status(500).json({ error: "Erreur lors de la mise à jour de la catégorie" });
       }
 
       return res.json({ ok: true, category });
     } catch (error) {
-      console.error("[Admin Inventory] Update category error:", error);
+      log.error({ err: error }, "Update category error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -432,19 +450,19 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .eq("establishment_id", establishmentId);
 
       if (error) {
-        console.error("[Admin Inventory] Delete category error:", error);
+        log.error({ err: error }, "Delete category DB error");
         return res.status(500).json({ error: "Erreur lors de la suppression de la catégorie" });
       }
 
       return res.json({ ok: true });
     } catch (error) {
-      console.error("[Admin Inventory] Delete category error:", error);
+      log.error({ err: error }, "Delete category error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // Create item
-  router.post("/api/admin/establishments/:establishmentId/inventory/items", (async (req, res) => {
+  router.post("/api/admin/establishments/:establishmentId/inventory/items", zBody(CreateItemSchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
@@ -497,19 +515,19 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .single();
 
       if (error) {
-        console.error("[Admin Inventory] Create item error:", error);
+        log.error({ err: error }, "Create item DB error");
         return res.status(500).json({ error: "Erreur lors de la création du produit" });
       }
 
       return res.json({ ok: true, item });
     } catch (error) {
-      console.error("[Admin Inventory] Create item error:", error);
+      log.error({ err: error }, "Create item error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // Update item (full support for all fields like Pro)
-  router.post("/api/admin/establishments/:establishmentId/inventory/items/:itemId", (async (req, res) => {
+  router.post("/api/admin/establishments/:establishmentId/inventory/items/:itemId", zBody(UpdateItemSchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
@@ -568,7 +586,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .single();
 
       if (error) {
-        console.error("[Admin Inventory] Update item error:", error);
+        log.error({ err: error }, "Update item DB error");
         return res.status(500).json({ error: "Erreur lors de la mise à jour du produit" });
       }
 
@@ -598,7 +616,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
             .insert(variantsToInsert);
 
           if (variantsError) {
-            console.error("[Admin Inventory] Update variants error:", variantsError);
+            log.error({ err: variantsError }, "Update variants error");
             // Non-fatal, continue
           }
         }
@@ -613,7 +631,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
 
       return res.json({ ok: true, item: updatedItem || item });
     } catch (error) {
-      console.error("[Admin Inventory] Update item error:", error);
+      log.error({ err: error }, "Update item error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -647,19 +665,19 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .eq("establishment_id", establishmentId);
 
       if (error) {
-        console.error("[Admin Inventory] Delete item error:", error);
+        log.error({ err: error }, "Delete item DB error");
         return res.status(500).json({ error: "Erreur lors de la suppression du produit" });
       }
 
       return res.json({ ok: true });
     } catch (error) {
-      console.error("[Admin Inventory] Delete item error:", error);
+      log.error({ err: error }, "Delete item error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // Reorder items
-  router.post("/api/admin/establishments/:establishmentId/inventory/reorder", (async (req, res) => {
+  router.post("/api/admin/establishments/:establishmentId/inventory/reorder", zBody(ReorderItemsSchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
@@ -692,7 +710,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
 
       return res.json({ ok: true });
     } catch (error) {
-      console.error("[Admin Inventory] Reorder error:", error);
+      log.error({ err: error }, "Reorder error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -750,7 +768,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         },
       });
     } catch (error) {
-      console.error("[Admin Inventory] Clear error:", error);
+      log.error({ err: error }, "Clear error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -796,7 +814,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         });
 
       if (uploadError) {
-        console.error("[Admin Inventory] Upload error:", uploadError);
+        log.error({ err: uploadError }, "Upload storage error");
         return res.status(500).json({ error: "Erreur lors de l'upload de l'image" });
       }
 
@@ -809,13 +827,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
         path: storagePath,
       });
     } catch (error) {
-      console.error("[Admin Inventory] Upload error:", error);
+      log.error({ err: error }, "Upload error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // Delete inventory image (admin)
-  router.delete("/api/admin/establishments/:establishmentId/inventory/images", (async (req, res) => {
+  router.delete("/api/admin/establishments/:establishmentId/inventory/images", zBody(DeleteInventoryImageSchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
@@ -846,13 +864,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
       const { error: deleteError } = await supabase.storage.from("public").remove([storagePath]);
 
       if (deleteError) {
-        console.error("[Admin Inventory] Delete image error:", deleteError);
+        log.error({ err: deleteError }, "Delete image storage error");
         // Don't fail - the image might already be deleted or external
       }
 
       return res.json({ ok: true });
     } catch (error) {
-      console.error("[Admin Inventory] Delete image error:", error);
+      log.error({ err: error }, "Delete image error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -876,7 +894,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
       const { establishmentId } = req.params;
       const supabase = getAdminSupabase();
 
-      console.log("[Admin Gallery] Fetching gallery for establishment:", establishmentId);
+      log.info({ establishmentId }, "Fetching gallery for establishment");
 
       const { data, error } = await supabase
         .from("establishments")
@@ -885,16 +903,16 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .single();
 
       if (error) {
-        console.error("[Admin Gallery] Get error:", error);
+        log.error({ err: error }, "Gallery get error");
         return res.status(500).json({ error: "Erreur lors de la récupération de la galerie" });
       }
 
       if (!data) {
-        console.error("[Admin Gallery] No establishment found for id:", establishmentId);
+        log.error({ establishmentId }, "No establishment found for gallery");
         return res.status(404).json({ error: "Établissement non trouvé" });
       }
 
-      console.log("[Admin Gallery] Found establishment:", data.name, "logo_url:", data.logo_url ? "YES" : "NO", "cover_url:", data.cover_url ? "YES" : "NO", "gallery_urls:", Array.isArray(data.gallery_urls) ? data.gallery_urls.length : 0);
+      log.info({ name: data.name, hasLogo: !!data.logo_url, hasCover: !!data.cover_url, galleryCount: Array.isArray(data.gallery_urls) ? data.gallery_urls.length : 0 }, "Found establishment for gallery");
 
       // Extract gallery metadata from extra field
       const extra = (data?.extra as Record<string, unknown>) || {};
@@ -910,13 +928,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
         gallery_meta: galleryMeta,
       });
     } catch (error) {
-      console.error("[Admin Gallery] Get error:", error);
+      log.error({ err: error }, "Gallery get error (catch)");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // Update establishment gallery
-  router.patch("/api/admin/establishments/:establishmentId/gallery", (async (req, res) => {
+  router.patch("/api/admin/establishments/:establishmentId/gallery", zBody(UpdateGallerySchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
@@ -992,13 +1010,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .eq("id", establishmentId);
 
       if (error) {
-        console.error("[Admin Gallery] Update error:", error);
+        log.error({ err: error }, "Gallery update DB error");
         return res.status(500).json({ error: "Erreur lors de la mise à jour de la galerie" });
       }
 
       return res.json({ ok: true });
     } catch (error) {
-      console.error("[Admin Gallery] Update error:", error);
+      log.error({ err: error }, "Gallery update error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -1020,7 +1038,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .limit(500);
 
       if (fetchErr) {
-        console.error("[Backfill Covers] Fetch error:", fetchErr);
+        log.error({ err: fetchErr }, "Backfill covers fetch error");
         return res.status(500).json({ error: fetchErr.message });
       }
 
@@ -1070,10 +1088,10 @@ export function registerAdminInventoryRoutes(router: Router): void {
         }
       }
 
-      console.log(`[Backfill Covers] Updated ${updated}, skipped ${skipped} (no covers in storage)`);
+      log.info({ updated, skipped }, "Backfill covers completed");
       return res.json({ ok: true, updated, skipped, total: (establishments ?? []).length, details });
     } catch (error) {
-      console.error("[Backfill Covers] Error:", error);
+      log.error({ err: error }, "Backfill covers error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -1102,7 +1120,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
 
       if (result1.error && result1.error.message.includes("email")) {
         // Email column doesn't exist yet, try without it
-        console.log("[Admin Contact Info] Email column not found, falling back to query without email");
+        log.info("Contact info email column not found, falling back to query without email");
         const result2 = await supabase
           .from("establishments")
           .select("lat, lng, phone, whatsapp, website, social_links, hours, extra")
@@ -1121,7 +1139,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
       }
 
       if (fetchError) {
-        console.error("[Admin Contact Info] Fetch error:", fetchError);
+        log.error({ err: fetchError }, "Contact info fetch error");
         return res.status(500).json({ error: "Erreur lors de la récupération" });
       }
 
@@ -1157,13 +1175,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
           : {},
       });
     } catch (error) {
-      console.error("[Admin Contact Info] Error:", error);
+      log.error({ err: error }, "Contact info get error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // Update contact info for establishment
-  router.patch("/api/admin/establishments/:establishmentId/contact-info", (async (req, res) => {
+  router.patch("/api/admin/establishments/:establishmentId/contact-info", zBody(UpdateContactInfoSchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
@@ -1228,7 +1246,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
       if (result.error) {
         // If email column doesn't exist, retry without it
         if (result.error.message.includes("email")) {
-          console.log("[Admin Contact Info] Email column not found, storing in extra field only");
+          log.info("Contact info email column not found, storing in extra field only");
           delete updateData.email;
           const retryResult = await supabase
             .from("establishments")
@@ -1241,13 +1259,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
       }
 
       if (updateError) {
-        console.error("[Admin Contact Info] Update error:", updateError);
+        log.error({ err: updateError }, "Contact info update DB error");
         return res.status(500).json({ error: "Erreur lors de la mise à jour" });
       }
 
       return res.json({ ok: true });
     } catch (error) {
-      console.error("[Admin Contact Info] Error:", error);
+      log.error({ err: error }, "Contact info update error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -1282,16 +1300,16 @@ export function registerAdminInventoryRoutes(router: Router): void {
         return res.status(400).json({ error: "L'image est trop volumineuse (max 5 MB)" });
       }
 
-      console.log(`[Admin Gallery] Uploading ${imageType} image for ${establishmentId}, original size: ${(file.size / 1024).toFixed(1)}KB, mimetype: ${file.mimetype}`);
+      log.info({ imageType, establishmentId, sizeKB: (file.size / 1024).toFixed(1), mimetype: file.mimetype }, "Uploading gallery image");
 
       // Compress the image
       const compressionConfig = IMAGE_COMPRESSION_CONFIG[imageType];
       let compressed;
       try {
         compressed = await compressImage(file.buffer, file.mimetype, compressionConfig);
-        console.log(`[Admin Gallery] Compression successful: ${(compressed.originalSize / 1024).toFixed(1)}KB -> ${(compressed.compressedSize / 1024).toFixed(1)}KB`);
+        log.info({ originalKB: (compressed.originalSize / 1024).toFixed(1), compressedKB: (compressed.compressedSize / 1024).toFixed(1) }, "Gallery compression successful");
       } catch (compressionError) {
-        console.error("[Admin Gallery] Compression error:", compressionError);
+        log.error({ err: compressionError }, "Gallery compression error");
         return res.status(500).json({
           error: "Erreur de compression",
           details: compressionError instanceof Error ? compressionError.message : "Unknown compression error"
@@ -1315,7 +1333,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         });
 
       if (uploadError) {
-        console.error("[Admin Gallery] Supabase upload error:", uploadError);
+        log.error({ err: uploadError }, "Gallery Supabase upload error");
         return res.status(500).json({
           error: "Erreur lors de l'upload de l'image",
           details: uploadError.message || JSON.stringify(uploadError)
@@ -1338,7 +1356,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         },
       });
     } catch (error) {
-      console.error("[Admin Gallery] Upload error:", error);
+      log.error({ err: error }, "Gallery upload error");
       return res.status(500).json({
         error: "Erreur serveur",
         details: error instanceof Error ? error.message : "Unknown error"
@@ -1469,7 +1487,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        console.error("[AI File Extraction] Anthropic API error:", response.status, errorData);
+        log.error({ status: response.status, errorData }, "AI file extraction Anthropic API error");
         return res.status(500).json({ error: "ai_error", message: "Erreur du service IA" });
       }
 
@@ -1504,7 +1522,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         }
         extraction = JSON.parse(jsonMatch[0]);
       } catch (parseError) {
-        console.error("[AI File Extraction] Parse error:", parseError, generatedText);
+        log.error({ err: parseError, rawResponse: generatedText?.slice(0, 200) }, "AI file extraction parse error");
         return res.status(500).json({
           error: "parse_error",
           message: "Impossible de parser la réponse de l'IA",
@@ -1608,7 +1626,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         },
       });
     } catch (error) {
-      console.error("[AI File Extraction] Error:", error);
+      log.error({ err: error }, "AI file extraction error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -1645,13 +1663,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .limit(limit);
 
       if (error) {
-        console.error("[Admin Inventory Moderation] List error:", error);
+        log.error({ err: error }, "Moderation list DB error");
         return res.status(500).json({ error: "Erreur lors de la récupération des demandes" });
       }
 
       return res.json({ ok: true, pendingChanges: data ?? [] });
     } catch (error) {
-      console.error("[Admin Inventory Moderation] List error:", error);
+      log.error({ err: error }, "Moderation list error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -1682,19 +1700,19 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .limit(100);
 
       if (error) {
-        console.error("[Admin Inventory Moderation] List by establishment error:", error);
+        log.error({ err: error }, "Moderation list by establishment DB error");
         return res.status(500).json({ error: "Erreur lors de la récupération des demandes" });
       }
 
       return res.json({ ok: true, pendingChanges: data ?? [] });
     } catch (error) {
-      console.error("[Admin Inventory Moderation] List by establishment error:", error);
+      log.error({ err: error }, "Moderation list by establishment error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // Approve a pending change
-  router.post("/api/admin/inventory/pending-changes/:changeId/approve", (async (req, res) => {
+  router.post("/api/admin/inventory/pending-changes/:changeId/approve", zBody(ApprovePendingChangeSchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
@@ -1986,18 +2004,18 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .eq("id", changeId);
 
       if (updateErr) {
-        console.error("[Admin Inventory Moderation] Update status error:", updateErr);
+        log.error({ err: updateErr }, "Moderation update status error");
       }
 
       return res.json({ ok: true, applied: result.data ?? null });
     } catch (error) {
-      console.error("[Admin Inventory Moderation] Approve error:", error);
+      log.error({ err: error }, "Moderation approve error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // Reject a pending change
-  router.post("/api/admin/inventory/pending-changes/:changeId/reject", (async (req, res) => {
+  router.post("/api/admin/inventory/pending-changes/:changeId/reject", zBody(RejectPendingChangeSchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
@@ -2027,7 +2045,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .single();
 
       if (error) {
-        console.error("[Admin Inventory Moderation] Reject error:", error);
+        log.error({ err: error }, "Moderation reject DB error");
         return res.status(500).json({ error: "Erreur lors du rejet de la demande" });
       }
 
@@ -2037,7 +2055,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
 
       return res.json({ ok: true, pendingChange: data });
     } catch (error) {
-      console.error("[Admin Inventory Moderation] Reject error:", error);
+      log.error({ err: error }, "Moderation reject error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -2047,7 +2065,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
   // ============================================================================
 
   // Update establishment profile (name, city, universe, subcategory)
-  router.patch("/api/admin/establishments/:establishmentId/profile", (async (req, res) => {
+  router.patch("/api/admin/establishments/:establishmentId/profile", zBody(UpdateProfileSchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
@@ -2108,7 +2126,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .eq("id", establishmentId);
 
       if (error) {
-        console.error("[Admin Profile] Update error:", error);
+        log.error({ err: error }, "Admin profile update error");
         return res.status(500).json({ error: "Erreur lors de la mise à jour" });
       }
 
@@ -2124,7 +2142,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
 
       return res.json({ ok: true });
     } catch (error) {
-      console.error("[Admin Profile] Error:", error);
+      log.error({ err: error }, "Admin profile error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -2151,12 +2169,12 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .single();
 
       if (error) {
-        console.error("[Admin Tags Services] Fetch error:", error);
+        log.error({ err: error }, "Tags services fetch error");
         return res.status(500).json({ error: "Erreur lors de la récupération" });
       }
 
       if (!data) {
-        console.log("[Admin Tags Services] No data found for establishment:", establishmentId);
+        log.info({ establishmentId }, "Tags services no data found for establishment");
         return res.json({
           specialties: [],
           tags: [],
@@ -2169,7 +2187,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         });
       }
 
-      console.log("[Admin Tags Services] Data found:", {
+      log.info({
         establishmentId,
         specialties: data.specialties,
         tags: data.tags,
@@ -2179,7 +2197,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         booking_enabled: data.booking_enabled,
         menu_digital_enabled: data.menu_digital_enabled,
         verified: data.verified,
-      });
+      }, "Tags services data found");
 
       return res.json({
         specialties: Array.isArray(data.specialties) ? data.specialties : [],
@@ -2192,13 +2210,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
         verified: data.verified ?? false,
       });
     } catch (error) {
-      console.error("[Admin Tags Services] Error:", error);
+      log.error({ err: error }, "Tags services get error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // Update tags and services for establishment
-  router.patch("/api/admin/establishments/:establishmentId/tags-services", (async (req, res) => {
+  router.patch("/api/admin/establishments/:establishmentId/tags-services", zBody(UpdateTagsServicesSchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
@@ -2231,13 +2249,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .eq("id", establishmentId);
 
       if (error) {
-        console.error("[Admin Tags Services] Update error:", error);
+        log.error({ err: error }, "Tags services update DB error");
         return res.status(500).json({ error: "Erreur lors de la mise à jour" });
       }
 
       return res.json({ ok: true });
     } catch (error) {
-      console.error("[Admin Tags Services] Error:", error);
+      log.error({ err: error }, "Tags services update error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -2258,13 +2276,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .eq("status", "pending");
 
       if (error) {
-        console.error("[Admin Inventory Moderation] Count error:", error);
+        log.error({ err: error }, "Moderation count DB error");
         return res.status(500).json({ error: "Erreur lors du comptage" });
       }
 
       return res.json({ ok: true, count: count ?? 0 });
     } catch (error) {
-      console.error("[Admin Inventory Moderation] Count error:", error);
+      log.error({ err: error }, "Moderation count error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);

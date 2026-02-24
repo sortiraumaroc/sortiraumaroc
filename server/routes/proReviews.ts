@@ -5,8 +5,14 @@
  */
 
 import type { Request, Response } from "express";
+import type { Express } from "express";
+import { createModuleLogger } from "../lib/logger";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { notifyProMembers } from "../proNotifications";
+import { zBody, zParams, zIdParam } from "../lib/validate";
+import { RespondToReviewSchema, AddPublicResponseSchema } from "../schemas/proMisc";
+
+const log = createModuleLogger("proReviews");
 
 // ---------------------------------------------------------------------------
 // Auth helpers (same pattern as pro.ts)
@@ -80,7 +86,7 @@ export async function listProPendingReviews(req: Request, res: Response) {
       .eq("user_id", proUserId);
 
     if (estError) {
-      console.error("[proReviews] Error fetching pro establishments:", estError);
+      log.error({ err: estError }, "Error fetching pro establishments");
       return res.status(500).json({ ok: false, error: "Erreur serveur" });
     }
 
@@ -113,7 +119,7 @@ export async function listProPendingReviews(req: Request, res: Response) {
       .order("sent_to_pro_at", { ascending: true });
 
     if (reviewsError) {
-      console.error("[proReviews] Error fetching reviews:", reviewsError);
+      log.error({ err: reviewsError }, "Error fetching reviews");
       return res.status(500).json({ ok: false, error: "Erreur serveur" });
     }
 
@@ -163,7 +169,7 @@ export async function listProPendingReviews(req: Request, res: Response) {
 
     return res.json({ ok: true, reviews: enrichedReviews });
   } catch (err) {
-    console.error("[proReviews] Unexpected error:", err);
+    log.error({ err }, "Unexpected error");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 }
@@ -276,7 +282,7 @@ export async function respondToReview(req: Request, res: Response) {
       .eq("id", id);
 
     if (updateError) {
-      console.error("[proReviews] Error updating review:", updateError);
+      log.error({ err: updateError }, "Error updating review");
       return res.status(500).json({ ok: false, error: "Erreur lors de la mise à jour" });
     }
 
@@ -292,7 +298,7 @@ export async function respondToReview(req: Request, res: Response) {
         : "Avis publié",
     });
   } catch (err) {
-    console.error("[proReviews] Unexpected error:", err);
+    log.error({ err }, "Unexpected error");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 }
@@ -362,13 +368,13 @@ export async function addPublicResponse(req: Request, res: Response) {
       .eq("id", id);
 
     if (updateError) {
-      console.error("[proReviews] Error adding public response:", updateError);
+      log.error({ err: updateError }, "Error adding public response");
       return res.status(500).json({ ok: false, error: "Erreur lors de la mise à jour" });
     }
 
     return res.json({ ok: true, message: "Réponse publique ajoutée" });
   } catch (err) {
-    console.error("[proReviews] Unexpected error:", err);
+    log.error({ err }, "Unexpected error");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 }
@@ -400,7 +406,7 @@ export async function listProPublishedReviews(req: Request, res: Response) {
       .eq("user_id", proUserId);
 
     if (estError) {
-      console.error("[proReviews] Error fetching pro establishments:", estError);
+      log.error({ err: estError }, "Error fetching pro establishments");
       return res.status(500).json({ ok: false, error: "Erreur serveur" });
     }
 
@@ -432,7 +438,7 @@ export async function listProPublishedReviews(req: Request, res: Response) {
       .order("published_at", { ascending: false });
 
     if (reviewsError) {
-      console.error("[proReviews] Error fetching reviews:", reviewsError);
+      log.error({ err: reviewsError }, "Error fetching reviews");
       return res.status(500).json({ ok: false, error: "Erreur serveur" });
     }
 
@@ -479,7 +485,7 @@ export async function listProPublishedReviews(req: Request, res: Response) {
 
     return res.json({ ok: true, reviews: enrichedReviews });
   } catch (err) {
-    console.error("[proReviews] Unexpected error:", err);
+    log.error({ err }, "Unexpected error");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 }
@@ -513,6 +519,17 @@ async function updateEstablishmentRatingStats(establishmentId: string) {
       })
       .eq("id", establishmentId);
   } catch (err) {
-    console.error("[proReviews] Error updating establishment stats:", err);
+    log.error({ err }, "Error updating establishment stats");
   }
+}
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerProReviewRoutes(app: Express) {
+  app.get("/api/pro/reviews/pending", listProPendingReviews);
+  app.post("/api/pro/reviews/:id/respond", zParams(zIdParam), zBody(RespondToReviewSchema), respondToReview);
+  app.post("/api/pro/reviews/:id/public-response", zParams(zIdParam), zBody(AddPublicResponseSchema), addPublicResponse);
+  app.get("/api/pro/reviews/published", listProPublishedReviews);
 }

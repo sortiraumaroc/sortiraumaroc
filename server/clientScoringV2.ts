@@ -30,6 +30,9 @@ import {
   type CancellationType,
 } from "../shared/reservationTypesV2";
 import { scoreToReliabilityLevel, type ConsumerReliabilityLevel } from "./consumerReliability";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("clientScoringV2");
 
 // =============================================================================
 // Types
@@ -484,7 +487,7 @@ export async function autoLiftExpiredSuspensions(args: {
     .select("user_id");
 
   if (error) {
-    console.error("[autoLiftExpiredSuspensions] Error:", error);
+    log.error({ err: error }, "autoLiftExpiredSuspensions error");
     return 0;
   }
 

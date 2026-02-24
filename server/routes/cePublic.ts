@@ -22,6 +22,11 @@ import {
   ceAdvantagesQuerySchema,
   ceListQuerySchema,
 } from "../schemas/ce";
+import { createModuleLogger } from "../lib/logger";
+import { zBody, zParams } from "../lib/validate";
+import { RegistrationCodeParams, CeEstablishmentIdParams } from "../schemas/cePublicRoutes";
+
+const log = createModuleLogger("cePublic");
 
 // ============================================================================
 // Auth Helpers
@@ -37,7 +42,8 @@ async function getConsumerUserId(req: Request): Promise<string | null> {
     const { data, error } = await sb.auth.getUser(token);
     if (error || !data.user) return null;
     return data.user.id;
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "CE consumer auth token verification failed");
     return null;
   }
 }
@@ -77,7 +83,7 @@ export function registerCePublicRoutes(app: Express): void {
   // Registration Info (public, no auth needed)
   // --------------------------------------------------
 
-  app.get("/api/ce/registration-info/:code", async (req, res) => {
+  app.get("/api/ce/registration-info/:code", zParams(RegistrationCodeParams), async (req, res) => {
     const sb = supabase();
     const { data: company } = await sb
       .from("companies")
@@ -108,7 +114,7 @@ export function registerCePublicRoutes(app: Express): void {
   // Register Employee
   // --------------------------------------------------
 
-  app.post("/api/ce/register", async (req, res) => {
+  app.post("/api/ce/register", zBody(registerEmployeeSchema), async (req, res) => {
     const userId = await getConsumerUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
@@ -187,7 +193,7 @@ export function registerCePublicRoutes(app: Express): void {
     res.json({ ok: true, data: result.data, total: result.total });
   });
 
-  app.get("/api/ce/advantages/:establishmentId", async (req, res) => {
+  app.get("/api/ce/advantages/:establishmentId", zParams(CeEstablishmentIdParams), async (req, res) => {
     const userId = await getConsumerUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
@@ -221,7 +227,7 @@ export function registerCePublicRoutes(app: Express): void {
     let usesCount = 0;
     if (advantage.max_uses_per_employee > 0) {
       const { count } = await sb
-        .from("ce_scans")
+        .from("b2b_scans").eq("scan_type", "ce")
         .select("id", { count: "exact", head: true })
         .eq("employee_id", info.employee.id)
         .eq("advantage_id", advantage.id)
@@ -317,7 +323,7 @@ export function registerCePublicRoutes(app: Express): void {
     const offset = (page - 1) * limit;
 
     const { data: scans, count } = await sb
-      .from("ce_scans")
+      .from("b2b_scans").eq("scan_type", "ce")
       .select("*", { count: "exact" })
       .eq("employee_id", emp.id)
       .order("scan_datetime", { ascending: false })

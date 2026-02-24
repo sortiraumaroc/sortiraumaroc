@@ -53,6 +53,8 @@ export interface StreamSamChatParams {
   conversationId?: string;
   sessionId: string;
   universe?: string;
+  /** ID ou slug de l'établissement — active le mode scoped (assistant dédié) */
+  establishment_id?: string;
   onTextDelta: (text: string) => void;
   onEstablishments: (items: SamEstablishmentItem[]) => void;
   onToolCall: (name: string, args: Record<string, unknown>) => void;
@@ -87,6 +89,7 @@ export function streamSamChat(params: StreamSamChatParams): AbortController {
           conversation_id: params.conversationId,
           session_id: params.sessionId,
           universe: params.universe,
+          establishment_id: params.establishment_id,
         }),
         signal: controller.signal,
       });

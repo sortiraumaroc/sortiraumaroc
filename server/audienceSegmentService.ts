@@ -9,7 +9,10 @@
  */
 
 import { getAdminSupabase } from "./supabaseAdmin";
+import { createModuleLogger } from "./lib/logger";
 import type { AudienceFilters } from "../shared/notificationsBannersWheelTypes";
+
+const log = createModuleLogger("audienceSegment");
 import {
   AUDIENCE_SENIORITY_DAYS,
   AUDIENCE_ACTIVITY_DAYS,
@@ -44,7 +47,7 @@ export async function countAudienceSize(
 
   if (error) {
     // Fallback: do a simpler count
-    console.error("[AudienceSegment] countAudienceSize RPC error, using fallback:", error.message);
+    log.error({ err: error.message }, "countAudienceSize RPC error, using fallback");
     return await countAudienceFallback(filters, opts?.requirePushMarketing);
   }
 
@@ -112,7 +115,7 @@ async function resolveAudienceWithQueryBuilder(
 
   const { data: baseUsers, error: baseError } = await query;
   if (baseError || !baseUsers) {
-    console.error("[AudienceSegment] Base query error:", baseError?.message);
+    log.error({ err: baseError?.message }, "Base query error");
     return [];
   }
 

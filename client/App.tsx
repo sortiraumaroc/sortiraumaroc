@@ -37,6 +37,7 @@ const BlogArticle = lazy(() => import("./pages/BlogArticle"));
 const BlogAuthor = lazy(() => import("./pages/BlogAuthor"));
 const Videos = lazy(() => import("./pages/Videos"));
 const Pro = lazy(() => import("./pages/Pro"));
+const Conciergerie = lazy(() => import("./pages/Conciergerie"));
 const Shopping = lazy(() => import("./pages/Shopping"));
 const Loisir = lazy(() => import("./pages/Loisir"));
 const Wellness = lazy(() => import("./pages/Wellness"));
@@ -60,6 +61,8 @@ const CityDetail = lazy(() => import("./pages/CityDetail"));
 
 const PacksPage = lazy(() => import("./pages/Packs"));
 const PackDetailPage = lazy(() => import("./pages/PackDetail"));
+const RamadanOffersPage = lazy(() => import("./pages/RamadanOffers"));
+const OnboardingRamadanPage = lazy(() => import("./pages/OnboardingRamadan"));
 const WheelPage = lazy(() => import("./pages/WheelPage"));
 
 const LandingPage = lazy(() => import("./pages/LandingPage"));
@@ -206,6 +209,9 @@ const AdminProductionCheckPage = lazy(() =>
   import("./pages/admin/AdminProductionCheckPage").then((m) => ({
     default: m.AdminProductionCheckPage,
   })),
+);
+const AdminRamadanModerationPage = lazy(() =>
+  import("./pages/admin/AdminRamadanModerationPage"),
 );
 
 const AdminReservationsPage = lazy(() =>
@@ -406,6 +412,11 @@ const AdminCePage = lazy(() =>
     default: m.AdminCePage,
   })),
 );
+const AdminPartnershipsPage = lazy(() =>
+  import("./pages/admin/AdminPartnershipsPage").then((m) => ({
+    default: m.AdminPartnershipsPage,
+  })),
+);
 const AdminRentalPage = lazy(() =>
   import("./pages/admin/AdminRentalPage").then((m) => ({
     default: m.AdminRentalPage,
@@ -469,6 +480,7 @@ function LocaleLayout({ locale }: { locale: AppLocale }) {
         <Route path="blog/:slug" element={<BlogArticle />} />
         <Route path="videos" element={<Videos />} />
         <Route path="pro" element={<Pro />} />
+        <Route path="conciergerie" element={<Conciergerie />} />
         <Route path="partner" element={<Partner />} />
         <Route path="parrainage" element={<Parrainage />} />
         <Route
@@ -487,6 +499,9 @@ function LocaleLayout({ locale }: { locale: AppLocale }) {
         {/* Packs pages */}
         <Route path="packs" element={<PacksPage />} />
         <Route path="packs/:id" element={<PackDetailPage />} />
+
+        {/* Ramadan offers listing */}
+        <Route path="ramadan-offers" element={<RamadanOffersPage />} />
 
         {/* Rental vehicle pages */}
         <Route path="vehicle/:id" element={<VehicleDetail />} />
@@ -622,6 +637,10 @@ function AppContent() {
                 path="establishments/:id"
                 element={<AdminEstablishmentDetailsPage />}
               />
+              <Route
+                path="establishment-leads"
+                element={<AdminClaimRequestsPage defaultTab="leads" />}
+              />
               <Route path="moderation" element={<AdminModerationPage />} />
               <Route
                 path="activity-tracking"
@@ -661,9 +680,11 @@ function AppContent() {
               <Route path="banners" element={<AdminBannersPage />} />
               <Route path="wheel" element={<AdminWheelPage />} />
               <Route path="packs-moderation" element={<AdminPacksModerationPage />} />
+              <Route path="ramadan" element={<AdminRamadanModerationPage />} />
               <Route path="finances" element={<AdminFinancesPage />} />
               <Route path="loyalty-v2" element={<AdminLoyaltyV2Page />} />
               <Route path="ce" element={<AdminCePage />} />
+              <Route path="partnerships" element={<AdminPartnershipsPage />} />
               <Route path="rental" element={<AdminRentalPage />} />
               <Route path="content" element={<AdminContentPage />} />
               <Route path="homepage" element={<AdminHomePage />} />
@@ -703,6 +724,9 @@ function AppContent() {
               />
               <Route path="logs" element={<AdminLogsPage />} />
             </Route>
+
+            {/* Standalone public onboarding (no Header/Footer) */}
+            <Route path="/onboarding/ramadan" element={<OnboardingRamadanPage />} />
 
             <Route path="/fr/*" element={<LocaleLayout locale="fr" />} />
             <Route path="/en/*" element={<LocaleLayout locale="en" />} />

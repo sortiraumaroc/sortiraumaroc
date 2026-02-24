@@ -12,6 +12,7 @@ import {
   Settings2,
   Palette,
   MapPin,
+  UtensilsCrossed,
 } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
@@ -169,6 +170,7 @@ export default function WizardStepTags({ data, onChange }: Props) {
   // Get tag config for current universe (fallback to empty arrays)
   const tagConfig = data.universe ? TAG_CONFIG[data.universe] : null;
   const ambianceTags = tagConfig?.ambiance ?? [];
+  const serviceTypeOptions = tagConfig?.service_types ?? [];
   const generalTags = tagConfig?.tags ?? [];
   const amenitiesTags = tagConfig?.amenities ?? [];
 
@@ -181,6 +183,18 @@ export default function WizardStepTags({ data, onChange }: Props) {
   const handleRemoveAmbiance = (tag: string) => {
     onChange({
       ambiance_tags: (data.ambiance_tags || []).filter((t) => t !== tag),
+    });
+  };
+
+  // ---- Service types handlers ----
+  const handleAddServiceType = (tag: string) => {
+    if (!data.service_types?.includes(tag)) {
+      onChange({ service_types: [...(data.service_types || []), tag] });
+    }
+  };
+  const handleRemoveServiceType = (tag: string) => {
+    onChange({
+      service_types: (data.service_types || []).filter((t) => t !== tag),
     });
   };
 
@@ -267,6 +281,18 @@ export default function WizardStepTags({ data, onChange }: Props) {
           selected={data.ambiance_tags || []}
           onAdd={handleAddAmbiance}
           onRemove={handleRemoveAmbiance}
+        />
+      )}
+
+      {/* ---- Section 1b: Type de service ---- */}
+      {serviceTypeOptions.length > 0 && (
+        <TagPicker
+          title="Type de service"
+          icon={<UtensilsCrossed className="h-4 w-4 text-slate-500" />}
+          available={serviceTypeOptions}
+          selected={data.service_types || []}
+          onAdd={handleAddServiceType}
+          onRemove={handleRemoveServiceType}
         />
       )}
 

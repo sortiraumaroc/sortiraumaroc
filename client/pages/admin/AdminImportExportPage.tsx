@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AdminEstablishmentsNav } from "./establishments/AdminEstablishmentsNav";
 import {
   AlertCircle,
   CheckCircle2,
@@ -758,6 +759,7 @@ export function AdminImportExportPage() {
 
   return (
     <div className="space-y-6">
+      <AdminEstablishmentsNav />
       <AdminPageHeader
         title="Import / Export"
         description="Importer ou exporter des établissements en masse"

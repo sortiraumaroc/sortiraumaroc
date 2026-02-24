@@ -9,6 +9,9 @@ import {
   detectSuspiciousAmountPattern,
 } from "./loyaltyFraudDetection";
 import { processPendingLoyaltyNotifications } from "./loyaltyNotificationSender";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("loyaltyCronV2");
 
 // =============================================================================
 // TYPES
@@ -461,7 +464,7 @@ export async function runAllLoyaltyCronJobs(options?: {
     try {
       const result = await job.handler();
       results.push({ name: job.name, ...result });
-      console.log(`[loyaltyCronV2] ${job.name}: ${result.message}`);
+      log.info({ job: job.name, message: result.message }, "Cron job completed");
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       results.push({
@@ -470,7 +473,7 @@ export async function runAllLoyaltyCronJobs(options?: {
         message: "Erreur",
         error: errorMsg,
       });
-      console.error(`[loyaltyCronV2] ${job.name} error:`, err);
+      log.error({ job: job.name, err }, "Cron job error");
     }
   }
 

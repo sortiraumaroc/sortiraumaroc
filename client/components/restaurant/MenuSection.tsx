@@ -836,10 +836,6 @@ export function MenuSection({ establishmentId, categories, packs, legacyHours, c
             <div className="pt-4 space-y-8">
               {hasPacks ? (
                 <div id={sectionId("packs")} data-cat="packs" className="scroll-mt-44 space-y-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <h3 className="text-lg font-semibold text-slate-900">{t("menu.group.packs")}</h3>
-                    <span className="text-xs font-semibold text-slate-500">{t("menu.packs.subtitle")}</span>
-                  </div>
                   {(packs ?? []).map((pack) => (
                     <PackCard key={pack.id} pack={pack} onReserve={() => reservePack(pack)} />
                   ))}

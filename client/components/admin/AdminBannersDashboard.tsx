@@ -18,7 +18,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { AdminMarketingNav } from "@/pages/admin/marketing/AdminMarketingNav";
+import { AdminVisibilityNav } from "@/pages/admin/visibility/AdminVisibilityNav";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -1044,7 +1044,7 @@ export function AdminBannersDashboard({ className }: AdminBannersDashboardProps)
   return (
     <div className={cn("space-y-4", className)}>
       {/* Marketing sub-navigation */}
-      <AdminMarketingNav />
+      <AdminVisibilityNav />
 
       {/* Action message */}
       {actionMsg && (

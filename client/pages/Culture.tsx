@@ -565,7 +565,7 @@ export default function Culture() {
 
       </div>
 
-      <EstablishmentTabs universe="culture" />
+      <EstablishmentTabs universe="culture" hideTabs={data.reviews.length === 0 ? ["avis"] : undefined} />
 
       <main className="container mx-auto px-4 pt-6 pb-8 space-y-10">
         <CeAdvantageSection establishmentId={bookingEstablishmentId} />
@@ -608,6 +608,7 @@ export default function Culture() {
           </div>
         </section>
 
+        {data.reviews.length > 0 && (
         <section id="section-avis" data-tab="avis" className="scroll-mt-28">
           <div className="space-y-6">
             <div>
@@ -640,6 +641,7 @@ export default function Culture() {
             </div>
           </div>
         </section>
+        )}
 
         <section id="section-infos" data-tab="infos" className="scroll-mt-28">
           <div className="space-y-8">

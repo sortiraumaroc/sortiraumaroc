@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Edit3, Loader2, Plus, Trash2, Calendar, User, Tag, Eye, FileText, Globe, Search } from "lucide-react";
 
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
+import { AdminHomepageNav } from "./homepage/AdminHomepageNav";
 import { AdminDataTable } from "@/components/admin/table/AdminDataTable";
 import { RichTextEditor } from "@/components/admin/content/RichTextEditor";
 import { CmsBlocksEditor } from "@/components/admin/content/blocks/CmsBlocksEditor";
@@ -1082,8 +1083,9 @@ export function AdminContentPage() {
 
   return (
     <div className="space-y-6">
+      <AdminHomepageNav />
       <AdminPageHeader
-        title="Contenu"
+        title="Pages & Blog"
         description="Gérez les pages et le blog."
         actions={
           tab === "pages" ? (

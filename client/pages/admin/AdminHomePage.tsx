@@ -25,6 +25,19 @@ import {
   Video,
   Play,
   ExternalLink,
+  Clock,
+  Flame,
+  BadgePlus,
+  ThumbsUp,
+  Tag,
+  Palette,
+  Shuffle,
+  ArrowUpDown,
+  Eye,
+  EyeOff,
+  Gift,
+  UtensilsCrossed,
+  Smartphone,
 } from "lucide-react";
 import {
   DndContext,
@@ -45,6 +58,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
+import { AdminHomepageNav } from "./homepage/AdminHomepageNav";
 import { AdminDataTable } from "@/components/admin/table/AdminDataTable";
 import {
   AdminApiError,
@@ -63,6 +77,8 @@ import {
   updateAdminHomeSettings,
   uploadAdminHeroImage,
   deleteAdminHeroImage,
+  uploadAdminMobileHeroImage,
+  deleteAdminMobileHeroImage,
   listAdminHomeCities,
   createAdminHomeCity,
   updateAdminHomeCity,
@@ -149,7 +165,54 @@ const CURATION_KINDS: {
   { value: "selected_for_you", label: "Sélectionnés pour vous", icon: Star },
   { value: "near_you", label: "À proximité", icon: MapPin },
   { value: "most_booked", label: "Les plus réservés", icon: TrendingUp },
+  { value: "open_now", label: "Ouverts maintenant", icon: Clock },
+  { value: "trending", label: "Tendances", icon: Flame },
+  { value: "new_establishments", label: "Nouveautés", icon: BadgePlus },
+  { value: "top_rated", label: "Les mieux notés", icon: ThumbsUp },
+  { value: "deals", label: "Bons plans", icon: Tag },
+  { value: "themed", label: "Thématique", icon: Palette },
+  { value: "by_service_buffet", label: "Buffet", icon: UtensilsCrossed },
+  { value: "by_service_table", label: "Service à table", icon: UtensilsCrossed },
+  { value: "by_service_carte", label: "À la carte", icon: UtensilsCrossed },
 ];
+
+// ── Homepage Sections Config ──
+
+type HomeSectionConfig = {
+  key: string;
+  label: string;
+  icon: typeof Star;
+  is_active: boolean;
+  sort_order: number;
+  display_mode: "ordered" | "random";
+  city_filter: string; // "" = toutes les villes
+};
+
+const DEFAULT_HOME_SECTIONS: Omit<HomeSectionConfig, "is_active" | "sort_order" | "display_mode" | "city_filter">[] = [
+  { key: "best_deals", label: "Nos meilleures offres", icon: Sparkles },
+  { key: "selected_for_you", label: "Sélectionnés pour vous", icon: Star },
+  { key: "near_you", label: "À proximité", icon: MapPin },
+  { key: "most_booked", label: "Les plus réservés", icon: TrendingUp },
+  { key: "open_now", label: "Ouverts maintenant", icon: Clock },
+  { key: "trending", label: "Tendances", icon: Flame },
+  { key: "new_establishments", label: "Nouveautés", icon: BadgePlus },
+  { key: "top_rated", label: "Les mieux notés", icon: ThumbsUp },
+  { key: "deals", label: "Bons plans", icon: Tag },
+  { key: "themed", label: "Sélection thématique", icon: Palette },
+  { key: "by_service_buffet", label: "Buffet à volonté", icon: UtensilsCrossed },
+  { key: "by_service_table", label: "Servi à table", icon: UtensilsCrossed },
+  { key: "by_service_carte", label: "À la carte", icon: UtensilsCrossed },
+];
+
+function buildDefaultSectionsConfig(): HomeSectionConfig[] {
+  return DEFAULT_HOME_SECTIONS.map((s, i) => ({
+    ...s,
+    is_active: true,
+    sort_order: i + 1,
+    display_mode: "ordered" as const,
+    city_filter: "",
+  }));
+}
 
 type CurationEditorState = {
   id?: string;
@@ -637,6 +700,132 @@ const UNIVERSES = [
   { value: "shopping", label: "Shopping" },
 ];
 
+// ── Sortable Section Row (for sections config DnD) ──
+
+function SortableSectionRow({
+  section,
+  cities,
+  onToggle,
+  onDisplayModeChange,
+  onCityFilterChange,
+  onOrderChange,
+}: {
+  section: HomeSectionConfig;
+  cities: HomeCityAdmin[];
+  onToggle: () => void;
+  onDisplayModeChange: (mode: "ordered" | "random") => void;
+  onCityFilterChange: (city: string) => void;
+  onOrderChange: (order: number) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: section.key });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  const Icon = section.icon;
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`flex items-center gap-3 rounded-lg border bg-white p-3 ${
+        isDragging ? "shadow-lg ring-2 ring-primary/20 z-10" : "shadow-sm"
+      } ${!section.is_active ? "opacity-60" : ""}`}
+    >
+      {/* Drag handle */}
+      <button
+        className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600 touch-none"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="h-5 w-5" />
+      </button>
+
+      {/* Position number */}
+      <div className="flex items-center justify-center w-7 h-7 rounded-full bg-slate-100 text-xs font-bold text-slate-600 shrink-0">
+        {section.sort_order}
+      </div>
+
+      {/* Icon + Label */}
+      <div className="flex items-center gap-2 min-w-[180px]">
+        <Icon className="h-4 w-4 text-slate-500 shrink-0" />
+        <span className={`text-sm font-medium ${section.is_active ? "text-slate-900" : "text-slate-400"}`}>
+          {section.label}
+        </span>
+      </div>
+
+      {/* Display mode (Ordered vs Random) */}
+      <Select
+        value={section.display_mode}
+        onValueChange={(v) => onDisplayModeChange(v as "ordered" | "random")}
+      >
+        <SelectTrigger className="w-[140px] h-8 text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="ordered">
+            <span className="flex items-center gap-1.5">
+              <ArrowUpDown className="h-3 w-3" /> Ordonné
+            </span>
+          </SelectItem>
+          <SelectItem value="random">
+            <span className="flex items-center gap-1.5">
+              <Shuffle className="h-3 w-3" /> Aléatoire
+            </span>
+          </SelectItem>
+        </SelectContent>
+      </Select>
+
+      {/* City filter */}
+      <Select
+        value={section.city_filter || "all"}
+        onValueChange={(v) => onCityFilterChange(v === "all" ? "" : v)}
+      >
+        <SelectTrigger className="w-[160px] h-8 text-xs">
+          <SelectValue placeholder="Toutes les villes" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">Toutes les villes</SelectItem>
+          {cities.filter((c) => c.is_active).map((c) => (
+            <SelectItem key={c.id} value={c.name}>
+              {c.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {/* Spacer */}
+      <div className="flex-1" />
+
+      {/* Active toggle */}
+      <div className="flex items-center gap-2">
+        {section.is_active ? (
+          <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
+            <Eye className="h-3 w-3 mr-1" /> Visible
+          </Badge>
+        ) : (
+          <Badge variant="outline" className="bg-slate-50 text-slate-400 border-slate-200 text-[10px]">
+            <EyeOff className="h-3 w-3 mr-1" /> Masquée
+          </Badge>
+        )}
+        <Switch
+          checked={section.is_active}
+          onCheckedChange={onToggle}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function AdminHomePage() {
   const { toast } = useToast();
   const [tab, setTab] = useState<"appearance" | "curation" | "universes" | "countries" | "cities" | "videos" | "categories" | "footer">("appearance");
@@ -646,6 +835,17 @@ export default function AdminHomePage() {
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [heroUploading, setHeroUploading] = useState(false);
   const [heroDeleting, setHeroDeleting] = useState(false);
+  const [mobileHeroUploading, setMobileHeroUploading] = useState(false);
+  const [mobileHeroDeleting, setMobileHeroDeleting] = useState(false);
+
+  // ==================== SECTIONS CONFIG STATE ====================
+  const [sectionsConfig, setSectionsConfig] = useState<HomeSectionConfig[]>(buildDefaultSectionsConfig);
+  const [sectionsConfigLoading, setSectionsConfigLoading] = useState(false);
+  const [sectionsConfigSaving, setSectionsConfigSaving] = useState(false);
+
+  // ==================== PACKS SECTION TITLE STATE ====================
+  const [packsSectionTitle, setPacksSectionTitle] = useState("Packs & Offres");
+  const [packsTitleSaving, setPacksTitleSaving] = useState(false);
 
   // ==================== BLOG HERO STATE ====================
   const [blogHeroSettings, setBlogHeroSettings] = useState({
@@ -794,6 +994,115 @@ export default function AdminHomePage() {
     }
   }, [tab, refreshSettings]);
 
+  // ==================== SECTIONS CONFIG LOGIC ====================
+  const refreshSectionsConfig = useCallback(async () => {
+    setSectionsConfigLoading(true);
+    try {
+      const res = await getAdminHomeSettings(undefined);
+      const saved = (res.settings as Record<string, unknown>)?.sections_config;
+      if (Array.isArray(saved) && saved.length > 0) {
+        // Merge saved config with defaults (in case new sections were added)
+        const defaults = buildDefaultSectionsConfig();
+        const savedKeys = new Set(saved.map((s: HomeSectionConfig) => s.key));
+        const merged = [
+          ...saved.map((s: HomeSectionConfig) => {
+            const def = defaults.find((d) => d.key === s.key);
+            return { ...s, label: def?.label ?? s.label, icon: def?.icon ?? Star };
+          }),
+          ...defaults.filter((d) => !savedKeys.has(d.key)).map((d, i) => ({ ...d, sort_order: saved.length + i + 1 })),
+        ];
+        setSectionsConfig(merged);
+      }
+      // Load packs section title
+      const savedPacksTitle = (res.settings as Record<string, unknown>)?.packs_section_title;
+      if (typeof savedPacksTitle === "string" && savedPacksTitle.trim()) {
+        setPacksSectionTitle(savedPacksTitle);
+      }
+    } catch {
+      // Keep defaults
+    } finally {
+      setSectionsConfigLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === "curation") {
+      void refreshSectionsConfig();
+    }
+  }, [tab, refreshSectionsConfig]);
+
+  const saveSectionsConfig = useCallback(async (config: HomeSectionConfig[]) => {
+    setSectionsConfigSaving(true);
+    try {
+      // Strip non-serializable icon from save payload
+      const payload = config.map(({ icon, ...rest }) => rest);
+      await updateAdminHomeSettings(undefined, "sections_config", payload);
+      toast({ title: "Configuration sauvegardée", description: "L'ordre et la visibilité des sections ont été mis à jour." });
+    } catch (e) {
+      toast({ title: "Erreur", description: humanAdminError(e), variant: "destructive" });
+    } finally {
+      setSectionsConfigSaving(false);
+    }
+  }, [toast]);
+
+  const savePacksSectionTitle = useCallback(async (title: string) => {
+    setPacksTitleSaving(true);
+    try {
+      await updateAdminHomeSettings(undefined, "packs_section_title", title);
+      toast({ title: "Titre mis à jour", description: `Section packs renommée : "${title}"` });
+    } catch (e) {
+      toast({ title: "Erreur", description: humanAdminError(e), variant: "destructive" });
+    } finally {
+      setPacksTitleSaving(false);
+    }
+  }, [toast]);
+
+  const handleToggleSection = useCallback((key: string) => {
+    setSectionsConfig((prev) => {
+      const next = prev.map((s) => s.key === key ? { ...s, is_active: !s.is_active } : s);
+      void saveSectionsConfig(next);
+      return next;
+    });
+  }, [saveSectionsConfig]);
+
+  const handleSectionOrderChange = useCallback((key: string, newOrder: number) => {
+    setSectionsConfig((prev) => {
+      const next = prev.map((s) => s.key === key ? { ...s, sort_order: newOrder } : s);
+      void saveSectionsConfig(next);
+      return next;
+    });
+  }, [saveSectionsConfig]);
+
+  const handleSectionDisplayModeChange = useCallback((key: string, mode: "ordered" | "random") => {
+    setSectionsConfig((prev) => {
+      const next = prev.map((s) => s.key === key ? { ...s, display_mode: mode } : s);
+      void saveSectionsConfig(next);
+      return next;
+    });
+  }, [saveSectionsConfig]);
+
+  const handleSectionCityFilterChange = useCallback((key: string, city: string) => {
+    setSectionsConfig((prev) => {
+      const next = prev.map((s) => s.key === key ? { ...s, city_filter: city } : s);
+      void saveSectionsConfig(next);
+      return next;
+    });
+  }, [saveSectionsConfig]);
+
+  const handleSectionDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setSectionsConfig((prev) => {
+      const sorted = [...prev].sort((a, b) => a.sort_order - b.sort_order);
+      const oldIndex = sorted.findIndex((s) => s.key === active.id);
+      const newIndex = sorted.findIndex((s) => s.key === over.id);
+      if (oldIndex === -1 || newIndex === -1) return prev;
+      const reordered = arrayMove(sorted, oldIndex, newIndex).map((s, i) => ({ ...s, sort_order: i + 1 }));
+      void saveSectionsConfig(reordered);
+      return reordered;
+    });
+  }, [saveSectionsConfig]);
+
   const handleHeroImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -875,10 +1184,8 @@ export default function AdminHomePage() {
   const handleOverlayOpacityChange = useCallback(async (value: number) => {
     try {
       await updateAdminHomeSettings(undefined, "hero", {
-        background_image_url: homeSettings?.hero.background_image_url ?? null,
+        ...homeSettings?.hero,
         overlay_opacity: value,
-        title: homeSettings?.hero.title ?? null,
-        subtitle: homeSettings?.hero.subtitle ?? null,
       });
       setHomeSettings((prev) => prev ? {
         ...prev,
@@ -899,10 +1206,7 @@ export default function AdminHomePage() {
     setHeroTextsSaving(true);
     try {
       await updateAdminHomeSettings(undefined, "hero", {
-        background_image_url: homeSettings?.hero.background_image_url ?? null,
-        overlay_opacity: homeSettings?.hero.overlay_opacity ?? 0.7,
-        title: homeSettings?.hero.title ?? null,
-        subtitle: homeSettings?.hero.subtitle ?? null,
+        ...homeSettings?.hero,
       });
       toast({
         title: "Textes enregistrés",
@@ -916,6 +1220,102 @@ export default function AdminHomePage() {
       });
     } finally {
       setHeroTextsSaving(false);
+    }
+  }, [homeSettings, toast]);
+
+  // ==================== MOBILE HERO IMAGE LOGIC ====================
+
+  const handleMobileHeroImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      toast({
+        title: "Format non supporté",
+        description: "Utilisez JPG, PNG ou WebP",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: "Fichier trop volumineux",
+        description: "Maximum 5 Mo",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setMobileHeroUploading(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64 = (reader.result as string).split(",")[1];
+        try {
+          const res = await uploadAdminMobileHeroImage(undefined, base64, file.type);
+          toast({ title: "Image mobile mise à jour" });
+          setHomeSettings((prev) => prev ? {
+            ...prev,
+            hero: { ...prev.hero, mobile_background_image_url: res.url },
+          } : prev);
+        } catch (err) {
+          toast({
+            title: "Erreur",
+            description: humanAdminError(err),
+            variant: "destructive",
+          });
+        } finally {
+          setMobileHeroUploading(false);
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      toast({
+        title: "Erreur",
+        description: humanAdminError(err),
+        variant: "destructive",
+      });
+      setMobileHeroUploading(false);
+    }
+  }, [toast]);
+
+  const handleDeleteMobileHeroImage = useCallback(async () => {
+    setMobileHeroDeleting(true);
+    try {
+      await deleteAdminMobileHeroImage(undefined);
+      toast({ title: "Image mobile supprimée" });
+      setHomeSettings((prev) => prev ? {
+        ...prev,
+        hero: { ...prev.hero, mobile_background_image_url: null },
+      } : prev);
+    } catch (err) {
+      toast({
+        title: "Erreur",
+        description: humanAdminError(err),
+        variant: "destructive",
+      });
+    } finally {
+      setMobileHeroDeleting(false);
+    }
+  }, [toast]);
+
+  const handleMobileOverlayOpacityChange = useCallback(async (value: number) => {
+    try {
+      await updateAdminHomeSettings(undefined, "hero", {
+        ...homeSettings?.hero,
+        mobile_overlay_opacity: value,
+      });
+      setHomeSettings((prev) => prev ? {
+        ...prev,
+        hero: { ...prev.hero, mobile_overlay_opacity: value },
+      } : prev);
+    } catch (err) {
+      toast({
+        title: "Erreur",
+        description: humanAdminError(err),
+        variant: "destructive",
+      });
     }
   }, [homeSettings, toast]);
 
@@ -1436,7 +1836,7 @@ export default function AdminHomePage() {
   }, []);
 
   useEffect(() => {
-    if (tab === "cities") {
+    if (tab === "cities" || tab === "curation") {
       void refreshCities();
       // Also load countries for the filter
       if (countries.length === 0) {
@@ -2409,6 +2809,7 @@ export default function AdminHomePage() {
 
   return (
     <div className="p-6 space-y-6">
+      <AdminHomepageNav />
       <AdminPageHeader
         title="Gestion de la page d'accueil"
         description="Configurez les sections et le contenu mis en avant sur la homepage"
@@ -2646,6 +3047,139 @@ export default function AdminHomePage() {
             </div>
           </div>
 
+          {/* ==================== MOBILE HERO IMAGE SECTION ==================== */}
+          <div className="rounded-lg border border-slate-200 bg-white p-6">
+            <h3 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
+              <Smartphone className="w-5 h-5" />
+              Image d'arrière-plan du Hero — Mobile
+            </h3>
+
+            <div className="space-y-4">
+              <div className="text-sm text-slate-600">
+                <p>Image affichée en fond sur la section Hero de la page d'accueil <strong>sur mobile uniquement</strong>.</p>
+                <p className="mt-1">
+                  Si aucune image n'est définie, le dégradé rouge par défaut est utilisé.
+                </p>
+                <p className="mt-1">
+                  <strong>Résolution recommandée :</strong> 710 × 750 px (portrait) • Format : JPG, PNG ou WebP • Max 5 Mo
+                </p>
+              </div>
+
+              {settingsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                </div>
+              ) : (
+                <>
+                  {/* Current mobile image preview — compact thumbnail */}
+                  {homeSettings?.hero.mobile_background_image_url ? (
+                    <div className="flex items-center gap-4">
+                      <div className="relative w-24 h-24 rounded-lg overflow-hidden border border-slate-200 shrink-0">
+                        <img
+                          src={homeSettings.hero.mobile_background_image_url}
+                          alt="Hero mobile"
+                          className="w-full h-full object-cover"
+                        />
+                        <div
+                          className="absolute inset-0 bg-gradient-to-b from-primary to-[#6a000f]"
+                          style={{ opacity: homeSettings.hero.mobile_overlay_opacity ?? 0.5 }}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm text-slate-700 font-medium">Image mobile active</p>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          className="gap-1"
+                          onClick={handleDeleteMobileHeroImage}
+                          disabled={mobileHeroDeleting}
+                        >
+                          {mobileHeroDeleting ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <X className="w-3.5 h-3.5" />
+                          )}
+                          Supprimer
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-4">
+                      <div
+                        className="w-24 h-24 rounded-lg shrink-0 flex items-center justify-center"
+                        style={{ background: "linear-gradient(to bottom, #a3001d, #6a000f)" }}
+                      >
+                        <Smartphone className="w-6 h-6 text-white/50" />
+                      </div>
+                      <p className="text-sm text-slate-500">
+                        Aucune image mobile. Le dégradé rouge est utilisé.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Upload button */}
+                  <div className="flex items-center gap-4">
+                    <label className="cursor-pointer">
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        onChange={handleMobileHeroImageUpload}
+                        disabled={mobileHeroUploading}
+                      />
+                      <Button asChild disabled={mobileHeroUploading}>
+                        <span className="gap-2">
+                          {mobileHeroUploading ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Upload className="w-4 h-4" />
+                          )}
+                          {homeSettings?.hero.mobile_background_image_url
+                            ? "Changer l'image mobile"
+                            : "Télécharger une image mobile"}
+                        </span>
+                      </Button>
+                    </label>
+                  </div>
+
+                  {/* Mobile overlay opacity slider */}
+                  {homeSettings?.hero.mobile_background_image_url && (
+                    <div className="space-y-2 pt-4 border-t border-slate-200">
+                      <Label className="text-sm font-medium">
+                        Opacité de l'overlay mobile ({Math.round((homeSettings.hero.mobile_overlay_opacity ?? 0.5) * 100)}%)
+                      </Label>
+                      <p className="text-xs text-slate-500">
+                        Ajustez l'intensité du dégradé au-dessus de l'image pour assurer la lisibilité.
+                      </p>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={Math.round((homeSettings.hero.mobile_overlay_opacity ?? 0.5) * 100)}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10) / 100;
+                          setHomeSettings((prev) => prev ? {
+                            ...prev,
+                            hero: { ...prev.hero, mobile_overlay_opacity: val },
+                          } : prev);
+                        }}
+                        onMouseUp={(e) => {
+                          const val = parseInt((e.target as HTMLInputElement).value, 10) / 100;
+                          void handleMobileOverlayOpacityChange(val);
+                        }}
+                        onTouchEnd={(e) => {
+                          const val = parseInt((e.target as HTMLInputElement).value, 10) / 100;
+                          void handleMobileOverlayOpacityChange(val);
+                        }}
+                        className="w-full max-w-xs"
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
           {/* ==================== BLOG HERO SECTION ==================== */}
           <div className="rounded-lg border border-slate-200 bg-white p-6">
             <div className="flex items-center justify-between mb-4">
@@ -2847,61 +3381,160 @@ export default function AdminHomePage() {
         </TabsContent>
 
         {/* ==================== CURATION TAB ==================== */}
-        <TabsContent value="curation" className="space-y-4 mt-4">
-          <div className="flex flex-wrap gap-3 items-center justify-between">
-            <div className="flex gap-2">
-              <Select
-                value={universeFilter || "all"}
-                onValueChange={(v) =>
-                  setUniverseFilter(v === "all" ? "" : v)
-                }
-              >
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Tous les univers" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tous les univers</SelectItem>
-                  {universes
-                    .filter((u) => u.is_active)
-                    .map((u) => (
-                      <SelectItem key={u.slug} value={u.slug}>
-                        {u.label_fr}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
+        <TabsContent value="curation" className="space-y-6 mt-4">
 
-              <Select
-                value={kindFilter || "all"}
-                onValueChange={(v) => setKindFilter(v === "all" ? "" : v)}
-              >
-                <SelectTrigger className="w-[200px]">
-                  <SelectValue placeholder="Toutes les sections" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Toutes les sections</SelectItem>
-                  {CURATION_KINDS.map((k) => (
-                    <SelectItem key={k.value} value={k.value}>
-                      {k.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          {/* ── Packs Section Title ── */}
+          <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+            <div className="p-4">
+              <h3 className="font-semibold text-slate-900 flex items-center gap-2 mb-2">
+                <Gift className="h-4 w-4" />
+                Titre de la section Packs
+              </h3>
+              <p className="text-xs text-slate-500 mb-3">
+                Personnalisez le titre affiché sur la page d'accueil pour la section packs.
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  className="h-9 flex-1 rounded-md border border-slate-300 px-3 text-sm"
+                  value={packsSectionTitle}
+                  onChange={(e) => setPacksSectionTitle(e.target.value)}
+                  placeholder="Packs & Offres"
+                  onBlur={(e) => {
+                    const v = e.target.value.trim() || "Packs & Offres";
+                    setPacksSectionTitle(v);
+                    void savePacksSectionTitle(v);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
+                />
+                {packsTitleSaving && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
+              </div>
             </div>
-
-            <Button className="gap-2" onClick={openNew}>
-              <Plus className="w-4 h-4" />
-              Ajouter un établissement
-            </Button>
           </div>
 
-          {error && (
-            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-              {error}
+          {/* ── Sections Config Panel ── */}
+          <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex items-center justify-between p-4 border-b border-slate-100">
+              <div>
+                <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                  <Home className="h-4 w-4" />
+                  Ordre & visibilité des sections
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Glissez-déposez pour réordonner. Activez/désactivez pour contrôler l'affichage sur la page d'accueil.
+                </p>
+              </div>
+              {sectionsConfigSaving && (
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Sauvegarde...
+                </div>
+              )}
             </div>
-          )}
 
-          <AdminDataTable columns={columns} data={items} isLoading={loading} />
+            <div className="p-4">
+              {sectionsConfigLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                </div>
+              ) : (
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleSectionDragEnd}
+                >
+                  <SortableContext
+                    items={[...sectionsConfig].sort((a, b) => a.sort_order - b.sort_order).map((s) => s.key)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="space-y-2">
+                      {[...sectionsConfig]
+                        .sort((a, b) => a.sort_order - b.sort_order)
+                        .map((section) => (
+                          <SortableSectionRow
+                            key={section.key}
+                            section={section}
+                            cities={cities}
+                            onToggle={() => handleToggleSection(section.key)}
+                            onDisplayModeChange={(mode) => handleSectionDisplayModeChange(section.key, mode)}
+                            onCityFilterChange={(city) => handleSectionCityFilterChange(section.key, city)}
+                            onOrderChange={(order) => handleSectionOrderChange(section.key, order)}
+                          />
+                        ))}
+                    </div>
+                  </SortableContext>
+                </DndContext>
+              )}
+            </div>
+          </div>
+
+          {/* ── Curation Items (existing) ── */}
+          <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex items-center justify-between p-4 border-b border-slate-100">
+              <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                <Star className="h-4 w-4" />
+                Établissements mis en avant
+              </h3>
+              <Button size="sm" className="gap-2" onClick={openNew}>
+                <Plus className="w-4 h-4" />
+                Ajouter un établissement
+              </Button>
+            </div>
+
+            <div className="p-4 space-y-4">
+              <div className="flex flex-wrap gap-3 items-center">
+                <Select
+                  value={universeFilter || "all"}
+                  onValueChange={(v) =>
+                    setUniverseFilter(v === "all" ? "" : v)
+                  }
+                >
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Tous les univers" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Tous les univers</SelectItem>
+                    {universes
+                      .filter((u) => u.is_active)
+                      .map((u) => (
+                        <SelectItem key={u.slug} value={u.slug}>
+                          {u.label_fr}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+
+                <Select
+                  value={kindFilter || "all"}
+                  onValueChange={(v) => setKindFilter(v === "all" ? "" : v)}
+                >
+                  <SelectTrigger className="w-[200px]">
+                    <SelectValue placeholder="Toutes les sections" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Toutes les sections</SelectItem>
+                    {CURATION_KINDS.map((k) => (
+                      <SelectItem key={k.value} value={k.value}>
+                        {k.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {error && (
+                <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                  {error}
+                </div>
+              )}
+
+              <AdminDataTable columns={columns} data={items} isLoading={loading} />
+            </div>
+          </div>
 
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
             <h3 className="font-semibold text-slate-900 mb-2">
@@ -2909,28 +3542,22 @@ export default function AdminHomePage() {
             </h3>
             <ul className="text-sm text-slate-600 space-y-1">
               <li>
-                • <strong>Nos meilleures offres</strong> : établissements avec
-                promotions actives
+                • <strong>Ordre & visibilité</strong> : définissez l'ordre d'affichage des sections sur la page d'accueil et masquez celles que vous ne souhaitez pas montrer
               </li>
               <li>
-                • <strong>Sélectionnés pour vous</strong> : recommandations
-                personnalisées
+                • <strong>Ordonné</strong> : les établissements s'affichent selon le poids défini ci-dessous
               </li>
               <li>
-                • <strong>À proximité</strong> : établissements proches de
-                l'utilisateur
+                • <strong>Aléatoire</strong> : les établissements s'affichent dans un ordre aléatoire à chaque visite
               </li>
               <li>
-                • <strong>Les plus réservés</strong> : établissements populaires
-                du mois
+                • Le <strong>filtre ville</strong> restreint la section à une ville spécifique
               </li>
               <li>
-                • Le <strong>poids</strong> détermine l'ordre d'affichage (plus
-                élevé = plus haut)
+                • Le <strong>poids</strong> des établissements détermine leur ordre dans chaque section (plus élevé = plus haut)
               </li>
               <li>
-                • Les <strong>dates</strong> permettent de programmer des mises
-                en avant temporaires
+                • Les <strong>dates</strong> permettent de programmer des mises en avant temporaires
               </li>
             </ul>
           </div>

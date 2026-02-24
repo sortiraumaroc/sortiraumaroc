@@ -18,6 +18,9 @@ import { generatePackSaleReceipt } from "./vosfactures/documents";
 import {
   getBillingPeriodCode,
 } from "../shared/packsBillingTypes";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("packPurchaseLogic");
 
 // =============================================================================
 // Types
@@ -154,7 +157,7 @@ async function calculateCommission(
   });
 
   if (error) {
-    console.error("[Commission] RPC error, using default 15%:", error.message);
+    log.error({ err: error.message }, "Commission RPC error, using default 15%");
     const defaultRate = 15;
     return {
       rate: defaultRate,
@@ -387,7 +390,7 @@ export async function confirmPackPurchase(
             .update({ current_uses: (promoData as any).current_uses + 1, updated_at: now.toISOString() })
             .eq("id", promoCodeId);
         }
-      } catch { /* best-effort */ }
+      } catch (err) { log.warn({ err, promoCodeId }, "Failed to increment promo code usage"); }
     })();
   }
 
@@ -415,7 +418,7 @@ export async function confirmPackPurchase(
         billing_period: billingPeriod,
       });
     } catch (err) {
-      console.error("[PackPurchase] Failed to create transaction:", err);
+      log.error({ err }, "Failed to create transaction");
     }
   })();
 
@@ -445,7 +448,7 @@ export async function confirmPackPurchase(
         paymentReference: input.paymentReference ?? undefined,
       });
     } catch (err) {
-      console.error("[PackPurchase] VosFactures receipt failed:", err);
+      log.error({ err }, "VosFactures receipt failed");
     }
   })();
 
@@ -462,7 +465,7 @@ export async function confirmPackPurchase(
         body: `Le Pack "${p.title}" vient d'etre vendu a ${buyerName}. Montant: ${(totalPriceCents / 100).toFixed(2)} MAD.`,
         data: { pack_id: input.packId, purchase_id: purchaseId, amount_cents: totalPriceCents },
       });
-    } catch { /* best-effort */ }
+    } catch (err) { log.warn({ err, packId: input.packId, purchaseId }, "Failed to notify pro members of pack sale"); }
   })();
 
   // Email to client
@@ -484,7 +487,7 @@ export async function confirmPackPurchase(
           meta: { type: "pack_purchase", purchase_id: purchaseId },
         });
       }
-    } catch { /* best-effort */ }
+    } catch (err) { log.warn({ err, buyerEmail, purchaseId }, "Failed to send pack purchase confirmation email to client"); }
   })();
 
   return {

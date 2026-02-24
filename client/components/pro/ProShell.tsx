@@ -9,8 +9,10 @@ import {
   BarChart3,
   Bell,
   Briefcase,
+  Building2,
   CalendarCheck,
   Car,
+  Handshake,
   CreditCard,
   Eye,
   KeyRound,
@@ -22,6 +24,7 @@ import {
   LogOut,
   Megaphone,
   MessageSquare,
+  Moon,
   Settings,
   SlidersHorizontal,
   Sparkles,
@@ -66,6 +69,7 @@ import {
   subscribeToProNotificationPreferencesChanges,
 } from "@/lib/pro/notificationPreferences";
 import { playProNotificationSound } from "@/lib/pro/notificationSound";
+import { ProGlobalSearch } from "@/components/pro/ProGlobalSearch";
 
 import { writeSelectedEstablishmentId } from "@/lib/pro/establishmentSelection";
 
@@ -126,6 +130,9 @@ const ProReviewsTab = lazy(() => import("@/components/pro/tabs/ProReviewsTab").t
 const ProAdsTab = lazy(() => import("@/components/pro/ads/ProAdsTab").then(m => ({ default: m.ProAdsTab })));
 const ProLoyaltyTab = lazy(() => import("@/components/pro/tabs/ProLoyaltyTab").then(m => ({ default: m.ProLoyaltyTab })));
 const ProRentalTab = lazy(() => import("@/components/pro/tabs/ProRentalTab").then(m => ({ default: m.ProRentalTab })));
+const ProRamadanTab = lazy(() => import("@/components/pro/tabs/ProRamadanTab"));
+const ProConciergerieInboxTab = lazy(() => import("@/components/pro/tabs/ProConciergerieInboxTab"));
+const ProPartnershipTab = lazy(() => import("@/components/pro/tabs/ProPartnershipTab").then(m => ({ default: m.ProPartnershipTab })));
 
 // V2 lazy-loaded components
 const ProReservationsV2Dashboard = lazy(() => import("@/components/reservationV2/ProReservationsV2Dashboard").then(m => ({ default: m.ProReservationsV2Dashboard })));
@@ -213,6 +220,7 @@ export function ProShell({ user, onSignOut }: Props) {
         "assistance",
         "account",
         "rental",
+        "partnership",
       ]),
     [],
   );
@@ -661,6 +669,8 @@ export function ProShell({ user, onSignOut }: Props) {
               {/* Toggle En ligne / Hors ligne */}
               <ProOnlineToggle establishmentId={selected?.id ?? null} />
 
+              <ProGlobalSearch onNavigateToTab={navigateToTab} />
+
               <Link
                 to="/"
                 className="h-10 w-10 rounded-full border border-white/30 bg-white/10 hover:bg-white/20 transition overflow-hidden flex items-center justify-center"
@@ -703,8 +713,6 @@ export function ProShell({ user, onSignOut }: Props) {
                 establishment={selected}
                 user={user}
                 role={role}
-                unreadCount={unreadNotifications}
-                onUnreadCountChange={setUnreadNotifications}
                 onNavigateToTab={(tab) => {
                   setNotificationsOpen(false);
                   navigateToTab(tab);
@@ -942,6 +950,15 @@ export function ProShell({ user, onSignOut }: Props) {
                             {selected?.universe === "rentacar" ? "Offres & Promos" : "Packs & Promotions"}
                           </TabsTrigger>
                         )}
+                        {can("manage_offers") && (
+                          <TabsTrigger
+                            value="ramadan"
+                            className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                          >
+                            <Moon className="w-4 h-4" />
+                            🌙 Ramadan
+                          </TabsTrigger>
+                        )}
                         {can("manage_reservations") && (
                           <TabsTrigger
                             value="reservations"
@@ -1051,6 +1068,20 @@ export function ProShell({ user, onSignOut }: Props) {
                           Prestataires
                         </TabsTrigger>
                         */}
+                        <TabsTrigger
+                          value="conciergerie"
+                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                        >
+                          <Building2 className="w-4 h-4" />
+                          Conciergerie
+                        </TabsTrigger>
+                        <TabsTrigger
+                          value="partnership"
+                          className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                        >
+                          <Handshake className="w-4 h-4" />
+                          Partenariat
+                        </TabsTrigger>
                         <TabsTrigger
                           value="notifications"
                           className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
@@ -1173,6 +1204,12 @@ export function ProShell({ user, onSignOut }: Props) {
                     <ProPacksDashboard
                       establishmentId={selected.id}
                     />
+                  </TabsContent>
+
+                  <TabsContent value="ramadan" className="mt-0">
+                    <Suspense fallback={<div className="py-8 text-center text-slate-400">Chargement...</div>}>
+                      <ProRamadanTab establishmentId={selected.id} />
+                    </Suspense>
                   </TabsContent>
 
                   <TabsContent value="reservations" className="mt-0">
@@ -1334,6 +1371,14 @@ export function ProShell({ user, onSignOut }: Props) {
 
                   <TabsContent value="rental" className="mt-0">
                     {selected && <ProRentalTab establishment={selected} />}
+                  </TabsContent>
+
+                  <TabsContent value="conciergerie" className="mt-0">
+                    <ProConciergerieInboxTab establishmentId={selected?.id} />
+                  </TabsContent>
+
+                  <TabsContent value="partnership" className="mt-0">
+                    {selected && <ProPartnershipTab establishmentId={selected.id} />}
                   </TabsContent>
 
                   <TabsContent value="account" className="mt-0">

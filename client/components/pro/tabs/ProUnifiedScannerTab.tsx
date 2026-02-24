@@ -18,6 +18,7 @@ import {
   ChevronUp,
   Download,
   Gift,
+  Briefcase,
   History,
   Loader2,
   QrCode,
@@ -52,6 +53,8 @@ import { listProQrScanLogs, scanProQrCode, checkinByUserId } from "@/lib/pro/api
 import { ScannerLoyaltyPanel } from "@/components/loyalty/ScannerLoyaltyPanel";
 import { addLoyaltyStamp, getUserLoyaltyInfo } from "@/lib/loyalty/api";
 import { downloadQrScanLogsCsv, downloadQrScanLogsPdf } from "@/lib/pro/qrScansExport";
+import { scanConciergerieQr } from "@/lib/pro/b2bScansApi";
+import type { ConciergerieScanValidationResult } from "@shared/b2bScanTypes";
 import type { Establishment, ProRole } from "@/lib/pro/types";
 
 // ============================================================================
@@ -63,7 +66,7 @@ type Props = {
   role: ProRole;
 };
 
-type QRCodeType = "reservation" | "member" | "pack" | "loyalty" | "unknown";
+type QRCodeType = "reservation" | "member" | "pack" | "loyalty" | "conciergerie" | "unknown";
 
 type QrScanLogRow = {
   id: string;
@@ -184,6 +187,14 @@ function detectQRType(payload: string): QRCodeType {
     return "member";
   }
 
+  // Conciergerie QR: SAM:CONC:v1:{stepRequestId}:{code}:{ts}
+  if (trimmed.startsWith("SAM:CONC:")) {
+    return "conciergerie";
+  }
+
+  // CE QR: SAM:CE:v1:{employeeId}:{code}:{ts} — handled as reservation for now
+  // (CE scan is validated via the existing CE scan flow, not here)
+
   // Pack QR: SAMPACK:ref=...
   if (trimmed.startsWith("SAMPACK:")) {
     return "pack";
@@ -212,6 +223,8 @@ function getQRTypeLabel(type: QRCodeType): { label: string; icon: React.ReactNod
       return { label: "Pack", icon: <Package className="h-4 w-4" />, color: "bg-purple-500" };
     case "loyalty":
       return { label: "Fidélité", icon: <Gift className="h-4 w-4" />, color: "bg-amber-500" };
+    case "conciergerie":
+      return { label: "Conciergerie", icon: <Briefcase className="h-4 w-4" />, color: "bg-teal-500" };
     default:
       return { label: "Inconnu", icon: <AlertTriangle className="h-4 w-4" />, color: "bg-slate-500" };
   }
@@ -631,6 +644,7 @@ function ScanResultOverlay({
   establishmentId,
   loyaltyStampResult,
   onDismiss,
+  onNewScan,
 }: {
   result: { success: boolean; message: string };
   qrType: QRCodeType;
@@ -641,15 +655,12 @@ function ScanResultOverlay({
   establishmentId: string;
   loyaltyStampResult?: { stamped: boolean; stampMessage: string; rewardUnlocked: boolean } | null;
   onDismiss: () => void;
+  onNewScan: () => void;
 }) {
   const typeInfo = getQRTypeLabel(qrType);
 
-  // Don't auto-dismiss for member scans (they have actionable content)
-  useEffect(() => {
-    if (qrType === "member" && result.success) return; // Manual dismiss only
-    const timer = setTimeout(onDismiss, 4000);
-    return () => clearTimeout(timer);
-  }, [onDismiss, qrType, result.success]);
+  // No auto-dismiss — user must explicitly choose an action
+  // (member scans already had manual dismiss only)
 
   return (
     <div
@@ -722,6 +733,23 @@ function ScanResultOverlay({
                 )}
               </div>
             )}
+
+            {/* Action buttons */}
+            <div className="flex gap-3 mt-6 px-2">
+              <button
+                onClick={(e) => { e.stopPropagation(); onNewScan(); }}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-white/20 hover:bg-white/30 text-white rounded-xl font-semibold transition-colors active:scale-95 backdrop-blur-sm"
+              >
+                <ScanLine className="h-5 w-5" />
+                Nouveau scan
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onDismiss(); }}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-white text-slate-800 rounded-xl font-semibold transition-colors active:scale-95 hover:bg-white/90"
+              >
+                Revenir au back-office
+              </button>
+            </div>
           </div>
         ) : (
           <div className="text-center text-white">
@@ -736,6 +764,23 @@ function ScanResultOverlay({
             </div>
             <h2 className="text-5xl font-black mb-4 drop-shadow-lg">REFUSÉ</h2>
             <p className="text-xl opacity-90">{result.message}</p>
+
+            {/* Action buttons */}
+            <div className="flex gap-3 mt-6 px-2">
+              <button
+                onClick={(e) => { e.stopPropagation(); onNewScan(); }}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-white/20 hover:bg-white/30 text-white rounded-xl font-semibold transition-colors active:scale-95 backdrop-blur-sm"
+              >
+                <ScanLine className="h-5 w-5" />
+                Nouveau scan
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onDismiss(); }}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-white text-slate-800 rounded-xl font-semibold transition-colors active:scale-95 hover:bg-white/90"
+              >
+                Revenir au back-office
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -893,6 +938,13 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
             }
           }
         }
+      } else if (qrType === "conciergerie") {
+        // Validate conciergerie QR code
+        const res = await scanConciergerieQr(trimmed, establishment.id);
+        success = res.valid;
+        message = success
+          ? `Visite validée — ${res.client_name ?? "Client"}${res.concierge_name ? ` (via ${res.concierge_name})` : ""}`
+          : res.refusal_reason ?? "Scan conciergerie refusé";
       } else if (qrType === "reservation" || qrType === "pack") {
         // Validate reservation/pack QR code (backward compat for old QR codes)
         const res = (await scanProQrCode({
@@ -1135,6 +1187,11 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
           establishmentId={establishment.id}
           loyaltyStampResult={lastScanResult.loyaltyStampResult}
           onDismiss={() => setShowResultOverlay(false)}
+          onNewScan={() => {
+            setShowResultOverlay(false);
+            setLastScanResult(null);
+            void startCamera();
+          }}
         />
       )}
 
@@ -1261,6 +1318,10 @@ export function ProUnifiedScannerTab({ establishment, role }: Props) {
             <Badge variant="outline" className="gap-1">
               <Gift className="h-3 w-3" />
               Fidélité
+            </Badge>
+            <Badge variant="outline" className="gap-1">
+              <Briefcase className="h-3 w-3" />
+              Conciergerie
             </Badge>
           </div>
 

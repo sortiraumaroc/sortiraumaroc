@@ -4,11 +4,17 @@
  */
 
 import type { Request, Response } from "express";
+import type { Express } from "express";
 import { PKPass } from "passkit-generator";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
 import { fileURLToPath } from "url";
+import { createModuleLogger } from "../lib/logger";
+import { zBody } from "../lib/validate";
+import { createBookingPassSchema, createUserPassSchema } from "../schemas/wallet";
+
+const log = createModuleLogger("wallet");
 
 // ESM equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -59,7 +65,7 @@ async function getWWDRCertificate(): Promise<Buffer> {
     wwdrCertificate = Buffer.from(await response.arrayBuffer());
     return wwdrCertificate;
   } catch (error) {
-    console.error("[wallet] Failed to get WWDR certificate:", error);
+    log.error({ err: error }, "failed to get WWDR certificate");
     throw new Error("Could not obtain Apple WWDR certificate");
   }
 }
@@ -88,8 +94,7 @@ export async function createAppleWalletPass(
     const signerKeyPassphrase = process.env.APPLE_WALLET_CERT_PASSWORD || "";
 
     if (!passTypeId || !teamId || !signerCertPath || !signerKeyPath) {
-      console.log("[wallet] Apple Wallet credentials not configured, using demo mode");
-      console.log("[wallet] Config check:", { passTypeId, teamId, signerCertPath, signerKeyPath });
+      log.info({ passTypeId, teamId, signerCertPath, signerKeyPath }, "Apple Wallet credentials not configured, using demo mode");
 
       res.json({
         success: true,
@@ -114,27 +119,25 @@ export async function createAppleWalletPass(
 
     // Verify certificate files exist
     if (!fs.existsSync(signerCertPath)) {
-      console.error(`[wallet] Signer certificate not found: ${signerCertPath}`);
+      log.error({ signerCertPath }, "signer certificate not found");
       res.status(500).json({ error: "Certificate configuration error" });
       return;
     }
     if (!fs.existsSync(signerKeyPath)) {
-      console.error(`[wallet] Signer key not found: ${signerKeyPath}`);
+      log.error({ signerKeyPath }, "signer key not found");
       res.status(500).json({ error: "Key configuration error" });
       return;
     }
 
     try {
       // Load certificates
-      console.log("[wallet] Loading PEM certificate files...");
-      console.log("[wallet] Cert path:", signerCertPath);
-      console.log("[wallet] Key path:", signerKeyPath);
+      log.info({ signerCertPath, signerKeyPath }, "loading PEM certificate files");
 
       const signerCert = fs.readFileSync(signerCertPath);
       const signerKey = fs.readFileSync(signerKeyPath);
       const wwdrCert = await getWWDRCertificate();
 
-      console.log("[wallet] Certificates loaded successfully");
+      log.info("certificates loaded successfully");
 
       // Format date for display
       const formattedDate = formatDateFr(data.date);
@@ -168,7 +171,7 @@ export async function createAppleWalletPass(
 
       // Add primary fields - use restaurant name or fallback
       // Log the received restaurant name for debugging
-      console.log("[wallet] Received restaurantName:", data.restaurantName);
+      log.info({ restaurantName: data.restaurantName }, "received restaurantName");
 
       const displayRestaurantName = data.restaurantName &&
         data.restaurantName !== "Réservation" &&
@@ -280,7 +283,7 @@ export async function createAppleWalletPass(
           pass.addBuffer("logo@3x.png", fs.readFileSync(path.join(assetsPath, "logo@3x.png")));
         }
       } catch (imgError) {
-        console.warn("[wallet] Could not load custom images:", imgError);
+        log.warn({ err: imgError }, "could not load custom images");
         // Pass will work without images, just won't have custom branding
       }
 
@@ -298,14 +301,8 @@ export async function createAppleWalletPass(
       });
 
     } catch (signError) {
-      console.error("[wallet] Error generating Apple Wallet pass:", signError);
-
-      // Provide helpful error message with full details for debugging
       const errorMessage = signError instanceof Error ? signError.message : "Unknown error";
-      const errorStack = signError instanceof Error ? signError.stack : "";
-
-      console.error("[wallet] Full error message:", errorMessage);
-      console.error("[wallet] Stack:", errorStack);
+      log.error({ err: signError }, "error generating Apple Wallet pass");
 
       res.status(500).json({
         error: "Failed to generate wallet pass",
@@ -318,7 +315,7 @@ export async function createAppleWalletPass(
       });
     }
   } catch (error) {
-    console.error("[wallet] Error creating Apple Wallet pass:", error);
+    log.error({ err: error }, "error creating Apple Wallet pass");
     res.status(500).json({ error: "Internal server error" });
   }
 }
@@ -341,7 +338,7 @@ export async function downloadAppleWalletPass(
 
     res.status(404).json({ error: "Pass not found" });
   } catch (error) {
-    console.error("[wallet] Error downloading pass:", error);
+    log.error({ err: error }, "error downloading pass");
     res.status(500).json({ error: "Internal server error" });
   }
 }
@@ -443,15 +440,15 @@ export async function createGoogleWalletPass(
       if (fs.existsSync(keyFilePath)) {
         try {
           serviceAccountKey = fs.readFileSync(keyFilePath, "utf-8");
-          console.log("[wallet] Loaded Google Wallet service account key from file");
+          log.info("loaded Google Wallet service account key from file");
         } catch (e) {
-          console.warn("[wallet] Could not read Google Wallet key file:", e);
+          log.warn({ err: e }, "could not read Google Wallet key file");
         }
       }
     }
 
     if (!issuerId || !serviceAccountKey) {
-      console.log("[wallet] Google Wallet credentials not configured, using demo mode");
+      log.info("Google Wallet credentials not configured, using demo mode");
 
       // Create a demo "Add to Calendar" link as fallback
       const calendarUrl = createCalendarUrl(data);
@@ -473,7 +470,7 @@ export async function createGoogleWalletPass(
     }
 
     // Production mode: Generate signed JWT and return save URL
-    console.log("[wallet] Google Wallet production mode - issuerId:", issuerId);
+    log.info({ issuerId }, "Google Wallet production mode");
     try {
       const saveUrl = await generateGoogleWalletSaveUrl(
         issuerId,
@@ -481,8 +478,7 @@ export async function createGoogleWalletPass(
         passObject,
       );
 
-      console.log("[wallet] Google Wallet save URL generated successfully");
-      console.log("[wallet] URL length:", saveUrl.length);
+      log.info({ urlLength: saveUrl.length }, "Google Wallet save URL generated successfully");
 
       res.json({
         success: true,
@@ -491,7 +487,7 @@ export async function createGoogleWalletPass(
         url: saveUrl,
       });
     } catch (signError) {
-      console.error("[wallet] Error signing Google Wallet pass:", signError);
+      log.error({ err: signError }, "error signing Google Wallet pass");
 
       // Fallback to calendar
       const calendarUrl = createCalendarUrl(data);
@@ -503,7 +499,7 @@ export async function createGoogleWalletPass(
       });
     }
   } catch (error) {
-    console.error("[wallet] Error creating Google Wallet pass:", error);
+    log.error({ err: error }, "error creating Google Wallet pass");
     res.status(500).json({ error: "Internal server error" });
   }
 }
@@ -520,7 +516,7 @@ function formatDateFr(isoDate: string): string {
       month: "long",
       year: "numeric",
     });
-  } catch {
+  } catch { /* intentional: date may be invalid */
     return isoDate;
   }
 }
@@ -585,7 +581,7 @@ async function generateGoogleWalletSaveUrl(
     };
 
     // Log the payload for debugging
-    console.log("[wallet] Google Wallet JWT payload:", JSON.stringify(payload, null, 2));
+    log.info({ payload }, "Google Wallet JWT payload");
 
     // Sign JWT
     const encodedHeader = Buffer.from(JSON.stringify(header)).toString("base64url");
@@ -598,12 +594,12 @@ async function generateGoogleWalletSaveUrl(
 
     const jwt = `${signatureInput}.${signature}`;
 
-    console.log("[wallet] Generated JWT length:", jwt.length);
+    log.info({ jwtLength: jwt.length }, "generated JWT");
 
     // Return Google Wallet save URL
     return `https://pay.google.com/gp/v/save/${jwt}`;
   } catch (error) {
-    console.error("[wallet] Error generating Google Wallet JWT:", error);
+    log.error({ err: error }, "error generating Google Wallet JWT");
     throw error;
   }
 }
@@ -646,7 +642,7 @@ export async function createUserAppleWalletPass(
     const signerKeyPassphrase = process.env.APPLE_WALLET_CERT_PASSWORD || "";
 
     if (!passTypeId || !teamId || !signerCertPath || !signerKeyPath) {
-      console.log("[wallet] Apple Wallet credentials not configured for user pass, using demo mode");
+      log.info("Apple Wallet credentials not configured for user pass, using demo mode");
 
       res.json({
         success: true,
@@ -664,7 +660,7 @@ export async function createUserAppleWalletPass(
 
     // Verify certificate files exist
     if (!fs.existsSync(signerCertPath) || !fs.existsSync(signerKeyPath)) {
-      console.error("[wallet] Certificate files not found for user pass");
+      log.error("certificate files not found for user pass");
       res.status(500).json({ error: "Certificate configuration error" });
       return;
     }
@@ -775,7 +771,7 @@ export async function createUserAppleWalletPass(
         {
           key: "support",
           label: "Support",
-          value: "contact@sortiraumaroc.ma",
+          value: "contact@sam.ma",
         }
       );
 
@@ -804,7 +800,7 @@ export async function createUserAppleWalletPass(
           pass.addBuffer("logo@2x.png", fs.readFileSync(path.join(assetsPath, "logo@2x.png")));
         }
       } catch (imgError) {
-        console.warn("[wallet] Could not load custom images for user pass:", imgError);
+        log.warn({ err: imgError }, "could not load custom images for user pass");
       }
 
       // Generate the pass
@@ -821,11 +817,11 @@ export async function createUserAppleWalletPass(
       });
 
     } catch (signError) {
-      console.error("[wallet] Error generating user Apple Wallet pass:", signError);
+      log.error({ err: signError }, "error generating user Apple Wallet pass");
       res.status(500).json({ error: "Failed to generate wallet pass" });
     }
   } catch (error) {
-    console.error("[wallet] Error creating user Apple Wallet pass:", error);
+    log.error({ err: error }, "error creating user Apple Wallet pass");
     res.status(500).json({ error: "Internal server error" });
   }
 }
@@ -936,13 +932,13 @@ export async function createUserGoogleWalletPass(
         try {
           serviceAccountKey = fs.readFileSync(keyFilePath, "utf-8");
         } catch (e) {
-          console.warn("[wallet] Could not read Google Wallet key file:", e);
+          log.warn({ err: e }, "could not read Google Wallet key file");
         }
       }
     }
 
     if (!issuerId || !serviceAccountKey) {
-      console.log("[wallet] Google Wallet credentials not configured for user pass, using demo mode");
+      log.info("Google Wallet credentials not configured for user pass, using demo mode");
 
       res.json({
         success: true,
@@ -975,7 +971,7 @@ export async function createUserGoogleWalletPass(
         url: saveUrl,
       });
     } catch (signError) {
-      console.error("[wallet] Error signing Google Wallet user pass:", signError);
+      log.error({ err: signError }, "error signing Google Wallet user pass");
 
       res.json({
         success: true,
@@ -985,7 +981,21 @@ export async function createUserGoogleWalletPass(
       });
     }
   } catch (error) {
-    console.error("[wallet] Error creating user Google Wallet pass:", error);
+    log.error({ err: error }, "error creating user Google Wallet pass");
     res.status(500).json({ error: "Internal server error" });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerWalletRoutes(app: Express) {
+  // Booking wallet passes
+  app.post("/api/wallet/apple", zBody(createBookingPassSchema), createAppleWalletPass);
+  app.post("/api/wallet/google", zBody(createBookingPassSchema), createGoogleWalletPass);
+
+  // User membership wallet passes
+  app.post("/api/wallet/user/apple", zBody(createUserPassSchema), createUserAppleWalletPass);
+  app.post("/api/wallet/user/google", zBody(createUserPassSchema), createUserGoogleWalletPass);
 }

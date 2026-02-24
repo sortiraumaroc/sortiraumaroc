@@ -14,6 +14,9 @@
 
 import { getAdminSupabase } from "../supabaseAdmin";
 import { cachedQuery, buildCacheKey, normalizeQuery } from "./cache";
+import { createModuleLogger } from "./logger";
+
+const log = createModuleLogger("searchFallback");
 
 // ---------------------------------------------------------------------------
 // Types (re-exported for use in public.ts and client-side publicApi.ts)
@@ -603,7 +606,7 @@ export async function generateSearchFallback(
         if (relaxed.length > 0) {
           return { type: "relax_filters" as const, relaxed_filters: relaxed, popular };
         }
-      } catch { /* non-fatal */ }
+      } catch (err) { log.warn({ err }, "Non-fatal: relaxed filters search failed"); }
     }
 
     // Level 4 — nearby cities
@@ -613,7 +616,7 @@ export async function generateSearchFallback(
         if (nearby.length > 0) {
           return { type: "nearby_cities" as const, nearby, popular };
         }
-      } catch { /* non-fatal */ }
+      } catch (err) { log.warn({ err }, "Non-fatal: nearby cities search failed"); }
     }
 
     // Level 5 — popular only

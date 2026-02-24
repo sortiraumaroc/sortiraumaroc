@@ -11,7 +11,14 @@
  */
 
 import type { Request, Response, RequestHandler } from "express";
+import type { Express } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
+import {
+  reviewSubmitRateLimiter,
+  reviewVoteRateLimiter,
+  reviewReportRateLimiter,
+} from "../middleware/rateLimiter";
+import { sanitizeReviewBody } from "../middleware/reviewSecurity";
 import { emitAdminNotification } from "../adminNotifications";
 import {
   getEstablishmentInfo,
@@ -25,6 +32,15 @@ import {
   voteSchema,
   reportReviewSchema,
 } from "../schemas/reviews";
+import { zBody, zParams } from "../lib/validate";
+import {
+  submitReviewBodySchema,
+  respondGestureBodySchema,
+  voteBodySchema,
+  reportReviewBodySchema,
+  ReviewInvitationTokenParams,
+  GestureIdParams,
+} from "../schemas/reviewsV2";
 import {
   computeOverallRating,
   getCriteriaForUniverse,
@@ -38,6 +54,9 @@ import {
   checkVoteBurst,
 } from "../middleware/reviewSecurity";
 import { getClientIp } from "../middleware/rateLimiter";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("reviewsV2");
 
 // ---------------------------------------------------------------------------
 // Auth helper: Extract user from Bearer token
@@ -147,7 +166,7 @@ export const getReviewInvitationV2: RequestHandler = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("[reviewsV2] getReviewInvitation exception:", err);
+    log.error({ err }, "getReviewInvitation exception");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 };
@@ -220,9 +239,7 @@ export const submitReviewV2: RequestHandler = async (req, res) => {
     // 3. Spam pattern detection
     const spamCheck = detectSpamPatterns(reviewData.comment);
     if (spamCheck.isSpam) {
-      console.warn(
-        `[reviewsV2] Spam detected for user ${invitation.user_id}: score=${spamCheck.score}, reasons=${spamCheck.reasons.join(",")}`,
-      );
+      log.warn({ userId: invitation.user_id, score: spamCheck.score, reasons: spamCheck.reasons }, "spam detected");
       // Don't block, but flag for priority moderation (admin will see it)
       // We still allow submission but log it
     }
@@ -250,7 +267,7 @@ export const submitReviewV2: RequestHandler = async (req, res) => {
       .single();
 
     if (reviewError) {
-      console.error("[reviewsV2] submitReview insert error:", reviewError);
+      log.error({ err: reviewError }, "submitReview insert error");
       if (reviewError.code === "23505") {
         return res.status(400).json({ ok: false, error: "Un avis a déjà été soumis pour cette réservation" });
       }
@@ -288,7 +305,7 @@ export const submitReviewV2: RequestHandler = async (req, res) => {
       message: "Merci pour votre avis ! Il sera publié après modération.",
     });
   } catch (err) {
-    console.error("[reviewsV2] submitReview exception:", err);
+    log.error({ err }, "submitReview exception");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 };
@@ -330,7 +347,7 @@ export const respondToGestureV2: RequestHandler = async (req, res) => {
 
     return res.json({ ok: true, message, new_status: result.newReviewStatus });
   } catch (err) {
-    console.error("[reviewsV2] respondToGesture exception:", err);
+    log.error({ err }, "respondToGesture exception");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 };
@@ -409,7 +426,7 @@ export const voteReviewV2: RequestHandler = async (req, res) => {
         .insert({ review_id, user_id: userId, vote });
 
       if (insertErr) {
-        console.error("[reviewsV2] vote insert error:", insertErr);
+        log.error({ err: insertErr }, "vote insert error");
         return res.status(500).json({ ok: false, error: "Erreur lors du vote" });
       }
 
@@ -437,14 +454,14 @@ export const voteReviewV2: RequestHandler = async (req, res) => {
         .insert({ review_id, fingerprint, vote });
 
       if (insertErr) {
-        console.error("[reviewsV2] vote insert error:", insertErr);
+        log.error({ err: insertErr }, "vote insert error");
         return res.status(500).json({ ok: false, error: "Erreur lors du vote" });
       }
 
       return res.json({ ok: true, action: "created", vote });
     }
   } catch (err) {
-    console.error("[reviewsV2] vote exception:", err);
+    log.error({ err }, "vote exception");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 };
@@ -500,7 +517,7 @@ export const reportReviewV2: RequestHandler = async (req, res) => {
       if (insertErr.code === "23505") {
         return res.status(400).json({ ok: false, error: "Vous avez déjà signalé cet avis" });
       }
-      console.error("[reviewsV2] report insert error:", insertErr);
+      log.error({ err: insertErr }, "report insert error");
       return res.status(500).json({ ok: false, error: "Erreur lors du signalement" });
     }
 
@@ -518,7 +535,7 @@ export const reportReviewV2: RequestHandler = async (req, res) => {
       message: "Merci pour votre signalement. Notre équipe va l'examiner.",
     });
   } catch (err) {
-    console.error("[reviewsV2] report exception:", err);
+    log.error({ err }, "report exception");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 };
@@ -551,7 +568,7 @@ export const listMyReviewsV2: RequestHandler = async (req, res) => {
       .order("created_at", { ascending: false });
 
     if (error) {
-      console.error("[reviewsV2] listMyReviews error:", error);
+      log.error({ err: error }, "listMyReviews error");
       return res.status(500).json({ ok: false, error: "Erreur serveur" });
     }
 
@@ -577,7 +594,7 @@ export const listMyReviewsV2: RequestHandler = async (req, res) => {
 
     return res.json({ ok: true, reviews: enriched });
   } catch (err) {
-    console.error("[reviewsV2] listMyReviews exception:", err);
+    log.error({ err }, "listMyReviews exception");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 };
@@ -635,7 +652,21 @@ export const getGestureDetailsV2: RequestHandler = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("[reviewsV2] getGestureDetails exception:", err);
+    log.error({ err }, "getGestureDetails exception");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 };
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerConsumerReviewsV2Routes(app: Express) {
+  app.get("/api/consumer/v2/reviews/invitation/:token", zParams(ReviewInvitationTokenParams), getReviewInvitationV2);
+  app.post("/api/consumer/v2/reviews", reviewSubmitRateLimiter, sanitizeReviewBody, zBody(submitReviewBodySchema), submitReviewV2);
+  app.post("/api/consumer/v2/reviews/gesture/respond", zBody(respondGestureBodySchema), respondToGestureV2);
+  app.post("/api/consumer/v2/reviews/vote", reviewVoteRateLimiter, zBody(voteBodySchema), voteReviewV2);
+  app.post("/api/consumer/v2/reviews/report", reviewReportRateLimiter, sanitizeReviewBody, zBody(reportReviewBodySchema), reportReviewV2);
+  app.get("/api/consumer/v2/reviews/mine", listMyReviewsV2);
+  app.get("/api/consumer/v2/reviews/gesture/:gestureId", zParams(GestureIdParams), getGestureDetailsV2);
+}

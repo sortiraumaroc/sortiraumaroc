@@ -2,6 +2,8 @@
 
 > Plateforme de reservation et decouverte d'etablissements au Maroc.
 
+> Pour plus de details, voir : https://sam.ma/llms-full.txt
+
 SAM.ma permet aux utilisateurs de trouver, decouvrir et reserver des etablissements au Maroc : restaurants, hotels, riads, activites de loisirs, spas & wellness, sorties culturelles, shopping et location de voitures.
 
 ## Services proposes

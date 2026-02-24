@@ -13,6 +13,9 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { OCCUPYING_RESERVATION_STATUS_V2_SET } from "../shared/reservationStates";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("capacityManager");
 import type { StockType, SlotAvailability } from "../shared/reservationTypesV2";
 import { RESERVATION_TIMINGS } from "../shared/reservationTypesV2";
 
@@ -72,7 +75,7 @@ export async function getSlotAvailability(args: {
   });
 
   if (error) {
-    console.error("[getSlotAvailability] RPC error:", error);
+    log.error({ err: error }, "getSlotAvailability RPC error");
     return emptySlotResult(time);
   }
 

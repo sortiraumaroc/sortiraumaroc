@@ -13,11 +13,11 @@ import { AdminApiError, sendAdminTestEmail, type AdminTestEmailSenderKey } from 
 import type { SettingsReportPatch, ToastInput } from "../../AdminSettingsPage";
 
 const SENDER_OPTIONS: Array<{ key: AdminTestEmailSenderKey; label: string; note: string }> = [
-  { key: "hello", label: "hello@sortiraumaroc.ma", note: "Contact général" },
-  { key: "support", label: "support@sortiraumaroc.ma", note: "Assistance" },
-  { key: "pro", label: "pro@sortiraumaroc.ma", note: "Relation Pro" },
-  { key: "finance", label: "finance@sortiraumaroc.ma", note: "Paiements" },
-  { key: "noreply", label: "noreply@sortiraumaroc.ma", note: "Notifications auto" },
+  { key: "hello", label: "hello@sam.ma", note: "Contact général" },
+  { key: "support", label: "support@sam.ma", note: "Assistance" },
+  { key: "pro", label: "pro@sam.ma", note: "Relation Pro" },
+  { key: "finance", label: "finance@sam.ma", note: "Paiements" },
+  { key: "noreply", label: "noreply@sam.ma", note: "Notifications auto" },
 ];
 
 export function EmailSettingsCard(props: {

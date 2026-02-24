@@ -17,6 +17,17 @@ import { arbitrateDispute } from "../noShowDisputeLogic";
 import { liftSuspension, recomputeClientScoreV2 } from "../clientScoringV2";
 import { auditAdminAction } from "../auditLogV2";
 import { getClientIp } from "../middleware/rateLimiter";
+import { zBody, zQuery, zParams, zIdParam } from "../lib/validate";
+import {
+  arbitrateDisputeSchema,
+  deactivateEstablishmentSchema,
+  reactivateEstablishmentSchema,
+  liftSanctionSchema,
+  ListAdminReservationsQuery,
+  ListAdminDisputesQuery,
+  GetAdminLowScoreClientsQuery,
+  GetAdminReservationStatsQuery,
+} from "../schemas/reservationV2Admin";
 
 // =============================================================================
 // 1. GET /api/admin/reservations
@@ -541,27 +552,27 @@ const getAdminAlerts: RequestHandler = async (req, res) => {
 
 export function registerReservationV2AdminRoutes(app: Router): void {
   // Reservations overview
-  app.get("/api/admin/reservations", listAdminReservations);
+  app.get("/api/admin/reservations", zQuery(ListAdminReservationsQuery), listAdminReservations);
 
   // Disputes
-  app.get("/api/admin/disputes", listAdminDisputes);
-  app.post("/api/admin/disputes/:id/arbitrate", arbitrateDisputeRoute);
+  app.get("/api/admin/disputes", zQuery(ListAdminDisputesQuery), listAdminDisputes);
+  app.post("/api/admin/disputes/:id/arbitrate", zParams(zIdParam), zBody(arbitrateDisputeSchema), arbitrateDisputeRoute);
 
   // Sanctions
   app.get("/api/admin/sanctions", listAdminSanctions);
-  app.post("/api/admin/establishments/:id/deactivate", deactivateEstablishment);
-  app.post("/api/admin/establishments/:id/reactivate", reactivateEstablishment);
-  app.post("/api/admin/sanctions/:id/lift", liftSanction);
+  app.post("/api/admin/establishments/:id/deactivate", zParams(zIdParam), zBody(deactivateEstablishmentSchema), deactivateEstablishment);
+  app.post("/api/admin/establishments/:id/reactivate", zParams(zIdParam), zBody(reactivateEstablishmentSchema), reactivateEstablishment);
+  app.post("/api/admin/sanctions/:id/lift", zParams(zIdParam), zBody(liftSanctionSchema), liftSanction);
 
   // Client management
-  app.get("/api/admin/clients/low-score", getAdminLowScoreClients);
-  app.post("/api/admin/clients/:id/unsuspend", unsuspendClient);
+  app.get("/api/admin/clients/low-score", zQuery(GetAdminLowScoreClientsQuery), getAdminLowScoreClients);
+  app.post("/api/admin/clients/:id/unsuspend", zParams(zIdParam), unsuspendClient);
 
   // Pro trust scores
   app.get("/api/admin/pro-trust-scores", getAdminProTrustScores);
 
   // Statistics
-  app.get("/api/admin/stats/reservations", getAdminReservationStats);
+  app.get("/api/admin/stats/reservations", zQuery(GetAdminReservationStatsQuery), getAdminReservationStats);
   app.get("/api/admin/stats/quotas", getAdminQuotaStats);
 
   // Alerts

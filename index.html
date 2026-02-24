@@ -80,6 +80,8 @@
 
     <!-- Google Search Console verification -->
     <meta name="google-site-verification" content="rlTLY6Xr-HJIxXn97j1Vje2kZCxVnUo606bvRkUyFBo" />
+    <!-- Bing Webmaster Tools verification -->
+    <meta name="msvalidate.01" content="E012C9D2B63E8A39337C3CC016C986F7" />
 
     <!-- Noto Sans Arabic for RTL locale -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -92,8 +94,6 @@
     <link
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap"
       rel="stylesheet"
-      media="print"
-      onload="this.media='all'"
     />
   </head>
 
@@ -109,6 +109,20 @@
     </noscript>
     <!-- End Google Tag Manager (noscript) -->
 
+    <!-- Appliquer le thème immédiatement AVANT React pour éviter le flash -->
+    <script>
+      (function() {
+        try {
+          var theme = localStorage.getItem('sam_home_theme');
+          var root = document.documentElement;
+          if (theme === 'ftour_shour') {
+            root.classList.add('ramadan-theme');
+            root.style.setProperty('--initial-bg', '#0A1628');
+            document.body.style.backgroundColor = '#0A1628';
+          }
+        } catch(e) {}
+      })();
+    </script>
     <div id="root"></div>
 
     <!-- Unregister old PWA service worker (Workbox) and clear its caches.

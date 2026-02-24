@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import {
   ChevronLeft,
@@ -33,6 +33,7 @@ import { formatDistanceBetweenCoords } from "@/lib/geo";
 import { getPublicEstablishment, type PublicOfferPack } from "@/lib/publicApi";
 import { isAuthed, openAuthModal } from "@/lib/auth";
 import { isUuid } from "@/lib/pro/visits";
+import { buildEstablishmentUrl } from "@/lib/establishmentUrl";
 import { getFavorites, addFavorite, removeFavorite, type FavoriteItem } from "@/lib/userData";
 import { ReservationBanner } from "@/components/booking/ReservationBanner";
 import { OpeningHoursBlock } from "@/components/restaurant/OpeningHoursBlock";
@@ -55,12 +56,14 @@ import {
 import { GOOGLE_MAPS_LOGO_URL, WAZE_LOGO_URL, TRIPADVISOR_LOGO_URL } from "@/lib/mapAppLogos";
 import { applySeo, clearJsonLd, setJsonLd, generateLocalBusinessSchema, generateBreadcrumbSchema, hoursToOpeningHoursSpecification, buildI18nSeoFields } from "@/lib/seo";
 import { useI18n } from "@/lib/i18n";
-import { EstablishmentTabs } from "@/components/establishment/EstablishmentTabs";
+import { EstablishmentTabs, type TabConfigItem } from "@/components/establishment/EstablishmentTabs";
 import { EstablishmentSectionHeading } from "@/components/establishment/EstablishmentSectionHeading";
-import { EstablishmentReviewsSection } from "@/components/EstablishmentReviewsSection";
+import { EstablishmentReviewsSection, useHasReviews } from "@/components/EstablishmentReviewsSection";
 import { ReportEstablishmentDialog } from "@/components/ReportEstablishmentDialog";
 import { ClaimEstablishmentDialog } from "@/components/ClaimEstablishmentDialog";
 import { CeAdvantageSection } from "@/components/ce/CeAdvantageSection";
+import { EstablishmentRamadanTab, useHasRamadanOffers } from "@/components/establishment/EstablishmentRamadanTab";
+import { Moon } from "lucide-react";
 
 interface RestaurantReview {
   id: number;
@@ -218,10 +221,10 @@ function mapPublicPacksToMenuPacks(packs: PublicOfferPack[] | undefined | null):
         id: p.id,
         title: p.title ?? "Pack",
         items,
-        // Packs are stored in DB as cents; consumer UI uses MAD.
-        price: typeof p.price === "number" && Number.isFinite(p.price) ? Math.round(p.price / 100) : 0,
+        // The public API already converts cents → MAD via centsToMad(); no further division needed.
+        price: typeof p.price === "number" && Number.isFinite(p.price) ? Math.round(p.price) : 0,
         original_price:
-          typeof p.original_price === "number" && Number.isFinite(p.original_price) ? Math.round(p.original_price / 100) : undefined,
+          typeof p.original_price === "number" && Number.isFinite(p.original_price) ? Math.round(p.original_price) : undefined,
         is_limited: Boolean(p.is_limited),
         availability,
         max_reservations: typeof p.max_reservations === "number" && Number.isFinite(p.max_reservations) ? p.max_reservations : undefined,
@@ -909,6 +912,7 @@ function buildFallbackRestaurant(args: {
 export default function Restaurant() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const title = searchParams.get("title");
 
   const [canonicalEstablishmentId, setCanonicalEstablishmentId] = React.useState<string | null>(null);
@@ -929,6 +933,24 @@ export default function Restaurant() {
         if (!active) return;
         setPublicPayload(payload);
         setCanonicalEstablishmentId(payload.establishment.id);
+
+        // Redirect UUID URLs to friendly slug URLs (silent replace)
+        const est = payload.establishment;
+        const slug = est.slug ?? null;
+        const name = (est as any).name ?? null;
+        if (slug || name) {
+          const friendlyUrl = buildEstablishmentUrl({
+            id: est.id,
+            slug,
+            name,
+            universe: (est as any).universe,
+          });
+          const currentSegment = decodeURIComponent(ref);
+          const friendlySegment = friendlyUrl.split("/").pop() ?? "";
+          if (currentSegment !== friendlySegment && friendlySegment && friendlySegment !== est.id) {
+            navigate(friendlyUrl, { replace: true });
+          }
+        }
       } catch {
         if (!active) return;
         setPublicPayload(null);
@@ -975,6 +997,12 @@ export default function Restaurant() {
   const isRentacar = establishmentUniverse === "rentacar";
   // Booking is only enabled if the establishment has an email address registered
   const hasEstablishmentEmail = Boolean(publicPayload?.establishment?.email);
+
+  // Ramadan tab: only show when the establishment has active Ramadan offers
+  const hasRamadanOffers = useHasRamadanOffers(bookingEstablishmentId);
+
+  // Reviews: hide "avis" tab when no reviews exist
+  const hasReviews = useHasReviews(bookingEstablishmentId);
 
   // Open booking modal automatically if action=book is in URL
   React.useEffect(() => {
@@ -1102,16 +1130,23 @@ export default function Restaurant() {
     return typeof c === "number" && Number.isFinite(c) ? c : 0;
   }, [publicPayload?.establishment]);
 
+  const dbHideGoogleReviews: boolean = React.useMemo(() => {
+    const est = publicPayload?.establishment as Record<string, unknown> | null | undefined;
+    if (!est) return false;
+    return est.hide_google_reviews === true;
+  }, [publicPayload?.establishment]);
+
   // --- Extract taxonomy data from DB for the Infos tab ---
   const dbTaxonomy = React.useMemo(() => {
     const est = publicPayload?.establishment as Record<string, unknown> | null | undefined;
-    if (!est) return { subcategory: null, specialties: [], cuisineTypes: [], ambianceTags: [], tags: [], amenities: [] };
+    if (!est) return { subcategory: null, specialties: [], cuisineTypes: [], ambianceTags: [], serviceTypes: [], tags: [], amenities: [] };
     const toArr = (v: unknown): string[] => Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.length > 0) : [];
     return {
       subcategory: typeof est.subcategory === "string" && est.subcategory.length > 0 ? est.subcategory : null,
       specialties: toArr(est.specialties),
       cuisineTypes: toArr(est.cuisine_types),
       ambianceTags: toArr(est.ambiance_tags),
+      serviceTypes: toArr(est.service_types),
       tags: toArr(est.tags),
       amenities: toArr(est.amenities),
     };
@@ -1148,8 +1183,9 @@ export default function Restaurant() {
     // Fix 13: neighborhood from DB
     neighborhood: hasDbData ? (dbNeighborhood ?? "") : (!publicLoaded ? "" : baseRestaurant.neighborhood),
     // Fix 18: rating from Google (0 if no data yet — never show demo rating)
-    rating: hasDbData ? dbRating : (!publicLoaded ? 0 : baseRestaurant.rating),
-    reviewCount: hasDbData ? dbReviewCount : (!publicLoaded ? 0 : baseRestaurant.reviewCount),
+    // If pro has hidden Google reviews, force 0
+    rating: dbHideGoogleReviews ? 0 : (hasDbData ? dbRating : (!publicLoaded ? 0 : baseRestaurant.rating)),
+    reviewCount: dbHideGoogleReviews ? 0 : (hasDbData ? dbReviewCount : (!publicLoaded ? 0 : baseRestaurant.reviewCount)),
   };
 
   // Distance: use DB lat/lng if available, otherwise fallback to geocoding (Fix 9)
@@ -1416,7 +1452,14 @@ export default function Restaurant() {
     }
   };
 
-  const restaurantUrl = `${window.location.origin}/restaurant/${restaurantId}`;
+  const restaurantUrl = publicPayload?.establishment
+    ? buildEstablishmentUrl({
+        id: publicPayload.establishment.id,
+        slug: publicPayload.establishment.slug,
+        name: (publicPayload.establishment as any).name,
+        universe: (publicPayload.establishment as any).universe,
+      }).replace(/^\//, `${window.location.origin}/`)
+    : `${window.location.origin}/restaurant/${restaurantId}`;
   const shareText = `${restaurant.name} - ${restaurant.category} à ${restaurant.neighborhood}`;
 
   // Handle share button click - use native share if available (works on both mobile and macOS)
@@ -1473,6 +1516,44 @@ export default function Restaurant() {
 
 
 
+
+  // ─── Skeleton de chargement : éviter le flash de données fallback ───
+  if (!publicLoaded) {
+    return (
+      <div className="min-h-screen bg-white">
+        <Header />
+        {/* Gallery skeleton */}
+        <div className="relative bg-slate-200 h-80 md:h-96 animate-pulse" />
+        {/* Info skeleton */}
+        <div className="px-4 py-4 md:px-6 md:py-5 border-b border-slate-100">
+          <div className="container mx-auto md:grid md:grid-cols-[1fr,380px] md:gap-8">
+            <div className="space-y-3">
+              <div className="h-8 w-2/3 bg-slate-200 rounded animate-pulse" />
+              <div className="h-4 w-1/3 bg-slate-200 rounded animate-pulse" />
+              <div className="flex gap-3 mt-3">
+                <div className="h-7 w-24 bg-slate-100 rounded animate-pulse" />
+                <div className="h-7 w-32 bg-slate-100 rounded animate-pulse" />
+              </div>
+            </div>
+            <div className="mt-4 md:mt-0 h-24 bg-slate-100 rounded-xl animate-pulse" />
+          </div>
+        </div>
+        {/* Tabs skeleton */}
+        <div className="container mx-auto px-4 py-6">
+          <div className="flex gap-4 mb-6">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-9 w-20 bg-slate-100 rounded-lg animate-pulse" />
+            ))}
+          </div>
+          <div className="space-y-4">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-20 bg-slate-50 rounded-lg animate-pulse" />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-white">
@@ -1719,13 +1800,42 @@ export default function Restaurant() {
         </div>
       </div>
 
-      <EstablishmentTabs universe={isRentacar ? "rentacar" : "restaurant"} />
+      {/* Dynamic tabs: hide Menu if no content, add Ramadan tab if offers exist */}
+      {(() => {
+        const hasMenuContent = isRentacar || (restaurant.packs && restaurant.packs.length > 0) || (restaurant.menu && restaurant.menu.length > 0);
+        const hide: string[] = [];
+        if (!hasMenuContent) hide.push("menu");
+        if (!hasReviews) hide.push("avis");
+        const extraTabs: TabConfigItem[] = hasRamadanOffers ? [{
+          id: "ramadan",
+          labelKey: "establishment.tabs.ramadan",
+          sectionId: "section-ramadan",
+          rawLabel: "Spécial Ramadan",
+          icon: <Moon className="h-4 w-4" />,
+          activeClassName: "bg-[#0f1b3d] text-amber-300 border-[#0f1b3d] font-extrabold",
+          inactiveClassName: "bg-[#0f1b3d]/10 text-[#0f1b3d] border-transparent hover:bg-[#0f1b3d]/20 font-semibold",
+        }] : [];
+        return <EstablishmentTabs universe={isRentacar ? "rentacar" : "restaurant"} hideTabs={hide.length ? hide : undefined} extraTabs={extraTabs} />;
+      })()}
 
       {/* Content Sections */}
       <main className="container mx-auto px-4 pt-6 pb-8 space-y-10">
         {/* CE Advantage — visible only to active CE employees */}
         <CeAdvantageSection establishmentId={bookingEstablishmentId} />
 
+        {/* Offres Ramadan — section with dedicated tab */}
+        {hasRamadanOffers && (
+          <section id="section-ramadan" data-tab="ramadan" className="scroll-mt-28 space-y-4">
+            <EstablishmentRamadanTab
+              establishmentId={bookingEstablishmentId}
+              establishmentName={restaurant.name}
+              onReserve={() => setBookingOpen(true)}
+            />
+          </section>
+        )}
+
+        {/* Show Menu section only when packs or menu items exist (or rentacar) */}
+        {(isRentacar || (restaurant.packs && restaurant.packs.length > 0) || (restaurant.menu && restaurant.menu.length > 0)) && (
         <section id="section-menu" data-tab="menu" className="scroll-mt-28 space-y-4">
           <EstablishmentSectionHeading title={isRentacar ? "Nos véhicules" : "Menu"} />
           {isRentacar ? (
@@ -1734,11 +1844,14 @@ export default function Restaurant() {
             <MenuSection establishmentId={bookingEstablishmentId} categories={restaurant.menu || []} packs={restaurant.packs} legacyHours={restaurant.hours} />
           )}
         </section>
+        )}
 
+        {hasReviews && (
         <section id="section-avis" data-tab="avis" className="scroll-mt-28 space-y-6">
           {/* Published reviews from the database */}
           <EstablishmentReviewsSection establishmentId={bookingEstablishmentId} />
         </section>
+        )}
 
         <section id="section-infos" data-tab="infos" className="scroll-mt-28 space-y-8">
           <EstablishmentSectionHeading title="Infos" />
@@ -1811,6 +1924,9 @@ export default function Restaurant() {
                 }
                 if (dbTaxonomy.ambianceTags.length > 0) {
                   sections.push({ label: "Ambiance", color: "bg-violet-50 text-violet-700", items: dbTaxonomy.ambianceTags });
+                }
+                if (dbTaxonomy.serviceTypes.length > 0) {
+                  sections.push({ label: "Type de service", color: "bg-cyan-50 text-cyan-700", items: dbTaxonomy.serviceTypes });
                 }
                 if (dbTaxonomy.tags.length > 0) {
                   sections.push({ label: "Tags", color: "bg-sky-50 text-sky-700", items: dbTaxonomy.tags });

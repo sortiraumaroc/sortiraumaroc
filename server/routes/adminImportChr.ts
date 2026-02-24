@@ -6,6 +6,25 @@
 
 import type { Express, RequestHandler } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
+import { zBody, zQuery, zParams } from "../lib/validate";
+import {
+  CreateImportBatchSchema,
+  ApproveStagingSchema,
+  RejectStagingSchema,
+  BulkApproveStagingSchema,
+  BulkRejectStagingSchema,
+  MergeStagingSchema,
+  BulkDeleteStagingSchema,
+  ListBatchesQuery,
+  ListStagingQuery,
+  ExportStagingCsvQuery,
+  ListImportLogsQuery,
+  ImportBatchParams,
+  ImportStagingParams,
+} from "../schemas/adminImportChr";
+
+const log = createModuleLogger("adminImportChr");
 import {
   createImportBatch,
   runImportBatch,
@@ -205,7 +224,7 @@ const runBatch: RequestHandler = async (req, res) => {
   try {
     // Lancer en arrière-plan
     runImportBatch(batchId).catch((error) => {
-      console.error(`[ImportCHR] Batch ${batchId} failed:`, error);
+      log.error({ batchId, err: error }, "Batch failed");
     });
 
     res.json({ ok: true, message: "Batch started" });
@@ -766,29 +785,29 @@ export function registerAdminImportChrRoutes(app: Express): void {
   app.get("/api/admin/import-chr/categories", listCategories);
 
   // Batches
-  app.get("/api/admin/import-chr/batches", getBatches);
-  app.post("/api/admin/import-chr/batches", createBatch);
-  app.post("/api/admin/import-chr/batches/:batchId/run", runBatch);
-  app.post("/api/admin/import-chr/batches/:batchId/cancel", cancelBatch);
-  app.delete("/api/admin/import-chr/batches/:batchId", deleteBatch);
+  app.get("/api/admin/import-chr/batches", zQuery(ListBatchesQuery), getBatches);
+  app.post("/api/admin/import-chr/batches", zBody(CreateImportBatchSchema), createBatch);
+  app.post("/api/admin/import-chr/batches/:batchId/run", zParams(ImportBatchParams), runBatch);
+  app.post("/api/admin/import-chr/batches/:batchId/cancel", zParams(ImportBatchParams), cancelBatch);
+  app.delete("/api/admin/import-chr/batches/:batchId", zParams(ImportBatchParams), deleteBatch);
 
   // Staging
-  app.get("/api/admin/import-chr/staging", getStagingEntries);
-  app.get("/api/admin/import-chr/staging/export", exportStagingCsv);
+  app.get("/api/admin/import-chr/staging", zQuery(ListStagingQuery), getStagingEntries);
+  app.get("/api/admin/import-chr/staging/export", zQuery(ExportStagingCsvQuery), exportStagingCsv);
   app.post("/api/admin/import-chr/staging/cleanup-duplicates", cleanupDuplicates);
-  app.post("/api/admin/import-chr/staging/merge", mergeDuplicates);
-  app.post("/api/admin/import-chr/staging/bulk-approve", bulkApproveStagingEntries);
-  app.post("/api/admin/import-chr/staging/bulk-reject", bulkRejectStagingEntries);
-  app.post("/api/admin/import-chr/staging/bulk-delete", bulkDeleteStagingEntries);
-  app.get("/api/admin/import-chr/staging/:stagingId", getStagingEntry);
-  app.post("/api/admin/import-chr/staging/:stagingId/approve", approveStagingEntry);
-  app.post("/api/admin/import-chr/staging/:stagingId/reject", rejectStagingEntry);
-  app.delete("/api/admin/import-chr/staging/:stagingId", deleteStagingEntry);
+  app.post("/api/admin/import-chr/staging/merge", zBody(MergeStagingSchema), mergeDuplicates);
+  app.post("/api/admin/import-chr/staging/bulk-approve", zBody(BulkApproveStagingSchema), bulkApproveStagingEntries);
+  app.post("/api/admin/import-chr/staging/bulk-reject", zBody(BulkRejectStagingSchema), bulkRejectStagingEntries);
+  app.post("/api/admin/import-chr/staging/bulk-delete", zBody(BulkDeleteStagingSchema), bulkDeleteStagingEntries);
+  app.get("/api/admin/import-chr/staging/:stagingId", zParams(ImportStagingParams), getStagingEntry);
+  app.post("/api/admin/import-chr/staging/:stagingId/approve", zParams(ImportStagingParams), zBody(ApproveStagingSchema), approveStagingEntry);
+  app.post("/api/admin/import-chr/staging/:stagingId/reject", zParams(ImportStagingParams), zBody(RejectStagingSchema), rejectStagingEntry);
+  app.delete("/api/admin/import-chr/staging/:stagingId", zParams(ImportStagingParams), deleteStagingEntry);
 
   // Logs et stats
-  app.get("/api/admin/import-chr/logs", getLogs);
+  app.get("/api/admin/import-chr/logs", zQuery(ListImportLogsQuery), getLogs);
   app.delete("/api/admin/import-chr/logs", clearLogs);
   app.get("/api/admin/import-chr/stats", getStats);
 
-  console.log("[Routes] Admin Import CHR routes registered");
+  log.info("Admin Import CHR routes registered");
 }

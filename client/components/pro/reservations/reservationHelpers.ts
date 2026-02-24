@@ -71,6 +71,33 @@ export function getNoShowCount(r: Reservation): number {
   return Math.max(0, Math.round(raw));
 }
 
+export type EstablishmentNoShow = {
+  date: string;
+  time: string;
+  party_size: number;
+};
+
+export function getEstablishmentNoShows(r: Reservation): EstablishmentNoShow[] {
+  const meta = r.meta;
+  if (!isRecord(meta)) return [];
+  const raw = meta.establishment_no_shows;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (item): item is EstablishmentNoShow =>
+      isRecord(item) &&
+      typeof item.date === "string" &&
+      typeof item.time === "string" &&
+      typeof item.party_size === "number",
+  );
+}
+
+export function hasEstablishmentNoShow(r: Reservation): boolean {
+  const meta = r.meta;
+  if (!isRecord(meta)) return false;
+  if (meta.has_establishment_no_show === true) return true;
+  return getEstablishmentNoShows(r).length > 0;
+}
+
 export function getRiskLevel(score: number): RiskLevel {
   if (score < 65) return "sensitive";
   if (score < 85) return "medium";

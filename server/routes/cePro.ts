@@ -17,6 +17,11 @@ import {
   createAdvantageSchema,
   ceScansQuerySchema,
 } from "../schemas/ce";
+import { createModuleLogger } from "../lib/logger";
+import { zBody } from "../lib/validate";
+import { validateScanBodySchema, advantageUpsertBodySchema } from "../schemas/cePro";
+
+const log = createModuleLogger("cePro");
 
 // ============================================================================
 // Auth Helper (PRO)
@@ -42,7 +47,8 @@ async function getProUser(req: Request): Promise<ProUser | null> {
     const { data, error } = await sb.auth.getUser(token);
     if (error || !data.user) return null;
     return { id: data.user.id, email: data.user.email };
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "Failed to verify pro user token");
     return null;
   }
 }
@@ -74,7 +80,7 @@ export function registerCeProRoutes(app: Express): void {
   // Scan CE QR Code
   // --------------------------------------------------
 
-  app.post("/api/pro/ce/scan", async (req, res) => {
+  app.post("/api/pro/ce/scan", zBody(validateScanBodySchema), async (req, res) => {
     const user = await getProUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
 
@@ -116,7 +122,7 @@ export function registerCeProRoutes(app: Express): void {
 
     const sb = supabase();
     let query = sb
-      .from("ce_scans")
+      .from("b2b_scans").eq("scan_type", "ce")
       .select("*", { count: "exact" })
       .eq("establishment_id", establishmentId)
       .order("scan_datetime", { ascending: false })
@@ -180,7 +186,7 @@ export function registerCeProRoutes(app: Express): void {
   // Update CE Advantage (PRO self-management)
   // --------------------------------------------------
 
-  app.put("/api/pro/ce/advantage", async (req, res) => {
+  app.put("/api/pro/ce/advantage", zBody(advantageUpsertBodySchema), async (req, res) => {
     const user = await getProUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
 
@@ -258,10 +264,10 @@ export function registerCeProRoutes(app: Express): void {
     const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
     const [today, week, month, total] = await Promise.all([
-      sb.from("ce_scans").select("id", { count: "exact", head: true }).eq("establishment_id", establishmentId).gte("scan_datetime", todayStr).eq("status", "validated"),
-      sb.from("ce_scans").select("id", { count: "exact", head: true }).eq("establishment_id", establishmentId).gte("scan_datetime", weekAgo).eq("status", "validated"),
-      sb.from("ce_scans").select("id", { count: "exact", head: true }).eq("establishment_id", establishmentId).gte("scan_datetime", monthAgo).eq("status", "validated"),
-      sb.from("ce_scans").select("id", { count: "exact", head: true }).eq("establishment_id", establishmentId).eq("status", "validated"),
+      sb.from("b2b_scans").eq("scan_type", "ce").select("id", { count: "exact", head: true }).eq("establishment_id", establishmentId).gte("scan_datetime", todayStr).eq("status", "validated"),
+      sb.from("b2b_scans").eq("scan_type", "ce").select("id", { count: "exact", head: true }).eq("establishment_id", establishmentId).gte("scan_datetime", weekAgo).eq("status", "validated"),
+      sb.from("b2b_scans").eq("scan_type", "ce").select("id", { count: "exact", head: true }).eq("establishment_id", establishmentId).gte("scan_datetime", monthAgo).eq("status", "validated"),
+      sb.from("b2b_scans").eq("scan_type", "ce").select("id", { count: "exact", head: true }).eq("establishment_id", establishmentId).eq("status", "validated"),
     ]);
 
     res.json({

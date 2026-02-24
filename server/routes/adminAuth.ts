@@ -1,4 +1,5 @@
 import type { RequestHandler } from "express";
+import type { Express } from "express";
 import { randomBytes, scrypt, timingSafeEqual, createHash } from "crypto";
 import { promisify } from "util";
 
@@ -9,6 +10,11 @@ import {
   isRequestSecure,
 } from "../adminSession";
 import { assertAdminApiEnabled, getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
+import { zBody } from "../lib/validate";
+import { AdminLoginSchema } from "../schemas/adminAuth";
+
+const log = createModuleLogger("adminAuth");
 
 const scryptAsync = promisify(scrypt);
 const KEY_LENGTH = 64;
@@ -106,12 +112,7 @@ export const adminLogin: RequestHandler = async (req, res) => {
 
   const rateCheck = checkAdminRateLimit(rateLimitKey);
   if (!rateCheck.allowed) {
-    console.warn(
-      "[adminLogin] SECURITY: Rate limit exceeded",
-      "IP:", clientIp,
-      "Email:", email,
-      "Reason:", rateCheck.reason
-    );
+    log.warn({ ip: clientIp, email, reason: rateCheck.reason }, "SECURITY: rate limit exceeded");
     return res.status(429).json({
       ok: false,
       error: rateCheck.reason === "account_locked"
@@ -131,7 +132,7 @@ export const adminLogin: RequestHandler = async (req, res) => {
     if (!envUsername || !email || email === envUsername) {
       // Legacy auth succeeded - find or create collaborator for superadmin
       const supabase = getAdminSupabase();
-      const adminEmail = email || envUsername || "admin@sortiraumaroc.ma";
+      const adminEmail = email || envUsername || "admin@sam.ma";
 
       // Check if collaborator already exists for this superadmin
       let { data: existingCollab } = await supabase
@@ -157,7 +158,7 @@ export const adminLogin: RequestHandler = async (req, res) => {
           .single();
 
         if (createError) {
-          console.error("[adminLogin] Failed to create superadmin collaborator:", createError);
+          log.error({ err: createError }, "failed to create superadmin collaborator");
         } else {
           existingCollab = newCollab;
         }
@@ -230,7 +231,7 @@ export const adminLogin: RequestHandler = async (req, res) => {
     .maybeSingle();
 
   if (error) {
-    console.error("Admin login DB error:", error);
+    log.error({ err: error }, "admin login DB error");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 
@@ -246,11 +247,7 @@ export const adminLogin: RequestHandler = async (req, res) => {
   const passwordValid = await verifyPassword(password, collaborator.password_hash);
   if (!passwordValid) {
     // SECURITY: Log failed login attempt
-    console.warn(
-      "[adminLogin] SECURITY: Failed login attempt",
-      "IP:", clientIp,
-      "Email:", email
-    );
+    log.warn({ ip: clientIp, email }, "SECURITY: failed login attempt");
     return res.status(401).json({ ok: false, error: "Identifiants invalides" });
   }
 
@@ -333,3 +330,12 @@ export const adminLogout: RequestHandler = async (req, res) => {
   res.setHeader("Set-Cookie", cookie);
   res.json({ ok: true });
 };
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerAdminAuthRoutes(app: Express) {
+  app.post("/api/admin/auth/login", zBody(AdminLoginSchema), adminLogin);
+  app.post("/api/admin/auth/logout", adminLogout);
+}

@@ -1,14 +1,12 @@
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
-import { MapPin, Calendar, Trash2, ChevronRight, Wallet, Download, Edit2, QrCode } from "lucide-react";
+import { MapPin, Calendar, Trash2, ChevronRight, Download, Edit2, QrCode } from "lucide-react";
 
 import { BookingRecapCard } from "@/components/booking/BookingRecapCard";
 import { BookingStepHeader } from "@/components/booking/BookingStepHeader";
 import { useBooking } from "@/hooks/useBooking";
 import { getBookingPreReservationBreakdown } from "@/lib/billing";
-import { handleAddToAppleWallet, handleAddToGoogleWallet } from "@/lib/walletService";
 import { generateReservationPDF } from "@/lib/pdfGenerator";
-import { isAppleWalletSupported, isGoogleWalletSupported } from "@/lib/platformDetection";
 import { getBookingRecordById, upsertBookingRecord } from "@/lib/userData";
 import { getConsumerAccessToken, getConsumerUserId } from "@/lib/auth";
 import { createMyConsumerWaitlist } from "@/lib/consumerWaitlistApi";
@@ -67,10 +65,7 @@ export default function Step4Confirmation() {
     return t("booking.establishment.fallback");
   })();
 
-  const [isLoadingWallet, setIsLoadingWallet] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
-  const [showAppleWallet, setShowAppleWallet] = useState(false);
-  const [showGoogleWallet, setShowGoogleWallet] = useState(false);
 
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitOk, setSubmitOk] = useState(false);
@@ -94,12 +89,6 @@ export default function Step4Confirmation() {
     const ref = bookingReference ? bookingReference : generateBookingReference();
     if (!bookingReference) setBookingReference(ref);
   }, [bookingReference, setBookingReference, generateBookingReference]);
-
-  // Detect platform and set wallet button visibility
-  useEffect(() => {
-    setShowAppleWallet(isAppleWalletSupported());
-    setShowGoogleWallet(isGoogleWalletSupported());
-  }, []);
 
   useEffect(() => {
     if (!bookingReference) return;
@@ -316,46 +305,6 @@ export default function Step4Confirmation() {
     navigate('/');
   };
 
-  const handleAddToAppleWalletClick = async () => {
-    if (!bookingReference) return;
-    setIsLoadingWallet(true);
-    try {
-      const uid = await getConsumerUserId();
-      await handleAddToAppleWallet({
-        bookingReference,
-        restaurantName: establishmentName,
-        date: selectedDate?.toISOString() || '',
-        time: selectedTime || '',
-        partySize: partySize || 1,
-        guestName: `${firstName} ${lastName}`,
-        guestPhone: '',
-        userId: uid || undefined,
-      });
-    } finally {
-      setIsLoadingWallet(false);
-    }
-  };
-
-  const handleAddToGoogleWalletClick = async () => {
-    if (!bookingReference) return;
-    setIsLoadingWallet(true);
-    try {
-      const uid = await getConsumerUserId();
-      await handleAddToGoogleWallet({
-        bookingReference,
-        restaurantName: establishmentName,
-        date: selectedDate?.toISOString() || '',
-        time: selectedTime || '',
-        partySize: partySize || 1,
-        guestName: `${firstName} ${lastName}`,
-        guestPhone: '',
-        userId: uid || undefined,
-      });
-    } finally {
-      setIsLoadingWallet(false);
-    }
-  };
-
   const handleExportPDF = async () => {
     if (!bookingReference || !selectedDate || !selectedTime) return;
     setIsGeneratingPDF(true);
@@ -458,10 +407,10 @@ export default function Step4Confirmation() {
             className="flex items-center gap-3 w-full px-4 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors font-semibold active:scale-95"
           >
             <QrCode className="w-6 h-6 shrink-0" />
-            <span>Mon QR Code &mdash; a presenter sur place</span>
+            <span>Mon QR Code &mdash; à présenter sur place</span>
           </Link>
           <p className="mt-2 text-sm text-slate-600">
-            Presentez votre QR code personnel a l'etablissement pour valider votre reservation.
+            Présentez votre QR code personnel à l'établissement pour valider votre réservation.
           </p>
         </div>
       )}
@@ -480,34 +429,6 @@ export default function Step4Confirmation() {
             {isGeneratingPDF ? t("booking.step4.pdf.generating") : t("booking.step4.pdf.cta")}
           </button>
         ) : null}
-
-        {/* Apple Wallet Button - iOS/macOS only */}
-        {effectiveStatus !== "waitlist" && showAppleWallet && (
-          <button
-            onClick={handleAddToAppleWalletClick}
-            disabled={isLoadingWallet || !bookingReference}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-black text-slate-50 rounded-lg hover:bg-slate-900 transition-colors font-semibold active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={t("booking.step4.wallet.apple")}
-          >
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M6 2h12c1.1 0 2 .9 2 2v16c0 1.1-.9 2-2 2H6c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2zm0 2v16h12V4H6zm6 10h-2v2h2v-2zm0-4h-2v2h2V8z"/>
-            </svg>
-            {t("booking.step4.wallet.apple")}
-          </button>
-        )}
-
-        {/* Google Wallet Button - Android & Desktop only */}
-        {effectiveStatus !== "waitlist" && showGoogleWallet && (
-          <button
-            onClick={handleAddToGoogleWalletClick}
-            disabled={isLoadingWallet || !bookingReference}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-slate-50 rounded-lg hover:bg-blue-700 transition-colors font-semibold active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={t("booking.step4.wallet.google")}
-          >
-            <Wallet className="w-5 h-5" />
-            {t("booking.step4.wallet.google")}
-          </button>
-        )}
 
         {/* Calendar Button */}
         {effectiveStatus !== "waitlist" ? (

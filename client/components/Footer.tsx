@@ -6,6 +6,7 @@ import { getSocialIcon } from "@/components/ui/SocialIcons";
 import { useI18n } from "@/lib/i18n";
 import { addLocalePrefix } from "@/lib/i18n/types";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import { isRamadanActive } from "@/lib/ramadanFlag";
 
 const SOCIAL_PLATFORMS = [
   { key: "social_instagram", platform: "instagram" },
@@ -34,7 +35,7 @@ export function Footer() {
   );
 
   return (
-    <footer className="bg-black border-t border-black pt-10 -mb-[3px]">
+    <footer className={`bg-black pt-10 -mb-[3px] ${isRamadanActive() ? "border-t-2 border-ramadan-gold" : "border-t border-black"}`}>
       <div className="container mx-auto px-4 font-['Inter',_sans-serif] font-normal">
 
         {/* ==================== Mobile only: Social Icons + Newsletter ==================== */}
@@ -238,6 +239,11 @@ export function Footer() {
             <span>{t("footer.brand")}</span>
             {t("footer.copyright_suffix")}
           </p>
+          {isRamadanActive() && (
+            <p className="text-sm text-ramadan-gold font-bold mt-1">
+              🌙 {t("footer.ramadan_moubarak")}
+            </p>
+          )}
         </div>
       </div>
 

@@ -16,9 +16,10 @@ import {
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
+import { PacksListView } from "./PacksListView";
 import {
   listProPacks, createProPack, updateProPack, submitPackForModeration,
-  suspendPack, resumePack, closePack, duplicatePack, getPackStats,
+  suspendPack, resumePack, closePack, deletePack, duplicatePack, getPackStats,
   scanQrAndConsume,
   listProPackPromos, createProPackPromo, updateProPackPromo, deleteProPackPromo,
   type CreatePackInput, type PackStats, type ScanResult, type CreatePromoInput,
@@ -1017,6 +1018,10 @@ export function ProPacksDashboard({
           await closePack(packId);
           setActionMsg({ type: "success", text: "Pack clôturé" });
           break;
+        case "delete":
+          await deletePack(packId);
+          setActionMsg({ type: "success", text: "Pack supprimé" });
+          break;
         case "duplicate":
           await duplicatePack(packId);
           setActionMsg({ type: "success", text: "Pack dupliqué" });
@@ -1110,20 +1115,22 @@ export function ProPacksDashboard({
             />
           )}
 
-          {loading ? (
-            <div className="py-8 text-center">
-              <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-[#a3001d] border-t-transparent" />
-            </div>
-          ) : packs.length === 0 && !showCreateForm ? (
-            <div className="py-8 text-center">
-              <Gift className="mx-auto h-10 w-10 text-slate-300" />
-              <p className="mt-2 text-sm text-slate-500">Aucun pack créé</p>
-            </div>
-          ) : (
-            packs.map((p) => (
-              <PackListItem key={p.id} pack={p} onAction={handleAction} />
-            ))
-          )}
+          <PacksListView
+            packs={packs}
+            loading={loading}
+            role="pro"
+            onEdit={(packId) => handleAction("edit", packId)}
+            onSubmit={(packId) => handleAction("submit", packId)}
+            onSuspend={(packId) => handleAction("suspend", packId)}
+            onResume={(packId) => handleAction("resume", packId)}
+            onDuplicate={(packId) => handleAction("duplicate", packId)}
+            onClose={(packId) => handleAction("close", packId)}
+            onDelete={(packId) => handleAction("delete", packId)}
+            onGetStats={async (packId) => {
+              const s = await getPackStats(packId);
+              return s;
+            }}
+          />
         </div>
       )}
 

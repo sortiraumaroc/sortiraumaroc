@@ -23,6 +23,9 @@ import { sendPushToConsumerUser, sendPushToProUser } from "./pushNotifications";
 import { emitConsumerUserEvent } from "./consumerNotifications";
 import { notifyProMembers } from "./proNotifications";
 import { emitAdminNotification } from "./adminNotifications";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("notificationEngine");
 import type {
   NotificationChannel,
   NotificationEvent,
@@ -199,8 +202,8 @@ async function resolveRecipientInfo(
           info.lang = meta.lang;
         }
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      log.warn({ err, recipientId }, "Failed to resolve consumer recipient info");
     }
   } else if (recipientType === "pro") {
     try {
@@ -209,8 +212,8 @@ async function resolveRecipientInfo(
         info.email = data.user.email ?? undefined;
         info.phone = data.user.phone ?? undefined;
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      log.warn({ err, recipientId }, "Failed to resolve pro recipient info");
     }
   }
 
@@ -258,7 +261,8 @@ async function logNotification(args: {
       .maybeSingle();
 
     return error ? null : (data?.id ?? null);
-  } catch {
+  } catch (err) {
+    log.warn({ err, eventType: args.eventType, channel: args.channel }, "Failed to log notification");
     return null;
   }
 }
@@ -278,8 +282,8 @@ async function updateLogStatus(
 
   try {
     await supabase.from("notification_logs").update(update).eq("id", logId);
-  } catch {
-    // best-effort
+  } catch (err) {
+    log.warn({ err, logId, status }, "Failed to update notification log status");
   }
 }
 
@@ -568,7 +572,7 @@ export function fireNotification(event: NotificationEvent): void {
     try {
       await sendMultiChannelNotification(event);
     } catch (err) {
-      console.error("[NotificationEngine] fireNotification error:", err);
+      log.error({ err }, "fireNotification error");
     }
   })();
 }

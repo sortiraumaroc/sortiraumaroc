@@ -33,6 +33,7 @@ export type Establishment = {
   logo_url: string | null;
   gallery_urls: string[] | null;
   ambiance_tags: string[] | null;
+  service_types: string[] | null;
   mix_experience: Record<string, unknown> | null;
   verified: boolean;
   premium: boolean;
@@ -40,6 +41,7 @@ export type Establishment = {
   edit_status: EstablishmentEditStatus | null;
   booking_enabled: boolean;
   extra: Record<string, unknown> | null;
+  hide_google_reviews?: boolean;
   created_at: string | null;
   updated_at: string | null;
 };

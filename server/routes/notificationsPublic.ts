@@ -13,6 +13,10 @@ import type { Router, Request, Response, RequestHandler } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { getUserPreferences, updateUserPreferences } from "../notificationPreferences";
 import { createRateLimiter } from "../middleware/rateLimiter";
+import { createModuleLogger } from "../lib/logger";
+import { zParams, zIdParam } from "../lib/validate";
+
+const log = createModuleLogger("notificationsPublic");
 
 // =============================================================================
 // Rate limiters
@@ -41,7 +45,8 @@ async function getConsumerUserId(req: Request): Promise<ConsumerAuthResult> {
     const { data, error } = await supabase.auth.getUser(token);
     if (error || !data.user) return { ok: false, status: 401, error: "unauthorized" };
     return { ok: true, userId: data.user.id };
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "Consumer auth token verification failed");
     return { ok: false, status: 401, error: "unauthorized" };
   }
 }
@@ -76,13 +81,13 @@ async function listNotifications(req: Request, res: Response) {
       .limit(50);
 
     if (error) {
-      console.error("[listNotifications] DB error:", error);
+      log.error({ err: error }, "listNotifications DB error");
       return res.status(500).json({ error: "internal_error" });
     }
 
     res.json({ ok: true, notifications: data ?? [] });
   } catch (err) {
-    console.error("[listNotifications] Error:", err);
+    log.error({ err }, "listNotifications error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -109,13 +114,13 @@ async function markNotificationRead(req: Request, res: Response) {
       .eq("recipient_id", auth.userId);
 
     if (error) {
-      console.error("[markNotificationRead] DB error:", error);
+      log.error({ err: error }, "markNotificationRead DB error");
       return res.status(500).json({ error: "internal_error" });
     }
 
     res.json({ ok: true });
   } catch (err) {
-    console.error("[markNotificationRead] Error:", err);
+    log.error({ err }, "markNotificationRead error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -138,13 +143,13 @@ async function markAllNotificationsRead(req: Request, res: Response) {
       .neq("status", "read");
 
     if (error) {
-      console.error("[markAllNotificationsRead] DB error:", error);
+      log.error({ err: error }, "markAllNotificationsRead DB error");
       return res.status(500).json({ error: "internal_error" });
     }
 
     res.json({ ok: true });
   } catch (err) {
-    console.error("[markAllNotificationsRead] Error:", err);
+    log.error({ err }, "markAllNotificationsRead error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -162,7 +167,7 @@ async function getNotificationPreferences(req: Request, res: Response) {
 
     res.json({ ok: true, preferences });
   } catch (err) {
-    console.error("[getNotificationPreferences] Error:", err);
+    log.error({ err }, "getNotificationPreferences error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -185,7 +190,7 @@ async function updateNotificationPreferences(req: Request, res: Response) {
 
     res.json({ ok: true, preferences: updated });
   } catch (err) {
-    console.error("[updateNotificationPreferences] Error:", err);
+    log.error({ err }, "updateNotificationPreferences error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -196,7 +201,7 @@ async function updateNotificationPreferences(req: Request, res: Response) {
 
 export function registerNotificationPublicRoutes(app: Router): void {
   app.get("/api/me/notifications", notificationReadRateLimiter, listNotifications);
-  app.post("/api/me/notifications/:id/read", notificationReadRateLimiter, markNotificationRead);
+  app.post("/api/me/notifications/:id/read", zParams(zIdParam), notificationReadRateLimiter, markNotificationRead);
   app.post("/api/me/notifications/read-all", notificationReadRateLimiter, markAllNotificationsRead);
   app.get("/api/me/notification-preferences", notificationReadRateLimiter, getNotificationPreferences);
   app.put("/api/me/notification-preferences", notificationReadRateLimiter, updateNotificationPreferences);

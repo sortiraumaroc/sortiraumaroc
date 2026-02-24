@@ -20,7 +20,11 @@
  */
 
 import type { Request, Response } from "express";
+import type { Express } from "express";
+import { createModuleLogger } from "../lib/logger";
 import { getAdminSupabase } from "../supabaseAdmin";
+
+const log = createModuleLogger("reviewCronV2");
 import { emitAdminNotification } from "../adminNotifications";
 import { notifyProMembers } from "../proNotifications";
 import { sendTemplateEmail } from "../emailService";
@@ -77,7 +81,7 @@ export async function cronCreateInvitations(req: Request, res: Response) {
       .not("user_id", "is", null);
 
     if (resError) {
-      console.error("[cronCreateInvitations] Error fetching reservations:", resError);
+      log.error({ err: resError }, "cronCreateInvitations fetch error");
       return res.status(500).json({ ok: false, error: "Database error" });
     }
 
@@ -138,7 +142,7 @@ export async function cronCreateInvitations(req: Request, res: Response) {
       if (insertError) {
         // Ignore duplicate constraint errors (already created)
         if (insertError.code !== "23505") {
-          console.error("[cronCreateInvitations] Insert error:", insertError);
+          log.error({ err: insertError }, "cronCreateInvitations insert error");
         }
         continue;
       }
@@ -146,10 +150,10 @@ export async function cronCreateInvitations(req: Request, res: Response) {
       created++;
     }
 
-    console.log(`[cronCreateInvitations] Created ${created} invitations`);
+    log.info({ created }, "cronCreateInvitations completed");
     return res.json({ ok: true, created, message: `Created ${created} invitations` });
   } catch (err) {
-    console.error("[cronCreateInvitations] Unexpected error:", err);
+    log.error({ err }, "cronCreateInvitations unexpected error");
     return res.status(500).json({ ok: false, error: "Server error" });
   }
 }
@@ -184,7 +188,7 @@ export async function cronSendInvitationEmails(req: Request, res: Response) {
       .limit(50);
 
     if (error) {
-      console.error("[cronSendInvitationEmails] Fetch error:", error);
+      log.error({ err: error }, "cronSendInvitationEmails fetch error");
       return res.status(500).json({ ok: false, error: "Database error" });
     }
 
@@ -255,10 +259,10 @@ export async function cronSendInvitationEmails(req: Request, res: Response) {
       }
     }
 
-    console.log(`[cronSendInvitationEmails] Sent: ${sent}, Failed: ${failed}`);
+    log.info({ sent, failed }, "cronSendInvitationEmails completed");
     return res.json({ ok: true, sent, failed, message: `Sent ${sent} invitation emails` });
   } catch (err) {
-    console.error("[cronSendInvitationEmails] Unexpected error:", err);
+    log.error({ err }, "cronSendInvitationEmails unexpected error");
     return res.status(500).json({ ok: false, error: "Server error" });
   }
 }
@@ -295,7 +299,7 @@ export async function cronSendReminders(req: Request, res: Response) {
       .limit(50);
 
     if (err3) {
-      console.error("[cronSendReminders] J+3 fetch error:", err3);
+      log.error({ err: err3 }, "cronSendReminders J+3 fetch error");
     } else if (inv3 && inv3.length > 0) {
       for (const inv of inv3) {
         const userEmail = await getUserEmail(inv.user_id);
@@ -345,7 +349,7 @@ export async function cronSendReminders(req: Request, res: Response) {
       .limit(50);
 
     if (err7) {
-      console.error("[cronSendReminders] J+7 fetch error:", err7);
+      log.error({ err: err7 }, "cronSendReminders J+7 fetch error");
     } else if (inv7 && inv7.length > 0) {
       for (const inv of inv7) {
         const userEmail = await getUserEmail(inv.user_id);
@@ -380,7 +384,7 @@ export async function cronSendReminders(req: Request, res: Response) {
       }
     }
 
-    console.log(`[cronSendReminders] J+3: ${reminders3Sent}, J+7: ${reminders7Sent}`);
+    log.info({ reminders3Sent, reminders7Sent }, "cronSendReminders completed");
     return res.json({
       ok: true,
       reminders_3d_sent: reminders3Sent,
@@ -388,7 +392,7 @@ export async function cronSendReminders(req: Request, res: Response) {
       message: `Sent ${reminders3Sent} J+3 and ${reminders7Sent} J+7 reminders`,
     });
   } catch (err) {
-    console.error("[cronSendReminders] Unexpected error:", err);
+    log.error({ err }, "cronSendReminders unexpected error");
     return res.status(500).json({ ok: false, error: "Server error" });
   }
 }
@@ -415,7 +419,7 @@ export async function cronExpireInvitations(req: Request, res: Response) {
       .lte("expires_at", now);
 
     if (error) {
-      console.error("[cronExpireInvitations] Fetch error:", error);
+      log.error({ err: error }, "cronExpireInvitations fetch error");
       return res.status(500).json({ ok: false, error: "Database error" });
     }
 
@@ -431,14 +435,14 @@ export async function cronExpireInvitations(req: Request, res: Response) {
       .in("id", ids);
 
     if (updateErr) {
-      console.error("[cronExpireInvitations] Update error:", updateErr);
+      log.error({ err: updateErr }, "cronExpireInvitations update error");
       return res.status(500).json({ ok: false, error: "Update error" });
     }
 
-    console.log(`[cronExpireInvitations] Expired ${ids.length} invitations`);
+    log.info({ expired: ids.length }, "cronExpireInvitations completed");
     return res.json({ ok: true, expired: ids.length, message: `Expired ${ids.length} invitations` });
   } catch (err) {
-    console.error("[cronExpireInvitations] Unexpected error:", err);
+    log.error({ err }, "cronExpireInvitations unexpected error");
     return res.status(500).json({ ok: false, error: "Server error" });
   }
 }
@@ -470,7 +474,7 @@ export async function cronExpireProGestureDeadline(req: Request, res: Response) 
       .lte("gesture_deadline", now);
 
     if (error) {
-      console.error("[cronExpireProGesture] Fetch error:", error);
+      log.error({ err: error }, "cronExpireProGesture fetch error");
       return res.status(500).json({ ok: false, error: "Database error" });
     }
 
@@ -493,7 +497,7 @@ export async function cronExpireProGestureDeadline(req: Request, res: Response) 
         .eq("id", review.id);
 
       if (updateErr) {
-        console.error("[cronExpireProGesture] Update error for review:", review.id, updateErr);
+        log.error({ err: updateErr, reviewId: review.id }, "cronExpireProGesture update error");
         continue;
       }
 
@@ -539,21 +543,21 @@ export async function cronExpireProGestureDeadline(req: Request, res: Response) 
           ctaLabel: "Voir mon avis",
           meta: { review_id: review.id },
         }).catch((err) =>
-          console.error("[cronExpireProGesture] Failed to send review published email:", err),
+          log.error({ err }, "cronExpireProGesture failed to send review published email"),
         );
       }
 
       published++;
     }
 
-    console.log(`[cronExpireProGesture] Published ${published} reviews (pro deadline expired)`);
+    log.info({ published }, "cronExpireProGesture completed (pro deadline expired)");
     return res.json({
       ok: true,
       published,
       message: `Auto-published ${published} reviews (pro gesture deadline expired)`,
     });
   } catch (err) {
-    console.error("[cronExpireProGesture] Unexpected error:", err);
+    log.error({ err }, "cronExpireProGesture unexpected error");
     return res.status(500).json({ ok: false, error: "Server error" });
   }
 }
@@ -583,7 +587,7 @@ export async function cronExpireClientGesture(req: Request, res: Response) {
       .lte("client_gesture_deadline", now);
 
     if (error) {
-      console.error("[cronExpireClientGesture] Fetch error:", error);
+      log.error({ err: error }, "cronExpireClientGesture fetch error");
       return res.status(500).json({ ok: false, error: "Database error" });
     }
 
@@ -613,7 +617,7 @@ export async function cronExpireClientGesture(req: Request, res: Response) {
         .eq("id", review.id);
 
       if (updateErr) {
-        console.error("[cronExpireClientGesture] Update error for review:", review.id, updateErr);
+        log.error({ err: updateErr, reviewId: review.id }, "cronExpireClientGesture update error");
         continue;
       }
 
@@ -653,21 +657,34 @@ export async function cronExpireClientGesture(req: Request, res: Response) {
           variables: { establishment_name: estName },
           meta: { review_id: review.id },
         }).catch((err) =>
-          console.error("[cronExpireClientGesture] Failed to send gesture expired email:", err),
+          log.error({ err }, "cronExpireClientGesture failed to send gesture expired email"),
         );
       }
 
       published++;
     }
 
-    console.log(`[cronExpireClientGesture] Published ${published} reviews (client gesture deadline expired)`);
+    log.info({ published }, "cronExpireClientGesture completed (client gesture deadline expired)");
     return res.json({
       ok: true,
       published,
       message: `Auto-published ${published} reviews (client gesture deadline expired)`,
     });
   } catch (err) {
-    console.error("[cronExpireClientGesture] Unexpected error:", err);
+    log.error({ err }, "cronExpireClientGesture unexpected error");
     return res.status(500).json({ ok: false, error: "Server error" });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerReviewCronV2Routes(app: Express) {
+  app.post("/api/admin/cron/v2/review-create-invitations", cronCreateInvitations);
+  app.post("/api/admin/cron/v2/review-send-invitations", cronSendInvitationEmails);
+  app.post("/api/admin/cron/v2/review-send-reminders", cronSendReminders);
+  app.post("/api/admin/cron/v2/review-expire-invitations", cronExpireInvitations);
+  app.post("/api/admin/cron/v2/review-expire-pro-gesture", cronExpireProGestureDeadline);
+  app.post("/api/admin/cron/v2/review-expire-client-gesture", cronExpireClientGesture);
 }

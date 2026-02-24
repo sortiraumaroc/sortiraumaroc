@@ -9,8 +9,25 @@
  */
 
 import type { Router, RequestHandler } from "express";
+import { createModuleLogger } from "../lib/logger";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { requireAdminKey } from "./admin";
+import { zBody, zQuery, zParams, zIdParam } from "../lib/validate";
+import {
+  SuspendProgramSchema,
+  ReviewAlertSchema,
+  DismissAlertSchema,
+  ApproveGiftSchema,
+  RejectGiftSchema,
+  DistributeGiftManualSchema,
+  DistributeGiftCriteriaSchema,
+  DistributeGiftPublicSchema,
+  ListAdminProgramsQuery,
+  ListAdminAlertsQuery,
+  ListAdminGiftsQuery,
+} from "../schemas/loyaltyV2Admin";
+
+const log = createModuleLogger("loyaltyV2Admin");
 import { updateProgramStatus } from "../loyaltyV2Logic";
 import {
   approvePlatformGift,
@@ -59,7 +76,7 @@ const listAdminPrograms: RequestHandler = async (req, res) => {
 
     res.json({ ok: true, programs: data ?? [] });
   } catch (err) {
-    console.error("[listAdminPrograms] Error:", err);
+    log.error({ err }, "listAdminPrograms error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -105,7 +122,7 @@ const getAdminProgramDetail: RequestHandler = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("[getAdminProgramDetail] Error:", err);
+    log.error({ err }, "getAdminProgramDetail error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -156,7 +173,7 @@ const suspendProgram: RequestHandler = async (req, res) => {
       message: `Programme suspendu. ${result.frozenCount ?? 0} carte(s) gelée(s).`,
     });
   } catch (err) {
-    console.error("[suspendProgram] Error:", err);
+    log.error({ err }, "suspendProgram error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -200,7 +217,7 @@ const unsuspendProgram: RequestHandler = async (req, res) => {
       message: `Programme réactivé. ${result.unfrozenCount ?? 0} carte(s) dégelée(s).`,
     });
   } catch (err) {
-    console.error("[unsuspendProgram] Error:", err);
+    log.error({ err }, "unsuspendProgram error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -279,7 +296,7 @@ const getAdminLoyaltyStats: RequestHandler = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("[getAdminLoyaltyStats] Error:", err);
+    log.error({ err }, "getAdminLoyaltyStats error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -304,7 +321,7 @@ const listAdminAlerts: RequestHandler = async (req, res) => {
 
     res.json({ ok: true, alerts });
   } catch (err) {
-    console.error("[listAdminAlerts] Error:", err);
+    log.error({ err }, "listAdminAlerts error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -337,7 +354,7 @@ const reviewAdminAlert: RequestHandler = async (req, res) => {
 
     res.json(result);
   } catch (err) {
-    console.error("[reviewAdminAlert] Error:", err);
+    log.error({ err }, "reviewAdminAlert error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -370,7 +387,7 @@ const dismissAdminAlert: RequestHandler = async (req, res) => {
 
     res.json(result);
   } catch (err) {
-    console.error("[dismissAdminAlert] Error:", err);
+    log.error({ err }, "dismissAdminAlert error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -393,7 +410,7 @@ const listAdminGifts: RequestHandler = async (req, res) => {
 
     res.json({ ok: true, gifts });
   } catch (err) {
-    console.error("[listAdminGifts] Error:", err);
+    log.error({ err }, "listAdminGifts error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -427,7 +444,7 @@ const approveGift: RequestHandler = async (req, res) => {
 
     res.status(result.ok ? 200 : 400).json(result);
   } catch (err) {
-    console.error("[approveGift] Error:", err);
+    log.error({ err }, "approveGift error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -466,7 +483,7 @@ const rejectGift: RequestHandler = async (req, res) => {
 
     res.status(result.ok ? 200 : 400).json(result);
   } catch (err) {
-    console.error("[rejectGift] Error:", err);
+    log.error({ err }, "rejectGift error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -512,7 +529,7 @@ const distributeGiftManual: RequestHandler = async (req, res) => {
 
     res.status(result.ok ? 200 : 400).json(result);
   } catch (err) {
-    console.error("[distributeGiftManual] Error:", err);
+    log.error({ err }, "distributeGiftManual error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -555,7 +572,7 @@ const distributeGiftCriteria: RequestHandler = async (req, res) => {
 
     res.status(result.ok ? 200 : 400).json(result);
   } catch (err) {
-    console.error("[distributeGiftCriteria] Error:", err);
+    log.error({ err }, "distributeGiftCriteria error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -590,7 +607,7 @@ const distributeGiftPublic: RequestHandler = async (req, res) => {
 
     res.status(result.ok ? 200 : 400).json(result);
   } catch (err) {
-    console.error("[distributeGiftPublic] Error:", err);
+    log.error({ err }, "distributeGiftPublic error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -607,7 +624,7 @@ const getGiftStatsAdmin: RequestHandler = async (req, res) => {
     const stats = await getGiftStats(giftId);
     res.json({ ok: true, stats });
   } catch (err) {
-    console.error("[getGiftStatsAdmin] Error:", err);
+    log.error({ err }, "getGiftStatsAdmin error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -618,23 +635,23 @@ const getGiftStatsAdmin: RequestHandler = async (req, res) => {
 
 export function registerLoyaltyV2AdminRoutes(app: Router): void {
   // Programmes
-  app.get("/api/admin/loyalty/programs", listAdminPrograms);
-  app.get("/api/admin/loyalty/programs/:id", getAdminProgramDetail);
-  app.post("/api/admin/loyalty/programs/:id/suspend", suspendProgram);
-  app.post("/api/admin/loyalty/programs/:id/unsuspend", unsuspendProgram);
+  app.get("/api/admin/loyalty/programs", zQuery(ListAdminProgramsQuery), listAdminPrograms);
+  app.get("/api/admin/loyalty/programs/:id", zParams(zIdParam), getAdminProgramDetail);
+  app.post("/api/admin/loyalty/programs/:id/suspend", zParams(zIdParam), zBody(SuspendProgramSchema), suspendProgram);
+  app.post("/api/admin/loyalty/programs/:id/unsuspend", zParams(zIdParam), unsuspendProgram);
   app.get("/api/admin/loyalty/stats", getAdminLoyaltyStats);
 
   // Alertes
-  app.get("/api/admin/loyalty/alerts", listAdminAlerts);
-  app.post("/api/admin/loyalty/alerts/:id/review", reviewAdminAlert);
-  app.post("/api/admin/loyalty/alerts/:id/dismiss", dismissAdminAlert);
+  app.get("/api/admin/loyalty/alerts", zQuery(ListAdminAlertsQuery), listAdminAlerts);
+  app.post("/api/admin/loyalty/alerts/:id/review", zParams(zIdParam), zBody(ReviewAlertSchema), reviewAdminAlert);
+  app.post("/api/admin/loyalty/alerts/:id/dismiss", zParams(zIdParam), zBody(DismissAlertSchema), dismissAdminAlert);
 
   // Cadeaux sam.ma
-  app.get("/api/admin/gifts", listAdminGifts);
-  app.post("/api/admin/gifts/:id/approve", approveGift);
-  app.post("/api/admin/gifts/:id/reject", rejectGift);
-  app.post("/api/admin/gifts/:id/distribute/manual", distributeGiftManual);
-  app.post("/api/admin/gifts/:id/distribute/criteria", distributeGiftCriteria);
-  app.post("/api/admin/gifts/:id/distribute/public", distributeGiftPublic);
-  app.get("/api/admin/gifts/:id/stats", getGiftStatsAdmin);
+  app.get("/api/admin/gifts", zQuery(ListAdminGiftsQuery), listAdminGifts);
+  app.post("/api/admin/gifts/:id/approve", zParams(zIdParam), zBody(ApproveGiftSchema), approveGift);
+  app.post("/api/admin/gifts/:id/reject", zParams(zIdParam), zBody(RejectGiftSchema), rejectGift);
+  app.post("/api/admin/gifts/:id/distribute/manual", zParams(zIdParam), zBody(DistributeGiftManualSchema), distributeGiftManual);
+  app.post("/api/admin/gifts/:id/distribute/criteria", zParams(zIdParam), zBody(DistributeGiftCriteriaSchema), distributeGiftCriteria);
+  app.post("/api/admin/gifts/:id/distribute/public", zParams(zIdParam), zBody(DistributeGiftPublicSchema), distributeGiftPublic);
+  app.get("/api/admin/gifts/:id/stats", zParams(zIdParam), getGiftStatsAdmin);
 }

@@ -1,8 +1,13 @@
 /**
  * Rate Limiter Middleware - SAM
  *
- * Implémentation simple de rate limiting sans dépendance externe.
- * Pour la production avec plusieurs instances, utiliser Redis.
+ * In-memory rate limiting with abstract store interface.
+ * Ready for Redis migration: set REDIS_URL env to switch automatically.
+ *
+ * Architecture:
+ * - RateLimitStore interface allows pluggable backends (memory, Redis, etc.)
+ * - MemoryStore: current default, works single-instance
+ * - RedisStore: TODO — plug in when Redis is available on the VPS
  */
 
 import type { Request, Response, NextFunction, RequestHandler } from "express";
@@ -31,31 +36,93 @@ interface RateLimitEntry {
 }
 
 // ============================================
-// STORAGE EN MÉMOIRE
+// ABSTRACT STORE INTERFACE
 // ============================================
 
-const stores = new Map<string, Map<string, RateLimitEntry>>();
-
 /**
- * Nettoie les entrées expirées
+ * Pluggable backend interface for rate limit storage.
+ * Implement this for Redis, Memcached, or any external store.
  */
-function cleanupStore(store: Map<string, RateLimitEntry>): void {
-  const now = Date.now();
-  for (const [key, entry] of store.entries()) {
-    if (entry.resetAt <= now) {
-      store.delete(key);
+export interface RateLimitStore {
+  /** Get the current entry for a key, or null if not found/expired */
+  get(key: string): RateLimitEntry | null;
+  /** Set/update an entry */
+  set(key: string, entry: RateLimitEntry): void;
+  /** Increment the counter for a key, returning the new entry */
+  increment(key: string, windowMs: number): RateLimitEntry;
+  /** Periodic cleanup (for memory stores) */
+  cleanup(): void;
+}
+
+// ============================================
+// MEMORY STORE (default)
+// ============================================
+
+class MemoryStore implements RateLimitStore {
+  private store = new Map<string, RateLimitEntry>();
+  private cleanupTimer: ReturnType<typeof setInterval>;
+
+  constructor(cleanupIntervalMs = 5 * 60 * 1000) {
+    this.cleanupTimer = setInterval(() => this.cleanup(), cleanupIntervalMs);
+    // Allow Node.js to exit without waiting for this interval
+    if (this.cleanupTimer.unref) this.cleanupTimer.unref();
+  }
+
+  get(key: string): RateLimitEntry | null {
+    const entry = this.store.get(key);
+    if (!entry) return null;
+    if (entry.resetAt <= Date.now()) {
+      this.store.delete(key);
+      return null;
+    }
+    return entry;
+  }
+
+  set(key: string, entry: RateLimitEntry): void {
+    this.store.set(key, entry);
+  }
+
+  increment(key: string, windowMs: number): RateLimitEntry {
+    const now = Date.now();
+    let entry = this.get(key);
+
+    if (!entry) {
+      entry = { count: 1, resetAt: now + windowMs };
+      this.store.set(key, entry);
+    } else {
+      entry.count++;
+    }
+
+    return entry;
+  }
+
+  cleanup(): void {
+    const now = Date.now();
+    for (const [key, entry] of this.store.entries()) {
+      if (entry.resetAt <= now) {
+        this.store.delete(key);
+      }
     }
   }
 }
 
+// ============================================
+// STORE FACTORY
+// ============================================
+
 /**
- * Planifie un nettoyage périodique du store
+ * Creates the appropriate store based on environment.
+ * When REDIS_URL is set, this will return a RedisStore (once implemented).
  */
-function scheduleCleanup(storeName: string, store: Map<string, RateLimitEntry>, intervalMs: number): void {
-  setInterval(() => {
-    cleanupStore(store);
-  }, intervalMs);
+function createStore(name: string): RateLimitStore {
+  // TODO: When Redis is installed on the VPS:
+  // if (process.env.REDIS_URL) {
+  //   return new RedisStore(name, process.env.REDIS_URL);
+  // }
+  return new MemoryStore();
 }
+
+const stores = new Map<string, RateLimitStore>();
 
 // ============================================
 // FACTORY DE RATE LIMITER
@@ -75,10 +142,7 @@ export function createRateLimiter(name: string, config: RateLimitConfig): Reques
 
   // Créer ou récupérer le store pour ce limiter
   if (!stores.has(name)) {
-    const store = new Map<string, RateLimitEntry>();
-    stores.set(name, store);
-    // Nettoyer toutes les 5 minutes
-    scheduleCleanup(name, store, 5 * 60 * 1000);
+    stores.set(name, createStore(name));
   }
 
   const store = stores.get(name)!;
@@ -90,27 +154,12 @@ export function createRateLimiter(name: string, config: RateLimitConfig): Reques
       return;
     }
 
-    const key = keyGenerator(req);
-    const now = Date.now();
-
-    // Récupérer ou créer l'entrée
-    let entry = store.get(key);
-
-    if (!entry || entry.resetAt <= now) {
-      // Nouvelle fenêtre
-      entry = {
-        count: 1,
-        resetAt: now + windowMs,
-      };
-      store.set(key, entry);
-    } else {
-      // Incrémenter le compteur
-      entry.count++;
-    }
+    const key = `${name}:${keyGenerator(req)}`;
+    const entry = store.increment(key, windowMs);
 
     // Ajouter les headers de rate limit
     const remaining = Math.max(0, maxRequests - entry.count);
-    const resetSeconds = Math.ceil((entry.resetAt - now) / 1000);
+    const resetSeconds = Math.ceil((entry.resetAt - Date.now()) / 1000);
 
     res.setHeader("X-RateLimit-Limit", maxRequests.toString());
     res.setHeader("X-RateLimit-Remaining", remaining.toString());

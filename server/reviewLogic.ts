@@ -7,6 +7,9 @@ import { getAdminSupabase } from "./supabaseAdmin";
 import { emitAdminNotification } from "./adminNotifications";
 import { notifyProMembers } from "./proNotifications";
 import { sendTemplateEmail } from "./emailService";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("reviewLogic");
 import {
   type ReviewRow,
   type ReviewStatus,
@@ -64,7 +67,8 @@ export async function getUserEmail(userId: string): Promise<string | null> {
   try {
     const { data: authUser } = await supabase.auth.admin.getUserById(userId);
     return authUser?.user?.email ?? null;
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "Failed to get user email from auth.users fallback");
     return null;
   }
 }
@@ -96,8 +100,8 @@ export async function getUserDisplayName(userId: string): Promise<string> {
       return `${meta.first_name}${lastName}`;
     }
     if (meta?.full_name) return meta.full_name;
-  } catch {
-    // ignore
+  } catch (err) {
+    log.warn({ err }, "Failed to get user display name from auth metadata");
   }
 
   return "Client vérifié";
@@ -120,7 +124,7 @@ export async function updateEstablishmentRatingStats(establishmentId: string): P
       .eq("status", "published");
 
     if (error) {
-      console.error("[reviewLogic] Error fetching reviews for stats:", error);
+      log.error({ err: error }, "Error fetching reviews for stats");
       return;
     }
 
@@ -161,7 +165,7 @@ export async function updateEstablishmentRatingStats(establishmentId: string): P
       })
       .eq("id", establishmentId);
   } catch (err) {
-    console.error("[reviewLogic] updateEstablishmentRatingStats error:", err);
+    log.error({ err }, "updateEstablishmentRatingStats error");
   }
 }
 
@@ -315,7 +319,7 @@ export async function adminRejectReview(args: {
         rejection_reason: args.reason,
       },
       meta: { review_id: args.reviewId },
-    }).catch((err) => console.error("[reviewLogic] Failed to send rejection email:", err));
+    }).catch((err) => log.error({ err }, "Failed to send rejection email"));
   }
 
   return { ok: true };
@@ -370,7 +374,7 @@ export async function adminRequestModification(args: {
       ctaUrl: `https://sam.ma/review/edit/${args.reviewId}`,
       ctaLabel: "Modifier mon avis",
       meta: { review_id: args.reviewId },
-    }).catch((err) => console.error("[reviewLogic] Failed to send modification email:", err));
+    }).catch((err) => log.error({ err }, "Failed to send modification email"));
   }
 
   return { ok: true };
@@ -462,7 +466,7 @@ export async function proposeCommercialGesture(args: {
       ctaUrl: `https://sam.ma/review/gesture/${gesture.id}`,
       ctaLabel: "Voir le geste commercial",
       meta: { review_id: args.reviewId, gesture_id: gesture.id },
-    }).catch((err) => console.error("[reviewLogic] Failed to send gesture email:", err));
+    }).catch((err) => log.error({ err }, "Failed to send gesture email"));
   }
 
   // Admin notification
@@ -671,7 +675,7 @@ async function sendProGestureNotificationEmail(
       ctaLabel: "Proposer un geste commercial",
       meta: { review_id: review.id },
     }).catch((err) =>
-      console.error("[reviewLogic] Failed to send pro gesture email:", err),
+      log.error({ err }, "Failed to send pro gesture email"),
     );
   }
 }
@@ -703,7 +707,7 @@ async function sendReviewPublishedEmail(
     ctaLabel: "Voir mon avis",
     meta: { review_id: review.id },
   }).catch((err) =>
-    console.error("[reviewLogic] Failed to send review published email:", err),
+    log.error({ err }, "Failed to send review published email"),
   );
 }
 
@@ -763,7 +767,7 @@ async function sendGestureAcceptedEmail(
     ctaLabel: "Réserver ma prochaine visite",
     meta: { review_id: review.id, gesture_id: gestureId },
   }).catch((err) =>
-    console.error("[reviewLogic] Failed to send gesture accepted email:", err),
+    log.error({ err }, "Failed to send gesture accepted email"),
   );
 }
 

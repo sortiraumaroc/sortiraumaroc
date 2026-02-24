@@ -7,6 +7,9 @@
 import { getAdminSupabase } from "./supabaseAdmin";
 import { sendTemplateEmail } from "./emailService";
 import { emitConsumerUserEvent } from "./consumerNotifications";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("loyaltyNotificationSender");
 
 // =============================================================================
 // TEMPLATE MAPPING
@@ -200,7 +203,7 @@ export async function processPendingLoyaltyNotifications(opts?: {
         failed++;
       }
     } catch (err) {
-      console.error(`[loyaltyNotifSender] Error processing notif ${notif.id}:`, err);
+      log.error({ notifId: notif.id, err }, "Error processing notification");
       try {
         await supabase
           .from("loyalty_notifications")
@@ -209,8 +212,8 @@ export async function processPendingLoyaltyNotifications(opts?: {
             error_message: err instanceof Error ? err.message : String(err),
           })
           .eq("id", notif.id);
-      } catch {
-        // best-effort
+      } catch (err) {
+        log.warn({ err, notificationId: notif.id }, "Failed to update loyalty notification status to failed");
       }
       failed++;
     }
@@ -264,7 +267,7 @@ export async function sendLoyaltyCardExpiringEmail(args: {
       },
     });
   } catch (err) {
-    console.error("[loyaltyNotifSender] sendLoyaltyCardExpiringEmail error:", err);
+    log.error({ err }, "sendLoyaltyCardExpiringEmail error");
   }
 }
 
@@ -306,7 +309,7 @@ export async function sendRewardExpiringEmail(args: {
       },
     });
   } catch (err) {
-    console.error("[loyaltyNotifSender] sendRewardExpiringEmail error:", err);
+    log.error({ err }, "sendRewardExpiringEmail error");
   }
 }
 
@@ -344,7 +347,7 @@ export async function sendPlatformGiftExpiringEmail(args: {
       },
     });
   } catch (err) {
-    console.error("[loyaltyNotifSender] sendPlatformGiftExpiringEmail error:", err);
+    log.error({ err }, "sendPlatformGiftExpiringEmail error");
   }
 }
 
@@ -373,7 +376,7 @@ export async function sendRewardExpiringPush(args: {
       },
     });
   } catch (err) {
-    console.error("[loyaltyNotifSender] sendRewardExpiringPush error:", err);
+    log.error({ err }, "sendRewardExpiringPush error");
   }
 }
 
@@ -401,7 +404,8 @@ async function getUserEmail(
     if (authData?.user?.email) return authData.user.email.trim();
 
     return null;
-  } catch {
+  } catch (err) {
+    log.warn({ err, userId }, "Failed to fetch user email for loyalty notification");
     return null;
   }
 }
@@ -427,7 +431,8 @@ async function getUserName(
     if (typeof authName === "string") return authName.trim();
 
     return "Client";
-  } catch {
+  } catch (err) {
+    log.warn({ err, userId }, "Failed to fetch user name for loyalty notification");
     return "Client";
   }
 }
@@ -469,7 +474,8 @@ async function getCardInfo(
       expires_at: ((data as Record<string, unknown>).expires_at as string) ??
         ((data as Record<string, unknown>).reward_expires_at as string) ?? "",
     };
-  } catch {
+  } catch (err) {
+    log.warn({ err, cardId }, "Failed to fetch loyalty card info");
     return null;
   }
 }

@@ -9,7 +9,7 @@ import { useSamVoice } from "../../hooks/useSamVoice";
 import { useUserLocation } from "../../hooks/useUserLocation";
 import { SamMessageBubble } from "./SamMessageBubble";
 import { SamChatInput } from "./SamChatInput";
-import { SAM_CONFIG, getSamUniverseConfig } from "./samClientConfig";
+import { SAM_CONFIG, getSamUniverseConfig, ESTABLISHMENT_SCOPED_CONFIG } from "./samClientConfig";
 import { SAM_DEFAULT_AVATAR } from "../../lib/samMood";
 
 interface SamChatWindowProps {
@@ -19,6 +19,8 @@ interface SamChatWindowProps {
   onClear: () => void;
   onClose: () => void;
   universe?: string | null;
+  /** Si fourni, active le mode établissement dédié */
+  establishmentId?: string;
 }
 
 export function SamChatWindow({
@@ -28,6 +30,7 @@ export function SamChatWindow({
   onClear,
   onClose,
   universe,
+  establishmentId,
 }: SamChatWindowProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { location: userLocation } = useUserLocation();
@@ -160,7 +163,11 @@ export function SamChatWindow({
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4">
         {isEmpty ? (
-          <WelcomeScreen onSuggestion={handleSuggestion} universeConfig={universeConfig} />
+          <WelcomeScreen
+            onSuggestion={handleSuggestion}
+            universeConfig={universeConfig}
+            establishmentId={establishmentId}
+          />
         ) : (
           <div className="flex flex-col gap-3">
             {messages.map((msg) => (
@@ -200,10 +207,33 @@ export function SamChatWindow({
 interface WelcomeScreenProps {
   onSuggestion: (text: string) => void;
   universeConfig: ReturnType<typeof getSamUniverseConfig>;
+  establishmentId?: string;
 }
 
-function WelcomeScreen({ onSuggestion, universeConfig }: WelcomeScreenProps) {
-  const suggestions = universeConfig.suggestions.fr;
+function WelcomeScreen({ onSuggestion, universeConfig, establishmentId }: WelcomeScreenProps) {
+  // Mode scoped : utiliser la config établissement
+  const isScoped = !!establishmentId;
+  const scopedConfig = ESTABLISHMENT_SCOPED_CONFIG;
+
+  // Extraire un nom lisible depuis le slug (ex: "marion-casablanca" → "Marion Casablanca")
+  const establishmentName = establishmentId
+    ? establishmentId
+        .split("-")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ")
+    : "";
+
+  const suggestions = isScoped
+    ? scopedConfig.suggestions.fr
+    : universeConfig.suggestions.fr;
+
+  const welcomeMessage = isScoped
+    ? scopedConfig.welcomeMessage.fr(establishmentName)
+    : universeConfig.welcomeMessage.fr;
+
+  const subtitle = isScoped
+    ? "Menu, offres, packs, réservation — je connais tout !"
+    : "Je peux chercher, recommander et réserver pour toi.";
 
   return (
     <div className="flex h-full flex-col items-center justify-center gap-6 text-center">
@@ -212,10 +242,10 @@ function WelcomeScreen({ onSuggestion, universeConfig }: WelcomeScreenProps) {
       </div>
       <div>
         <h3 className="text-lg font-semibold">
-          {universeConfig.welcomeMessage.fr}
+          {welcomeMessage}
         </h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          Je peux chercher, recommander et r&eacute;server pour toi.
+          {subtitle}
         </p>
       </div>
       <div className="grid w-full gap-2">

@@ -57,7 +57,15 @@ async function fetchCeSecret(): Promise<CeSecretData> {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error ?? "Erreur");
-  return data.data ?? data;
+  const raw = data.data ?? data;
+  // Server returns snake_case (employee_id), map to camelCase
+  return {
+    employeeId: raw.employeeId ?? raw.employee_id ?? "",
+    secret: raw.secret,
+    algorithm: raw.algorithm,
+    digits: raw.digits,
+    period: raw.period,
+  };
 }
 
 // ============================================================================

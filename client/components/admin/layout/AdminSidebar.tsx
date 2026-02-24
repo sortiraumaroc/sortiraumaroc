@@ -7,10 +7,12 @@ import { ADMIN_NAV, type AdminNavItem } from "@/components/admin/layout/adminNav
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { isAdminSuperadmin } from "@/lib/adminApi";
+import { useAdminNotificationsStore } from "@/lib/useAdminNotificationsStore";
 
 export function AdminSidebar(props: { onNavigate?: () => void }) {
   const location = useLocation();
   const isSuperadmin = isAdminSuperadmin();
+  const notifStore = useAdminNotificationsStore();
 
   // Filter nav items based on role
   const filteredNav = useMemo((): AdminNavItem[] => {
@@ -67,6 +69,8 @@ export function AdminSidebar(props: { onNavigate?: () => void }) {
                 const extraActive = item.matchPaths?.some(
                   (p) => location.pathname === p || location.pathname.startsWith(`${p}/`),
                 );
+                const isNotifLink = item.to === "/admin/notifications";
+                const notifBadge = isNotifLink && notifStore.unreadCount > 0 ? notifStore.unreadCount : 0;
                 return (
                   <li key={item.to}>
                     <NavLink
@@ -81,7 +85,12 @@ export function AdminSidebar(props: { onNavigate?: () => void }) {
                       end={item.to === "/admin"}
                     >
                       <item.icon className="h-4 w-4" />
-                      {item.label}
+                      <span className="flex-1">{item.label}</span>
+                      {notifBadge > 0 ? (
+                        <span className="min-w-5 h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-extrabold flex items-center justify-center">
+                          {notifBadge > 99 ? "99+" : notifBadge}
+                        </span>
+                      ) : null}
                     </NavLink>
                   </li>
                 );

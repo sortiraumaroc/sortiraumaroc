@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { Calendar, Clock, HelpCircle, Users } from "lucide-react";
 
@@ -352,6 +352,7 @@ export function StickyBottomBookingActionBar(props: {
   reservationsToday?: number;
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const { t, intlLocale } = useI18n();
   const selectedDateYmd = searchParams.get("date") ?? "";
   const selectedTimeHm = searchParams.get("time") ?? "";
@@ -407,14 +408,28 @@ export function StickyBottomBookingActionBar(props: {
   }, [props.availableSlots, props.establishmentId, props.reserveHref, props.universe, selectedDateYmd, selectedTimeHm, selectedPeople]);
 
   const applyQuickSlot = (slot: QuickSlot) => {
-    const next = new URLSearchParams(searchParams);
-    next.set("date", slot.date);
-    next.set("time", slot.time);
+    // Naviguer directement vers la page de réservation avec le créneau sélectionné
+    const qs = new URLSearchParams();
+    if (props.universe) qs.set("universe", String(props.universe));
+    qs.set("date", slot.date);
+    qs.set("time", slot.time);
 
     const peopleRaw = (searchParams.get("people") ?? "").trim();
-    if (!peopleRaw) next.set("people", String(getDefaultPeopleForUniverse(props.universe)));
+    const people = peopleRaw || String(getDefaultPeopleForUniverse(props.universe));
+    qs.set("people", people);
 
-    setSearchParams(next, { replace: true });
+    // Résoudre le slotId si disponible
+    const ds = (props.availableSlots ?? []).find((s) => String(s.date ?? "") === slot.date) as
+      | (DateSlots & { slotIds?: Record<string, string> })
+      | undefined;
+    const slotId = ds?.slotIds?.[slot.time];
+    if (slotId && String(slotId).trim()) qs.set("slotId", String(slotId).trim());
+
+    if (props.reserveHref) {
+      navigate(props.reserveHref);
+    } else {
+      navigate(`/booking/${encodeURIComponent(props.establishmentId)}?${qs.toString()}`);
+    }
   };
 
   const scrollToMoreDates = () => {

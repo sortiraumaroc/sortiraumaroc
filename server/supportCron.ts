@@ -7,6 +7,9 @@
 
 import { getAdminSupabase } from "./supabaseAdmin";
 import { sendTemplateEmail } from "./emailService";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("supportCron");
 
 // ============================================================================
 // 1. EXPIRE UNANSWERED CHATS (5-minute timer)
@@ -38,7 +41,7 @@ export async function expireUnansweredChats(): Promise<{ processed: number; erro
       .lt("last_client_message_at", fiveMinAgo);
 
     if (error) {
-      console.error("[expireUnansweredChats] Query error:", error);
+      log.error({ err: error }, "expireUnansweredChats query error");
       return { processed: 0, errors: 1 };
     }
 
@@ -75,16 +78,16 @@ export async function expireUnansweredChats(): Promise<{ processed: number; erro
 
         processed++;
       } catch (e) {
-        console.error(`[expireUnansweredChats] Error processing session ${session.id}:`, e);
+        log.error({ err: e, sessionId: session.id }, "Error processing session in expireUnansweredChats");
         errors++;
       }
     }
   } catch (e) {
-    console.error("[expireUnansweredChats] Fatal error:", e);
+    log.error({ err: e }, "expireUnansweredChats fatal error");
     errors++;
   }
 
-  console.log(`[expireUnansweredChats] Done: ${processed} processed, ${errors} errors`);
+  log.info({ processed, errors }, "expireUnansweredChats completed");
   return { processed, errors };
 }
 
@@ -123,7 +126,7 @@ export async function sendUnreadMessageEmails(): Promise<{ sent: number; errors:
       .limit(50);
 
     if (error) {
-      console.error("[sendUnreadMessageEmails] Query error:", error);
+      log.error({ err: error }, "sendUnreadMessageEmails query error");
       return { sent: 0, errors: 1 };
     }
 
@@ -184,15 +187,15 @@ export async function sendUnreadMessageEmails(): Promise<{ sent: number; errors:
 
         sent++;
       } catch (e) {
-        console.error(`[sendUnreadMessageEmails] Error for ticket ${ticketId}:`, e);
+        log.error({ err: e, ticketId }, "Error sending unread message email");
         errors++;
       }
     }
   } catch (e) {
-    console.error("[sendUnreadMessageEmails] Fatal error:", e);
+    log.error({ err: e }, "sendUnreadMessageEmails fatal error");
     errors++;
   }
 
-  console.log(`[sendUnreadMessageEmails] Done: ${sent} sent, ${errors} errors`);
+  log.info({ sent, errors }, "sendUnreadMessageEmails completed");
   return { sent, errors };
 }

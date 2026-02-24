@@ -11,6 +11,10 @@
  *   - Ancienneté / fiabilité annonceur (10%)
  */
 
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("adsQualityScore");
+
 // Uses AdminSupabase type passed from callers (getAdminSupabase())
 
 // =============================================================================
@@ -89,7 +93,7 @@ export async function recalculateQualityScores(
       .in("status", ["active", "paused", "draft"]);
 
     if (fetchError || !campaigns) {
-      console.error("[qualityScore] Error fetching campaigns:", fetchError);
+      log.error({ err: fetchError }, "Error fetching campaigns");
       return { updated: 0, errors: 1 };
     }
 
@@ -170,21 +174,21 @@ export async function recalculateQualityScores(
           .eq("id", campaignId);
 
         if (updateError) {
-          console.error(`[qualityScore] Error updating campaign ${campaignId}:`, updateError);
+          log.error({ err: updateError, campaignId }, "Error updating campaign");
           errors++;
         } else {
           updated++;
         }
       } catch (e) {
-        console.error(`[qualityScore] Error processing campaign:`, e);
+        log.error({ err: e }, "Error processing campaign");
         errors++;
       }
     }
 
-    console.log(`[qualityScore] Updated ${updated} campaigns, ${errors} errors`);
+    log.info({ updated, errors }, "Quality scores recalculated");
     return { updated, errors };
   } catch (e) {
-    console.error("[qualityScore] Unexpected error:", e);
+    log.error({ err: e }, "Unexpected error in quality score recalculation");
     return { updated, errors: errors + 1 };
   }
 }
@@ -259,7 +263,7 @@ export async function recordConversion(
     });
 
     if (insertError) {
-      console.error("[qualityScore] Error recording conversion:", insertError);
+      log.error({ err: insertError }, "Error recording conversion");
       return { attributed: false };
     }
 
@@ -268,13 +272,13 @@ export async function recordConversion(
       await supabase.rpc("increment_campaign_conversions", {
         p_campaign_id: (recentClick as any).campaign_id,
       });
-    } catch {
-      // Best-effort: si la RPC n'existe pas, on ignore
+    } catch (err) {
+      log.warn({ err }, "Best-effort: increment_campaign_conversions RPC failed");
     }
 
     return { attributed: true, campaignId: (recentClick as any).campaign_id };
   } catch (e) {
-    console.error("[qualityScore] recordConversion error:", e);
+    log.error({ err: e }, "recordConversion error");
     return { attributed: false };
   }
 }

@@ -17,6 +17,9 @@ import { getAdminSupabase } from "./supabaseAdmin";
 import { countAudienceSize, getAudienceUserIds } from "./audienceSegmentService";
 import { sendCampaignBatch } from "./pushCampaignSender";
 import { emitAdminNotification } from "./adminNotifications";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("pushCampaignLogic");
 import type {
   PushCampaign,
   PushCampaignStatus,
@@ -125,7 +128,7 @@ export async function createCampaign(input: CreateCampaignInput): Promise<{ ok: 
     .single();
 
   if (error) {
-    console.error("[PushCampaign] createCampaign error:", error.message);
+    log.error({ err: error.message }, "createCampaign error");
     return { ok: false, error: error.message };
   }
 
@@ -368,7 +371,7 @@ export async function sendCampaign(campaignId: string): Promise<CampaignSendResu
     return { ok: true, sent: result.sent, failed: result.failed, skipped };
   } catch (err) {
     // Revert to draft on failure
-    console.error("[PushCampaign] sendCampaign error:", err);
+    log.error({ err }, "sendCampaign error");
     await supabase
       .from("push_campaigns")
       .update({ status: "draft" as PushCampaignStatus, updated_at: new Date().toISOString() })
@@ -460,8 +463,8 @@ export async function trackDelivery(
           column_name: "stats_opened",
           row_id: delivery.campaign_id,
         });
-      } catch {
-        // Fallback: direct update (RPC may not exist)
+      } catch (err) {
+        log.warn({ err }, "increment_counter RPC failed for stats_opened, using fallback");
         void incrementCampaignStat(delivery.campaign_id, "stats_opened");
       }
     } else if (action === "clicked") {
@@ -471,7 +474,8 @@ export async function trackDelivery(
           column_name: "stats_clicked",
           row_id: delivery.campaign_id,
         });
-      } catch {
+      } catch (err) {
+        log.warn({ err }, "increment_counter RPC failed for stats_clicked, using fallback");
         void incrementCampaignStat(delivery.campaign_id, "stats_clicked");
       }
     }
@@ -525,7 +529,7 @@ export async function processScheduledCampaigns(): Promise<{ processed: number; 
 
   // Don't process during quiet hours
   if (isInQuietHours(now)) {
-    console.log("[PushCampaign] Skipping scheduled campaigns: quiet hours");
+    log.info("Skipping scheduled campaigns: quiet hours");
     return { processed: 0, errors: 0 };
   }
 
@@ -544,13 +548,13 @@ export async function processScheduledCampaigns(): Promise<{ processed: number; 
   let errors = 0;
 
   for (const camp of campaigns as { id: string; title: string }[]) {
-    console.log(`[PushCampaign] Processing scheduled campaign: ${camp.id} "${camp.title}"`);
+    log.info({ campaignId: camp.id, title: camp.title }, "Processing scheduled campaign");
     const result = await sendCampaign(camp.id);
     if (result.ok) {
       processed++;
     } else {
       errors++;
-      console.error(`[PushCampaign] Failed to send scheduled campaign ${camp.id}:`, result.error);
+      log.error({ campaignId: camp.id, error: result.error }, "Failed to send scheduled campaign");
     }
   }
 

@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { AdminDataTable } from "@/components/admin/table/AdminDataTable";
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
+import { AdminCollaboratorsNav } from "@/pages/admin/collaborators/AdminCollaboratorsNav";
 import { CollaboratorFormDialog } from "@/components/admin/collaborators/CollaboratorFormDialog";
 
 import type { AdminCollaborator, AdminCollaboratorFormData, AdminRole } from "@/lib/admin/permissions";
@@ -398,6 +399,7 @@ export function AdminCollaboratorsPage() {
 
   return (
     <div className="space-y-4">
+      <AdminCollaboratorsNav />
       <AdminPageHeader
         title="Collaborateurs"
         description="Gérez les comptes internes de l'équipe Sortir Au Maroc : profils, fonctions, rôles et permissions."

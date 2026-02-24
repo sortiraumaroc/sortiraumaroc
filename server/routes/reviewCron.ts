@@ -7,7 +7,11 @@
  */
 
 import type { Request, Response } from "express";
+import type { Express } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("reviewCron");
 const supabase = getAdminSupabase();
 import { emitAdminNotification } from "../adminNotifications";
 import crypto from "crypto";
@@ -49,7 +53,7 @@ export async function cronSendReviewInvitations(req: Request, res: Response) {
       .not("user_id", "is", null);
 
     if (resError) {
-      console.error("[cronReviewInvitations] Error fetching reservations:", resError);
+      log.error({ err: resError }, "Error fetching reservations for review invitations");
       return res.status(500).json({ ok: false, error: "Database error" });
     }
 
@@ -112,7 +116,7 @@ export async function cronSendReviewInvitations(req: Request, res: Response) {
         });
 
       if (insertError) {
-        console.error("[cronReviewInvitations] Error creating invitation:", insertError);
+        log.error({ err: insertError }, "Error creating review invitation");
         continue;
       }
 
@@ -122,7 +126,7 @@ export async function cronSendReviewInvitations(req: Request, res: Response) {
       invitationsSent++;
     }
 
-    console.log(`[cronReviewInvitations] Sent ${invitationsSent} review invitations`);
+    log.info({ invitationsSent }, "Review invitations sent");
 
     return res.json({
       ok: true,
@@ -130,7 +134,7 @@ export async function cronSendReviewInvitations(req: Request, res: Response) {
       invitationsSent,
     });
   } catch (err) {
-    console.error("[cronReviewInvitations] Unexpected error:", err);
+    log.error({ err }, "Unexpected error in review invitations cron");
     return res.status(500).json({ ok: false, error: "Server error" });
   }
 }
@@ -167,7 +171,7 @@ export async function cronAutoPublishReviews(req: Request, res: Response) {
       .lt("pro_response_deadline", now);
 
     if (reviewsError) {
-      console.error("[cronAutoPublish] Error fetching reviews:", reviewsError);
+      log.error({ err: reviewsError }, "Error fetching reviews for auto-publish");
       return res.status(500).json({ ok: false, error: "Database error" });
     }
 
@@ -188,7 +192,7 @@ export async function cronAutoPublishReviews(req: Request, res: Response) {
         .eq("id", review.id);
 
       if (updateError) {
-        console.error("[cronAutoPublish] Error updating review:", updateError);
+        log.error({ err: updateError }, "Error updating review for auto-publish");
         continue;
       }
 
@@ -209,7 +213,7 @@ export async function cronAutoPublishReviews(req: Request, res: Response) {
       autoPublished++;
     }
 
-    console.log(`[cronAutoPublish] Auto-published ${autoPublished} reviews`);
+    log.info({ autoPublished }, "Reviews auto-published");
 
     return res.json({
       ok: true,
@@ -217,7 +221,7 @@ export async function cronAutoPublishReviews(req: Request, res: Response) {
       autoPublished,
     });
   } catch (err) {
-    console.error("[cronAutoPublish] Unexpected error:", err);
+    log.error({ err }, "Unexpected error in auto-publish cron");
     return res.status(500).json({ ok: false, error: "Server error" });
   }
 }
@@ -251,6 +255,15 @@ async function updateEstablishmentRatingStats(establishmentId: string) {
       })
       .eq("id", establishmentId);
   } catch (err) {
-    console.error("[cronAutoPublish] Error updating establishment stats:", err);
+    log.error({ err }, "Error updating establishment stats after auto-publish");
   }
+}
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerReviewCronRoutes(app: Express) {
+  app.post("/api/admin/cron/review-invitations", cronSendReviewInvitations);
+  app.post("/api/admin/cron/review-auto-publish", cronAutoPublishReviews);
 }

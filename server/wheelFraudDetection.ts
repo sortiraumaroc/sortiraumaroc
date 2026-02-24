@@ -9,6 +9,9 @@
 
 import { getAdminSupabase } from "./supabaseAdmin";
 import { emitAdminNotification } from "./adminNotifications";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("wheelFraudDetection");
 
 // =============================================================================
 // Types
@@ -207,7 +210,7 @@ export async function runFraudDetectionScan(): Promise<{ alerts: number }> {
   }
 
   if (alerts > 0) {
-    console.log(`[WheelFraud] Detected ${alerts} suspicious patterns`);
+    log.info({ alerts }, "Detected suspicious patterns");
   }
 
   return { alerts };

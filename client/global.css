@@ -499,6 +499,198 @@ iframe[src*="recaptcha/api2/bframe"] {
   /* keep default tail styling */
 }
 
+/* ============================================
+   Ramadan 2026 — Thème "Mille et Une Nuits"
+   Override des CSS variables + classes utilitaires
+   ============================================ */
+
+/* Override HSL variables quand le thème Ramadan est actif */
+.ramadan-theme {
+  --primary: 43 75% 52%;          /* gold #D4AF37 */
+  --primary-foreground: 219 55% 10%; /* night #0A1628 */
+  --secondary: 219 55% 10%;       /* night */
+  --secondary-foreground: 43 100% 94%; /* cream #FFF8E7 */
+  --accent: 43 75% 52%;           /* gold */
+  --accent-foreground: 219 55% 10%; /* night */
+  --ring: 43 75% 52%;             /* gold */
+}
+
+/* Étoile scintillante — 25 instances positionnées par CSS variables */
+.ramadan-star {
+  position: absolute;
+  width: var(--star-size, 3px);
+  height: var(--star-size, 3px);
+  background: #E8D48B;
+  border-radius: 50%;
+  pointer-events: none;
+  top: var(--star-y, 50%);
+  left: var(--star-x, 50%);
+  animation: ramadan-twinkle var(--star-duration, 3s) ease-in-out infinite;
+  animation-delay: var(--star-delay, 0s);
+  will-change: opacity, transform;
+  box-shadow: 0 0 4px 1px rgba(232, 212, 139, 0.4);
+}
+
+/* Particule dorée flottante */
+.ramadan-particle {
+  position: absolute;
+  width: var(--particle-size, 4px);
+  height: var(--particle-size, 4px);
+  background: radial-gradient(circle, #D4AF37, #E8D48B);
+  border-radius: 50%;
+  pointer-events: none;
+  bottom: var(--particle-y, 0);
+  left: var(--particle-x, 50%);
+  animation: ramadan-float-up var(--particle-duration, 6s) ease-in-out infinite;
+  animation-delay: var(--particle-delay, 0s);
+  will-change: opacity, transform;
+}
+
+/* Lanterne — balancement */
+.ramadan-lantern {
+  animation: ramadan-lantern-sway 4s ease-in-out infinite;
+  transform-origin: top center;
+  will-change: transform;
+}
+
+/* Soulignement doré arabesque sous les titres */
+.ramadan-title-underline {
+  position: relative;
+  display: inline-block;
+}
+.ramadan-title-underline::after {
+  content: "";
+  position: absolute;
+  bottom: -6px;
+  left: 10%;
+  right: 10%;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, #D4AF37, transparent);
+  border-radius: 2px;
+}
+
+/* Étoile brillante — halo pulsant + forme en croix (4 branches) */
+.ramadan-bright-star {
+  position: absolute;
+  width: var(--bright-size, 5px);
+  height: var(--bright-size, 5px);
+  background: #FFF8E7;
+  border-radius: 50%;
+  pointer-events: none;
+  top: var(--bright-y, 50%);
+  left: var(--bright-x, 50%);
+  animation: ramadan-glow-pulse var(--glow-duration, 5s) ease-in-out infinite;
+  animation-delay: var(--glow-delay, 0s);
+  will-change: opacity, box-shadow;
+  box-shadow: 0 0 6px 2px rgba(232, 212, 139, 0.5);
+}
+
+/* Branches en croix (pseudo-éléments) */
+.ramadan-bright-star::before,
+.ramadan-bright-star::after {
+  content: "";
+  position: absolute;
+  background: linear-gradient(to bottom, transparent, #FFF8E7 40%, #FFF8E7 60%, transparent);
+  border-radius: 2px;
+  top: 50%;
+  left: 50%;
+}
+
+.ramadan-bright-star::before {
+  width: 2px;
+  height: calc(var(--bright-size, 5px) * 3);
+  transform: translate(-50%, -50%);
+}
+
+.ramadan-bright-star::after {
+  width: calc(var(--bright-size, 5px) * 3);
+  height: 2px;
+  transform: translate(-50%, -50%);
+}
+
+/* Étoile filante — traînée diagonale */
+.ramadan-shooting-star {
+  position: absolute;
+  width: 2px;
+  height: var(--shooting-length, 80px);
+  background: linear-gradient(to bottom, transparent, #E8D48B 30%, #FFF8E7 50%, #E8D48B 70%, transparent);
+  border-radius: 1px;
+  pointer-events: none;
+  top: var(--shooting-y, 10%);
+  left: var(--shooting-x, 50%);
+  transform: rotate(-45deg);
+  opacity: 0;
+  animation: ramadan-shooting-star var(--shooting-duration, 2.5s) ease-in-out var(--shooting-delay, 8s) infinite;
+  will-change: opacity, transform;
+}
+
+/* Point brillant en tête de l'étoile filante */
+.ramadan-shooting-star::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  background: #FFF8E7;
+  border-radius: 50%;
+  box-shadow: 0 0 8px 3px rgba(255, 248, 231, 0.8);
+}
+
+/* ─── Accessibilité : réduire les animations ─── */
+@media (prefers-reduced-motion: reduce) {
+  .ramadan-star,
+  .ramadan-bright-star,
+  .ramadan-shooting-star,
+  .ramadan-particle,
+  .ramadan-lantern {
+    animation: none !important;
+    opacity: 0.6;
+  }
+
+  .ramadan-shooting-star {
+    display: none !important;
+  }
+}
+
+/* ============================================
+   Onboarding Ramadan — force inputs to stay within card
+   iOS Safari & Chrome impose min-width on date/time inputs
+   ============================================ */
+@media (max-width: 640px) {
+  .onboarding-ramadan-card input,
+  .onboarding-ramadan-card select,
+  .onboarding-ramadan-card textarea,
+  .onboarding-ramadan-card button {
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  .onboarding-ramadan-card input[type="date"],
+  .onboarding-ramadan-card input[type="time"] {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .onboarding-ramadan-card {
+    max-width: 100% !important;
+  }
+
+  .onboarding-ramadan-card .onboarding-step-contained {
+    overflow: hidden !important;
+    max-width: 100% !important;
+  }
+
+  .onboarding-ramadan-card .onboarding-step-contained * {
+    max-width: 100%;
+  }
+}
+
 /* Profile success dialog animated checkmark */
 @keyframes scale-bounce {
   0% {

@@ -1572,9 +1572,11 @@ export async function searchEstablishmentsByName(
 export async function listEstablishments(
   adminKey: string | undefined,
   status?: EstablishmentStatus,
+  search?: string,
 ): Promise<ListResponse<Establishment>> {
   const qs = new URLSearchParams();
   if (status) qs.set("status", status);
+  if (search) qs.set("search", search);
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
   return requestJson<ListResponse<Establishment>>(
     `/api/admin/establishments${suffix}`,
@@ -1917,11 +1919,12 @@ export async function acceptAdminEstablishmentProfileChange(
   establishmentId: string,
   draftId: string,
   changeId: string,
+  correctedValue?: unknown,
 ): Promise<{ ok: true; finalized: boolean; status: string | null }> {
   return requestJson<{ ok: true; finalized: boolean; status: string | null }>(
     `/api/admin/establishments/${encodeURIComponent(establishmentId)}/profile-updates/${encodeURIComponent(draftId)}/changes/${encodeURIComponent(changeId)}/accept`,
     adminKey,
-    { method: "POST", body: JSON.stringify({}) },
+    { method: "POST", body: JSON.stringify(correctedValue !== undefined ? { correctedValue } : {}) },
   );
 }
 
@@ -2959,6 +2962,18 @@ export async function adminDeleteSlot(
   );
 }
 
+export async function adminBulkDeleteSlots(
+  adminKey: string | undefined,
+  establishmentId: string,
+  slotIds: string[],
+): Promise<{ ok: true; deleted: number }> {
+  return requestJson<{ ok: true; deleted: number }>(
+    `/api/admin/establishments/${encodeURIComponent(establishmentId)}/slots/bulk`,
+    adminKey,
+    { method: "DELETE", body: JSON.stringify({ slotIds }) },
+  );
+}
+
 export async function listAdminEstablishmentPackBilling(
   adminKey: string | undefined,
   establishmentId: string,
@@ -3174,24 +3189,33 @@ export type AdminNotification = {
   title: string;
   body: string;
   data: unknown;
+  category?: string;
+  severity?: string;
   created_at: string;
   read_at: string | null;
 };
 
 export async function listAdminNotifications(
   adminKey: string | undefined,
-  args?: { limit?: number; unread?: boolean; after?: string },
-): Promise<ListResponse<AdminNotification>> {
+  args?: { limit?: number; offset?: number; unread?: boolean; after?: string; category?: string; severity?: string },
+): Promise<ListResponse<AdminNotification> & { hasMore?: boolean }> {
   const params = new URLSearchParams();
   if (typeof args?.limit === "number" && Number.isFinite(args.limit))
     params.set("limit", String(Math.round(args.limit)));
+  if (typeof args?.offset === "number" && Number.isFinite(args.offset) && args.offset > 0)
+    params.set("offset", String(Math.round(args.offset)));
   if (args?.unread === true) params.set("unread", "true");
   if (typeof args?.after === "string" && args.after.trim())
     params.set("after", args.after.trim());
+  if (typeof args?.category === "string" && args.category.trim())
+    params.set("category", args.category.trim());
+  if (typeof args?.severity === "string" && args.severity.trim())
+    params.set("severity", args.severity.trim());
 
   const suffix = params.toString();
-  return requestJson<ListResponse<AdminNotification>>(
-    `/api/admin/alerts${suffix ? `?${suffix}` : ""}`,
+  return requestJson<ListResponse<AdminNotification> & { hasMore?: boolean }>(
+    // [FIX-NOTIF] Use /notifications path — /alerts conflicts with reservationV2Admin getAdminAlerts
+    `/api/admin/notifications${suffix ? `?${suffix}` : ""}`,
     adminKey,
   );
 }
@@ -3200,7 +3224,8 @@ export async function getAdminNotificationsUnreadCount(
   adminKey: string | undefined,
 ): Promise<{ ok: true; unread: number }> {
   return requestJson<{ ok: true; unread: number }>(
-    "/api/admin/alerts/unread-count",
+    // [FIX-NOTIF] Use /notifications path
+    "/api/admin/notifications/unread-count",
     adminKey,
   );
 }
@@ -3210,7 +3235,8 @@ export async function markAdminNotificationRead(
   id: string,
 ): Promise<{ ok: true }> {
   return requestJson<{ ok: true }>(
-    `/api/admin/alerts/${encodeURIComponent(id)}/read`,
+    // [FIX-NOTIF] Use /notifications path
+    `/api/admin/notifications/${encodeURIComponent(id)}/read`,
     adminKey,
     {
       method: "POST",
@@ -3223,7 +3249,8 @@ export async function markAllAdminNotificationsRead(
   adminKey: string | undefined,
 ): Promise<{ ok: true }> {
   return requestJson<{ ok: true }>(
-    "/api/admin/alerts/mark-all-read",
+    // [FIX-NOTIF] Use /notifications path
+    "/api/admin/notifications/mark-all-read",
     adminKey,
     {
       method: "POST",
@@ -3237,10 +3264,27 @@ export async function deleteAdminNotification(
   id: string,
 ): Promise<{ ok: true }> {
   return requestJson<{ ok: true }>(
-    `/api/admin/alerts/${encodeURIComponent(id)}`,
+    // [FIX-NOTIF] Use /notifications path
+    `/api/admin/notifications/${encodeURIComponent(id)}`,
     adminKey,
     {
       method: "DELETE",
+    },
+  );
+}
+
+export async function bulkAdminNotificationAction(
+  adminKey: string | undefined,
+  action: "read" | "delete",
+  ids: string[],
+): Promise<{ ok: true; affected: number }> {
+  return requestJson<{ ok: true; affected: number }>(
+    // [FIX-NOTIF] Use /notifications path
+    "/api/admin/notifications/bulk-action",
+    adminKey,
+    {
+      method: "POST",
+      body: JSON.stringify({ action, ids }),
     },
   );
 }
@@ -6327,7 +6371,7 @@ export async function uploadAdminCategoryImage(
 // HOME CURATION (Homepage sections management)
 // ============================================
 
-export type HomeCurationKind = "best_deals" | "selected_for_you" | "near_you" | "most_booked";
+export type HomeCurationKind = "best_deals" | "selected_for_you" | "near_you" | "most_booked" | "open_now" | "trending" | "new_establishments" | "top_rated" | "deals" | "themed" | "by_service_buffet" | "by_service_table" | "by_service_carte";
 
 export type HomeCurationItemAdmin = {
   id: string;
@@ -6567,6 +6611,8 @@ export type HomeSettings = {
   hero: {
     background_image_url: string | null;
     overlay_opacity: number;
+    mobile_background_image_url?: string | null;
+    mobile_overlay_opacity?: number;
     title?: string | null;
     subtitle?: string | null;
   };
@@ -6574,6 +6620,7 @@ export type HomeSettings = {
     title: string;
     items: HowItWorksItem[];
   };
+  packs_section_title?: string;
 };
 
 export async function getAdminHomeSettings(
@@ -6614,6 +6661,28 @@ export async function deleteAdminHeroImage(
 ): Promise<{ ok: true }> {
   return requestJson<{ ok: true }>(
     "/api/admin/home-settings/hero-image/delete",
+    adminKey,
+    { method: "POST" },
+  );
+}
+
+export async function uploadAdminMobileHeroImage(
+  adminKey: string | undefined,
+  imageBase64: string,
+  mimeType: string,
+): Promise<{ ok: true; url: string }> {
+  return requestJson<{ ok: true; url: string }>(
+    "/api/admin/home-settings/hero-image-mobile",
+    adminKey,
+    { method: "POST", body: JSON.stringify({ image: imageBase64, mime_type: mimeType }) },
+  );
+}
+
+export async function deleteAdminMobileHeroImage(
+  adminKey: string | undefined,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    "/api/admin/home-settings/hero-image-mobile/delete",
     adminKey,
     { method: "POST" },
   );

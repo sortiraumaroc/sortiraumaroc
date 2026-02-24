@@ -11,6 +11,9 @@ import { getAdminSupabase } from "../supabaseAdmin";
 import { emitAdminNotification } from "../adminNotifications";
 import { createDocument, createCreditNote, type VFApiResult, type VFApiError } from "./client";
 import type { VFCreateDocumentInput, VFDocument } from "../../shared/packsBillingTypes";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("vosfacturesRetry");
 
 /** Extract error body from a failed API result */
 function vfErrorBody(result: VFApiResult<any>): string {
@@ -67,7 +70,7 @@ export async function retryPendingDocuments(): Promise<{
     .limit(50);
 
   if (error) {
-    console.error("[VF Retry] Failed to fetch pending documents:", error.message);
+    log.error({ err: error.message }, "failed to fetch pending documents");
     return { processed: 0, succeeded: 0, failed: 0, permanentlyFailed: 0 };
   }
 
@@ -154,9 +157,7 @@ export async function retryPendingDocuments(): Promise<{
     }
   }
 
-  console.log(
-    `[VF Retry] Processed ${pendingDocs.length}: ${succeeded} ok, ${failed} retry later, ${permanentlyFailed} permanently failed`,
-  );
+  log.info({ total: pendingDocs.length, succeeded, failed, permanentlyFailed }, "processed pending documents");
 
   return {
     processed: pendingDocs.length,
@@ -185,7 +186,7 @@ export async function alertStaleDocuments(): Promise<number> {
     .limit(100);
 
   if (error) {
-    console.error("[VF Alert] Failed to check stale documents:", error.message);
+    log.error({ err: error.message }, "failed to check stale documents");
     return 0;
   }
 
@@ -204,14 +205,12 @@ export async function alertStaleDocuments(): Promise<number> {
           document_types: [...new Set(staleDocs.map((d: any) => d.type))],
         },
       });
-    } catch {
-      // Best-effort
+    } catch (err) {
+      log.warn({ err }, "Best-effort: admin alert for stale VosFactures documents");
     }
   })();
 
-  console.warn(
-    `[VF Alert] ${staleDocs.length} documents pending > 24h!`,
-  );
+  log.warn({ count: staleDocs.length }, "documents pending > 24h");
 
   return staleDocs.length;
 }
@@ -331,12 +330,9 @@ async function storeVfReferenceAfterRetry(
         break;
 
       default:
-        console.warn(`[VF Retry] Unknown document type: ${doc.type}`);
+        log.warn({ docType: doc.type }, "unknown document type");
     }
   } catch (err) {
-    console.error(
-      `[VF Retry] Failed to store VF reference for ${doc.type}/${doc.reference_id}:`,
-      err,
-    );
+    log.error({ err, docType: doc.type, referenceId: doc.reference_id }, "failed to store VF reference");
   }
 }

@@ -39,6 +39,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 import { fileToAvatarDataUrl } from "@/lib/profilePhoto";
 import { setProProfileAvatar, getProProfileAvatar } from "@/lib/pro/profile";
@@ -1005,6 +1015,7 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
 
   const [pendingChanges, setPendingChanges] = useState<EstablishmentProfileDraftChange[]>([]);
   const [pendingChangesLoading, setPendingChangesLoading] = useState(false);
@@ -1109,6 +1120,7 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
       coverUrl: establishment.cover_url ?? "",
       galleryUrls: (establishment.gallery_urls ?? []) as string[],
       ambianceCsv: joinLines(establishment.ambiance_tags),
+      serviceTypesCsv: joinLines(establishment.service_types),
       social: {
         instagram: getSocialValue(establishment.social_links, "instagram"),
         facebook: getSocialValue(establishment.social_links, "facebook"),
@@ -1122,6 +1134,24 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
       mixRows: mixToRows(establishment.mix_experience),
     };
   });
+
+  // Hide Google reviews toggle — immediate save (no moderation needed)
+  const [hideGoogleReviews, setHideGoogleReviews] = useState(establishment.hide_google_reviews ?? false);
+
+  const toggleGoogleReviewsApi = useCallback(async (hide: boolean) => {
+    try {
+      const { requireProAccessToken } = await import("@/lib/pro/api");
+      const token = await requireProAccessToken();
+      await fetch(`/api/pro/establishments/${encodeURIComponent(establishment.id)}/toggle-google-reviews`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ hide_google_reviews: hide }),
+      });
+    } catch {
+      // Revert on error
+      setHideGoogleReviews(!hide);
+    }
+  }, [establishment.id]);
 
   // Load universes from database on mount
   useEffect(() => {
@@ -1301,6 +1331,7 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
       coverUrl: establishment.cover_url ?? "",
       galleryUrls: (establishment.gallery_urls ?? []) as string[],
       ambianceCsv: joinLines(establishment.ambiance_tags),
+      serviceTypesCsv: joinLines(establishment.service_types),
       social: {
         instagram: getSocialValue(establishment.social_links, "instagram"),
         facebook: getSocialValue(establishment.social_links, "facebook"),
@@ -1758,6 +1789,7 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
         cover_url: form.coverUrl.trim() || null,
         gallery_urls: form.galleryUrls.slice(),
         ambiance_tags: splitListInput(form.ambianceCsv),
+        service_types: splitListInput(form.serviceTypesCsv),
         social_links: buildSocialLinks(form.social),
         hours: editorStateToHours(form.hoursEditor),
         mix_experience: buildMixExperience(form.mixRows),
@@ -2522,6 +2554,23 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
                       </div>
 
                       <div className="space-y-2">
+                        <Label>Type de service</Label>
+                        <Textarea
+                          value={form.serviceTypesCsv}
+                          onChange={(e) => setForm((p) => ({ ...p, serviceTypesCsv: e.target.value }))}
+                          disabled={!canEdit}
+                          className="min-h-[80px]"
+                          placeholder="Un type par ligne"
+                        />
+                        <QuickAddWords
+                          label="Suggestions"
+                          words={["Buffet à volonté", "Servi à table", "À la carte"]}
+                          disabled={!canEdit}
+                          onAdd={(word) => setForm((p) => ({ ...p, serviceTypesCsv: addToLinesField(p.serviceTypesCsv, word) }))}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
                         <Label>Tags généraux</Label>
                         <Textarea
                           value={form.tagsCsv}
@@ -2810,11 +2859,11 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
                 return (
                   <div key={key} className="space-y-2">
                     <div className="flex items-center justify-between gap-3">
-                      <Label className="flex items-center gap-2">
+                      <Label className="flex items-center gap-2 shrink-0 whitespace-nowrap">
                         <Icon className={"w-4 h-4 " + (value.trim() ? "text-primary" : "text-slate-400")} />
                         {label}
                       </Label>
-                      {value.trim() ? <div className="text-xs text-slate-500">{formatUrlShort(value)}</div> : null}
+                      {value.trim() ? <div className="text-xs text-slate-500 truncate min-w-0">{formatUrlShort(value)}</div> : null}
                     </div>
                     <Input
                       value={value}
@@ -2828,6 +2877,34 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
                     </CardContent>
                   </CollapsibleContent>
                 </Collapsible>
+              </Card>
+
+              {/* Options d'affichage */}
+              <Card className="border-slate-200">
+                <CardHeader className="pb-3">
+                  <SectionHeader
+                    title="Options d'affichage"
+                    description="Contrôlez ce qui est visible sur votre page publique."
+                    titleClassName="text-sm"
+                  />
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      id="hide-google-reviews"
+                      checked={hideGoogleReviews}
+                      onCheckedChange={(v) => {
+                        const next = v === true;
+                        setHideGoogleReviews(next);
+                        toggleGoogleReviewsApi(next);
+                      }}
+                      disabled={!canEdit}
+                    />
+                    <Label htmlFor="hide-google-reviews" className="text-sm cursor-pointer">
+                      Masquer les avis Google sur la page publique
+                    </Label>
+                  </div>
+                </CardContent>
               </Card>
             </div>
 
@@ -2852,8 +2929,10 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
                       <CheckCircle2 className="w-4 h-4" />
                       Établissement vérifié
                     </div>
+                  ) : moderationLocked ? (
+                    <div className="text-sm text-amber-700">Modifications en attente de validation</div>
                   ) : (
-                    <div className="text-sm text-amber-700">Établissement en cours de validation</div>
+                    <div className="text-sm text-slate-500">Établissement en attente de vérification par SAM</div>
                   )}
 
                   {moderationLocked ? (
@@ -2871,10 +2950,30 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
 
                   {error ? <div className="text-sm text-red-600">{error}</div> : null}
 
-                  <Button className="bg-primary text-white hover:bg-primary/90 font-bold gap-2 w-full" disabled={!canSubmit} onClick={handleSubmit}>
+                  <Button className="bg-primary text-white hover:bg-primary/90 font-bold gap-2 w-full" disabled={!canSubmit} onClick={() => setShowSubmitConfirm(true)}>
                     {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                     Soumettre en modération
                   </Button>
+
+                  <AlertDialog open={showSubmitConfirm} onOpenChange={setShowSubmitConfirm}>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Confirmer la soumission</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Vos modifications vont être soumises à la modération. Elles seront examinées et validées prochainement par l'équipe SAM.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Annuler</AlertDialogCancel>
+                        <AlertDialogAction
+                          className="bg-primary text-white hover:bg-primary/90"
+                          onClick={() => { setShowSubmitConfirm(false); handleSubmit(); }}
+                        >
+                          Confirmer
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
 
                   {!canEdit ? <div className="text-sm text-slate-600">Votre rôle ne permet pas de modifier la fiche.</div> : null}
                 </CardContent>

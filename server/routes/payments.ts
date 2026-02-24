@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import type { Express } from "express";
 import crypto from "crypto";
 
 import { getAdminSupabase } from "../supabaseAdmin";
@@ -21,6 +22,12 @@ import { createWalletRechargeInvoice } from "../ads/invoicing";
 import { ensureSubscriptionForOrder } from "../subscriptions/usernameSubscription";
 import { sendUsernameSubscriptionInvoiceEmail, orderContainsUsernameSubscription } from "../subscriptions/usernameInvoicing";
 import { generateWalletTopupReceipt, generateProServiceReceipt, generateDepositReceipt } from "../vosfactures/documents";
+import { enqueueFinanceOperation } from "../finance/retryQueue";
+import { createModuleLogger } from "../lib/logger";
+import { zBody } from "../lib/validate";
+import { PaymentsWebhookSchema } from "../schemas/paymentsRoutes";
+
+const log = createModuleLogger("payments");
 
 import { formatLeJjMmAaAHeure } from "../../shared/datetime";
 import { NotificationEventType } from "../../shared/notifications";
@@ -56,22 +63,17 @@ async function adjustPackStockForPurchaseBestEffort(args: {
   delta: number;
 }): Promise<void> {
   try {
-    const { data: pack } = await args.supabase
-      .from("packs")
-      .select("id,is_limited,stock")
-      .eq("id", args.packId)
-      .maybeSingle();
-
-    const isLimited = (pack as any)?.is_limited === true;
-    const stock = (pack as any)?.stock;
-    const stockInt = typeof stock === "number" && Number.isFinite(stock) ? Math.round(stock) : stock == null ? null : Number(stock);
-
-    if (!isLimited || stockInt == null || !Number.isFinite(stockInt)) return;
-
-    const nextStock = Math.max(0, Math.round(stockInt + args.delta));
-    await args.supabase.from("packs").update({ stock: nextStock }).eq("id", args.packId);
-  } catch {
-    // ignore
+    // Atomic stock adjustment via RPC — no read-modify-write race condition.
+    // Returns new stock, or -1 if pack is not limited / not found.
+    const { error } = await args.supabase.rpc("adjust_pack_stock", {
+      p_pack_id: args.packId,
+      p_delta: args.delta,
+    });
+    if (error) {
+      log.warn({ err: error }, "adjust_pack_stock RPC error");
+    }
+  } catch (err) {
+    log.warn({ err }, "Best-effort: adjust_pack_stock RPC exception");
   }
 }
 
@@ -243,31 +245,41 @@ function listInternalVisibilityOrderEmails(): string[] {
   return [`pro@${domain}`];
 }
 
+/**
+ * Fetch auth emails for a list of user IDs using parallel getUserById calls.
+ * Replaces the old N+1 pagination approach (listUsers page-by-page).
+ *
+ * Old approach: iterated up to 20 pages of 1000 users each (worst case: 20 API calls)
+ * New approach: parallel getUserById calls (exactly N API calls, where N = userIds.length)
+ */
 async function listAuthEmailsByUserIds(args: {
   supabase: ReturnType<typeof getAdminSupabase>;
   userIds: string[];
 }): Promise<string[]> {
-  const wanted = new Set(args.userIds.map((x) => asString(x)).filter(Boolean));
-  if (!wanted.size) return [];
+  const wanted = args.userIds.map((x) => asString(x)).filter(Boolean);
+  if (!wanted.length) return [];
 
+  // Deduplicate
+  const uniqueIds = Array.from(new Set(wanted));
+
+  // Fetch in parallel batches of 20 to avoid overwhelming the auth service
+  const BATCH_SIZE = 20;
   const emails: string[] = [];
 
-  for (let page = 1; page <= 20; page += 1) {
-    if (emails.length >= wanted.size) break;
-    const { data, error } = await args.supabase.auth.admin.listUsers({ page, perPage: 1000 });
-    if (error) break;
+  for (let i = 0; i < uniqueIds.length; i += BATCH_SIZE) {
+    const batch = uniqueIds.slice(i, i + BATCH_SIZE);
+    const results = await Promise.allSettled(
+      batch.map((uid) => args.supabase.auth.admin.getUserById(uid)),
+    );
 
-    for (const u of data.users ?? []) {
-      const uid = asString((u as any)?.id);
-      if (!uid || !wanted.has(uid)) continue;
-      const em = asString((u as any)?.email);
-      if (em) emails.push(em);
+    for (const result of results) {
+      if (result.status === "fulfilled" && result.value.data?.user?.email) {
+        emails.push(result.value.data.user.email.trim());
+      }
     }
-
-    if (!data.users?.length) break;
   }
 
-  return Array.from(new Set(emails.map((x) => x.trim()).filter(Boolean)));
+  return Array.from(new Set(emails.filter(Boolean)));
 }
 
 async function getConsumerEmailAndName(args: {
@@ -282,15 +294,16 @@ async function getConsumerEmailAndName(args: {
     const email = typeof (data as any)?.email === "string" ? String((data as any).email).trim() : "";
     const fullName = typeof (data as any)?.full_name === "string" ? String((data as any).full_name).trim() : "";
     if (email) return { email, fullName };
-  } catch {
-    // ignore
+  } catch (err) {
+    log.warn({ err }, "fetch consumer email failed");
   }
 
   // Fallback: try auth users
   try {
     const emails = await listAuthEmailsByUserIds({ supabase: args.supabase, userIds: [userId] });
     return { email: emails[0] ?? "", fullName: "" };
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "fetch auth email fallback failed");
     return { email: "", fullName: "" };
   }
 }
@@ -307,7 +320,7 @@ async function getProMemberEmailsForEstablishment(args: {
       .from("pro_establishment_memberships")
       .select("user_id")
       .eq("establishment_id", establishmentId)
-      .limit(5000);
+      .limit(200);
 
     const userIds = Array.from(
       new Set(
@@ -319,7 +332,8 @@ async function getProMemberEmailsForEstablishment(args: {
     ).slice(0, 200);
 
     return await listAuthEmailsByUserIds({ supabase: args.supabase, userIds });
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "fetch pro member emails failed");
     return [];
   }
 }
@@ -334,7 +348,8 @@ async function getEstablishmentName(args: {
   try {
     const { data } = await args.supabase.from("establishments").select("name").eq("id", establishmentId).maybeSingle();
     return typeof (data as any)?.name === "string" ? String((data as any).name) : "";
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "fetch establishment name failed");
     return "";
   }
 }
@@ -352,13 +367,7 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
   // SECURITY: First, verify HMAC signature if provided
   const signatureResult = verifyWebhookSignature(req, expected);
   if (!signatureResult.valid) {
-    console.warn(
-      "[PaymentsWebhook] SECURITY: Invalid webhook signature",
-      "Reason:",
-      signatureResult.reason,
-      "IP:",
-      req.ip || req.socket?.remoteAddress
-    );
+    log.warn({ reason: signatureResult.reason, ip: req.ip || req.socket?.remoteAddress }, "SECURITY: invalid webhook signature");
     return res.status(401).json({
       ok: false,
       status: "ERROR",
@@ -368,17 +377,32 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
   }
 
   // If signature was provided and valid, we're authenticated
-  // Otherwise, fall back to API key verification
+  // Otherwise, fall back to API key verification (DEPRECATED — will be removed)
   if (signatureResult.reason === "no_signature_header") {
     const provided = readWebhookKey(req, body);
     if (!provided || provided !== expected) {
-      console.warn(
-        "[PaymentsWebhook] SECURITY: Invalid webhook key",
-        "IP:",
-        req.ip || req.socket?.remoteAddress
-      );
+      log.warn({ ip: req.ip || req.socket?.remoteAddress }, "SECURITY: invalid webhook key");
       return res.status(401).json({ ok: false, status: "ERROR", error: "Unauthorized" });
     }
+
+    // DEPRECATION WARNING: HMAC signature should be used instead of API key
+    log.warn({ ip: req.ip || req.socket?.remoteAddress }, "DEPRECATED: webhook authenticated via API key fallback (no HMAC signature) - migrate to x-webhook-signature header");
+
+    // Audit trail: log deprecated fallback usage for monitoring
+    void (async () => {
+      try {
+        await supabase.from("system_logs").insert({
+          action: "webhook.no_hmac_signature",
+          details: JSON.stringify({
+            ip: req.ip || req.socket?.remoteAddress,
+            user_agent: req.headers["user-agent"] || "unknown",
+            timestamp: new Date().toISOString(),
+          }),
+        });
+      } catch (err) {
+        log.warn({ err }, "Best-effort: audit logging for missing HMAC signature");
+      }
+    })();
   }
 
   const lacaisse = parseLacaissePayWebhook(body);
@@ -448,13 +472,13 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
   if (lacaisse && lacaisse.externalId.startsWith("WALLET_RECHARGE_")) {
     const rechargeId = lacaisse.externalId.slice("WALLET_RECHARGE_".length).trim();
     if (!rechargeId || !isUuid(rechargeId)) {
-      console.warn("[PaymentsWebhook] Invalid wallet recharge ID:", lacaisse.externalId);
+      log.warn({ externalId: lacaisse.externalId }, "invalid wallet recharge ID");
       return res.status(400).json({ ok: false, status: "ERROR", error: "invalid_recharge_id" });
     }
 
     // Only process successful payments
     if (lacaisse.status !== "paid") {
-      console.log("[PaymentsWebhook] Wallet recharge not paid, status:", lacaisse.status);
+      log.info({ status: lacaisse.status }, "wallet recharge not paid, ignoring");
       return res.json({ ok: true, status: "OK", ignored: true });
     }
 
@@ -480,56 +504,32 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
 
       // If we can't find the pending transaction, try to extract establishment from orderId pattern
       if (!walletId) {
-        console.warn("[PaymentsWebhook] No pending transaction found for recharge:", rechargeId);
+        log.warn({ rechargeId }, "no pending transaction found for recharge");
         // We can't process without knowing which wallet to credit
         return res.status(400).json({ ok: false, status: "ERROR", error: "wallet_not_found" });
       }
 
-      // Get current wallet balance
-      const { data: wallet } = await supabase
-        .from("ad_wallets")
-        .select("id, balance_cents, total_credited_cents")
-        .eq("id", walletId)
-        .single();
+      // Atomic wallet credit via RPC — no read-modify-write race condition.
+      // The RPC increments balance_cents and total_credited_cents atomically,
+      // and inserts the credit transaction in the same implicit transaction.
+      const { data: updatedWallet, error: rpcErr } = await supabase.rpc("credit_ad_wallet_by_id", {
+        p_wallet_id: walletId,
+        p_amount_cents: amountCents,
+        p_description: `Recharge confirmée - ${(amountCents / 100).toFixed(2)} MAD`,
+        p_reference_type: "lacaissepay_payment",
+        p_reference_id: lacaisse.operationId,
+      });
 
-      if (!wallet) {
+      if (rpcErr) {
+        log.error({ err: rpcErr }, "credit_ad_wallet_by_id RPC failed");
+        return res.status(500).json({ ok: false, status: "ERROR", error: rpcErr.message });
+      }
+
+      if (!updatedWallet) {
         return res.status(404).json({ ok: false, status: "ERROR", error: "wallet_not_found" });
       }
 
-      const currentBalance = (wallet as any).balance_cents ?? 0;
-      const totalCredited = (wallet as any).total_credited_cents ?? 0;
-      const newBalance = currentBalance + amountCents;
-
-      // Update the wallet balance
-      const { error: updateErr } = await supabase
-        .from("ad_wallets")
-        .update({
-          balance_cents: newBalance,
-          total_credited_cents: totalCredited + amountCents,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", walletId);
-
-      if (updateErr) {
-        console.error("[PaymentsWebhook] Failed to update wallet:", updateErr);
-        return res.status(500).json({ ok: false, status: "ERROR", error: updateErr.message });
-      }
-
-      // Create a confirmed credit transaction
-      const { error: txErr } = await supabase.from("ad_wallet_transactions").insert({
-        wallet_id: walletId,
-        type: "credit",
-        amount_cents: amountCents,
-        balance_after_cents: newBalance,
-        description: `Recharge confirmée - ${(amountCents / 100).toFixed(2)} MAD`,
-        reference_type: "lacaissepay_payment",
-        reference_id: lacaisse.operationId,
-      });
-
-      if (txErr) {
-        console.error("[PaymentsWebhook] Failed to create transaction:", txErr);
-        // Don't fail the webhook, the wallet is already credited
-      }
+      const newBalance = (updatedWallet as any).balance_cents ?? 0;
 
       // Delete or update the pending transaction
       if (pendingTx) {
@@ -562,10 +562,10 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
           });
 
           if (invoice) {
-            console.log("[PaymentsWebhook] Invoice created:", invoice.invoice_number);
+            log.info({ invoiceNumber: invoice.invoice_number }, "invoice created");
           }
         } catch (invoiceErr) {
-          console.error("[PaymentsWebhook] Failed to create invoice:", invoiceErr);
+          log.error({ err: invoiceErr }, "failed to create invoice");
           // Don't fail the webhook, invoice generation is best-effort
         }
 
@@ -589,24 +589,19 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
                 amountCents,
                 paymentMethod: "card",
               });
-              console.log("[PaymentsWebhook] VosFactures wallet receipt generated");
+              log.info("VosFactures wallet receipt generated");
             }
           } catch (vfErr) {
-            console.error("[PaymentsWebhook] VosFactures wallet receipt failed:", vfErr);
+            log.error({ err: vfErr }, "VosFactures wallet receipt failed");
           }
         })();
       }
 
-      console.log("[PaymentsWebhook] Wallet recharge completed:", {
-        walletId,
-        amountCents,
-        newBalance,
-        operationId: lacaisse.operationId,
-      });
+      log.info({ walletId, amountCents, newBalance, operationId: lacaisse.operationId }, "wallet recharge completed");
 
       return res.json({ ok: true, status: "OK", credited: amountCents });
     } catch (err) {
-      console.error("[PaymentsWebhook] Wallet recharge error:", err);
+      log.error({ err }, "wallet recharge error");
       return res.status(500).json({ ok: false, status: "ERROR", error: "internal_error" });
     }
   }
@@ -756,7 +751,7 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
           nextMeta = { ...nextMeta, commission_percent: snapshot.commission_percent, commission_amount: snapshot.commission_amount };
           patch.meta = nextMeta;
         } catch (e) {
-          console.error("commission snapshot failed for pack purchase", e);
+          log.error({ err: e }, "commission snapshot failed for pack purchase");
           // Do not block the webhook on commission calculation errors
         }
       }
@@ -789,8 +784,42 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
         await settlePackPurchaseForRefund({ purchaseId: (existing as any).id, actor });
       }
     } catch (e) {
-      console.error("finance pipeline failed (pack_purchase webhook)", e);
-      // Do not block the webhook on finance errors
+      log.error({ err: e }, "finance pipeline failed (pack_purchase webhook)");
+      // Enqueue for retry — do not block the webhook on finance errors
+      const errMsg = e instanceof Error ? e.message : String(e ?? "");
+      if (nextPaymentStatus === "paid" && prevPaymentStatus !== "paid") {
+        void enqueueFinanceOperation({
+          operationType: "escrow_hold_pack_purchase",
+          referenceType: "pack_purchase",
+          referenceId: String((existing as any).id),
+          actor,
+          errorMessage: errMsg,
+        });
+        void enqueueFinanceOperation({
+          operationType: "invoice_pack_purchase",
+          referenceType: "pack_purchase",
+          referenceId: String((existing as any).id),
+          payload: {
+            idempotencyKey: eventId
+              ? `invoice:pack_purchase:${String((existing as any).id)}:${eventId}`
+              : transactionId
+                ? `invoice:pack_purchase:${String((existing as any).id)}:${transactionId}`
+                : null,
+            issuedAtIso: event.paid_at ?? null,
+          },
+          actor,
+          errorMessage: errMsg,
+        });
+      }
+      if (nextPaymentStatus === "refunded" && prevPaymentStatus === "paid") {
+        void enqueueFinanceOperation({
+          operationType: "settle_pack_purchase_refund",
+          referenceType: "pack_purchase",
+          referenceId: String((existing as any).id),
+          actor,
+          errorMessage: errMsg,
+        });
+      }
     }
 
     // Best-effort: keep pack stock in sync for limited offers.
@@ -809,8 +838,8 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
           await adjustPackStockForPurchaseBestEffort({ supabase, packId, delta: qty });
         }
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      log.warn({ err }, "pack stock adjust failed");
     }
 
     // Best-effort notifications (do not block the webhook).
@@ -909,8 +938,8 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
           });
         }
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      log.warn({ err }, "pack purchase notification failed");
     }
 
     return res.json({ ok: true, status: "OK" });
@@ -987,7 +1016,7 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
           nextMeta = { ...nextMeta, commission_percent: snapshot.commission_percent, commission_amount: snapshot.commission_amount };
           patch.meta = nextMeta;
         } catch (e) {
-          console.error("commission snapshot failed for visibility order", e);
+          log.error({ err: e }, "commission snapshot failed for visibility order");
           // Do not block the webhook on commission calculation errors
         }
       }
@@ -1061,10 +1090,10 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
                 items,
                 paymentMethod: "card",
               });
-              console.log(`[PaymentsWebhook] VosFactures visibility order receipt generated for order ${orderId}`);
+              log.info({ orderId }, "VosFactures visibility order receipt generated");
             }
           } catch (vfErr) {
-            console.error("[PaymentsWebhook] VosFactures visibility order receipt failed:", vfErr);
+            log.error({ err: vfErr }, "VosFactures visibility order receipt failed");
           }
         })();
 
@@ -1079,20 +1108,39 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
               actor,
             });
             if (emailResult.ok) {
-              console.log(`Username subscription invoice email sent: ${emailResult.emailId}`);
+              log.info({ emailId: emailResult.emailId }, "username subscription invoice email sent");
             } else {
-              console.warn(`Username subscription invoice email skipped: ${(emailResult as { ok: false; error: string }).error}`);
+              log.warn({ error: (emailResult as { ok: false; error: string }).error }, "username subscription invoice email skipped");
             }
           } catch (emailErr) {
-            console.error("Username subscription invoice email failed:", emailErr);
+            log.error({ err: emailErr }, "username subscription invoice email failed");
           }
         } catch (subErr) {
-          console.error("Username subscription activation failed:", subErr);
+          log.error({ err: subErr }, "username subscription activation failed");
           // Don't fail the webhook - the main payment succeeded
         }
       }
     } catch (e) {
-      console.error("finance pipeline failed (visibility_order webhook)", e);
+      log.error({ err: e }, "finance pipeline failed (visibility_order webhook)");
+      // Enqueue for retry
+      if (nextPaymentStatus === "paid" && prevPaymentStatus !== "paid") {
+        const errMsg = e instanceof Error ? e.message : String(e ?? "");
+        void enqueueFinanceOperation({
+          operationType: "invoice_visibility_order",
+          referenceType: "visibility_order",
+          referenceId: String((existing as any).id),
+          payload: {
+            idempotencyKey: eventId
+              ? `invoice:visibility_order:${String((existing as any).id)}:${eventId}`
+              : transactionId
+                ? `invoice:visibility_order:${String((existing as any).id)}:${transactionId}`
+                : null,
+            issuedAtIso: event.paid_at ?? null,
+          },
+          actor,
+          errorMessage: errMsg,
+        });
+      }
     }
 
     // Best-effort notifications.
@@ -1163,8 +1211,8 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
           },
         });
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      log.warn({ err }, "visibility order notification failed");
     }
 
     // Emails transactionnels (best-effort)
@@ -1255,8 +1303,8 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
               },
             });
           }
-        } catch {
-          // ignore
+        } catch (err) {
+          log.warn({ err }, "visibility order email failed");
         }
       })();
     }
@@ -1312,26 +1360,11 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
     webhookAmountCents !== null &&
     Math.abs(expectedDepositCents - webhookAmountCents) > AMOUNT_TOLERANCE_CENTS
   ) {
-    console.warn(
-      "[PaymentsWebhook] SECURITY: Amount mismatch! Expected:",
-      expectedDepositCents,
-      "Received:",
-      webhookAmountCents,
-      "Reservation:",
-      existing.id,
-      "Diff:",
-      webhookAmountCents - expectedDepositCents
-    );
+    log.warn({ expectedDepositCents, receivedCents: webhookAmountCents, reservationId: existing.id, diff: webhookAmountCents - expectedDepositCents }, "SECURITY: amount mismatch");
 
     // If amount is significantly LOWER than expected, reject the payment
     if (webhookAmountCents < expectedDepositCents - AMOUNT_TOLERANCE_CENTS) {
-      console.error(
-        "[PaymentsWebhook] CRITICAL: Underpayment detected! Rejecting payment.",
-        "Expected:",
-        expectedDepositCents,
-        "Received:",
-        webhookAmountCents
-      );
+      log.error({ expectedDepositCents, receivedCents: webhookAmountCents }, "CRITICAL: underpayment detected, rejecting payment");
 
       // Log this security event
       try {
@@ -1349,7 +1382,7 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
             provider: event.provider,
           },
         });
-      } catch { /* ignore logging errors */ }
+      } catch (err) { log.warn({ err }, "Best-effort: amount mismatch audit log failed"); }
 
       return res.status(400).json({
         ok: false,
@@ -1402,7 +1435,7 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
         patch.commission_percent = snapshot.commission_percent;
         patch.commission_amount = snapshot.commission_amount;
       } catch (e) {
-        console.error("commission snapshot failed for reservation", e);
+        log.error({ err: e }, "commission snapshot failed for reservation");
         // Do not block the webhook on commission calculation errors
       }
     }
@@ -1530,8 +1563,8 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
         }
       }
     }
-  } catch {
-    // ignore
+  } catch (err) {
+    log.warn({ err }, "reservation auto-confirm failed");
   }
 
   // Best-effort notifications (do not block the webhook).
@@ -1628,8 +1661,8 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
         });
       }
     }
-  } catch {
-    // ignore
+  } catch (err) {
+    log.warn({ err }, "reservation notification failed");
   }
 
   // Emails transactionnels (best-effort)
@@ -1709,8 +1742,8 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
             });
           }
         }
-      } catch {
-        // ignore
+      } catch (err) {
+        log.warn({ err }, "reservation email failed");
       }
     })();
   }
@@ -1767,10 +1800,10 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
               dateStr,
               paymentMethod: "card",
             });
-            console.log(`[PaymentsWebhook] VosFactures deposit receipt generated for reservation ${existing.id}`);
+            log.info({ reservationId: existing.id }, "VosFactures deposit receipt generated");
           }
         } catch (vfErr) {
-          console.error("[PaymentsWebhook] VosFactures deposit receipt failed:", vfErr);
+          log.error({ err: vfErr }, "VosFactures deposit receipt failed");
         }
       })();
     }
@@ -1781,9 +1814,54 @@ export async function handlePaymentsWebhook(req: Request, res: Response) {
   } catch (e) {
     // Non-blocking: webhook provider can retry, and reconciliation can repair.
     const msg = e instanceof Error ? e.message : String(e ?? "");
+
+    // Enqueue failed finance operations for automatic retry
+    if (nextPaymentStatus === "paid") {
+      void enqueueFinanceOperation({
+        operationType: "escrow_hold_reservation",
+        referenceType: "reservation",
+        referenceId: String(existing.id),
+        actor,
+        errorMessage: msg,
+      });
+      void enqueueFinanceOperation({
+        operationType: "invoice_reservation",
+        referenceType: "reservation",
+        referenceId: String(existing.id),
+        payload: {
+          idempotencyKey: eventId
+            ? `invoice:reservation:${String(existing.id)}:${eventId}`
+            : transactionId
+              ? `invoice:reservation:${String(existing.id)}:${transactionId}`
+              : null,
+          issuedAtIso: event.paid_at ?? null,
+        },
+        actor,
+        errorMessage: msg,
+      });
+    }
+    if (nextPaymentStatus === "refunded") {
+      void enqueueFinanceOperation({
+        operationType: "escrow_settle_reservation",
+        referenceType: "reservation",
+        referenceId: String(existing.id),
+        payload: { reason: "cancel" },
+        actor,
+        errorMessage: msg,
+      });
+    }
+
     return res.status(202).json({ ok: true, status: "OK", warning: msg });
   }
 
   // Some providers expect a stable OK marker in the response body.
   return res.json({ ok: true, status: "OK" });
+}
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerPaymentsRoutes(app: Express) {
+  app.post("/api/payments/webhook", zBody(PaymentsWebhookSchema), handlePaymentsWebhook);
 }

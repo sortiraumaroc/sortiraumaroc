@@ -8,7 +8,21 @@
 import { Router, type RequestHandler } from "express";
 import bcrypt from "bcryptjs";
 import { getAdminSupabase } from "../supabaseAdmin";
-import { getAuditActorInfo } from "./admin";
+import { requireAdminKey, getAuditActorInfo } from "./adminHelpers";
+import { createModuleLogger } from "../lib/logger";
+import { zBody } from "../lib/validate";
+import {
+  SetSecurityPasswordSchema,
+  VerifySecurityPasswordSchema,
+  DeleteDemoAccountsSchema,
+  ImportProspectsSchema,
+  AddProspectSchema,
+  UpdateProspectSchema,
+  BulkDeleteProspectsSchema,
+  ExportProspectsSchema,
+} from "../schemas/adminUserManagement";
+
+const log = createModuleLogger("adminUserManagement");
 
 // ============================================================================
 // Helpers
@@ -32,19 +46,6 @@ function asBoolean(value: unknown): boolean | null {
   if (value === "true") return true;
   if (value === "false") return false;
   return null;
-}
-
-// Require admin key
-function requireAdminKey(
-  req: Parameters<RequestHandler>[0],
-  res: Parameters<RequestHandler>[1]
-): boolean {
-  const adminKey = req.headers["x-admin-key"];
-  if (!adminKey || adminKey !== process.env.ADMIN_KEY) {
-    res.status(401).json({ error: "Non autorisé" });
-    return false;
-  }
-  return true;
 }
 
 // Require superadmin (SAM team only)
@@ -411,7 +412,7 @@ export const deleteDemoAccounts: RequestHandler = async (req, res) => {
 
       if (authErr) {
         // Log but don't fail - the consumer_users record is already anonymized
-        console.error(`Auth deletion failed for ${account.id}:`, authErr);
+        log.error({ accountId: account.id, err: authErr }, "Auth deletion failed");
       }
 
       deleted.push({ id: account.id, email: account.email });
@@ -992,21 +993,21 @@ export const getProspectTags: RequestHandler = async (req, res) => {
 export function registerAdminUserManagementRoutes(router: Router): void {
   // Security password
   router.get("/api/admin/security/password/check", checkSecurityPasswordConfigured);
-  router.post("/api/admin/security/password", setSecurityPassword);
-  router.post("/api/admin/security/password/verify", verifySecurityPassword);
+  router.post("/api/admin/security/password", zBody(SetSecurityPasswordSchema), setSecurityPassword);
+  router.post("/api/admin/security/password/verify", zBody(VerifySecurityPasswordSchema), verifySecurityPassword);
 
   // Demo account cleanup
   router.get("/api/admin/users/demo/preview", previewDemoAccounts);
-  router.post("/api/admin/users/demo/delete", deleteDemoAccounts);
+  router.post("/api/admin/users/demo/delete", zBody(DeleteDemoAccountsSchema), deleteDemoAccounts);
 
   // Marketing prospects
   router.get("/api/admin/marketing/prospects", listMarketingProspects);
   router.get("/api/admin/marketing/prospects/stats", getMarketingProspectsStats);
   router.get("/api/admin/marketing/prospects/tags", getProspectTags);
-  router.post("/api/admin/marketing/prospects/import", importMarketingProspects);
-  router.post("/api/admin/marketing/prospects/export", exportMarketingProspects);
-  router.post("/api/admin/marketing/prospects", addMarketingProspect);
-  router.put("/api/admin/marketing/prospects/:id", updateMarketingProspect);
+  router.post("/api/admin/marketing/prospects/import", zBody(ImportProspectsSchema), importMarketingProspects);
+  router.post("/api/admin/marketing/prospects/export", zBody(ExportProspectsSchema), exportMarketingProspects);
+  router.post("/api/admin/marketing/prospects", zBody(AddProspectSchema), addMarketingProspect);
+  router.put("/api/admin/marketing/prospects/:id", zBody(UpdateProspectSchema), updateMarketingProspect);
   router.delete("/api/admin/marketing/prospects/:id", deleteMarketingProspect);
-  router.post("/api/admin/marketing/prospects/bulk-delete", bulkDeleteMarketingProspects);
+  router.post("/api/admin/marketing/prospects/bulk-delete", zBody(BulkDeleteProspectsSchema), bulkDeleteMarketingProspects);
 }

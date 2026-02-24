@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+/**
+ * Panneau latéral des notifications Pro (cloche header).
+ *
+ * Utilise le store centralisé useProNotificationsStore.
+ * Partage le même état que ProNotificationsTab (onglet dashboard).
+ */
+
+import { useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { Bell, Check, Trash2 } from "lucide-react";
 
@@ -14,19 +21,11 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
-  getProDashboardAlerts,
-  listProNotifications,
-  markAllProNotificationsRead,
-  markProNotificationRead,
-  deleteProNotification,
-} from "@/lib/pro/api";
-import {
   buildSystemNotificationsForToday,
-  filterNotificationsForDay,
-  filterNotificationsForEstablishment,
   getNotificationTargetTab,
   sortNotificationsByCreatedAtDesc,
 } from "@/lib/pro/notifications";
+import { useProNotificationsStore } from "@/lib/pro/useProNotificationsStore";
 import type {
   Establishment,
   ProInvoice,
@@ -41,8 +40,7 @@ type Props = {
   establishment: Establishment | null;
   user: User;
   role: ProRole | null;
-  unreadCount: number;
-  onUnreadCountChange: (count: number) => void;
+  invoicesDue?: ProInvoice[];
   onNavigateToTab: (tab: string) => void;
 };
 
@@ -75,162 +73,106 @@ export function ProNotificationsSheet({
   establishment,
   user,
   role,
-  unreadCount,
-  onUnreadCountChange,
+  invoicesDue,
   onNavigateToTab,
 }: Props) {
-  const [items, setItems] = useState<ProNotification[]>([]);
-  const [invoicesDue, setInvoicesDue] = useState<ProInvoice[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [localReadIds, setLocalReadIds] = useState<Set<string>>(new Set());
+  const store = useProNotificationsStore(establishment?.id ?? null);
+  const [localSystemReadIds, setLocalSystemReadIds] = useState<Set<string>>(new Set());
 
-  const load = async () => {
-    if (!establishment?.id) return;
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const res = await getProDashboardAlerts(establishment.id);
-      const invoices = (res.invoicesDue ?? []) as ProInvoice[];
-      const notifications = (res.notifications ?? []) as ProNotification[];
-
-      setInvoicesDue(invoices);
-
-      const today = filterNotificationsForDay(notifications);
-      const scoped = establishment.id
-        ? filterNotificationsForEstablishment(today, establishment.id)
-        : today;
-      setItems(sortNotificationsByCreatedAtDesc(scoped));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Erreur");
-      setInvoicesDue([]);
-      setItems([]);
-    }
-
-    setLoading(false);
-  };
-
-  // Load data and auto-mark as read when panel opens
-  useEffect(() => {
-    if (open && establishment?.id) {
-      void load().then(() => {
-        // Auto-mark all as read when viewing the notifications
-        void markAllRead();
-      });
-    }
-  }, [open, establishment?.id]);
-
+  // Notifications système (factures dues, etc.) générées côté client
   const systemItems = useMemo(() => {
     if (!establishment) return [];
     return buildSystemNotificationsForToday({
       userId: user.id,
       establishment,
-      invoicesDue,
+      invoicesDue: invoicesDue ?? [],
     });
   }, [establishment, invoicesDue, user.id]);
 
+  // Combiner les items du store (serveur) avec les items système (client)
   const activeItems = useMemo(() => {
-    return sortNotificationsByCreatedAtDesc([...systemItems, ...items]);
-  }, [items, systemItems]);
+    return sortNotificationsByCreatedAtDesc([
+      ...systemItems,
+      ...(store.items as unknown as ProNotification[]),
+    ]);
+  }, [store.items, systemItems]);
 
   const isRead = (n: ProNotification) => {
-    return !!n.read_at || localReadIds.has(n.id);
+    if (isLocalOnlyNotificationId(n.id)) {
+      return localSystemReadIds.has(n.id);
+    }
+    return store.isRead(n as any);
   };
 
   const localUnreadCount = useMemo(() => {
     return activeItems.filter((x) => !isRead(x)).length;
-  }, [activeItems, localReadIds]);
+  }, [activeItems, store.localUnreadCount, localSystemReadIds]);
 
-  const markRead = async (id: string) => {
+  const markRead = (id: string) => {
     if (isLocalOnlyNotificationId(id)) {
-      setLocalReadIds((prev) => new Set([...prev, id]));
+      setLocalSystemReadIds((prev) => new Set([...prev, id]));
       return;
     }
-
-    if (!establishment?.id) return;
-
-    setLocalReadIds((prev) => new Set([...prev, id]));
-
-    try {
-      await markProNotificationRead({
-        establishmentId: establishment.id,
-        notificationId: id,
-      });
-    } catch {
-      // Best effort
-    }
+    void store.markRead(id);
   };
 
-  const markAllRead = async () => {
-    if (!establishment?.id) return;
-
-    // Mark all locally first for instant feedback
-    const allIds = activeItems.map((x) => x.id);
-    setLocalReadIds((prev) => new Set([...prev, ...allIds]));
-    onUnreadCountChange(0);
-
-    try {
-      await markAllProNotificationsRead({ establishmentId: establishment.id });
-    } catch {
-      // Best effort
-    }
+  const markAllRead = () => {
+    // Marquer les notifs système comme lues localement
+    const systemIds = systemItems.map((x) => x.id);
+    setLocalSystemReadIds((prev) => new Set([...prev, ...systemIds]));
+    // Marquer les notifs serveur via le store
+    void store.markAllRead();
   };
 
   const goToItem = (n: ProNotification) => {
     const targetTab = getNotificationTargetTab(n);
     if (targetTab) {
       markRead(n.id);
+      onOpenChange(false);
       onNavigateToTab(targetTab);
     }
   };
 
   const goToAll = () => {
+    onOpenChange(false);
     onNavigateToTab("notifications");
   };
 
-  const deleteNotif = async (id: string) => {
-    // Local-only notifications just get filtered out locally
+  const deleteNotif = (id: string) => {
     if (isLocalOnlyNotificationId(id)) {
-      setLocalReadIds((prev) => new Set([...prev, `deleted:${id}`]));
+      setLocalSystemReadIds((prev) => new Set([...prev, `deleted:${id}`]));
       return;
     }
-
-    if (!establishment?.id) return;
-
-    // Optimistically remove from UI
-    setItems((prev) => prev.filter((n) => n.id !== id));
-
-    try {
-      await deleteProNotification({
-        establishmentId: establishment.id,
-        notificationId: id,
-      });
-    } catch {
-      // Best effort - reload on failure
-      void load();
-    }
+    void store.deleteNotification(id);
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    // [FIX] Suppression du auto-markAllRead à l'ouverture.
+    // L'admin Pro doit voir les notifications non-lues d'abord,
+    // puis les marquer manuellement via le bouton "Tout marquer lu".
+    <Sheet open={open} onOpenChange={(isOpen) => {
+      onOpenChange(isOpen);
+      // [FIX] Rafraîchir les items à l'ouverture au lieu de tout marquer lu
+      if (isOpen) {
+        void store.refresh();
+      }
+    }}>
       <button
         type="button"
         onClick={() => onOpenChange(true)}
         disabled={!role}
         className="relative p-2 rounded-full border border-white/30 hover:bg-white/10 transition disabled:opacity-50"
         aria-label={
-          unreadCount
-            ? `Notifications (${unreadCount} non lues)`
+          store.unreadCount
+            ? `Notifications (${store.unreadCount} non lues)`
             : "Notifications"
         }
         title="Notifications"
       >
         <Bell className="w-5 h-5" />
-        {unreadCount > 0 ? (
+        {store.unreadCount > 0 ? (
           <span className="absolute -top-1 -end-1 min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[11px] font-extrabold flex items-center justify-center border-2 border-primary">
-            {unreadCount > 99 ? "99+" : unreadCount}
+            {store.unreadCount > 99 ? "99+" : store.unreadCount}
           </span>
         ) : null}
       </button>
@@ -252,8 +194,8 @@ export function ProNotificationsSheet({
                     ? `${localUnreadCount} non lue(s)`
                     : "Tout est à jour."}
                 </div>
-                {error ? (
-                  <div className="mt-2 text-sm text-red-600">{error}</div>
+                {store.error ? (
+                  <div className="mt-2 text-sm text-red-600">{store.error}</div>
                 ) : null}
               </div>
 
@@ -278,7 +220,7 @@ export function ProNotificationsSheet({
               <div className="text-sm text-slate-600">
                 Connectez-vous à un établissement pour voir les notifications.
               </div>
-            ) : loading ? (
+            ) : store.loading && !activeItems.length ? (
               <div className="text-sm text-slate-600">Chargement...</div>
             ) : !activeItems.length ? (
               <div className="text-sm text-slate-600">Aucune notification.</div>

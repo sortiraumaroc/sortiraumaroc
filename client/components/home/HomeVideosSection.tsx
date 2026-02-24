@@ -9,6 +9,8 @@ import { IconButton } from "@/components/ui/icon-button";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
+import { useRamadanTheme } from "@/components/ramadan/RamadanThemeProvider";
+import { CrescentMoonSvg } from "@/components/ramadan/ramadan-assets";
 
 type HomeVideosSectionProps = {
   className?: string;
@@ -240,6 +242,7 @@ function VideoCard({ video, onClick, onReserve }: VideoCardProps) {
 
 export function HomeVideosSection({ className }: HomeVideosSectionProps) {
   const { t } = useI18n();
+  const isRamadan = useRamadanTheme();
   const [videos, setVideos] = useState<PublicHomeVideo[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedVideo, setSelectedVideo] = useState<PublicHomeVideo | null>(null);
@@ -324,15 +327,27 @@ export function HomeVideosSection({ className }: HomeVideosSectionProps) {
     setSelectedVideo(null);
   }, []);
 
-  // After loading, don't render if no videos
+  // After loading, don't render if no videos (unless Ramadan placeholder)
   if (!loading && videos.length === 0) {
+    if (isRamadan) {
+      return (
+        <section className={className}>
+          <div className="rounded-2xl bg-gradient-to-r from-ramadan-night to-ramadan-deep p-8 text-center">
+            <CrescentMoonSvg className="w-12 h-12 mx-auto mb-3 opacity-70" />
+            <p className="text-ramadan-gold-light text-sm font-medium">
+              {t("home.videos.title")} Ramadan — {t("common.coming_soon") || "Bientôt disponible"}
+            </p>
+          </div>
+        </section>
+      );
+    }
     return null;
   }
 
   return (
     <section className={className}>
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl md:text-3xl font-bold text-foreground">
+        <h2 className={`text-2xl md:text-3xl font-bold ${isRamadan ? "text-ramadan-gold" : "text-foreground"}`}>
           {t("home.videos.title")}
         </h2>
         <div className="flex items-center gap-2">

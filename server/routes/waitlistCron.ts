@@ -8,10 +8,14 @@
  */
 
 import type { Request, Response } from "express";
+import type { Express } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { emitAdminNotification } from "../adminNotifications";
 import { sendTemplateEmail } from "../emailService";
 import { sendPushNotification, sendPushToConsumerUser } from "../pushNotifications";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("waitlistCron");
 import { formatLeJjMmAaAHeure } from "../../shared/datetime";
 
 const supabase = getAdminSupabase();
@@ -58,7 +62,7 @@ export async function cronWaitlistExpireAndPromote(req: Request, res: Response) 
       .lt("offer_expires_at", new Date().toISOString());
 
     if (fetchError) {
-      console.error("[cronWaitlistExpire] Error fetching expired entries:", fetchError);
+      log.error({ err: fetchError }, "Error fetching expired entries");
       return res.status(500).json({ ok: false, error: "Database error" });
     }
 
@@ -143,8 +147,8 @@ export async function cronWaitlistExpireAndPromote(req: Request, res: Response) 
             reservationId: entry.reservation_id,
           },
         });
-      } catch {
-        // ignore notification errors
+      } catch (err) {
+        log.warn({ err }, "Best-effort: waitlist expired offer notification failed");
       }
 
       // Step 5: Find and promote the next person in queue
@@ -234,8 +238,8 @@ export async function cronWaitlistExpireAndPromote(req: Request, res: Response) 
           });
 
           notifications.push({ type: "push", userId: nextInQueue.user_id, success: pushResult.ok });
-        } catch {
-          // ignore notification errors
+        } catch (err) {
+          log.warn({ err }, "Best-effort: waitlist promotion push notification failed");
         }
 
         // Log consumer event
@@ -282,8 +286,8 @@ export async function cronWaitlistExpireAndPromote(req: Request, res: Response) 
         if (proNotifications.length > 0) {
           await supabase.from("pro_notifications").insert(proNotifications);
         }
-      } catch {
-        // ignore
+      } catch (err) {
+        log.warn({ err }, "Best-effort: waitlist pro notification insert failed");
       }
     }
 
@@ -300,7 +304,7 @@ export async function cronWaitlistExpireAndPromote(req: Request, res: Response) 
       });
     }
 
-    console.log(`[cronWaitlistExpire] Processed ${expiredCount} expired, ${promotedCount} promoted`);
+    log.info({ expiredCount, promotedCount }, "Processed waitlist expirations");
 
     return res.json({
       ok: true,
@@ -309,7 +313,15 @@ export async function cronWaitlistExpireAndPromote(req: Request, res: Response) 
       notifications,
     });
   } catch (err) {
-    console.error("[cronWaitlistExpire] Unexpected error:", err);
+    log.error({ err }, "Unexpected error");
     return res.status(500).json({ ok: false, error: "Server error" });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerWaitlistCronRoutes(app: Express) {
+  app.post("/api/admin/cron/waitlist-expire-promote", cronWaitlistExpireAndPromote);
 }

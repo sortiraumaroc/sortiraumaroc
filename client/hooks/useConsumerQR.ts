@@ -192,7 +192,7 @@ export function useConsumerQR(): UseConsumerQRReturn {
         if (isTransient && retryCountRef.current < 3 && mountedRef.current) {
           retryCountRef.current += 1;
           const delayMs = Math.min(2000 * retryCountRef.current, 6000);
-          console.log(`[useConsumerQR] Auto-retry ${retryCountRef.current}/3 in ${delayMs}ms`);
+          // Auto-retry for transient error
           retryTimerRef.current = setTimeout(() => {
             if (mountedRef.current) {
               void loadSecret();

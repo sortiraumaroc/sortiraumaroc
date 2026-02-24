@@ -1,5 +1,22 @@
 import type { Express, RequestHandler } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
+import { zBody, zQuery, zParams } from "../lib/validate";
+import {
+  createPostSchema,
+  createCommentSchema,
+  SocialFeedQuery,
+  SocialDiscoverFeedQuery,
+  SocialCommentsQuery,
+  SocialUserPostsQuery,
+  SocialUserFollowersQuery,
+  SocialUserFollowingQuery,
+  SocialSavedPostsQuery,
+  SocialPostIdParams,
+  SocialUserIdParams,
+} from "../schemas/social";
+
+const log = createModuleLogger("social");
 
 // ============================================================================
 // HELPERS
@@ -61,7 +78,7 @@ const getFeed: RequestHandler = async (req, res) => {
       .range(offset, offset + pageSize - 1);
 
     if (error) {
-      console.error("[social/feed] Error:", error);
+      log.error({ err: error }, "feed query failed");
       res.status(500).json({ error: "Erreur serveur" });
       return;
     }
@@ -77,7 +94,7 @@ const getFeed: RequestHandler = async (req, res) => {
       hasMore: offset + pageSize < (count ?? 0),
     });
   } catch (err) {
-    console.error("[social/feed] Error:", err);
+    log.error({ err }, "feed error");
     res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -103,7 +120,7 @@ const getDiscoverFeed: RequestHandler = async (req, res) => {
       .range(offset, offset + pageSize - 1);
 
     if (error) {
-      console.error("[social/discover] Error:", error);
+      log.error({ err: error }, "discover query failed");
       res.status(500).json({ error: "Erreur serveur" });
       return;
     }
@@ -118,7 +135,7 @@ const getDiscoverFeed: RequestHandler = async (req, res) => {
       hasMore: offset + pageSize < (count ?? 0),
     });
   } catch (err) {
-    console.error("[social/discover] Error:", err);
+    log.error({ err }, "discover error");
     res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -160,7 +177,7 @@ const createPost: RequestHandler = async (req, res) => {
       .single();
 
     if (error || !post) {
-      console.error("[social/createPost] Error:", error);
+      log.error({ err: error }, "createPost insert failed");
       res.status(500).json({ error: "Erreur lors de la création du post" });
       return;
     }
@@ -178,7 +195,7 @@ const createPost: RequestHandler = async (req, res) => {
 
     res.status(201).json(post);
   } catch (err) {
-    console.error("[social/createPost] Error:", err);
+    log.error({ err }, "createPost error");
     res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -207,7 +224,7 @@ const getPost: RequestHandler = async (req, res) => {
     const enriched = await enrichPosts(supabase, [post], userId);
     res.json(enriched[0]);
   } catch (err) {
-    console.error("[social/getPost] Error:", err);
+    log.error({ err }, "getPost error");
     res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -241,7 +258,7 @@ const deletePost: RequestHandler = async (req, res) => {
 
     res.json({ ok: true });
   } catch (err) {
-    console.error("[social/deletePost] Error:", err);
+    log.error({ err }, "deletePost error");
     res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -274,8 +291,8 @@ const toggleLike: RequestHandler = async (req, res) => {
       await supabase.from("social_post_likes").delete().eq("id", existing.id);
       try {
         await supabase.rpc("decrement_counter", { table_name: "social_posts", column_name: "likes_count", row_id: postId });
-      } catch {
-        // Fallback: manual update
+      } catch (err) {
+        log.warn({ err }, "decrement_counter RPC failed for social likes, using fallback");
         await supabase.from("social_posts").update({
           likes_count: supabase.rpc ? undefined : 0,
         }).eq("id", postId);
@@ -301,7 +318,7 @@ const toggleLike: RequestHandler = async (req, res) => {
 
     res.json({ liked, likesCount: count ?? 0 });
   } catch (err) {
-    console.error("[social/toggleLike] Error:", err);
+    log.error({ err }, "toggleLike error");
     res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -347,7 +364,7 @@ const toggleSave: RequestHandler = async (req, res) => {
 
     res.json({ saved, savesCount: count ?? 0 });
   } catch (err) {
-    console.error("[social/toggleSave] Error:", err);
+    log.error({ err }, "toggleSave error");
     res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -377,7 +394,7 @@ const getComments: RequestHandler = async (req, res) => {
       .range(offset, offset + pageSize - 1);
 
     if (error) {
-      console.error("[social/getComments] Error:", error);
+      log.error({ err: error }, "getComments query failed");
       res.status(500).json({ error: "Erreur serveur" });
       return;
     }
@@ -390,7 +407,7 @@ const getComments: RequestHandler = async (req, res) => {
       hasMore: offset + pageSize < (count ?? 0),
     });
   } catch (err) {
-    console.error("[social/getComments] Error:", err);
+    log.error({ err }, "getComments error");
     res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -424,7 +441,7 @@ const addComment: RequestHandler = async (req, res) => {
       .single();
 
     if (error) {
-      console.error("[social/addComment] Error:", error);
+      log.error({ err: error }, "addComment insert failed");
       res.status(500).json({ error: "Erreur serveur" });
       return;
     }
@@ -442,7 +459,7 @@ const addComment: RequestHandler = async (req, res) => {
 
     res.status(201).json(comment);
   } catch (err) {
-    console.error("[social/addComment] Error:", err);
+    log.error({ err }, "addComment error");
     res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -483,7 +500,7 @@ const deleteComment: RequestHandler = async (req, res) => {
 
     res.json({ ok: true });
   } catch (err) {
-    console.error("[social/deleteComment] Error:", err);
+    log.error({ err }, "deleteComment error");
     res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -535,7 +552,7 @@ const toggleFollow: RequestHandler = async (req, res) => {
 
     res.json({ following, followersCount: count ?? 0 });
   } catch (err) {
-    console.error("[social/toggleFollow] Error:", err);
+    log.error({ err }, "toggleFollow error");
     res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -592,7 +609,7 @@ const getUserProfile: RequestHandler = async (req, res) => {
       isFollowedBy: !!isFollowedByData,
     });
   } catch (err) {
-    console.error("[social/getUserProfile] Error:", err);
+    log.error({ err }, "getUserProfile error");
     res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -619,7 +636,7 @@ const getUserPosts: RequestHandler = async (req, res) => {
       .range(offset, offset + pageSize - 1);
 
     if (error) {
-      console.error("[social/getUserPosts] Error:", error);
+      log.error({ err: error }, "getUserPosts query failed");
       res.status(500).json({ error: "Erreur serveur" });
       return;
     }
@@ -634,7 +651,7 @@ const getUserPosts: RequestHandler = async (req, res) => {
       hasMore: offset + pageSize < (count ?? 0),
     });
   } catch (err) {
-    console.error("[social/getUserPosts] Error:", err);
+    log.error({ err }, "getUserPosts error");
     res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -660,7 +677,7 @@ const getUserFollowers: RequestHandler = async (req, res) => {
       .range(offset, offset + pageSize - 1);
 
     if (error) {
-      console.error("[social/getUserFollowers] Error:", error);
+      log.error({ err: error }, "getUserFollowers query failed");
       res.status(500).json({ error: "Erreur serveur" });
       return;
     }
@@ -673,7 +690,7 @@ const getUserFollowers: RequestHandler = async (req, res) => {
       hasMore: offset + pageSize < (count ?? 0),
     });
   } catch (err) {
-    console.error("[social/getUserFollowers] Error:", err);
+    log.error({ err }, "getUserFollowers error");
     res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -699,7 +716,7 @@ const getUserFollowing: RequestHandler = async (req, res) => {
       .range(offset, offset + pageSize - 1);
 
     if (error) {
-      console.error("[social/getUserFollowing] Error:", error);
+      log.error({ err: error }, "getUserFollowing query failed");
       res.status(500).json({ error: "Erreur serveur" });
       return;
     }
@@ -712,7 +729,7 @@ const getUserFollowing: RequestHandler = async (req, res) => {
       hasMore: offset + pageSize < (count ?? 0),
     });
   } catch (err) {
-    console.error("[social/getUserFollowing] Error:", err);
+    log.error({ err }, "getUserFollowing error");
     res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -738,7 +755,7 @@ const getSavedPosts: RequestHandler = async (req, res) => {
       .range(offset, offset + pageSize - 1);
 
     if (savesError) {
-      console.error("[social/getSavedPosts] Error:", savesError);
+      log.error({ err: savesError }, "getSavedPosts query failed");
       res.status(500).json({ error: "Erreur serveur" });
       return;
     }
@@ -766,7 +783,7 @@ const getSavedPosts: RequestHandler = async (req, res) => {
       hasMore: offset + pageSize < (count ?? 0),
     });
   } catch (err) {
-    console.error("[social/getSavedPosts] Error:", err);
+    log.error({ err }, "getSavedPosts error");
     res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -819,32 +836,32 @@ async function enrichPosts(supabase: any, posts: any[], currentUserId: string) {
 
 export function registerSocialRoutes(app: Express) {
   // Feed
-  app.get("/api/consumer/social/feed", getFeed);
-  app.get("/api/consumer/social/feed/discover", getDiscoverFeed);
+  app.get("/api/consumer/social/feed", zQuery(SocialFeedQuery), getFeed);
+  app.get("/api/consumer/social/feed/discover", zQuery(SocialDiscoverFeedQuery), getDiscoverFeed);
 
   // Posts CRUD
-  app.post("/api/consumer/social/posts", createPost);
-  app.get("/api/consumer/social/posts/:id", getPost);
-  app.delete("/api/consumer/social/posts/:id", deletePost);
+  app.post("/api/consumer/social/posts", zBody(createPostSchema), createPost);
+  app.get("/api/consumer/social/posts/:id", zParams(SocialPostIdParams), getPost);
+  app.delete("/api/consumer/social/posts/:id", zParams(SocialPostIdParams), deletePost);
 
   // Interactions
-  app.post("/api/consumer/social/posts/:id/like", toggleLike);
-  app.post("/api/consumer/social/posts/:id/save", toggleSave);
+  app.post("/api/consumer/social/posts/:id/like", zParams(SocialPostIdParams), toggleLike);
+  app.post("/api/consumer/social/posts/:id/save", zParams(SocialPostIdParams), toggleSave);
 
   // Comments
-  app.get("/api/consumer/social/posts/:id/comments", getComments);
-  app.post("/api/consumer/social/posts/:id/comments", addComment);
-  app.delete("/api/consumer/social/comments/:id", deleteComment);
+  app.get("/api/consumer/social/posts/:id/comments", zParams(SocialPostIdParams), zQuery(SocialCommentsQuery), getComments);
+  app.post("/api/consumer/social/posts/:id/comments", zParams(SocialPostIdParams), zBody(createCommentSchema), addComment);
+  app.delete("/api/consumer/social/comments/:id", zParams(SocialPostIdParams), deleteComment);
 
   // Follow
-  app.post("/api/consumer/social/users/:id/follow", toggleFollow);
+  app.post("/api/consumer/social/users/:id/follow", zParams(SocialUserIdParams), toggleFollow);
 
   // User profiles
-  app.get("/api/consumer/social/users/:id/profile", getUserProfile);
-  app.get("/api/consumer/social/users/:id/posts", getUserPosts);
-  app.get("/api/consumer/social/users/:id/followers", getUserFollowers);
-  app.get("/api/consumer/social/users/:id/following", getUserFollowing);
+  app.get("/api/consumer/social/users/:id/profile", zParams(SocialUserIdParams), getUserProfile);
+  app.get("/api/consumer/social/users/:id/posts", zParams(SocialUserIdParams), zQuery(SocialUserPostsQuery), getUserPosts);
+  app.get("/api/consumer/social/users/:id/followers", zParams(SocialUserIdParams), zQuery(SocialUserFollowersQuery), getUserFollowers);
+  app.get("/api/consumer/social/users/:id/following", zParams(SocialUserIdParams), zQuery(SocialUserFollowingQuery), getUserFollowing);
 
   // Saved posts
-  app.get("/api/consumer/social/me/saved", getSavedPosts);
+  app.get("/api/consumer/social/me/saved", zQuery(SocialSavedPostsQuery), getSavedPosts);
 }

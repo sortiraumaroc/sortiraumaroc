@@ -1,18 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { ChevronLeft, ChevronRight, Heart, UtensilsCrossed, Dumbbell, Zap, Building2, Landmark, ShoppingBag, BadgePercent, Award, Star, CalendarCheck, BookOpen, Calendar, ArrowRight, Sparkles } from "lucide-react";
-import * as LucideIcons from "lucide-react";
+import { ChevronLeft, ChevronRight, Heart, UtensilsCrossed, Dumbbell, Zap, Building2, Landmark, ShoppingBag, BadgePercent, Award, Star, CalendarCheck, BookOpen, Calendar, ArrowRight, Sparkles, Circle, Car, Bed, Scissors, Palette, Music, Gamepad2, Trophy, MapPin, Search, Clock, CheckCircle, Users, Gift, CreditCard, Phone, Mail, Globe, Wifi, Camera, Coffee, Pizza, Wrench, Stethoscope, GraduationCap, Plane, Ship, Bike, TreePine, Sun, Moon, Flame, Snowflake, Umbrella, type LucideIcon } from "lucide-react";
 
 import { Header } from "@/components/Header";
 import { AdaptiveSearchForm } from "@/components/SearchInputs/AdaptiveSearchForm";
 import { UnifiedSearchInput } from "@/components/SearchInputs/UnifiedSearchInput";
-import { CategorySelector } from "@/components/home/CategorySelector";
-import { CitiesSection } from "@/components/home/CitiesSection";
-import { HomeVideosSection } from "@/components/home/HomeVideosSection";
 import { HomeTakeoverBanner } from "@/components/home/HomeTakeoverBanner";
 import { IconButton } from "@/components/ui/icon-button";
 import { applySeo, clearJsonLd, setJsonLd, buildI18nSeoFields } from "@/lib/seo";
-import { getPublicHomeFeed, getPublicUniverses, getPublicHomeSettings, getFeaturedPack, trackAdImpression, trackAdClick, type PublicHomeFeedItem, type PublicUniverse, type PublicHomeSettings, type FeaturedPackItem } from "@/lib/publicApi";
+import { getPublicHomeFeed, getPublicUniverses, getPublicHomeSettings, getFeaturedPack, trackAdImpression, trackAdClick, type PublicHomeFeedItem, type PublicUniverse, type PublicHomeSettings, type PublicHomeSectionConfig, type FeaturedPackItem } from "@/lib/publicApi";
 import { listPublicBlogArticles, isPublicBlogListItemV2, type PublicBlogListItem } from "@/lib/blog";
 import { useI18n } from "@/lib/i18n";
 import type { ActivityCategory } from "@/lib/taxonomy";
@@ -23,8 +19,19 @@ import { isAuthed, openAuthModal } from "@/lib/auth";
 import { useScrollContext } from "@/lib/scrollContext";
 import { buildEstablishmentUrl } from "@/lib/establishmentUrl";
 import { getFavorites, addFavorite, removeFavorite, type FavoriteItem } from "@/lib/userData";
-import { FeaturedPacksCarousel } from "@/components/packs/FeaturedPacksCarousel";
-import { CeHomeFeedSection } from "@/components/ce/CeHomeFeedSection";
+
+// Lazy-loaded below-the-fold sections (non-critical for initial render)
+const CategorySelector = lazy(() => import("@/components/home/CategorySelector").then(m => ({ default: m.CategorySelector })));
+const CitiesSection = lazy(() => import("@/components/home/CitiesSection").then(m => ({ default: m.CitiesSection })));
+const HomeVideosSection = lazy(() => import("@/components/home/HomeVideosSection").then(m => ({ default: m.HomeVideosSection })));
+const FeaturedPacksCarousel = lazy(() => import("@/components/packs/FeaturedPacksCarousel").then(m => ({ default: m.FeaturedPacksCarousel })));
+const CeHomeFeedSection = lazy(() => import("@/components/ce/CeHomeFeedSection").then(m => ({ default: m.CeHomeFeedSection })));
+const RamadanHomeFeedSection = lazy(() => import("@/components/ramadan/RamadanHomeFeedSection").then(m => ({ default: m.RamadanHomeFeedSection })));
+import { RamadanThemeProvider } from "@/components/ramadan/RamadanThemeProvider";
+import { RamadanStarryBackground } from "@/components/ramadan/RamadanStarryBackground";
+import { RamadanParticles } from "@/components/ramadan/RamadanParticles";
+import { CrescentMoonSvg, LanternSvg, ARABESQUE_PATTERN_DATA_URI } from "@/components/ramadan/ramadan-assets";
+import { setRamadanActive, setCachedHomeTheme, getCachedHomeTheme } from "@/lib/ramadanFlag";
 
 // Fallback universes in case API fails
 const FALLBACK_UNIVERSES = [
@@ -36,10 +43,19 @@ const FALLBACK_UNIVERSES = [
   { id: "shopping", labelKey: "home.universe.shopping", icon: ShoppingBag },
 ] as const satisfies ReadonlyArray<{ id: ActivityCategory; labelKey: string; icon: any }>;
 
+// Static icon map for DB-driven icon names (avoids import * which prevents tree-shaking)
+const ICON_MAP: Record<string, LucideIcon> = {
+  UtensilsCrossed, Dumbbell, Zap, Building2, Landmark, ShoppingBag, Circle,
+  Car, Bed, Scissors, Palette, Music, Gamepad2, Trophy, MapPin, Search,
+  Clock, CheckCircle, Users, Gift, CreditCard, Phone, Mail, Globe, Wifi,
+  Camera, Coffee, Pizza, Wrench, Stethoscope, GraduationCap, Plane, Ship,
+  Bike, TreePine, Sun, Moon, Flame, Snowflake, Umbrella, Heart, Star,
+  CalendarCheck, BookOpen, Calendar, ArrowRight, Sparkles, BadgePercent, Award,
+};
+
 // Helper to get Lucide icon by name
-function getLucideIcon(iconName: string): React.FC<{ className?: string }> {
-  const Icon = (LucideIcons as unknown as Record<string, React.FC<{ className?: string }>>)[iconName];
-  return Icon ?? LucideIcons.Circle;
+function getLucideIcon(iconName: string): LucideIcon {
+  return ICON_MAP[iconName] ?? Circle;
 }
 
 // Type for dynamic universe display
@@ -222,6 +238,7 @@ function HomeCardTile({
   onToggleFavorite,
   showDistance,
   i18nMonthLabel,
+  isRamadan,
 }: {
   item: HomeCard;
   href: string;
@@ -229,11 +246,12 @@ function HomeCardTile({
   onToggleFavorite: () => void;
   showDistance: boolean;
   i18nMonthLabel: string;
+  isRamadan?: boolean;
 }) {
   const { t } = useI18n();
 
   return (
-    <div className="flex-shrink-0 w-56 md:w-60 rounded-xl overflow-hidden hover:shadow-lg transition flex flex-col bg-white">
+    <div className={`flex-shrink-0 w-56 md:w-60 rounded-xl overflow-hidden hover:shadow-lg transition flex flex-col bg-white ${isRamadan ? "border border-ramadan-gold/50" : ""}`}>
       {/* Image container - aspect ratio like TheFork */}
       <div className="relative aspect-[4/3] overflow-hidden rounded-xl group bg-slate-100">
         <img
@@ -278,6 +296,15 @@ function HomeCardTile({
           <div className="absolute bottom-2 start-2 z-20">
             <span className="bg-black/70 text-white px-2 py-0.5 rounded text-[10px] font-medium">
               {t("home.cards.curated_badge")}
+            </span>
+          </div>
+        ) : null}
+
+        {/* Ramadan Ftour badge */}
+        {isRamadan && !item.curated ? (
+          <div className="absolute bottom-2 start-2 z-20">
+            <span className="bg-ramadan-night/80 text-ramadan-gold px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1">
+              <span>🌙</span> {t("home.ramadan.badge.ftour")}
             </span>
           </div>
         ) : null}
@@ -580,6 +607,7 @@ function HomeCarouselSection({
   featuredPack,
   onFeaturedClick,
   isLoading,
+  isRamadan,
 }: {
   title: string;
   viewAllHref: string;
@@ -595,6 +623,7 @@ function HomeCarouselSection({
   featuredPack?: FeaturedPackItem | null;
   onFeaturedClick?: (campaignId: string, destinationUrl: string) => void;
   isLoading?: boolean;
+  isRamadan?: boolean;
 }) {
   const { t } = useI18n();
 
@@ -604,7 +633,9 @@ function HomeCarouselSection({
   return (
     <section className="mb-8 md:mb-10">
       <div className="flex items-center justify-between mb-4 md:mb-5">
-        <h2 className="text-xl md:text-2xl font-bold text-foreground">{title}</h2>
+        <h2 className={`text-xl md:text-2xl font-bold ${isRamadan ? "text-ramadan-gold ramadan-title-underline" : "text-foreground"}`}>
+          {isRamadan ? <><span>🌙</span> {title}</> : title}
+        </h2>
         <Link
           to={viewAllHref}
           className="text-primary text-sm font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 rounded-md px-1"
@@ -675,6 +706,7 @@ function HomeCarouselSection({
                     onToggleFavorite={() => onToggleFavorite(card.id, card.name, card.universe)}
                     showDistance={showDistance}
                     i18nMonthLabel={tMonthLabel}
+                    isRamadan={isRamadan}
                   />
                 );
               })}
@@ -1006,8 +1038,25 @@ export default function Home() {
     top_rated: PublicHomeFeedItem[];
     deals: PublicHomeFeedItem[];
     themed: PublicHomeFeedItem[];
+    by_service_buffet?: PublicHomeFeedItem[];
+    by_service_table?: PublicHomeFeedItem[];
+    by_service_carte?: PublicHomeFeedItem[];
   }>(null);
-  const [homeTheme, setHomeTheme] = useState<string | null>(null);
+  const [homeTheme, setHomeTheme] = useState<string | null>(() => {
+    const cached = getCachedHomeTheme();
+    // Si le HTML a déjà appliqué le thème Ramadan via le script inline (index.html),
+    // on synchronise l'état React immédiatement pour éviter tout flash.
+    if (cached === "ftour_shour") return cached;
+    // Pour tout autre thème caché (ex: ancien "romantic", "brunch"), on vérifie
+    // si le document porte déjà la classe ramadan-theme (appliquée par le script inline).
+    // Si oui, c'est que le dernier thème connu était Ramadan — on garde cette valeur.
+    if (typeof document !== "undefined" && document.documentElement.classList.contains("ramadan-theme")) {
+      return "ftour_shour";
+    }
+    // Sinon, ignorer les anciens thèmes pour éviter le flash — commencer en mode défaut
+    // L'API confirmera le vrai thème sous ~1s
+    return null;
+  });
 
   const requestUserLocation = useCallback(() => {
     if (!navigator.geolocation) return;
@@ -1055,12 +1104,23 @@ export default function Home() {
       .then((payload) => {
         if (cancelled) return;
         setLists(payload.lists);
-        setHomeTheme(payload.meta.theme ?? null);
+        const theme = payload.meta.theme ?? null;
+        setHomeTheme(theme);
+        setCachedHomeTheme(theme);
+        setRamadanActive(theme === "ftour_shour");
+        // Synchroniser le thème avec le DOM racine (nettoyage du script inline index.html)
+        if (theme === "ftour_shour") {
+          document.documentElement.classList.add("ramadan-theme");
+          document.body.style.backgroundColor = "#0A1628";
+        } else {
+          document.documentElement.classList.remove("ramadan-theme");
+          document.body.style.backgroundColor = "";
+        }
       })
       .catch(() => {
         if (cancelled) return;
         setHomeError(t("common.error.load_failed"));
-        setLists({ best_deals: [], selected_for_you: [], near_you: [], most_booked: [], open_now: [], trending: [], new_establishments: [], top_rated: [], deals: [], themed: [] });
+        setLists({ best_deals: [], selected_for_you: [], near_you: [], most_booked: [], open_now: [], trending: [], new_establishments: [], top_rated: [], deals: [], themed: [], by_service_buffet: [], by_service_table: [], by_service_carte: [] });
       })
       .finally(() => {
         if (cancelled) return;
@@ -1120,6 +1180,11 @@ export default function Home() {
   const dealsCards = useMemo(() => mapToCards(lists?.deals ?? [], selectedUniverse), [lists?.deals, mapToCards, selectedUniverse]);
   const themedCards = useMemo(() => mapToCards(lists?.themed ?? [], selectedUniverse), [lists?.themed, mapToCards, selectedUniverse]);
 
+  // Service type section card mappings
+  const buffetCards = useMemo(() => mapToCards(lists?.by_service_buffet ?? [], selectedUniverse), [lists?.by_service_buffet, mapToCards, selectedUniverse]);
+  const serviTableCards = useMemo(() => mapToCards(lists?.by_service_table ?? [], selectedUniverse), [lists?.by_service_table, mapToCards, selectedUniverse]);
+  const aLaCarteCards = useMemo(() => mapToCards(lists?.by_service_carte ?? [], selectedUniverse), [lists?.by_service_carte, mapToCards, selectedUniverse]);
+
   const themedSectionTitle = useMemo(() => {
     switch (homeTheme) {
       case "romantic": return t("home.sections.themed.romantic");
@@ -1129,6 +1194,35 @@ export default function Home() {
       default: return "";
     }
   }, [homeTheme, t]);
+
+  // ── Sections config from admin ──
+  const sectionsConfig = useMemo<PublicHomeSectionConfig[]>(() => {
+    const cfg = homeSettings?.sections_config;
+    if (Array.isArray(cfg) && cfg.length > 0) {
+      return [...cfg].sort((a, b) => a.sort_order - b.sort_order);
+    }
+    // Defaults: all active, original order
+    return [
+      { key: "best_deals", is_active: true, sort_order: 1, display_mode: "ordered", city_filter: "" },
+      { key: "selected_for_you", is_active: true, sort_order: 2, display_mode: "ordered", city_filter: "" },
+      { key: "near_you", is_active: true, sort_order: 3, display_mode: "ordered", city_filter: "" },
+      { key: "most_booked", is_active: true, sort_order: 4, display_mode: "ordered", city_filter: "" },
+      { key: "open_now", is_active: true, sort_order: 5, display_mode: "ordered", city_filter: "" },
+      { key: "trending", is_active: true, sort_order: 6, display_mode: "ordered", city_filter: "" },
+      { key: "new_establishments", is_active: true, sort_order: 7, display_mode: "ordered", city_filter: "" },
+      { key: "top_rated", is_active: true, sort_order: 8, display_mode: "ordered", city_filter: "" },
+      { key: "deals", is_active: true, sort_order: 9, display_mode: "ordered", city_filter: "" },
+      { key: "themed", is_active: true, sort_order: 10, display_mode: "ordered", city_filter: "" },
+      { key: "by_service_buffet", is_active: true, sort_order: 11, display_mode: "ordered", city_filter: "" },
+      { key: "by_service_table", is_active: true, sort_order: 12, display_mode: "ordered", city_filter: "" },
+      { key: "by_service_carte", is_active: true, sort_order: 13, display_mode: "ordered", city_filter: "" },
+    ];
+  }, [homeSettings?.sections_config]);
+
+  const isSectionActive = useCallback((key: string) => {
+    const cfg = sectionsConfig.find((s) => s.key === key);
+    return cfg ? cfg.is_active : true; // Default to active if not found
+  }, [sectionsConfig]);
 
   const offersCarouselRef = useRef<HTMLDivElement>(null);
   const selectedCarouselRef = useRef<HTMLDivElement>(null);
@@ -1140,6 +1234,9 @@ export default function Home() {
   const topRatedCarouselRef = useRef<HTMLDivElement>(null);
   const dealsCarouselRef = useRef<HTMLDivElement>(null);
   const themedCarouselRef = useRef<HTMLDivElement>(null);
+  const buffetCarouselRef = useRef<HTMLDivElement>(null);
+  const serviTableCarouselRef = useRef<HTMLDivElement>(null);
+  const aLaCarteCarouselRef = useRef<HTMLDivElement>(null);
   const blogCarouselRef = useRef<HTMLDivElement>(null);
 
   // Blog articles state
@@ -1188,37 +1285,56 @@ export default function Home() {
       const packs: Record<string, FeaturedPackItem | null> = {};
       const impressionMap = new Map<string, string>();
 
-      for (const section of sections) {
-        try {
-          const response = await getFeaturedPack({
+      // Lancer toutes les requêtes en parallèle (pas besoin d'attendre les excludeIds
+      // car le serveur gère la déduplication via la section)
+      const results = await Promise.allSettled(
+        sections.map((section) =>
+          getFeaturedPack({
             section,
             universe: selectedUniverse,
             exclude: excludeIds,
-          });
+          }).then(async (response) => {
+            if (cancelled) return { section, featured: null, impressionId: null };
+            if (response.featured) {
+              // Track impression en parallèle
+              let impressionId: string | null = null;
+              try {
+                const impResult = await trackAdImpression({
+                  campaign_id: response.featured.campaign_id,
+                  position: 1,
+                  search_query: section,
+                });
+                impressionId = impResult.impression_id;
+              } catch (e) {
+                console.error("[FeaturedPack] Failed to track impression:", e);
+              }
+              return { section, featured: response.featured, impressionId };
+            }
+            return { section, featured: null, impressionId: null };
+          })
+        )
+      );
 
-          if (cancelled) return;
+      if (cancelled) return;
 
-          if (response.featured) {
-            packs[section] = response.featured;
-            excludeIds.push(response.featured.establishment.id);
-
-            // Track impression
-            try {
-              const impResult = await trackAdImpression({
-                campaign_id: response.featured.campaign_id,
-                position: 1,
-                search_query: section,
-              });
-              impressionMap.set(response.featured.campaign_id, impResult.impression_id);
-            } catch (e) {
-              console.error("[FeaturedPack] Failed to track impression:", e);
+      // Dédupliquer côté client (au cas où 2 sections retournent le même établissement)
+      const seenIds = new Set<string>();
+      for (const result of results) {
+        if (result.status === "fulfilled" && result.value) {
+          const { section, featured, impressionId } = result.value;
+          if (featured && !seenIds.has(featured.establishment.id)) {
+            packs[section] = featured;
+            seenIds.add(featured.establishment.id);
+            if (impressionId) {
+              impressionMap.set(featured.campaign_id, impressionId);
             }
           } else {
-            packs[section] = null;
+            packs[section] = packs[section] ?? null;
           }
-        } catch (e) {
-          console.error(`[FeaturedPack] Failed to load for ${section}:`, e);
-          packs[section] = null;
+        } else {
+          // Promise rejected
+          const idx = results.indexOf(result);
+          // Featured pack failed to load for this section
         }
       }
 
@@ -1267,17 +1383,63 @@ export default function Home() {
   const viewAllOffersHref = buildResultsHref({ universe: selectedUniverse as ActivityCategory, promo: true, city: selectedCity });
   const viewAllUniverseHref = buildResultsHref({ universe: selectedUniverse as ActivityCategory, city: selectedCity });
 
+  // Ramadan 2026 — Mille et Une Nuits
+  const isRamadan = homeTheme === "ftour_shour";
+  const [ramadanBannerDismissed, setRamadanBannerDismissed] = useState(false);
+
   return (
-    <div className="min-h-screen bg-white">
-      <Header />
+    <RamadanThemeProvider active={isRamadan}>
+    <div className={`min-h-screen ${isRamadan ? "ramadan-theme bg-ramadan-night" : "bg-white"}`}>
+      <Header isRamadan={isRamadan} />
 
       {/* Home Takeover Banner (if active today) */}
       <HomeTakeoverBanner />
 
+      {/* Bandeau sticky Ramadan */}
+      {isRamadan && !ramadanBannerDismissed && (
+        <div className="sticky top-16 z-40 bg-ramadan-gold text-ramadan-night">
+          <div className="container mx-auto px-4 py-2 flex items-center justify-between">
+            <p className="text-sm font-bold flex items-center gap-2">
+              <span>🌙</span>
+              <span>{t("home.ramadan.announcement")}</span>
+            </p>
+            <button
+              type="button"
+              onClick={() => setRamadanBannerDismissed(true)}
+              className="text-ramadan-night/60 hover:text-ramadan-night transition ml-4 shrink-0"
+              aria-label="Fermer"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Mobile Hero - TheFork style */}
-      <section className="md:hidden relative text-white bg-gradient-to-b from-primary to-[#6a000f]">
+      <section className={`md:hidden relative text-white ${isRamadan ? "bg-gradient-to-b from-ramadan-night to-ramadan-deep" : homeSettings?.hero.mobile_background_image_url ? "" : "bg-gradient-to-b from-primary to-[#6a000f]"}`}>
+        {/* Mobile hero background image + overlay */}
+        {!isRamadan && homeSettings?.hero.mobile_background_image_url && (
+          <>
+            <img
+              src={homeSettings.hero.mobile_background_image_url}
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+            <div
+              className="absolute inset-0 bg-gradient-to-b from-primary to-[#6a000f]"
+              style={{ opacity: homeSettings.hero.mobile_overlay_opacity ?? 0.5 }}
+            />
+          </>
+        )}
+        {/* Ramadan: étoiles + lune */}
+        {isRamadan && <RamadanStarryBackground />}
+        {isRamadan && (
+          <CrescentMoonSvg className="absolute top-3 right-4 w-14 h-14 z-10 opacity-90" aria-hidden="true" />
+        )}
         {/* Hero Image - centered dish/establishment visual */}
-        <div className="pt-4 pb-3 flex justify-center">
+        <div className="pt-4 pb-3 flex justify-center relative z-20">
           {(() => {
             const currentUniverse = displayUniverses.find(u => u.id === selectedUniverse);
             const universeImageUrl = currentUniverse?.imageUrl;
@@ -1313,12 +1475,12 @@ export default function Home() {
         </div>
 
         {/* Title */}
-        <div className="text-center px-6 pb-4">
-          <h1 className="text-xl font-bold mb-1 tracking-tight">
-            {t("home.hero.title")}
+        <div className="text-center px-6 pb-4 relative z-20">
+          <h1 className={`text-xl font-bold mb-1 tracking-tight ${isRamadan ? "text-ramadan-cream" : ""}`}>
+            {isRamadan ? t("home.ramadan.hero.title") : (homeSettings?.hero.title || t("home.hero.title"))}
           </h1>
-          <p className="text-xs text-white/80">
-            {t("home.hero.subtitle")}
+          <p className={`text-xs ${isRamadan ? "text-ramadan-gold-light" : "text-white/80"}`}>
+            {isRamadan ? t("home.ramadan.hero.subtitle") : (homeSettings?.hero.subtitle || t("home.hero.subtitle"))}
           </p>
         </div>
 
@@ -1382,36 +1544,53 @@ export default function Home() {
 
       {/* Desktop Hero - existing style */}
       <section className="hidden md:block relative text-white py-10 md:py-16">
-        {/* Background: Image or Gradient */}
-        {homeSettings?.hero.background_image_url ? (
+        {/* Background & decorations — overflow-hidden isolé pour ne pas clipper les dropdowns */}
+        <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
+        {isRamadan ? (
+          <>
+            <div
+              className="absolute inset-0 bg-gradient-to-r from-ramadan-night to-ramadan-deep"
+            />
+            {/* Arabesque pattern overlay */}
+            <div
+              className="absolute inset-0 opacity-30"
+              style={{ backgroundImage: `url("${ARABESQUE_PATTERN_DATA_URI}")`, backgroundSize: "80px 80px" }}
+            />
+            <RamadanStarryBackground />
+            <RamadanParticles />
+            {/* Crescent moon */}
+            <CrescentMoonSvg className="absolute top-6 right-12 w-24 h-24 z-10 opacity-90" />
+            {/* Lanternes */}
+            <LanternSvg className="absolute top-0 left-[15%] w-10 h-16 z-10 ramadan-lantern opacity-70" />
+            <LanternSvg className="absolute top-0 right-[15%] w-10 h-16 z-10 ramadan-lantern opacity-70" style={{ animationDelay: "1.5s" }} />
+          </>
+        ) : homeSettings?.hero.background_image_url ? (
           <>
             <img
               src={homeSettings.hero.background_image_url}
               alt=""
               className="absolute inset-0 w-full h-full object-cover"
-              aria-hidden="true"
             />
             <div
               className="absolute inset-0 bg-gradient-to-r from-primary to-[#6a000f]"
               style={{ opacity: homeSettings.hero.overlay_opacity ?? 0.7 }}
-              aria-hidden="true"
             />
           </>
         ) : (
           <div
             className="absolute inset-0 bg-gradient-to-r from-primary to-[#6a000f]"
-            aria-hidden="true"
           />
         )}
+        </div>
 
         {/* Content */}
         <div className="container mx-auto px-4 relative z-50">
           <div className="text-center mb-9 md:mb-10">
-            <h1 className="text-3xl md:text-5xl font-bold mb-4 tracking-tight">
-              {t("home.hero.title")}
+            <h1 className={`text-3xl md:text-5xl font-bold mb-4 tracking-tight ${isRamadan ? "text-ramadan-cream" : ""}`}>
+              {isRamadan ? t("home.ramadan.hero.title") : (homeSettings?.hero.title || t("home.hero.title"))}
             </h1>
-            <p className="text-lg text-white/90 max-w-2xl mx-auto">
-              {t("home.hero.subtitle")}
+            <p className={`text-lg max-w-2xl mx-auto ${isRamadan ? "text-ramadan-gold-light" : "text-white/90"}`}>
+              {isRamadan ? t("home.ramadan.hero.subtitle") : (homeSettings?.hero.subtitle || t("home.hero.subtitle"))}
             </p>
           </div>
 
@@ -1423,7 +1602,7 @@ export default function Home() {
           )}
 
           {/* Search bar - adaptive per universe */}
-          <div ref={desktopSearchFormRef} className={`mx-auto ${selectedUniverse === "rentacar" ? "max-w-7xl" : "max-w-5xl"}`}>
+          <div ref={desktopSearchFormRef} className={`mx-auto ${selectedUniverse === "rentacar" ? "max-w-7xl" : "max-w-5xl"} ${isRamadan ? "ring-2 ring-ramadan-gold rounded-xl" : ""}`}>
             {selectedUniverse === "rentacar" ? (
               <AdaptiveSearchForm
                 selectedUniverse={selectedUniverse as ActivityCategory}
@@ -1455,198 +1634,287 @@ export default function Home() {
         {homeError ? <div className="mt-6 text-sm text-red-600">{homeError}</div> : null}
 
         {/* CE advantages carousel — only for active CE employees */}
-        <CeHomeFeedSection />
+        <Suspense fallback={null}>
+          <CeHomeFeedSection />
+        </Suspense>
 
-        {/* Spécial Ramadan — promoted to top of page when Ramadan is active */}
-        {homeTheme === "ftour_shour" && themedCards.length > 0 && (
-          <HomeCarouselSection
-            title={t("home.sections.ramadan.title")}
-            viewAllHref="/results?tags=ftour"
-            items={themedCards}
-            favoriteIds={favorites}
-            onToggleFavorite={toggleFavorite}
-            scrollRef={themedCarouselRef}
-            onScrollLeft={() => scrollCarousel("left", themedCarouselRef)}
-            onScrollRight={() => scrollCarousel("right", themedCarouselRef)}
-            selectedCity={selectedCity}
-            showDistance={userLocation != null}
-            tMonthLabel={t("chart.label.reservations_30d")}
-            isLoading={homeLoading}
-          />
+        {/* Spécial Ramadan — Section dédiée offres Ramadan (Ftour, S'hour, etc.) */}
+        {homeTheme === "ftour_shour" && (
+          <Suspense fallback={null}>
+            <RamadanHomeFeedSection />
+          </Suspense>
         )}
 
-        <HomeCarouselSection
-          title={t("home.sections.best_offers.title")}
-          viewAllHref={viewAllOffersHref}
-          items={bestDealsCards}
-          favoriteIds={favorites}
-          onToggleFavorite={toggleFavorite}
-          scrollRef={offersCarouselRef}
-          onScrollLeft={() => scrollCarousel("left", offersCarouselRef)}
-          onScrollRight={() => scrollCarousel("right", offersCarouselRef)}
-          selectedCity={selectedCity}
-          showDistance={userLocation != null}
-          tMonthLabel={t("chart.label.reservations_30d")}
-          featuredPack={featuredPacks.best_offers}
-          onFeaturedClick={handleFeaturedPackClick}
-          isLoading={homeLoading}
-        />
+        {/* ── Dynamic sections — ordered by admin config ── */}
+        {sectionsConfig.map((cfg) => {
+          if (!cfg.is_active) return null;
 
-        <HomeCarouselSection
-          title={t(SELECTED_FOR_YOU_TITLE_KEYS[selectedUniverse])}
-          viewAllHref={viewAllUniverseHref}
-          items={selectedForYouCards}
-          favoriteIds={favorites}
-          onToggleFavorite={toggleFavorite}
-          scrollRef={selectedCarouselRef}
-          onScrollLeft={() => scrollCarousel("left", selectedCarouselRef)}
-          onScrollRight={() => scrollCarousel("right", selectedCarouselRef)}
-          selectedCity={selectedCity}
-          showDistance={userLocation != null}
-          tMonthLabel={t("chart.label.reservations_30d")}
-          featuredPack={featuredPacks.selected_for_you}
-          onFeaturedClick={handleFeaturedPackClick}
-          isLoading={homeLoading}
-        />
+          switch (cfg.key) {
+            case "best_deals":
+              return (
+                <HomeCarouselSection
+                  key="best_deals"
+                  title={t("home.sections.best_offers.title")}
+                  viewAllHref={viewAllOffersHref}
+                  items={bestDealsCards}
+                  favoriteIds={favorites}
+                  onToggleFavorite={toggleFavorite}
+                  scrollRef={offersCarouselRef}
+                  onScrollLeft={() => scrollCarousel("left", offersCarouselRef)}
+                  onScrollRight={() => scrollCarousel("right", offersCarouselRef)}
+                  selectedCity={selectedCity}
+                  showDistance={userLocation != null}
+                  tMonthLabel={t("chart.label.reservations_30d")}
+                  featuredPack={featuredPacks.best_offers}
+                  onFeaturedClick={handleFeaturedPackClick}
+                  isLoading={homeLoading}
+                  isRamadan={isRamadan}
+                />
+              );
 
-        <HomeCarouselSection
-          title={t("home.sections.nearby.title")}
-          viewAllHref={viewAllUniverseHref}
-          items={nearYouCards}
-          favoriteIds={favorites}
-          onToggleFavorite={toggleFavorite}
-          scrollRef={nearbyCarouselRef}
-          onScrollLeft={() => scrollCarousel("left", nearbyCarouselRef)}
-          onScrollRight={() => scrollCarousel("right", nearbyCarouselRef)}
-          selectedCity={selectedCity}
-          showDistance={userLocation != null}
-          tMonthLabel={t("chart.label.reservations_30d")}
-          featuredPack={featuredPacks.nearby}
-          onFeaturedClick={handleFeaturedPackClick}
-          isLoading={homeLoading}
-        />
+            case "selected_for_you":
+              return (
+                <HomeCarouselSection
+                  key="selected_for_you"
+                  title={t(SELECTED_FOR_YOU_TITLE_KEYS[selectedUniverse])}
+                  viewAllHref={viewAllUniverseHref}
+                  items={selectedForYouCards}
+                  favoriteIds={favorites}
+                  onToggleFavorite={toggleFavorite}
+                  scrollRef={selectedCarouselRef}
+                  onScrollLeft={() => scrollCarousel("left", selectedCarouselRef)}
+                  onScrollRight={() => scrollCarousel("right", selectedCarouselRef)}
+                  selectedCity={selectedCity}
+                  showDistance={userLocation != null}
+                  tMonthLabel={t("chart.label.reservations_30d")}
+                  featuredPack={featuredPacks.selected_for_you}
+                  onFeaturedClick={handleFeaturedPackClick}
+                  isLoading={homeLoading}
+                  isRamadan={isRamadan}
+                />
+              );
 
-        <HomeCarouselSection
-          title={t("home.sections.most_booked.title")}
-          viewAllHref={viewAllUniverseHref}
-          items={mostBookedCards}
-          favoriteIds={favorites}
-          onToggleFavorite={toggleFavorite}
-          scrollRef={mostBookedCarouselRef}
-          onScrollLeft={() => scrollCarousel("left", mostBookedCarouselRef)}
-          onScrollRight={() => scrollCarousel("right", mostBookedCarouselRef)}
-          selectedCity={selectedCity}
-          showDistance={userLocation != null}
-          tMonthLabel={t("chart.label.reservations_30d")}
-          featuredPack={featuredPacks.most_booked}
-          onFeaturedClick={handleFeaturedPackClick}
-          isLoading={homeLoading}
-        />
+            case "near_you":
+              return (
+                <HomeCarouselSection
+                  key="near_you"
+                  title={t("home.sections.nearby.title")}
+                  viewAllHref={viewAllUniverseHref}
+                  items={nearYouCards}
+                  favoriteIds={favorites}
+                  onToggleFavorite={toggleFavorite}
+                  scrollRef={nearbyCarouselRef}
+                  onScrollLeft={() => scrollCarousel("left", nearbyCarouselRef)}
+                  onScrollRight={() => scrollCarousel("right", nearbyCarouselRef)}
+                  selectedCity={selectedCity}
+                  showDistance={userLocation != null}
+                  tMonthLabel={t("chart.label.reservations_30d")}
+                  featuredPack={featuredPacks.nearby}
+                  onFeaturedClick={handleFeaturedPackClick}
+                  isLoading={homeLoading}
+                  isRamadan={isRamadan}
+                />
+              );
 
-        {/* Open Now */}
-        {openNowCards.length > 0 && (
-          <HomeCarouselSection
-            title={t("home.sections.open_now.title")}
-            viewAllHref={`${viewAllUniverseHref}&open_now=1`}
-            items={openNowCards}
-            favoriteIds={favorites}
-            onToggleFavorite={toggleFavorite}
-            scrollRef={openNowCarouselRef}
-            onScrollLeft={() => scrollCarousel("left", openNowCarouselRef)}
-            onScrollRight={() => scrollCarousel("right", openNowCarouselRef)}
-            selectedCity={selectedCity}
-            showDistance={userLocation != null}
-            tMonthLabel={t("chart.label.reservations_30d")}
-          />
-        )}
+            case "most_booked":
+              return (
+                <HomeCarouselSection
+                  key="most_booked"
+                  title={t("home.sections.most_booked.title")}
+                  viewAllHref={viewAllUniverseHref}
+                  items={mostBookedCards}
+                  favoriteIds={favorites}
+                  onToggleFavorite={toggleFavorite}
+                  scrollRef={mostBookedCarouselRef}
+                  onScrollLeft={() => scrollCarousel("left", mostBookedCarouselRef)}
+                  onScrollRight={() => scrollCarousel("right", mostBookedCarouselRef)}
+                  selectedCity={selectedCity}
+                  showDistance={userLocation != null}
+                  tMonthLabel={t("chart.label.reservations_30d")}
+                  featuredPack={featuredPacks.most_booked}
+                  onFeaturedClick={handleFeaturedPackClick}
+                  isLoading={homeLoading}
+                  isRamadan={isRamadan}
+                />
+              );
 
-        {/* Trending */}
-        {trendingCards.length > 0 && (
-          <HomeCarouselSection
-            title={t("home.sections.trending.title")}
-            viewAllHref={`${viewAllUniverseHref}&sort=reservations_30d`}
-            items={trendingCards}
-            favoriteIds={favorites}
-            onToggleFavorite={toggleFavorite}
-            scrollRef={trendingCarouselRef}
-            onScrollLeft={() => scrollCarousel("left", trendingCarouselRef)}
-            onScrollRight={() => scrollCarousel("right", trendingCarouselRef)}
-            selectedCity={selectedCity}
-            showDistance={userLocation != null}
-            tMonthLabel={t("chart.label.reservations_30d")}
-          />
-        )}
+            case "open_now":
+              return openNowCards.length > 0 ? (
+                <HomeCarouselSection
+                  key="open_now"
+                  title={t("home.sections.open_now.title")}
+                  viewAllHref={`${viewAllUniverseHref}&open_now=1`}
+                  items={openNowCards}
+                  favoriteIds={favorites}
+                  onToggleFavorite={toggleFavorite}
+                  scrollRef={openNowCarouselRef}
+                  onScrollLeft={() => scrollCarousel("left", openNowCarouselRef)}
+                  onScrollRight={() => scrollCarousel("right", openNowCarouselRef)}
+                  selectedCity={selectedCity}
+                  showDistance={userLocation != null}
+                  tMonthLabel={t("chart.label.reservations_30d")}
+                  isRamadan={isRamadan}
+                />
+              ) : null;
 
-        {/* New Establishments */}
-        {newEstCards.length > 0 && (
-          <HomeCarouselSection
-            title={t("home.sections.new.title")}
-            viewAllHref={`${viewAllUniverseHref}&sort=newest`}
-            items={newEstCards}
-            favoriteIds={favorites}
-            onToggleFavorite={toggleFavorite}
-            scrollRef={newEstCarouselRef}
-            onScrollLeft={() => scrollCarousel("left", newEstCarouselRef)}
-            onScrollRight={() => scrollCarousel("right", newEstCarouselRef)}
-            selectedCity={selectedCity}
-            showDistance={userLocation != null}
-            tMonthLabel={t("chart.label.reservations_30d")}
-          />
-        )}
+            case "trending":
+              return trendingCards.length > 0 ? (
+                <HomeCarouselSection
+                  key="trending"
+                  title={t("home.sections.trending.title")}
+                  viewAllHref={`${viewAllUniverseHref}&sort=reservations_30d`}
+                  items={trendingCards}
+                  favoriteIds={favorites}
+                  onToggleFavorite={toggleFavorite}
+                  scrollRef={trendingCarouselRef}
+                  onScrollLeft={() => scrollCarousel("left", trendingCarouselRef)}
+                  onScrollRight={() => scrollCarousel("right", trendingCarouselRef)}
+                  selectedCity={selectedCity}
+                  showDistance={userLocation != null}
+                  tMonthLabel={t("chart.label.reservations_30d")}
+                  isRamadan={isRamadan}
+                />
+              ) : null;
 
-        {/* Top Rated */}
-        {topRatedCards.length > 0 && (
-          <HomeCarouselSection
-            title={t("home.sections.top_rated.title")}
-            viewAllHref={`${viewAllUniverseHref}&sort=rating`}
-            items={topRatedCards}
-            favoriteIds={favorites}
-            onToggleFavorite={toggleFavorite}
-            scrollRef={topRatedCarouselRef}
-            onScrollLeft={() => scrollCarousel("left", topRatedCarouselRef)}
-            onScrollRight={() => scrollCarousel("right", topRatedCarouselRef)}
-            selectedCity={selectedCity}
-            showDistance={userLocation != null}
-            tMonthLabel={t("chart.label.reservations_30d")}
-          />
-        )}
+            case "new_establishments":
+              return newEstCards.length > 0 ? (
+                <HomeCarouselSection
+                  key="new_establishments"
+                  title={t("home.sections.new.title")}
+                  viewAllHref={`${viewAllUniverseHref}&sort=newest`}
+                  items={newEstCards}
+                  favoriteIds={favorites}
+                  onToggleFavorite={toggleFavorite}
+                  scrollRef={newEstCarouselRef}
+                  onScrollLeft={() => scrollCarousel("left", newEstCarouselRef)}
+                  onScrollRight={() => scrollCarousel("right", newEstCarouselRef)}
+                  selectedCity={selectedCity}
+                  showDistance={userLocation != null}
+                  tMonthLabel={t("chart.label.reservations_30d")}
+                  isRamadan={isRamadan}
+                />
+              ) : null;
 
-        {/* Deals */}
-        {dealsCards.length > 0 && (
-          <HomeCarouselSection
-            title={t("home.sections.deals.title")}
-            viewAllHref={`${viewAllUniverseHref}&promo=1`}
-            items={dealsCards}
-            favoriteIds={favorites}
-            onToggleFavorite={toggleFavorite}
-            scrollRef={dealsCarouselRef}
-            onScrollLeft={() => scrollCarousel("left", dealsCarouselRef)}
-            onScrollRight={() => scrollCarousel("right", dealsCarouselRef)}
-            selectedCity={selectedCity}
-            showDistance={userLocation != null}
-            tMonthLabel={t("chart.label.reservations_30d")}
-          />
-        )}
+            case "top_rated":
+              return topRatedCards.length > 0 ? (
+                <HomeCarouselSection
+                  key="top_rated"
+                  title={t("home.sections.top_rated.title")}
+                  viewAllHref={`${viewAllUniverseHref}&sort=rating`}
+                  items={topRatedCards}
+                  favoriteIds={favorites}
+                  onToggleFavorite={toggleFavorite}
+                  scrollRef={topRatedCarouselRef}
+                  onScrollLeft={() => scrollCarousel("left", topRatedCarouselRef)}
+                  onScrollRight={() => scrollCarousel("right", topRatedCarouselRef)}
+                  selectedCity={selectedCity}
+                  showDistance={userLocation != null}
+                  tMonthLabel={t("chart.label.reservations_30d")}
+                  isRamadan={isRamadan}
+                />
+              ) : null;
 
-        {/* Themed — skip if Ramadan (already shown at top) */}
-        {themedCards.length > 0 && themedSectionTitle && homeTheme !== "ftour_shour" && (
-          <HomeCarouselSection
-            title={themedSectionTitle}
-            viewAllHref={viewAllUniverseHref}
-            items={themedCards}
-            favoriteIds={favorites}
-            onToggleFavorite={toggleFavorite}
-            scrollRef={themedCarouselRef}
-            onScrollLeft={() => scrollCarousel("left", themedCarouselRef)}
-            onScrollRight={() => scrollCarousel("right", themedCarouselRef)}
-            selectedCity={selectedCity}
-            showDistance={userLocation != null}
-            tMonthLabel={t("chart.label.reservations_30d")}
-          />
-        )}
+            case "deals":
+              return dealsCards.length > 0 ? (
+                <HomeCarouselSection
+                  key="deals"
+                  title={t("home.sections.deals.title")}
+                  viewAllHref={`${viewAllUniverseHref}&promo=1`}
+                  items={dealsCards}
+                  favoriteIds={favorites}
+                  onToggleFavorite={toggleFavorite}
+                  scrollRef={dealsCarouselRef}
+                  onScrollLeft={() => scrollCarousel("left", dealsCarouselRef)}
+                  onScrollRight={() => scrollCarousel("right", dealsCarouselRef)}
+                  selectedCity={selectedCity}
+                  showDistance={userLocation != null}
+                  tMonthLabel={t("chart.label.reservations_30d")}
+                  isRamadan={isRamadan}
+                />
+              ) : null;
+
+            case "themed":
+              return themedCards.length > 0 && themedSectionTitle && homeTheme !== "ftour_shour" ? (
+                <HomeCarouselSection
+                  key="themed"
+                  title={themedSectionTitle}
+                  viewAllHref={viewAllUniverseHref}
+                  scrollRef={themedCarouselRef}
+                  onScrollLeft={() => scrollCarousel("left", themedCarouselRef)}
+                  onScrollRight={() => scrollCarousel("right", themedCarouselRef)}
+                  selectedCity={selectedCity}
+                  showDistance={userLocation != null}
+                  tMonthLabel={t("chart.label.reservations_30d")}
+                  isRamadan={isRamadan}
+                />
+              ) : null;
+
+            case "by_service_buffet":
+              return buffetCards.length > 0 ? (
+                <HomeCarouselSection
+                  key="by_service_buffet"
+                  title="Buffet à volonté"
+                  viewAllHref={viewAllUniverseHref}
+                  items={buffetCards}
+                  favoriteIds={favorites}
+                  onToggleFavorite={toggleFavorite}
+                  scrollRef={buffetCarouselRef}
+                  onScrollLeft={() => scrollCarousel("left", buffetCarouselRef)}
+                  onScrollRight={() => scrollCarousel("right", buffetCarouselRef)}
+                  selectedCity={selectedCity}
+                  showDistance={userLocation != null}
+                  tMonthLabel={t("chart.label.reservations_30d")}
+                  isRamadan={isRamadan}
+                />
+              ) : null;
+
+            case "by_service_table":
+              return serviTableCards.length > 0 ? (
+                <HomeCarouselSection
+                  key="by_service_table"
+                  title="Servi à table"
+                  viewAllHref={viewAllUniverseHref}
+                  items={serviTableCards}
+                  favoriteIds={favorites}
+                  onToggleFavorite={toggleFavorite}
+                  scrollRef={serviTableCarouselRef}
+                  onScrollLeft={() => scrollCarousel("left", serviTableCarouselRef)}
+                  onScrollRight={() => scrollCarousel("right", serviTableCarouselRef)}
+                  selectedCity={selectedCity}
+                  showDistance={userLocation != null}
+                  tMonthLabel={t("chart.label.reservations_30d")}
+                  isRamadan={isRamadan}
+                />
+              ) : null;
+
+            case "by_service_carte":
+              return aLaCarteCards.length > 0 ? (
+                <HomeCarouselSection
+                  key="by_service_carte"
+                  title="À la carte"
+                  viewAllHref={viewAllUniverseHref}
+                  items={aLaCarteCards}
+                  favoriteIds={favorites}
+                  onToggleFavorite={toggleFavorite}
+                  scrollRef={aLaCarteCarouselRef}
+                  onScrollLeft={() => scrollCarousel("left", aLaCarteCarouselRef)}
+                  onScrollRight={() => scrollCarousel("right", aLaCarteCarouselRef)}
+                  selectedCity={selectedCity}
+                  showDistance={userLocation != null}
+                  tMonthLabel={t("chart.label.reservations_30d")}
+                  isRamadan={isRamadan}
+                />
+              ) : null;
+
+            default:
+              return null;
+          }
+        })}
 
         {/* Featured Packs Carousel */}
-        <FeaturedPacksCarousel className="mb-8 md:mb-10" />
+        <Suspense fallback={null}>
+          <FeaturedPacksCarousel className="mb-8 md:mb-10" title={homeSettings?.packs_section_title || undefined} />
+        </Suspense>
 
         {/* Blog Section */}
         <BlogCarouselSection
@@ -1659,13 +1927,40 @@ export default function Home() {
         />
 
         {/* Cities Section */}
-        <CitiesSection className="pt-8 pb-4" />
+        <Suspense fallback={null}>
+          <CitiesSection className="pt-8 pb-4" />
+        </Suspense>
 
         {/* Videos Section */}
-        <HomeVideosSection className="pt-8 pb-4" />
+        <Suspense fallback={null}>
+          <HomeVideosSection className="pt-8 pb-4" />
+        </Suspense>
 
-        {/* How SAM Works Section */}
-        {(() => {
+        {/* How SAM Works Section — or Ramadan CTA */}
+        {isRamadan ? (
+          <section className="pt-6 pb-8">
+            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-ramadan-night to-ramadan-deep p-8 md:p-12">
+              <RamadanStarryBackground />
+              <div className="relative z-10 text-center">
+                <CrescentMoonSvg className="w-16 h-16 mx-auto mb-4" />
+                <h2 className="text-2xl md:text-3xl font-bold text-ramadan-cream mb-3">
+                  {t("home.ramadan.cta.title")}
+                </h2>
+                <p className="text-ramadan-gold-light text-sm md:text-base max-w-xl mx-auto mb-6">
+                  {t("home.ramadan.cta.description")}
+                </p>
+                <Link
+                  to="ramadan-offers"
+                  className="inline-flex items-center gap-2 bg-ramadan-bordeaux hover:bg-ramadan-bordeaux/90 text-ramadan-cream font-bold px-6 py-3 rounded-xl transition shadow-lg"
+                >
+                  {t("home.ramadan.cta.button")}
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+              </div>
+            </div>
+          </section>
+        ) : (
+        (() => {
           // Default items if not customized in admin
           const defaultHowItWorks = {
             title: t("home.how_it_works.title"),
@@ -1699,10 +1994,12 @@ export default function Home() {
               </div>
             </section>
           );
-        })()}
+        })()
+        )}
 
-        <CategorySelector universe={selectedUniverse as ActivityCategory} city={selectedCity} />
+        <Suspense fallback={null}><CategorySelector universe={selectedUniverse as ActivityCategory} city={selectedCity} isRamadan={isRamadan} /></Suspense>
       </main>
     </div>
+    </RamadanThemeProvider>
   );
 }

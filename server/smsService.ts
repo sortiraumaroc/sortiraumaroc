@@ -7,6 +7,9 @@
  */
 
 import Twilio from "twilio";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("smsService");
 
 // ---------------------------------------------------------------------------
 // Twilio configuration (same env vars as twilioAuth.ts)
@@ -58,7 +61,7 @@ export async function sendTransactionalSms(
   body: string,
 ): Promise<SendSmsResult> {
   if (!isSmsConfigured()) {
-    console.warn("[SmsService] Twilio not configured — SMS not sent");
+    log.warn("Twilio not configured — SMS not sent");
     return { ok: false, error: "twilio_not_configured" };
   }
 
@@ -80,11 +83,11 @@ export async function sendTransactionalSms(
       from: TWILIO_PHONE_NUMBER,
     });
 
-    console.log(`[SmsService] SMS sent to ${cleanPhone}, SID: ${message.sid}`);
+    log.info({ phone: cleanPhone, sid: message.sid }, "SMS sent");
     return { ok: true, messageSid: message.sid };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    console.error(`[SmsService] Failed to send SMS to ${cleanPhone}:`, errorMsg);
+    log.error({ phone: cleanPhone, err: errorMsg }, "Failed to send SMS");
 
     // Check for specific Twilio error codes
     const twilioError = err as { code?: number };

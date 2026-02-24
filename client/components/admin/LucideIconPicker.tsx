@@ -1,6 +1,5 @@
 import * as React from "react";
-import * as Icons from "lucide-react";
-import { Search, X } from "lucide-react";
+import { Search, X, Circle, type LucideIcon } from "lucide-react";
 import {
   Popover,
   PopoverContent,
@@ -29,54 +28,61 @@ const COMMON_ICONS = [
   "Bike",
   "Car",
   "Plane",
-  "Train",
   "Ship",
-  "Tent",
+  "MapPin",
+  "Compass",
   "Camera",
   "Music",
   "Palette",
-  "Book",
-  "Gamepad2",
-  "Film",
-  "Trees",
-  "Mountain",
-  "Sun",
-  "Moon",
-  "Umbrella",
-  "Waves",
-  "Briefcase",
+  "BookOpen",
   "GraduationCap",
+  "Briefcase",
   "Stethoscope",
   "Scissors",
-  "Sparkles",
+  "Wrench",
+  "Gamepad2",
   "Trophy",
   "Medal",
   "Gift",
-  "PartyPopper",
-  "MapPin",
-  "Globe",
-  "Compass",
-  "Navigation",
-  "Utensils",
-  "Soup",
-  "IceCream",
-  "Croissant",
-  "Beer",
-  "Martini",
-  "Footprints",
-  "Flower2",
-  "Leaf",
+  "Sparkles",
+  "Sun",
+  "Moon",
   "TreePine",
-  "Sailboat",
-  "Volleyball",
-  "BadgePercent",
-  "Ticket",
-  "Theater",
-  "Clapperboard",
-  "Mic2",
+  "Flower2",
+  "Dog",
+  "Cat",
+  "Baby",
+  "Smile",
   "Headphones",
-  "Shirt",
-  "Watch",
+  "Mic",
+  "Video",
+  "Tv",
+  "Wifi",
+  "Globe",
+  "Phone",
+  "Mail",
+  "Clock",
+  "CalendarCheck",
+  "Users",
+  "UserCircle",
+  "BadgePercent",
+  "CreditCard",
+  "Wallet",
+  "Receipt",
+  "BarChart3",
+  "TrendingUp",
+  "Shield",
+  "Lock",
+  "Eye",
+  "Bell",
+  "MessageSquare",
+  "ThumbsUp",
+  "Flag",
+  "Tag",
+  "Bookmark",
+  "Link",
+  "Download",
+  "Upload",
   "Gem",
   "Crown",
   "Bed",
@@ -85,15 +91,29 @@ const COMMON_ICONS = [
   "Lamp",
 ] as const;
 
-// Get all icon names from lucide-react (filter to LucideIcon components)
-const ALL_ICON_NAMES = Object.keys(Icons).filter(
-  (key) =>
-    key !== "default" &&
-    key !== "createLucideIcon" &&
-    key !== "icons" &&
-    typeof (Icons as Record<string, unknown>)[key] === "function" &&
-    /^[A-Z]/.test(key),
-);
+// Lazy-loaded full icon registry (only loaded when "show all" is clicked)
+let allIconsCache: Record<string, LucideIcon> | null = null;
+let allIconNamesCache: string[] | null = null;
+
+async function loadAllIcons(): Promise<Record<string, LucideIcon>> {
+  if (allIconsCache) return allIconsCache;
+  const mod = await import("lucide-react");
+  const icons: Record<string, LucideIcon> = {};
+  for (const [key, val] of Object.entries(mod)) {
+    if (
+      key !== "default" &&
+      key !== "createLucideIcon" &&
+      key !== "icons" &&
+      typeof val === "function" &&
+      /^[A-Z]/.test(key)
+    ) {
+      icons[key] = val as LucideIcon;
+    }
+  }
+  allIconsCache = icons;
+  allIconNamesCache = Object.keys(icons);
+  return icons;
+}
 
 type LucideIconPickerProps = {
   value: string;
@@ -109,22 +129,30 @@ export function LucideIconPicker({
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState("");
   const [showAll, setShowAll] = React.useState(false);
+  const [allIcons, setAllIcons] = React.useState<Record<string, LucideIcon> | null>(allIconsCache);
+  const [allIconNames, setAllIconNames] = React.useState<string[]>(allIconNamesCache ?? []);
 
-  const IconComponent = (
-    Icons as unknown as Record<string, React.FC<{ className?: string }>>
-  )[value] ?? Icons.Circle;
+  // Load all icons when "show all" is clicked
+  React.useEffect(() => {
+    if (showAll && !allIcons) {
+      loadAllIcons().then((icons) => {
+        setAllIcons(icons);
+        setAllIconNames(Object.keys(icons));
+      });
+    }
+  }, [showAll, allIcons]);
+
+  const IconComponent = allIcons?.[value] ?? Circle;
 
   const filteredIcons = React.useMemo(() => {
-    const baseList = showAll ? ALL_ICON_NAMES : [...COMMON_ICONS];
+    const baseList = showAll ? allIconNames : [...COMMON_ICONS];
     if (!search.trim()) return baseList;
     const q = search.toLowerCase();
     return baseList.filter((name) => name.toLowerCase().includes(q));
-  }, [search, showAll]);
+  }, [search, showAll, allIconNames]);
 
   const renderIcon = (iconName: string) => {
-    const Icon = (Icons as unknown as Record<string, React.FC<{ className?: string }>>)[
-      iconName
-    ];
+    const Icon = allIcons?.[iconName];
     if (!Icon) return null;
     return (
       <button
@@ -149,6 +177,16 @@ export function LucideIconPicker({
       </button>
     );
   };
+
+  // Preload icons on popover open so the selected icon renders
+  React.useEffect(() => {
+    if (open && !allIcons) {
+      loadAllIcons().then((icons) => {
+        setAllIcons(icons);
+        setAllIconNames(Object.keys(icons));
+      });
+    }
+  }, [open, allIcons]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -196,7 +234,7 @@ export function LucideIconPicker({
               size="sm"
               onClick={() => setShowAll(true)}
             >
-              Toutes ({ALL_ICON_NAMES.length})
+              Toutes {allIconNames.length > 0 ? `(${allIconNames.length})` : ""}
             </Button>
           </div>
         </div>
@@ -215,7 +253,7 @@ export function LucideIconPicker({
   );
 }
 
-// Helper to render a dynamic icon by name
+// Helper to render a dynamic icon by name (lazy-loads the full library on first call)
 export function DynamicLucideIcon({
   name,
   className,
@@ -227,9 +265,14 @@ export function DynamicLucideIcon({
   style?: React.CSSProperties;
   fallback?: string;
 }) {
-  const Icon =
-    (Icons as unknown as Record<string, React.FC<{ className?: string; style?: React.CSSProperties }>>)[name] ??
-    (Icons as unknown as Record<string, React.FC<{ className?: string; style?: React.CSSProperties }>>)[fallback] ??
-    Icons.Circle;
+  const [icons, setIcons] = React.useState<Record<string, LucideIcon> | null>(allIconsCache);
+
+  React.useEffect(() => {
+    if (!icons) {
+      loadAllIcons().then(setIcons);
+    }
+  }, [icons]);
+
+  const Icon = icons?.[name] ?? icons?.[fallback] ?? Circle;
   return <Icon className={className} style={style} />;
 }

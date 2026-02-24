@@ -296,6 +296,7 @@ export function ProfileInfoForm({ profile }: { profile: UserProfile }) {
     profile.socio_professional_status,
     profile.date_of_birth,
     profile.city,
+    profile.country,
     profile.firstName,
     profile.lastName,
     profile.updatedAtIso,

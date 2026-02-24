@@ -10,7 +10,13 @@
  */
 
 import type { Request, Response, RequestHandler } from "express";
+import type { Express } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
+import {
+  gestureProposalRateLimiter,
+  proResponseRateLimiter,
+} from "../middleware/rateLimiter";
+import { sanitizeReviewBody } from "../middleware/reviewSecurity";
 import { randomBytes } from "crypto";
 import {
   proposeCommercialGesture,
@@ -19,11 +25,16 @@ import {
   updateEstablishmentRatingStats,
 } from "../reviewLogic";
 import { emitAdminNotification } from "../adminNotifications";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("proReviewsV2");
 import {
   proposeGestureSchema,
   submitResponseSchema,
   proListReviewsSchema,
 } from "../schemas/reviews";
+import { zBody, zParams } from "../lib/validate";
+import { ProposeGestureV2BodySchema, SubmitProResponseV2BodySchema, EidParams, EidIdParams } from "../schemas/proMisc";
 
 // ---------------------------------------------------------------------------
 // Auth helpers (same pattern as pro.ts)
@@ -152,7 +163,7 @@ export const listProEstablishmentReviewsV2: RequestHandler = async (req, res) =>
     const { data: reviews, error, count } = await query;
 
     if (error) {
-      console.error("[proReviewsV2] listReviews error:", error);
+      log.error({ err: error }, "listReviews error");
       return res.status(500).json({ ok: false, error: "Erreur serveur" });
     }
 
@@ -198,7 +209,7 @@ export const listProEstablishmentReviewsV2: RequestHandler = async (req, res) =>
       limit,
     });
   } catch (err) {
-    console.error("[proReviewsV2] listReviews exception:", err);
+    log.error({ err }, "listReviews exception");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 };
@@ -281,7 +292,7 @@ export const getProReviewDetailV2: RequestHandler = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("[proReviewsV2] getReviewDetail exception:", err);
+    log.error({ err }, "getReviewDetail exception");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 };
@@ -340,7 +351,7 @@ export const proposeGestureV2: RequestHandler = async (req, res) => {
       if (/duplicate key/.test(promoErr.message)) {
         return res.status(409).json({ ok: false, error: "Ce code promo existe déjà" });
       }
-      console.error("[proReviewsV2] promo code creation error:", promoErr);
+      log.error({ err: promoErr }, "Promo code creation error");
       return res.status(500).json({ ok: false, error: "Erreur lors de la création du code promo" });
     }
 
@@ -365,7 +376,7 @@ export const proposeGestureV2: RequestHandler = async (req, res) => {
       message: "Geste commercial proposé. Le client a 48h pour répondre.",
     });
   } catch (err) {
-    console.error("[proReviewsV2] proposeGesture exception:", err);
+    log.error({ err }, "proposeGesture exception");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 };
@@ -432,7 +443,7 @@ export const submitProResponseV2: RequestHandler = async (req, res) => {
       if (insertErr.code === "23505") {
         return res.status(400).json({ ok: false, error: "Une réponse a déjà été soumise" });
       }
-      console.error("[proReviewsV2] response insert error:", insertErr);
+      log.error({ err: insertErr }, "Response insert error");
       return res.status(500).json({ ok: false, error: "Erreur serveur" });
     }
 
@@ -451,7 +462,7 @@ export const submitProResponseV2: RequestHandler = async (req, res) => {
       message: "Votre réponse a été soumise. Elle sera publiée après modération.",
     });
   } catch (err) {
-    console.error("[proReviewsV2] submitResponse exception:", err);
+    log.error({ err }, "submitResponse exception");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 };
@@ -538,7 +549,19 @@ export const getProReviewStatsV2: RequestHandler = async (req, res) => {
       awaiting_response: withoutResponseCount,
     });
   } catch (err) {
-    console.error("[proReviewsV2] getReviewStats exception:", err);
+    log.error({ err }, "getReviewStats exception");
     return res.status(500).json({ ok: false, error: "Erreur serveur" });
   }
 };
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerProReviewsV2Routes(app: Express) {
+  app.get("/api/pro/v2/establishments/:eid/reviews", zParams(EidParams), listProEstablishmentReviewsV2);
+  app.get("/api/pro/v2/establishments/:eid/reviews/stats", zParams(EidParams), getProReviewStatsV2);
+  app.get("/api/pro/v2/establishments/:eid/reviews/:id", zParams(EidIdParams), getProReviewDetailV2);
+  app.post("/api/pro/v2/establishments/:eid/reviews/:id/gesture", zParams(EidIdParams), gestureProposalRateLimiter, sanitizeReviewBody, zBody(ProposeGestureV2BodySchema), proposeGestureV2);
+  app.post("/api/pro/v2/establishments/:eid/reviews/:id/response", zParams(EidIdParams), proResponseRateLimiter, sanitizeReviewBody, zBody(SubmitProResponseV2BodySchema), submitProResponseV2);
+}

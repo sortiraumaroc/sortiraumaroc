@@ -7,6 +7,9 @@
 
 import type { RequestHandler } from "express";
 import { expireUnansweredChats, sendUnreadMessageEmails } from "../supportCron";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("supportCron");
 
 function verifyCronSecret(req: { header: (name: string) => string | undefined }): boolean {
   const secret = req.header("x-cron-secret");
@@ -85,7 +88,7 @@ export const cronRunAll: RequestHandler = async (req, res) => {
     try {
       results[job.name] = await job.handler();
     } catch (e) {
-      console.error(`[supportCron] ${job.name} error:`, e);
+      log.error({ job: job.name, err: e }, "Cron job error");
       results[job.name] = { error: String(e) };
     }
   }

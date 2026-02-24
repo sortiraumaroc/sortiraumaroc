@@ -1,148 +1,45 @@
-import { useEffect, useMemo, useState } from "react";
+/**
+ * Page complète des notifications User (onglet dans le profil).
+ *
+ * Utilise le store centralisé useUserNotificationsStore.
+ * Partage le même état que UserNotificationsBell (cloche header) :
+ * marquer lu ici met à jour la cloche instantanément et vice-versa.
+ */
+
 import { useNavigate } from "react-router-dom";
 
 import { Check, Trash2 } from "lucide-react";
 
-import {
-  listMyConsumerNotifications,
-  markAllMyConsumerNotificationsRead,
-  markMyConsumerNotificationRead,
-  deleteMyConsumerNotification,
-  type ConsumerNotificationRow,
-} from "@/lib/consumerNotificationsApi";
-import type { BookingRecord, PackPurchase } from "@/lib/userData";
 import { NotificationBody } from "@/components/NotificationBody";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatLeJjMmAaAHeure } from "@shared/datetime";
-import {
-  buildUserNotifications,
-  getUserNotificationReadIds,
-  getUserUnreadCount,
-  isUserNotificationRead,
-  markAllUserNotificationsRead,
-  markUserNotificationRead,
-} from "@/lib/userNotifications";
+import { useUserNotificationsStore } from "@/lib/useUserNotificationsStore";
 
-export function ProfileNotifications(props: { bookings: BookingRecord[]; packPurchases: PackPurchase[] }) {
+export function ProfileNotifications() {
   const navigate = useNavigate();
-  const [tick, setTick] = useState(0);
-  const [consumerEvents, setConsumerEvents] = useState<ConsumerNotificationRow[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      try {
-        const events = await listMyConsumerNotifications(200);
-        if (cancelled) return;
-        setConsumerEvents(events);
-
-        // Migration: sync local read markers for event notifications to server-side read_at.
-        try {
-          const legacyReadIds = getUserNotificationReadIds();
-          const idsToSync = events
-            .filter((ev) => legacyReadIds.has(`event:${ev.id}`) && !ev.read_at)
-            .map((ev) => ev.id)
-            .slice(0, 200);
-
-          if (idsToSync.length) {
-            void markAllMyConsumerNotificationsRead(idsToSync);
-          }
-        } catch {
-          // ignore
-        }
-      } catch {
-        if (cancelled) return;
-        setConsumerEvents([]);
-      }
-    };
-
-    void load();
-    const interval = window.setInterval(() => {
-      void load();
-    }, 30_000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, []);
-
-  const items = useMemo(
-    () => buildUserNotifications({ bookings: props.bookings, packPurchases: props.packPurchases, consumerEvents }),
-    [consumerEvents, props.bookings, props.packPurchases],
-  );
-  const readIds = useMemo(() => {
-    tick;
-    return getUserNotificationReadIds();
-  }, [tick]);
-
-  const unreadCount = useMemo(() => getUserUnreadCount(items), [items, readIds]);
-
-  const markRead = (id: string) => {
-    const trimmed = String(id ?? "").trim();
-    if (!trimmed) return;
-
-    if (trimmed.startsWith("event:")) {
-      const eventId = trimmed.slice("event:".length);
-      void markMyConsumerNotificationRead(eventId).catch(() => {
-        // ignore
-      });
-    }
-
-    markUserNotificationRead(trimmed);
-    setTick((v) => v + 1);
-  };
-
-  const markAllRead = () => {
-    const ids = items.map((x) => x.id);
-    const eventIds = ids.filter((id) => id.startsWith("event:")).map((id) => id.slice("event:".length));
-
-    if (eventIds.length) {
-      void markAllMyConsumerNotificationsRead(eventIds).catch(() => {
-        // ignore
-      });
-    }
-
-    markAllUserNotificationsRead(ids);
-    setTick((v) => v + 1);
-  };
-
-  const deleteNotification = (id: string) => {
-    const trimmed = String(id ?? "").trim();
-    if (!trimmed) return;
-
-    if (trimmed.startsWith("event:")) {
-      const eventId = trimmed.slice("event:".length);
-      void deleteMyConsumerNotification(eventId).catch(() => {
-        // Best-effort
-      });
-    }
-
-    // Update local state to remove from list
-    setConsumerEvents((prev) => prev.filter((ev) => `event:${ev.id}` !== trimmed));
-    setTick((v) => v + 1);
-  };
+  const store = useUserNotificationsStore(true);
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2">
         <div>
           <div className="text-sm font-extrabold text-slate-900">Centre de notifications</div>
-          <div className="text-xs text-slate-600">{unreadCount ? `${unreadCount} non lue(s)` : "Tout est à jour."}</div>
+          <div className="text-xs text-slate-600">{store.unreadCount ? `${store.unreadCount} non lue(s)` : "Tout est à jour."}</div>
         </div>
-        <Button variant="outline" size="sm" disabled={!items.length || unreadCount === 0} onClick={markAllRead}>
+        <Button variant="outline" size="sm" disabled={!store.items.length || store.unreadCount === 0} onClick={store.markAllRead}>
           Tout marquer lu
         </Button>
       </div>
 
-      {!items.length ? <div className="text-sm text-slate-600">Aucune notification.</div> : null}
+      {store.error ? <div className="text-sm text-red-600">{store.error}</div> : null}
 
-      {items.length ? (
+      {!store.items.length ? <div className="text-sm text-slate-600">Aucune notification.</div> : null}
+
+      {store.items.length ? (
         <div className="space-y-2">
-          {items.map((n) => {
-            const unread = !isUserNotificationRead(n, readIds);
+          {store.items.map((n) => {
+            const unread = !store.isRead(n);
             return (
               <div key={n.id} className={cn("rounded-lg border bg-white p-3", unread ? "border-primary/30" : "border-slate-200")}>
                 <div className="flex items-start justify-between gap-3">
@@ -162,7 +59,7 @@ export function ProfileNotifications(props: { bookings: BookingRecord[]; packPur
                         variant="outline"
                         size="sm"
                         onClick={() => {
-                          markRead(n.id);
+                          store.markRead(n.id);
                           navigate(n.href!);
                         }}
                       >
@@ -171,7 +68,7 @@ export function ProfileNotifications(props: { bookings: BookingRecord[]; packPur
                     ) : null}
 
                     {unread ? (
-                      <Button variant="outline" size="sm" onClick={() => markRead(n.id)}>
+                      <Button variant="outline" size="sm" onClick={() => store.markRead(n.id)}>
                         Marquer lu
                       </Button>
                     ) : (
@@ -185,7 +82,7 @@ export function ProfileNotifications(props: { bookings: BookingRecord[]; packPur
                         variant="ghost"
                         size="sm"
                         className="text-slate-400 hover:text-red-500"
-                        onClick={() => deleteNotification(n.id)}
+                        onClick={() => store.deleteNotification(n.id)}
                         title="Supprimer"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -198,10 +95,6 @@ export function ProfileNotifications(props: { bookings: BookingRecord[]; packPur
           })}
         </div>
       ) : null}
-
-      <div className="text-xs text-slate-500">
-        Astuce : les notifications liées aux événements (paiements, messages, liste d’attente…) sont maintenant synchronisées côté serveur, donc l’état “lu/non lu” suit sur plusieurs appareils.
-      </div>
     </div>
   );
 }

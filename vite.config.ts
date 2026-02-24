@@ -71,6 +71,10 @@ export default defineConfig({
   server: {
     host: "::",
     port: 8080,
+    hmr: {
+      // Permet au HMR de fonctionner depuis un mobile sur le réseau local
+      host: "192.168.1.11",
+    },
     fs: {
       allow: [".", "./client", "./shared", "./server", "./node_modules"],
       deny: [".env", ".env.*", "*.{crt,pem}", "**/.git/**"],

@@ -5,9 +5,13 @@
  * All endpoints require admin session.
  */
 
+import crypto from "node:crypto";
 import type { Express, RequestHandler } from "express";
 import { parseCookies, getSessionCookieName, verifyAdminSessionToken, type AdminSessionPayload } from "../adminSession";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("ceAdmin");
 import {
   generateRegistrationCode,
   generateCompanySlug,
@@ -22,6 +26,14 @@ import {
   ceListQuerySchema,
   ceScansQuerySchema,
 } from "../schemas/ce";
+import { zBody, zParams, zIdParam } from "../lib/validate";
+import {
+  CeAdminCreateCompanySchema,
+  CeAdminUpdateCompanySchema,
+  CeAdminCreateAdvantageSchema,
+  CeAdminUpdateAdvantageSchema,
+  CeCompanyIdParams,
+} from "../schemas/ceAdmin";
 
 // ============================================================================
 // Admin Session Helper (same pattern as adminInventory.ts)
@@ -34,7 +46,11 @@ function getAdminSessionToken(req: Parameters<RequestHandler>[0]): string | null
   const headerToken = req.header("x-admin-session") ?? undefined;
   if (headerToken) return headerToken;
   const apiKey = req.header("x-api-key") ?? undefined;
-  if (apiKey && apiKey === process.env.ADMIN_API_KEY) return apiKey;
+  if (apiKey && process.env.ADMIN_API_KEY) {
+    try {
+      if (crypto.timingSafeEqual(Buffer.from(apiKey), Buffer.from(process.env.ADMIN_API_KEY))) return apiKey;
+    } catch { /* intentional: timingSafeEqual throws on length mismatch */ }
+  }
   return null;
 }
 
@@ -109,7 +125,7 @@ export function registerCeAdminRoutes(app: Express): void {
         const { count: active } = await sb.from("company_employees").select("id", { count: "exact", head: true }).eq("company_id", c.id).eq("status", "active").is("deleted_at", null);
         const { count: pending } = await sb.from("company_employees").select("id", { count: "exact", head: true }).eq("company_id", c.id).eq("status", "pending").is("deleted_at", null);
         const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-        const { count: scans } = await sb.from("ce_scans").select("id", { count: "exact", head: true }).eq("company_id", c.id).gte("scan_datetime", monthAgo);
+        const { count: scans } = await sb.from("b2b_scans").eq("scan_type", "ce").select("id", { count: "exact", head: true }).eq("company_id", c.id).gte("scan_datetime", monthAgo);
         return {
           ...c,
           employees_count: total ?? 0,
@@ -123,7 +139,7 @@ export function registerCeAdminRoutes(app: Express): void {
     res.json({ ok: true, data: enriched, total: count ?? 0, page, limit });
   });
 
-  app.post("/api/admin/ce/companies", async (req, res) => {
+  app.post("/api/admin/ce/companies", zBody(CeAdminCreateCompanySchema), async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) return res.status(401).json({ error: "Unauthorized" });
@@ -144,12 +160,12 @@ export function registerCeAdminRoutes(app: Express): void {
       if (error) return res.status(500).json({ error: error.message });
       res.json({ ok: true, data });
     } catch (err: any) {
-      console.error("[CE] Error creating company:", err);
+      log.error({ err }, "Error creating company");
       res.status(500).json({ error: err.message || "Erreur serveur" });
     }
   });
 
-  app.get("/api/admin/ce/companies/:id", async (req, res) => {
+  app.get("/api/admin/ce/companies/:id", zParams(zIdParam), async (req, res) => {
     const session = requireAdminSession(req);
     if (!session) return res.status(401).json({ error: "Unauthorized" });
 
@@ -166,7 +182,7 @@ export function registerCeAdminRoutes(app: Express): void {
     res.json({ ok: true, data });
   });
 
-  app.put("/api/admin/ce/companies/:id", async (req, res) => {
+  app.put("/api/admin/ce/companies/:id", zParams(zIdParam), zBody(CeAdminUpdateCompanySchema), async (req, res) => {
     const session = requireAdminSession(req);
     if (!session) return res.status(401).json({ error: "Unauthorized" });
 
@@ -186,7 +202,7 @@ export function registerCeAdminRoutes(app: Express): void {
     res.json({ ok: true, data });
   });
 
-  app.delete("/api/admin/ce/companies/:id", async (req, res) => {
+  app.delete("/api/admin/ce/companies/:id", zParams(zIdParam), async (req, res) => {
     const session = requireAdminSession(req);
     if (!session) return res.status(401).json({ error: "Unauthorized" });
 
@@ -200,7 +216,7 @@ export function registerCeAdminRoutes(app: Express): void {
     res.json({ ok: true });
   });
 
-  app.post("/api/admin/ce/companies/:id/regenerate-link", async (req, res) => {
+  app.post("/api/admin/ce/companies/:id/regenerate-link", zParams(zIdParam), async (req, res) => {
     const session = requireAdminSession(req);
     if (!session) return res.status(401).json({ error: "Unauthorized" });
 
@@ -222,7 +238,7 @@ export function registerCeAdminRoutes(app: Express): void {
   // Company Employees
   // --------------------------------------------------
 
-  app.get("/api/admin/ce/companies/:id/employees", async (req, res) => {
+  app.get("/api/admin/ce/companies/:id/employees", zParams(zIdParam), async (req, res) => {
     const session = requireAdminSession(req);
     if (!session) return res.status(401).json({ error: "Unauthorized" });
 
@@ -255,7 +271,7 @@ export function registerCeAdminRoutes(app: Express): void {
           .maybeSingle();
 
         const { data: lastScan } = await sb
-          .from("ce_scans")
+          .from("b2b_scans").eq("scan_type", "ce")
           .select("scan_datetime, establishment_id")
           .eq("employee_id", emp.id)
           .order("scan_datetime", { ascending: false })
@@ -291,7 +307,7 @@ export function registerCeAdminRoutes(app: Express): void {
   // Company Scans
   // --------------------------------------------------
 
-  app.get("/api/admin/ce/companies/:id/scans", async (req, res) => {
+  app.get("/api/admin/ce/companies/:id/scans", zParams(zIdParam), async (req, res) => {
     const session = requireAdminSession(req);
     if (!session) return res.status(401).json({ error: "Unauthorized" });
 
@@ -302,7 +318,7 @@ export function registerCeAdminRoutes(app: Express): void {
 
     const sb = supabase();
     let query = sb
-      .from("ce_scans")
+      .from("b2b_scans").eq("scan_type", "ce")
       .select("*", { count: "exact" })
       .eq("company_id", req.params.id)
       .order("scan_datetime", { ascending: false })
@@ -361,14 +377,14 @@ export function registerCeAdminRoutes(app: Express): void {
       sb.from("company_employees").select("id", { count: "exact", head: true }).eq("status", "pending").is("deleted_at", null),
       sb.from("pro_ce_advantages").select("id", { count: "exact", head: true }).is("deleted_at", null),
       sb.from("pro_ce_advantages").select("id", { count: "exact", head: true }).eq("is_active", true).is("deleted_at", null),
-      sb.from("ce_scans").select("id", { count: "exact", head: true }).gte("scan_datetime", todayStr),
-      sb.from("ce_scans").select("id", { count: "exact", head: true }).gte("scan_datetime", weekAgo),
-      sb.from("ce_scans").select("id", { count: "exact", head: true }).gte("scan_datetime", monthAgo),
+      sb.from("b2b_scans").eq("scan_type", "ce").select("id", { count: "exact", head: true }).gte("scan_datetime", todayStr),
+      sb.from("b2b_scans").eq("scan_type", "ce").select("id", { count: "exact", head: true }).gte("scan_datetime", weekAgo),
+      sb.from("b2b_scans").eq("scan_type", "ce").select("id", { count: "exact", head: true }).gte("scan_datetime", monthAgo),
     ]);
 
     // Top establishments by scans this month
     const { data: topScans } = await sb
-      .from("ce_scans")
+      .from("b2b_scans").eq("scan_type", "ce")
       .select("establishment_id")
       .gte("scan_datetime", monthAgo)
       .eq("status", "validated");
@@ -434,7 +450,7 @@ export function registerCeAdminRoutes(app: Express): void {
     res.json({ ok: true, data: data ?? [], total: count ?? 0, page, limit });
   });
 
-  app.post("/api/admin/ce/establishments/:id/advantages", async (req, res) => {
+  app.post("/api/admin/ce/establishments/:id/advantages", zParams(zIdParam), zBody(CeAdminCreateAdvantageSchema), async (req, res) => {
     const session = requireAdminSession(req);
     if (!session) return res.status(401).json({ error: "Unauthorized" });
 
@@ -454,7 +470,7 @@ export function registerCeAdminRoutes(app: Express): void {
     res.json({ ok: true, data });
   });
 
-  app.put("/api/admin/ce/advantages/:id", async (req, res) => {
+  app.put("/api/admin/ce/advantages/:id", zParams(zIdParam), zBody(CeAdminUpdateAdvantageSchema), async (req, res) => {
     const session = requireAdminSession(req);
     if (!session) return res.status(401).json({ error: "Unauthorized" });
 
@@ -483,7 +499,7 @@ export function registerCeAdminRoutes(app: Express): void {
     res.json({ ok: true, data });
   });
 
-  app.delete("/api/admin/ce/advantages/:id", async (req, res) => {
+  app.delete("/api/admin/ce/advantages/:id", zParams(zIdParam), async (req, res) => {
     const session = requireAdminSession(req);
     if (!session) return res.status(401).json({ error: "Unauthorized" });
 
@@ -536,7 +552,7 @@ export function registerCeAdminRoutes(app: Express): void {
     res.send("\uFEFF" + toCSV(rows));
   });
 
-  app.get("/api/admin/ce/export/employees/:companyId", async (req, res) => {
+  app.get("/api/admin/ce/export/employees/:companyId", zParams(CeCompanyIdParams), async (req, res) => {
     const session = requireAdminSession(req);
     if (!session) return res.status(401).json({ error: "Unauthorized" });
 
@@ -576,7 +592,7 @@ export function registerCeAdminRoutes(app: Express): void {
 
     const sb = supabase();
     const { data: scans } = await sb
-      .from("ce_scans")
+      .from("b2b_scans").eq("scan_type", "ce")
       .select("*")
       .order("scan_datetime", { ascending: false })
       .limit(5000);

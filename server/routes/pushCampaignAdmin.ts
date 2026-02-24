@@ -15,9 +15,21 @@
  *  - POST   /api/admin/campaigns/deliveries/:deliveryId/track — track delivery action
  */
 
-import type { Router, Request, Response, RequestHandler } from "express";
-import { assertAdminApiEnabled, checkAdminKey, getAdminSupabase } from "../supabaseAdmin";
-import { getSessionCookieName, parseCookies, verifyAdminSessionToken } from "../adminSession";
+import type { Router, Request, Response } from "express";
+import { getAdminSupabase } from "../supabaseAdmin";
+import { requireAdminKey } from "./adminHelpers";
+import { zBody, zParams, zQuery, zIdParam } from "../lib/validate";
+import {
+  CreateCampaignSchema,
+  UpdateCampaignSchema,
+  ScheduleCampaignSchema,
+  SendTestCampaignSchema,
+  PreviewAudienceSchema,
+  TrackDeliverySchema,
+  DeliveryIdParams,
+  ListCampaignsQuery,
+  ListDeliveriesQuery,
+} from "../schemas/pushCampaignAdmin";
 import {
   createCampaign,
   updateCampaign,
@@ -32,54 +44,9 @@ import {
 import { auditAdminAction } from "../auditLogV2";
 import { isValidUUID, sanitizeText } from "../sanitizeV2";
 import { pushCampaignAdminRateLimiter } from "../middleware/rateLimiter";
+import { createModuleLogger } from "../lib/logger";
 
-// =============================================================================
-// Admin auth (same pattern as adminNotifications.ts)
-// =============================================================================
-
-function getAdminSessionToken(req: Parameters<RequestHandler>[0]): { token: string; source: "cookie" | "header" } | null {
-  const cookies = parseCookies(req.header("cookie") ?? undefined);
-  const cookieToken = cookies[getSessionCookieName()];
-  if (cookieToken) return { token: cookieToken, source: "cookie" };
-  const headerToken = req.header("x-admin-session") ?? undefined;
-  if (headerToken && headerToken.trim()) return { token: headerToken.trim(), source: "header" };
-  const authHeader = req.header("authorization") ?? undefined;
-  if (authHeader && authHeader.toLowerCase().startsWith("bearer ")) {
-    const bearer = authHeader.slice(7).trim();
-    if (bearer) return { token: bearer, source: "header" };
-  }
-  return null;
-}
-
-function isSafeMethod(method: string | undefined): boolean {
-  const m = (method || "GET").toUpperCase();
-  return m === "GET" || m === "HEAD" || m === "OPTIONS";
-}
-
-function isSameOrigin(req: Parameters<RequestHandler>[0]): boolean {
-  const originHeader = req.header("origin");
-  if (!originHeader) return true;
-  let origin: URL;
-  try { origin = new URL(originHeader); } catch { return false; }
-  const host = req.header("x-forwarded-host") ?? req.header("host");
-  if (!host) return false;
-  return origin.host === host;
-}
-
-function requireAdminKey(req: Parameters<RequestHandler>[0], res: Parameters<RequestHandler>[1]): boolean {
-  const enabled = assertAdminApiEnabled();
-  if (enabled.ok === false) { res.status(503).json({ error: enabled.message }); return false; }
-  const session = getAdminSessionToken(req);
-  if (session && verifyAdminSessionToken(session.token) !== null) {
-    if (session.source === "cookie" && !isSafeMethod(req.method) && !isSameOrigin(req)) {
-      res.status(403).json({ error: "Forbidden" }); return false;
-    }
-    return true;
-  }
-  const header = req.header("x-admin-key") ?? undefined;
-  if (!checkAdminKey(header)) { res.status(401).json({ error: "Unauthorized" }); return false; }
-  return true;
-}
+const log = createModuleLogger("pushCampaignAdmin");
 
 // =============================================================================
 // Helpers
@@ -129,7 +96,7 @@ async function listCampaigns(req: Request, res: Response) {
 
     res.json({ campaigns: data ?? [], total: count ?? 0, page, limit });
   } catch (err) {
-    console.error("[PushCampaignAdmin] listCampaigns error:", err);
+    log.error({ err }, "listCampaigns error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -174,7 +141,7 @@ async function getCampaign(req: Request, res: Response) {
 
     res.json({ campaign, deliverySummary });
   } catch (err) {
-    console.error("[PushCampaignAdmin] getCampaign error:", err);
+    log.error({ err }, "getCampaign error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -204,7 +171,7 @@ async function createCampaignRoute(req: Request, res: Response) {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PushCampaignAdmin] createCampaign error:", err);
+    log.error({ err }, "createCampaign error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -234,7 +201,7 @@ async function updateCampaignRoute(req: Request, res: Response) {
 
     res.json({ ok: true });
   } catch (err) {
-    console.error("[PushCampaignAdmin] updateCampaign error:", err);
+    log.error({ err }, "updateCampaign error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -272,7 +239,7 @@ async function scheduleCampaignRoute(req: Request, res: Response) {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PushCampaignAdmin] scheduleCampaign error:", err);
+    log.error({ err }, "scheduleCampaign error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -303,7 +270,7 @@ async function cancelCampaignRoute(req: Request, res: Response) {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PushCampaignAdmin] cancelCampaign error:", err);
+    log.error({ err }, "cancelCampaign error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -334,7 +301,7 @@ async function sendCampaignRoute(req: Request, res: Response) {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PushCampaignAdmin] sendCampaign error:", err);
+    log.error({ err }, "sendCampaign error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -365,7 +332,7 @@ async function sendTestCampaignRoute(req: Request, res: Response) {
 
     res.json({ ok: true });
   } catch (err) {
-    console.error("[PushCampaignAdmin] sendTestCampaign error:", err);
+    log.error({ err }, "sendTestCampaign error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -390,7 +357,7 @@ async function getCampaignStatsRoute(req: Request, res: Response) {
 
     res.json(result);
   } catch (err) {
-    console.error("[PushCampaignAdmin] getCampaignStats error:", err);
+    log.error({ err }, "getCampaignStats error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -425,7 +392,7 @@ async function listDeliveries(req: Request, res: Response) {
 
     res.json({ deliveries: data ?? [], total: count ?? 0, page, limit });
   } catch (err) {
-    console.error("[PushCampaignAdmin] listDeliveries error:", err);
+    log.error({ err }, "listDeliveries error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -450,7 +417,7 @@ async function previewAudience(req: Request, res: Response) {
 
     res.json(result);
   } catch (err) {
-    console.error("[PushCampaignAdmin] previewAudience error:", err);
+    log.error({ err }, "previewAudience error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -481,7 +448,7 @@ async function trackDeliveryRoute(req: Request, res: Response) {
 
     res.json({ ok: true });
   } catch (err) {
-    console.error("[PushCampaignAdmin] trackDelivery error:", err);
+    log.error({ err }, "trackDelivery error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -491,16 +458,16 @@ async function trackDeliveryRoute(req: Request, res: Response) {
 // =============================================================================
 
 export function registerPushCampaignAdminRoutes(app: Router): void {
-  app.get("/api/admin/campaigns", pushCampaignAdminRateLimiter, listCampaigns);
-  app.get("/api/admin/campaigns/:id", pushCampaignAdminRateLimiter, getCampaign);
-  app.post("/api/admin/campaigns", pushCampaignAdminRateLimiter, createCampaignRoute);
-  app.put("/api/admin/campaigns/:id", pushCampaignAdminRateLimiter, updateCampaignRoute);
-  app.post("/api/admin/campaigns/:id/schedule", pushCampaignAdminRateLimiter, scheduleCampaignRoute);
-  app.post("/api/admin/campaigns/:id/cancel", pushCampaignAdminRateLimiter, cancelCampaignRoute);
-  app.post("/api/admin/campaigns/:id/send", pushCampaignAdminRateLimiter, sendCampaignRoute);
-  app.post("/api/admin/campaigns/:id/test", pushCampaignAdminRateLimiter, sendTestCampaignRoute);
-  app.get("/api/admin/campaigns/:id/stats", pushCampaignAdminRateLimiter, getCampaignStatsRoute);
-  app.get("/api/admin/campaigns/:id/deliveries", pushCampaignAdminRateLimiter, listDeliveries);
-  app.post("/api/admin/audience/preview", pushCampaignAdminRateLimiter, previewAudience);
-  app.post("/api/admin/campaigns/deliveries/:deliveryId/track", pushCampaignAdminRateLimiter, trackDeliveryRoute);
+  app.get("/api/admin/campaigns", zQuery(ListCampaignsQuery), pushCampaignAdminRateLimiter, listCampaigns);
+  app.get("/api/admin/campaigns/:id", zParams(zIdParam), pushCampaignAdminRateLimiter, getCampaign);
+  app.post("/api/admin/campaigns", pushCampaignAdminRateLimiter, zBody(CreateCampaignSchema), createCampaignRoute);
+  app.put("/api/admin/campaigns/:id", zParams(zIdParam), pushCampaignAdminRateLimiter, zBody(UpdateCampaignSchema), updateCampaignRoute);
+  app.post("/api/admin/campaigns/:id/schedule", zParams(zIdParam), pushCampaignAdminRateLimiter, zBody(ScheduleCampaignSchema), scheduleCampaignRoute);
+  app.post("/api/admin/campaigns/:id/cancel", zParams(zIdParam), pushCampaignAdminRateLimiter, cancelCampaignRoute);
+  app.post("/api/admin/campaigns/:id/send", zParams(zIdParam), pushCampaignAdminRateLimiter, sendCampaignRoute);
+  app.post("/api/admin/campaigns/:id/test", zParams(zIdParam), pushCampaignAdminRateLimiter, zBody(SendTestCampaignSchema), sendTestCampaignRoute);
+  app.get("/api/admin/campaigns/:id/stats", zParams(zIdParam), pushCampaignAdminRateLimiter, getCampaignStatsRoute);
+  app.get("/api/admin/campaigns/:id/deliveries", zParams(zIdParam), zQuery(ListDeliveriesQuery), pushCampaignAdminRateLimiter, listDeliveries);
+  app.post("/api/admin/audience/preview", pushCampaignAdminRateLimiter, zBody(PreviewAudienceSchema), previewAudience);
+  app.post("/api/admin/campaigns/deliveries/:deliveryId/track", zParams(DeliveryIdParams), pushCampaignAdminRateLimiter, zBody(TrackDeliverySchema), trackDeliveryRoute);
 }

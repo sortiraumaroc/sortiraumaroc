@@ -193,7 +193,7 @@ export function TwilioPhoneAuthModal({
             }
           }
         } catch (linkError) {
-          console.warn("[TwilioPhoneAuth] Could not parse magic link, continuing anyway:", linkError);
+          // Could not parse magic link, continuing anyway
         }
       }
 

@@ -27,6 +27,7 @@ import {
 import { readSelectedEstablishmentId, writeSelectedEstablishmentId } from "@/lib/pro/establishmentSelection";
 import { getProSession, listMyEstablishments } from "@/lib/pro/api";
 import { proSupabase } from "@/lib/pro/supabase";
+import { CrescentMoonSvg } from "@/components/ramadan/ramadan-assets";
 
 import { AuthModalV2 } from "@/components/AuthModalV2";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -57,7 +58,7 @@ function initialsFromProfile(profile: ReturnType<typeof getUserProfile>): string
   return letters.toUpperCase();
 }
 
-export function Header() {
+export function Header({ isRamadan }: { isRamadan?: boolean } = {}) {
   const { t, locale } = useI18n();
   const { isScrolledPastSearch, alwaysShowSearchBar } = useScrollContext();
 
@@ -239,6 +240,9 @@ export function Header() {
                   className="h-16 sm:h-20 w-auto transition-all duration-300"
                 />
               )}
+              {isRamadan && (
+                <CrescentMoonSvg className="w-5 h-5 text-ramadan-gold shrink-0" aria-hidden="true" />
+              )}
             </Link>
 
             {/* Mobile: Full search bar — only on home page scroll (NOT on Results page, which has its own mobile bar) */}
@@ -376,7 +380,9 @@ export function Header() {
             <AlertDialogAction
               className="w-full h-12 rounded-xl"
               onClick={async () => {
-                await proSupabase.auth.signOut();
+                // [FIX-AUTH] Use local scope to avoid revoking the refresh token
+                // server-side, which would invalidate Pro sessions on all devices.
+                await proSupabase.auth.signOut({ scope: "local" });
                 setProSignedIn(false);
                 setProConflictOpen(false);
                 setAuthModalOpen(true);

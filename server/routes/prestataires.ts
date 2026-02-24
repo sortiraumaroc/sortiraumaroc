@@ -4,8 +4,29 @@
  */
 
 import type { RequestHandler } from "express";
+import type { Express } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { requireAdminKey, requireSuperadmin } from "./admin";
+import { createModuleLogger } from "../lib/logger";
+import { zBody, zParams, zIdParam } from "../lib/validate";
+import {
+  CreateProPrestataireDemandeSchema,
+  ProcessAdminPrestataireDemandeSchema,
+  CreateAdminPrestataireSchema,
+  UpdateAdminPrestataireSchema,
+  UpdateAdminPrestataireStatusSchema,
+  ReviewAdminPrestataireDocumentSchema,
+  BatchAdminPrestatairesActionSchema,
+  CreateProPrestataireSchema,
+  UpdateProPrestataireSchema,
+  UploadProPrestataireDocumentSchema,
+  SendProPrestataireMessageSchema,
+  SendAdminPrestataireMessageSchema,
+  PrestataireEstablishmentIdParams,
+  PrestataireIdDocIdParams,
+} from "../schemas/prestataires";
+
+const log = createModuleLogger("prestataires");
 
 // =============================================================================
 // HELPERS
@@ -128,7 +149,7 @@ export const createProPrestataireDemande: RequestHandler = async (req, res) => {
     .single();
 
   if (error) {
-    console.error("[createProPrestataireDemande]", error);
+    log.error({ err: error }, "createProPrestataireDemande error");
     return res.status(500).json({ error: error.message });
   }
 
@@ -550,7 +571,7 @@ export const createAdminPrestataire: RequestHandler = async (req, res) => {
     .single();
 
   if (error) {
-    console.error("[createAdminPrestataire]", error);
+    log.error({ err: error }, "createAdminPrestataire error");
     return res.status(500).json({ error: error.message });
   }
 
@@ -1199,7 +1220,7 @@ export const createProPrestataire: RequestHandler = async (req, res) => {
     .single();
 
   if (error) {
-    console.error("[createProPrestataire]", error);
+    log.error({ err: error }, "createProPrestataire error");
     return res.status(500).json({ error: error.message });
   }
 
@@ -1618,7 +1639,7 @@ export const uploadProPrestataireDocument: RequestHandler = async (
     });
 
   if (uploadError) {
-    console.error("[uploadProPrestataireDocument] Storage error:", uploadError);
+    log.error({ err: uploadError }, "uploadProPrestataireDocument storage error");
     return res.status(500).json({ error: uploadError.message });
   }
 
@@ -1639,7 +1660,7 @@ export const uploadProPrestataireDocument: RequestHandler = async (
     .single();
 
   if (error) {
-    console.error("[uploadProPrestataireDocument] DB error:", error);
+    log.error({ err: error }, "uploadProPrestataireDocument DB error");
     return res.status(500).json({ error: error.message });
   }
 
@@ -1792,7 +1813,7 @@ export const sendProPrestataireMessage: RequestHandler = async (req, res) => {
     .single();
 
   if (error) {
-    console.error("[sendProPrestataireMessage]", error);
+    log.error({ err: error }, "sendProPrestataireMessage error");
     return res.status(500).json({ error: error.message });
   }
 
@@ -1869,7 +1890,7 @@ export const sendAdminPrestataireMessage: RequestHandler = async (req, res) => {
     .single();
 
   if (error) {
-    console.error("[sendAdminPrestataireMessage]", error);
+    log.error({ err: error }, "sendAdminPrestataireMessage error");
     return res.status(500).json({ error: error.message });
   }
 
@@ -1885,3 +1906,43 @@ export const sendAdminPrestataireMessage: RequestHandler = async (req, res) => {
 
   res.json({ ok: true, message: data });
 };
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerPrestatairesRoutes(app: Express) {
+  // PRO: Demandes de prestataires
+  app.post("/api/pro/prestataires/demandes", zBody(CreateProPrestataireDemandeSchema), createProPrestataireDemande);
+  app.get("/api/pro/prestataires/demandes", listProPrestataireDemandes);
+  app.get("/api/pro/establishments/:establishmentId/prestataires", zParams(PrestataireEstablishmentIdParams), listProPrestataires);
+
+  // PRO: Gestion complète des prestataires
+  app.post("/api/pro/prestataires", zBody(CreateProPrestataireSchema), createProPrestataire);
+  app.get("/api/pro/prestataires/:id", zParams(zIdParam), getProPrestataire);
+  app.post("/api/pro/prestataires/:id/update", zParams(zIdParam), zBody(UpdateProPrestataireSchema), updateProPrestataire);
+  app.post("/api/pro/prestataires/:id/submit", zParams(zIdParam), submitProPrestataireForValidation);
+  app.get("/api/pro/prestataires/:id/documents", zParams(zIdParam), listProPrestataireDocuments);
+  app.post("/api/pro/prestataires/:id/documents", zParams(zIdParam), zBody(UploadProPrestataireDocumentSchema), uploadProPrestataireDocument);
+  app.post("/api/pro/prestataires/:id/documents/:docId/delete", zParams(PrestataireIdDocIdParams), deleteProPrestataireDocument);
+  app.get("/api/pro/prestataires/:id/messages", zParams(zIdParam), listProPrestataireMessages);
+  app.post("/api/pro/prestataires/:id/messages", zParams(zIdParam), zBody(SendProPrestataireMessageSchema), sendProPrestataireMessage);
+
+  // ADMIN: Gestion des demandes
+  app.get("/api/admin/prestataires/demandes", listAdminPrestataireDemandes);
+  app.post("/api/admin/prestataires/demandes/:id/process", zParams(zIdParam), zBody(ProcessAdminPrestataireDemandeSchema), processAdminPrestataireDemande);
+
+  // ADMIN: Gestion des prestataires
+  app.get("/api/admin/prestataires", listAdminPrestataires);
+  app.get("/api/admin/prestataires/dashboard", getAdminPrestatairesDashboard);
+  app.get("/api/admin/prestataires/export", exportAdminPrestataires);
+  app.get("/api/admin/prestataires/audit-logs", listAdminPrestataireAuditLogs);
+  app.post("/api/admin/prestataires", zBody(CreateAdminPrestataireSchema), createAdminPrestataire);
+  app.post("/api/admin/prestataires/batch-action", zBody(BatchAdminPrestatairesActionSchema), batchAdminPrestatairesAction);
+  app.get("/api/admin/prestataires/:id", zParams(zIdParam), getAdminPrestataire);
+  app.post("/api/admin/prestataires/:id/update", zParams(zIdParam), zBody(UpdateAdminPrestataireSchema), updateAdminPrestataire);
+  app.post("/api/admin/prestataires/:id/status", zParams(zIdParam), zBody(UpdateAdminPrestataireStatusSchema), updateAdminPrestataireStatus);
+  app.post("/api/admin/prestataires/:id/documents/:docId/review", zParams(PrestataireIdDocIdParams), zBody(ReviewAdminPrestataireDocumentSchema), reviewAdminPrestataireDocument);
+  app.get("/api/admin/prestataires/:id/messages", zParams(zIdParam), listAdminPrestataireMessages);
+  app.post("/api/admin/prestataires/:id/messages", zParams(zIdParam), zBody(SendAdminPrestataireMessageSchema), sendAdminPrestataireMessage);
+}

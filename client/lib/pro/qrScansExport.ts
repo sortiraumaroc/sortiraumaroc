@@ -1,5 +1,3 @@
-import { jsPDF } from "jspdf";
-
 import { formatLocalYmd } from "@/lib/pro/reservationsExport";
 
 export type QrScanLog = {
@@ -150,11 +148,12 @@ export function downloadQrScanLogsCsv(args: {
   downloadBlob({ blob, filename: `${safeName || "qr_scans"}_${suffix}.csv` });
 }
 
-export function downloadQrScanLogsPdf(args: {
+export async function downloadQrScanLogsPdf(args: {
   logs: QrScanLog[];
   period?: ExportPeriod;
   establishmentName?: string | null;
-}): void {
+}): Promise<void> {
+  const { jsPDF } = await import("jspdf");
   const rows = args.logs
     .slice()
     .sort((a, b) => new Date(a.scanned_at).getTime() - new Date(b.scanned_at).getTime())

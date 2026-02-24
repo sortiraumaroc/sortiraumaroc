@@ -1,8 +1,25 @@
 import type { RequestHandler } from "express";
+import type { Express } from "express";
 
 import { renderSambookingEmail } from "../email";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { requireSuperadmin } from "./admin";
+import { zBody, zQuery, zParams, zIdParam } from "../lib/validate";
+import {
+  UpsertNewsletterTemplateSchema,
+  PreviewNewsletterSchema,
+  CreateNewsletterCampaignSchema,
+  SendNewsletterCampaignSchema,
+  UpdateSubscriberSchema,
+  ExportSubscribersSchema,
+  CreateAudienceSchema,
+  UpdateAudienceSchema,
+  PreviewFiltersSchema,
+  ListNewsletterTemplatesQuery,
+  ListNewsletterCampaignsQuery,
+  ListNewsletterSubscribersQuery,
+  ListAudienceMembersQuery,
+} from "../schemas/adminNewsletter";
 
 // ============================================================================
 // HELPERS
@@ -1294,3 +1311,36 @@ export const previewFilters: RequestHandler = async (req, res) => {
 
   return res.json({ ok: true, count: count ?? 0 });
 };
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerAdminNewsletterRoutes(app: Express) {
+  // Newsletter Templates & Campaigns
+  app.get("/api/admin/newsletter/templates", zQuery(ListNewsletterTemplatesQuery), listNewsletterTemplates);
+  app.get("/api/admin/newsletter/templates/:id", zParams(zIdParam), getNewsletterTemplate);
+  app.post("/api/admin/newsletter/templates/upsert", zBody(UpsertNewsletterTemplateSchema), upsertNewsletterTemplate);
+  app.post("/api/admin/newsletter/templates/:id/duplicate", zParams(zIdParam), duplicateNewsletterTemplate);
+  app.delete("/api/admin/newsletter/templates/:id", zParams(zIdParam), deleteNewsletterTemplate);
+  app.post("/api/admin/newsletter/preview", zBody(PreviewNewsletterSchema), previewNewsletter);
+  app.get("/api/admin/newsletter/campaigns", zQuery(ListNewsletterCampaignsQuery), listNewsletterCampaigns);
+  app.post("/api/admin/newsletter/campaigns", zBody(CreateNewsletterCampaignSchema), createNewsletterCampaign);
+  app.post("/api/admin/newsletter/campaigns/:id/send", zParams(zIdParam), zBody(SendNewsletterCampaignSchema), sendNewsletterCampaign);
+
+  // Newsletter subscribers
+  app.get("/api/admin/newsletter/subscribers", zQuery(ListNewsletterSubscribersQuery), listNewsletterSubscribers);
+  app.get("/api/admin/newsletter/subscribers/stats", getNewsletterSubscribersStats);
+  app.put("/api/admin/newsletter/subscribers/:id", zParams(zIdParam), zBody(UpdateSubscriberSchema), updateNewsletterSubscriber);
+  app.delete("/api/admin/newsletter/subscribers/:id", zParams(zIdParam), deleteNewsletterSubscriber);
+  app.post("/api/admin/newsletter/subscribers/export", zBody(ExportSubscribersSchema), exportNewsletterSubscribers);
+
+  // Audiences
+  app.get("/api/admin/newsletter/audiences", listAudiences);
+  app.post("/api/admin/newsletter/audiences", zBody(CreateAudienceSchema), createAudience);
+  app.put("/api/admin/newsletter/audiences/:id", zParams(zIdParam), zBody(UpdateAudienceSchema), updateAudience);
+  app.delete("/api/admin/newsletter/audiences/:id", zParams(zIdParam), deleteAudience);
+  app.get("/api/admin/newsletter/audiences/:id/members", zParams(zIdParam), zQuery(ListAudienceMembersQuery), getAudienceMembers);
+  app.post("/api/admin/newsletter/audiences/:id/load-to-prospects", zParams(zIdParam), loadAudienceToProspects);
+  app.post("/api/admin/newsletter/preview-filters", zBody(PreviewFiltersSchema), previewFilters);
+}

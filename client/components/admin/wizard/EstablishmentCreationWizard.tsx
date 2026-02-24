@@ -159,6 +159,7 @@ export function EstablishmentCreationWizard({ open, onOpenChange, onCreated, onS
         galleryUrls: Array.isArray(item.gallery_urls) ? item.gallery_urls : [],
         hours: dbHoursToWizardFormat(item.hours),
         ambiance_tags: Array.isArray(item.ambiance_tags) ? item.ambiance_tags : [],
+        service_types: Array.isArray(item.service_types) ? item.service_types : [],
         general_tags: Array.isArray(item.tags) ? item.tags : [],
         amenities: Array.isArray(item.amenities) ? item.amenities : [],
         highlights: [],
@@ -288,6 +289,7 @@ export function EstablishmentCreationWizard({ open, onOpenChange, onCreated, onS
         long_description: data.long_description,
         hours: data.hours,
         ambiance_tags: data.ambiance_tags,
+        service_types: data.service_types,
         general_tags: data.general_tags,
         amenities: data.amenities,
         highlights: data.highlights,
@@ -341,7 +343,7 @@ export function EstablishmentCreationWizard({ open, onOpenChange, onCreated, onS
               logoUrl = logoData.url ?? null;
             } else {
               const errData = await logoRes.json().catch(() => null);
-              console.error("[Wizard] Logo upload failed:", logoRes.status, errData);
+              // Logo upload failed
               mediaErrors.push(`Logo: ${errData?.error || `Erreur HTTP ${logoRes.status}`}`);
             }
           } catch (e) {
@@ -367,7 +369,7 @@ export function EstablishmentCreationWizard({ open, onOpenChange, onCreated, onS
               coverUrl = coverData.url ?? null;
             } else {
               const errData = await coverRes.json().catch(() => null);
-              console.error("[Wizard] Cover upload failed:", coverRes.status, errData);
+              // Cover upload failed
               mediaErrors.push(`Couverture: ${errData?.error || `Erreur HTTP ${coverRes.status}`}`);
             }
           } catch (e) {
@@ -393,7 +395,7 @@ export function EstablishmentCreationWizard({ open, onOpenChange, onCreated, onS
               if (gData.url) galleryUrls.push(gData.url);
             } else {
               const errData = await gRes.json().catch(() => null);
-              console.error("[Wizard] Gallery upload failed:", gRes.status, errData);
+              // Gallery upload failed
               mediaErrors.push(`Galerie (${file.name}): ${errData?.error || `Erreur HTTP ${gRes.status}`}`);
             }
           } catch (e) {
@@ -419,7 +421,7 @@ export function EstablishmentCreationWizard({ open, onOpenChange, onCreated, onS
           });
           if (!patchRes.ok) {
             const errData = await patchRes.json().catch(() => null);
-            console.error("[Wizard] Gallery PATCH failed:", patchRes.status, errData);
+            // Gallery PATCH failed
             mediaErrors.push(`Sauvegarde URLs: ${errData?.error || `Erreur HTTP ${patchRes.status}`}`);
           }
         }

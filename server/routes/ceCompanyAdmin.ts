@@ -19,6 +19,10 @@ import {
   ceScansQuerySchema,
   updateCompanySettingsSchema,
 } from "../schemas/ce";
+import { createModuleLogger } from "../lib/logger";
+import { zBody, zParams, zIdParam } from "../lib/validate";
+
+const log = createModuleLogger("ceCompanyAdmin");
 
 // ============================================================================
 // Auth Helper
@@ -62,7 +66,8 @@ async function ensureCeAdmin(req: Request): Promise<
     }
 
     return { ok: true, userId, companyId: admin.company_id, adminId: admin.id, role: admin.role };
-  } catch {
+  } catch (err) {
+    log.error({ err }, "CE company admin auth verification error");
     return { ok: false, status: 500, error: "Erreur d'authentification" };
   }
 }
@@ -150,7 +155,7 @@ export function registerCeCompanyAdminRoutes(app: Express): void {
           .maybeSingle();
 
         const { data: lastScan } = await sb
-          .from("ce_scans")
+          .from("b2b_scans").eq("scan_type", "ce")
           .select("scan_datetime, establishment_id")
           .eq("employee_id", emp.id)
           .order("scan_datetime", { ascending: false })
@@ -178,7 +183,7 @@ export function registerCeCompanyAdminRoutes(app: Express): void {
     res.json({ ok: true, data: enriched, total: count ?? 0, page, limit });
   });
 
-  app.put("/api/ce/company/employees/:id/validate", async (req, res) => {
+  app.put("/api/ce/company/employees/:id/validate", zParams(zIdParam), async (req, res) => {
     const auth = await ensureCeAdmin(req);
     if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
     if (auth.role === "viewer") return res.status(403).json({ error: "Accès lecture seule" });
@@ -193,7 +198,7 @@ export function registerCeCompanyAdminRoutes(app: Express): void {
     res.json({ ok: true });
   });
 
-  app.put("/api/ce/company/employees/:id/suspend", async (req, res) => {
+  app.put("/api/ce/company/employees/:id/suspend", zParams(zIdParam), async (req, res) => {
     const auth = await ensureCeAdmin(req);
     if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
     if (auth.role === "viewer") return res.status(403).json({ error: "Accès lecture seule" });
@@ -207,7 +212,7 @@ export function registerCeCompanyAdminRoutes(app: Express): void {
     res.json({ ok: true });
   });
 
-  app.put("/api/ce/company/employees/:id/reactivate", async (req, res) => {
+  app.put("/api/ce/company/employees/:id/reactivate", zParams(zIdParam), async (req, res) => {
     const auth = await ensureCeAdmin(req);
     if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
     if (auth.role === "viewer") return res.status(403).json({ error: "Accès lecture seule" });
@@ -221,7 +226,7 @@ export function registerCeCompanyAdminRoutes(app: Express): void {
     res.json({ ok: true });
   });
 
-  app.delete("/api/ce/company/employees/:id", async (req, res) => {
+  app.delete("/api/ce/company/employees/:id", zParams(zIdParam), async (req, res) => {
     const auth = await ensureCeAdmin(req);
     if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
     if (auth.role === "viewer") return res.status(403).json({ error: "Accès lecture seule" });
@@ -250,7 +255,7 @@ export function registerCeCompanyAdminRoutes(app: Express): void {
 
     const sb = supabase();
     let query = sb
-      .from("ce_scans")
+      .from("b2b_scans").eq("scan_type", "ce")
       .select("*", { count: "exact" })
       .eq("company_id", auth.companyId)
       .order("scan_datetime", { ascending: false })
@@ -307,14 +312,14 @@ export function registerCeCompanyAdminRoutes(app: Express): void {
       sb.from("company_employees").select("id", { count: "exact", head: true }).eq("company_id", cid).eq("status", "active").is("deleted_at", null),
       sb.from("company_employees").select("id", { count: "exact", head: true }).eq("company_id", cid).eq("status", "pending").is("deleted_at", null),
       sb.from("company_employees").select("id", { count: "exact", head: true }).eq("company_id", cid).eq("status", "suspended").is("deleted_at", null),
-      sb.from("ce_scans").select("id", { count: "exact", head: true }).eq("company_id", cid).gte("scan_datetime", todayStr),
-      sb.from("ce_scans").select("id", { count: "exact", head: true }).eq("company_id", cid).gte("scan_datetime", weekAgo),
-      sb.from("ce_scans").select("id", { count: "exact", head: true }).eq("company_id", cid).gte("scan_datetime", monthAgo),
+      sb.from("b2b_scans").eq("scan_type", "ce").select("id", { count: "exact", head: true }).eq("company_id", cid).gte("scan_datetime", todayStr),
+      sb.from("b2b_scans").eq("scan_type", "ce").select("id", { count: "exact", head: true }).eq("company_id", cid).gte("scan_datetime", weekAgo),
+      sb.from("b2b_scans").eq("scan_type", "ce").select("id", { count: "exact", head: true }).eq("company_id", cid).gte("scan_datetime", monthAgo),
     ]);
 
     // Top 5 establishments
     const { data: topScans } = await sb
-      .from("ce_scans")
+      .from("b2b_scans").eq("scan_type", "ce")
       .select("establishment_id")
       .eq("company_id", cid)
       .gte("scan_datetime", monthAgo)
@@ -351,7 +356,7 @@ export function registerCeCompanyAdminRoutes(app: Express): void {
   // Settings
   // --------------------------------------------------
 
-  app.put("/api/ce/company/settings", async (req, res) => {
+  app.put("/api/ce/company/settings", zBody(updateCompanySettingsSchema), async (req, res) => {
     const auth = await ensureCeAdmin(req);
     if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
     if (auth.role === "viewer") return res.status(403).json({ error: "Accès lecture seule" });
@@ -414,7 +419,7 @@ export function registerCeCompanyAdminRoutes(app: Express): void {
 
     const sb = supabase();
     const { data: scans } = await sb
-      .from("ce_scans")
+      .from("b2b_scans").eq("scan_type", "ce")
       .select("*")
       .eq("company_id", auth.companyId)
       .order("scan_datetime", { ascending: false })
@@ -439,5 +444,84 @@ export function registerCeCompanyAdminRoutes(app: Express): void {
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", "attachment; filename=scans-ce.csv");
     res.send("\uFEFF" + toCSV(rows));
+  });
+
+  // --------------------------------------------------
+  // Notifications
+  // --------------------------------------------------
+
+  app.get("/api/ce/company/notifications", async (req, res) => {
+    const auth = await ensureCeAdmin(req);
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    const sb = supabase();
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+
+    const { data, error } = await sb
+      .from("ce_notifications")
+      .select("*")
+      .eq("company_id", auth.companyId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    const unreadCount = (data ?? []).filter((n: any) => !n.read_at).length;
+
+    res.json({ ok: true, notifications: data ?? [], unreadCount });
+  });
+
+  app.post("/api/ce/company/notifications/:id/read", zParams(zIdParam), async (req, res) => {
+    const auth = await ensureCeAdmin(req);
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    const notificationId = req.params.id;
+    if (!notificationId) return res.status(400).json({ error: "missing_notification_id" });
+
+    const sb = supabase();
+    const { error } = await sb
+      .from("ce_notifications")
+      .update({ read_at: new Date().toISOString() })
+      .eq("id", notificationId)
+      .eq("company_id", auth.companyId);
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
+  });
+
+  app.post("/api/ce/company/notifications/read-all", async (req, res) => {
+    const auth = await ensureCeAdmin(req);
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    const sb = supabase();
+    const { error } = await sb
+      .from("ce_notifications")
+      .update({ read_at: new Date().toISOString() })
+      .eq("company_id", auth.companyId)
+      .is("read_at", null);
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
+  });
+
+  app.delete("/api/ce/company/notifications/:id", zParams(zIdParam), async (req, res) => {
+    const auth = await ensureCeAdmin(req);
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    const notificationId = req.params.id;
+    if (!notificationId) return res.status(400).json({ error: "missing_notification_id" });
+
+    const sb = supabase();
+    const { data, error } = await sb
+      .from("ce_notifications")
+      .delete()
+      .eq("id", notificationId)
+      .eq("company_id", auth.companyId)
+      .select("id")
+      .maybeSingle();
+
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data) return res.status(404).json({ error: "Not found" });
+    res.json({ ok: true });
   });
 }

@@ -13,6 +13,9 @@
  */
 
 import type { Request, Response, NextFunction } from "express";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("prerender");
 
 // ── Bot detection ──────────────────────────────────────────────────────
 
@@ -37,6 +40,7 @@ const BOT_USER_AGENTS = [
   "perplexitybot",
   "cohere-ai",
   "bytespider",
+  "applebot", // Apple Intelligence / Siri
 ];
 
 function isBot(userAgent: string): boolean {
@@ -104,7 +108,7 @@ async function getBrowser(): Promise<any> {
             "--no-first-run",
           ],
         });
-        console.log("[Prerender] Chromium launched for bot rendering");
+        log.info("Chromium launched for bot rendering");
         return browser;
       } catch (err) {
         browserPromise = null; // allow retry on next request
@@ -219,10 +223,10 @@ export function prerenderMiddleware(req: Request, res: Response, next: NextFunct
       // If puppeteer fails (not installed), fall through to normal SPA serving
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("Cannot find package") || msg.includes("ERR_MODULE_NOT_FOUND") || msg.includes("Could not find Chromium")) {
-        console.warn("[Prerender] Puppeteer not available — bot pre-rendering disabled. Install with: pnpm add puppeteer");
+        log.warn("Puppeteer not available — bot pre-rendering disabled. Install with: pnpm add puppeteer");
         puppeteerAvailable = false;
       } else {
-        console.error("[Prerender] Render error:", msg);
+        log.error({ err: msg }, "Render error");
       }
       next();
     });

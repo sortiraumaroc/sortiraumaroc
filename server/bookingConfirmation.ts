@@ -10,6 +10,9 @@
 import { getAdminSupabase } from "./supabaseAdmin";
 import { sendTemplateEmail } from "./emailService";
 import { formatDateLongFr } from "../shared/datetime";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("bookingConfirmation");
 
 const BASE_URL = process.env.VITE_APP_URL || "https://sam.ma";
 
@@ -74,16 +77,16 @@ export async function sendH3ConfirmationEmails(): Promise<{
   );
 
   if (fetchError) {
-    console.error("[H3 Confirmation] Error fetching reservations:", fetchError);
+    log.error({ err: fetchError }, "error fetching reservations for H3 confirmation");
     return { sent: 0, errors: 1, details: [] };
   }
 
   if (!reservations || reservations.length === 0) {
-    console.log("[H3 Confirmation] No reservations need confirmation email");
+    log.info("no reservations need confirmation email");
     return { sent: 0, errors: 0, details: [] };
   }
 
-  console.log(`[H3 Confirmation] Found ${reservations.length} reservations to process`);
+  log.info({ count: reservations.length }, "found reservations to process for H3 confirmation");
 
   for (const res of reservations as ReservationForConfirmation[]) {
     try {
@@ -100,7 +103,7 @@ export async function sendH3ConfirmationEmails(): Promise<{
         .single();
 
       if (insertError) {
-        console.error(`[H3 Confirmation] Error creating request for ${res.reservation_id}:`, insertError);
+        log.error({ err: insertError, reservationId: res.reservation_id }, "error creating confirmation request");
         results.push({ reservation_id: res.reservation_id, success: false, error: insertError.message });
         continue;
       }
@@ -142,11 +145,11 @@ export async function sendH3ConfirmationEmails(): Promise<{
         },
       });
 
-      console.log(`[H3 Confirmation] Email sent for reservation ${res.reservation_id}`);
+      log.info({ reservationId: res.reservation_id }, "H3 confirmation email sent");
       results.push({ reservation_id: res.reservation_id, success: true });
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Unknown error";
-      console.error(`[H3 Confirmation] Error processing ${res.reservation_id}:`, err);
+      log.error({ err, reservationId: res.reservation_id }, "error processing H3 confirmation");
       results.push({ reservation_id: res.reservation_id, success: false, error: errorMsg });
     }
   }
@@ -154,7 +157,7 @@ export async function sendH3ConfirmationEmails(): Promise<{
   const sent = results.filter((r) => r.success).length;
   const errors = results.filter((r) => !r.success).length;
 
-  console.log(`[H3 Confirmation] Completed: ${sent} sent, ${errors} errors`);
+  log.info({ sent, errors }, "H3 confirmation completed");
   return { sent, errors, details: results };
 }
 
@@ -183,7 +186,7 @@ export async function confirmBookingByToken(token: string): Promise<{
   });
 
   if (error) {
-    console.error("[Confirm Booking] Database error:", error);
+    log.error({ err: error }, "confirm booking database error");
     return { success: false, error: "Erreur lors de la confirmation" };
   }
 
@@ -313,16 +316,16 @@ export async function autoCancelUnconfirmedReservations(): Promise<{
   const { data: cancelled, error } = await supabase.rpc("auto_cancel_unconfirmed_reservations");
 
   if (error) {
-    console.error("[Auto Cancel] Database error:", error);
+    log.error({ err: error }, "auto cancel database error");
     return { cancelled: 0, errors: 1, details: [] };
   }
 
   if (!cancelled || cancelled.length === 0) {
-    console.log("[Auto Cancel] No reservations to auto-cancel");
+    log.info("no reservations to auto-cancel");
     return { cancelled: 0, errors: 0, details: [] };
   }
 
-  console.log(`[Auto Cancel] ${cancelled.length} reservations auto-cancelled`);
+  log.info({ count: cancelled.length }, "reservations auto-cancelled");
 
   // Send notification emails
   for (const res of cancelled as AutoCancelledReservation[]) {
@@ -353,6 +356,7 @@ export async function autoCancelUnconfirmedReservations(): Promise<{
           establishment: res.establishment_name,
           date: capitalizedDate3,
           time: timeStr3,
+          guests: String(res.party_size || 1),
           establishment_url: `${BASE_URL}/etablissement/${res.establishment_id}`,
         },
       });
@@ -377,7 +381,7 @@ export async function autoCancelUnconfirmedReservations(): Promise<{
       results.push({ reservation_id: res.reservation_id, success: true });
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Unknown error";
-      console.error(`[Auto Cancel] Error sending emails for ${res.reservation_id}:`, err);
+      log.error({ err, reservationId: res.reservation_id }, "error sending auto-cancel emails");
       results.push({ reservation_id: res.reservation_id, success: false, error: errorMsg });
     }
   }
@@ -445,4 +449,65 @@ export async function getConfirmationRequestInfo(token: string): Promise<{
       address: establishment.address_full,
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Route registration (called from index.ts)
+// ---------------------------------------------------------------------------
+import type { Express, Request, Response } from "express";
+
+export function registerBookingConfirmationRoutes(app: Express) {
+  // Public: Get confirmation request info (for confirmation page UI)
+  app.get("/api/booking/confirm/:token/info", async (req: Request, res: Response) => {
+    try {
+      const { token } = req.params;
+      const info = await getConfirmationRequestInfo(token);
+      res.json(info);
+    } catch (err) {
+      log.error({ err }, "booking confirm get info failed");
+      res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // Public: Confirm booking by token (user clicks link in email)
+  app.post("/api/booking/confirm/:token", async (req: Request, res: Response) => {
+    try {
+      const { token } = req.params;
+      const result = await confirmBookingByToken(token);
+      res.json(result);
+    } catch (err) {
+      log.error({ err }, "booking confirm failed");
+      res.status(500).json({ success: false, error: "Erreur serveur" });
+    }
+  });
+
+  // Admin/Cron: Trigger H-3 confirmation emails
+  app.post("/api/admin/cron/h3-confirmation-emails", async (req: Request, res: Response) => {
+    const adminKey = req.headers["x-admin-key"];
+    if (adminKey !== process.env.ADMIN_API_KEY) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    try {
+      const result = await sendH3ConfirmationEmails();
+      res.json(result);
+    } catch (err) {
+      log.error({ err }, "H3 confirmation emails cron failed");
+      res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // Admin/Cron: Auto-cancel unconfirmed reservations
+  app.post("/api/admin/cron/auto-cancel-unconfirmed", async (req: Request, res: Response) => {
+    const adminKey = req.headers["x-admin-key"];
+    if (adminKey !== process.env.ADMIN_API_KEY) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    try {
+      const result = await autoCancelUnconfirmedReservations();
+      res.json(result);
+    } catch (err) {
+      log.error({ err }, "auto-cancel unconfirmed cron failed");
+      res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
 }

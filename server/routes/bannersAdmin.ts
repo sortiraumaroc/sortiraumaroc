@@ -15,9 +15,9 @@
  *  - GET    /api/admin/banners/:id/views                — list banner views
  */
 
-import type { Router, Request, Response, RequestHandler } from "express";
-import { assertAdminApiEnabled, checkAdminKey, getAdminSupabase } from "../supabaseAdmin";
-import { getSessionCookieName, parseCookies, verifyAdminSessionToken } from "../adminSession";
+import type { Router, Request, Response } from "express";
+import { getAdminSupabase } from "../supabaseAdmin";
+import { requireAdminKey } from "./adminHelpers";
 import {
   createBanner,
   updateBanner,
@@ -31,54 +31,17 @@ import { exportFormResponses } from "../bannerFormLogic";
 import { auditAdminAction } from "../auditLogV2";
 import { isValidUUID, sanitizeText } from "../sanitizeV2";
 import { bannerAdminRateLimiter } from "../middleware/rateLimiter";
+import { createModuleLogger } from "../lib/logger";
+import { zBody, zQuery, zParams, zIdParam } from "../lib/validate";
+import {
+  BannerCreateSchema,
+  BannerUpdateSchema,
+  ListBannersQuery,
+  ListBannerFormResponsesQuery,
+  ListBannerViewsQuery,
+} from "../schemas/bannersAdmin";
 
-// =============================================================================
-// Admin auth (same pattern as adminNotifications.ts)
-// =============================================================================
-
-function getAdminSessionToken(req: Parameters<RequestHandler>[0]): { token: string; source: "cookie" | "header" } | null {
-  const cookies = parseCookies(req.header("cookie") ?? undefined);
-  const cookieToken = cookies[getSessionCookieName()];
-  if (cookieToken) return { token: cookieToken, source: "cookie" };
-  const headerToken = req.header("x-admin-session") ?? undefined;
-  if (headerToken && headerToken.trim()) return { token: headerToken.trim(), source: "header" };
-  const authHeader = req.header("authorization") ?? undefined;
-  if (authHeader && authHeader.toLowerCase().startsWith("bearer ")) {
-    const bearer = authHeader.slice(7).trim();
-    if (bearer) return { token: bearer, source: "header" };
-  }
-  return null;
-}
-
-function isSafeMethod(method: string | undefined): boolean {
-  const m = (method || "GET").toUpperCase();
-  return m === "GET" || m === "HEAD" || m === "OPTIONS";
-}
-
-function isSameOrigin(req: Parameters<RequestHandler>[0]): boolean {
-  const originHeader = req.header("origin");
-  if (!originHeader) return true;
-  let origin: URL;
-  try { origin = new URL(originHeader); } catch { return false; }
-  const host = req.header("x-forwarded-host") ?? req.header("host");
-  if (!host) return false;
-  return origin.host === host;
-}
-
-function requireAdminKey(req: Parameters<RequestHandler>[0], res: Parameters<RequestHandler>[1]): boolean {
-  const enabled = assertAdminApiEnabled();
-  if (enabled.ok === false) { res.status(503).json({ error: enabled.message }); return false; }
-  const session = getAdminSessionToken(req);
-  if (session && verifyAdminSessionToken(session.token) !== null) {
-    if (session.source === "cookie" && !isSafeMethod(req.method) && !isSameOrigin(req)) {
-      res.status(403).json({ error: "Forbidden" }); return false;
-    }
-    return true;
-  }
-  const header = req.header("x-admin-key") ?? undefined;
-  if (!checkAdminKey(header)) { res.status(401).json({ error: "Unauthorized" }); return false; }
-  return true;
-}
+const log = createModuleLogger("bannersAdmin");
 
 // =============================================================================
 // Helpers
@@ -141,7 +104,7 @@ async function listBanners(req: Request, res: Response) {
 
     res.json({ banners: data ?? [], total: count ?? 0, page, limit });
   } catch (err) {
-    console.error("[BannersAdmin] listBanners error:", err);
+    log.error({ err }, "listBanners error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -174,7 +137,7 @@ async function getBanner(req: Request, res: Response) {
 
     res.json({ banner, stats: statsResult.ok ? (statsResult as any).stats : null });
   } catch (err) {
-    console.error("[BannersAdmin] getBanner error:", err);
+    log.error({ err }, "getBanner error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -207,7 +170,7 @@ async function createBannerRoute(req: Request, res: Response) {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[BannersAdmin] createBanner error:", err);
+    log.error({ err }, "createBanner error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -240,7 +203,7 @@ async function updateBannerRoute(req: Request, res: Response) {
 
     res.json({ ok: true });
   } catch (err) {
-    console.error("[BannersAdmin] updateBanner error:", err);
+    log.error({ err }, "updateBanner error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -265,7 +228,7 @@ async function duplicateBannerRoute(req: Request, res: Response) {
 
     res.status(201).json(result);
   } catch (err) {
-    console.error("[BannersAdmin] duplicateBanner error:", err);
+    log.error({ err }, "duplicateBanner error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -296,7 +259,7 @@ async function activateBannerRoute(req: Request, res: Response) {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[BannersAdmin] activateBanner error:", err);
+    log.error({ err }, "activateBanner error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -327,7 +290,7 @@ async function pauseBannerRoute(req: Request, res: Response) {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[BannersAdmin] pauseBanner error:", err);
+    log.error({ err }, "pauseBanner error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -358,7 +321,7 @@ async function disableBannerRoute(req: Request, res: Response) {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[BannersAdmin] disableBanner error:", err);
+    log.error({ err }, "disableBanner error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -383,7 +346,7 @@ async function getBannerStatsRoute(req: Request, res: Response) {
 
     res.json(result);
   } catch (err) {
-    console.error("[BannersAdmin] getBannerStats error:", err);
+    log.error({ err }, "getBannerStats error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -418,7 +381,7 @@ async function listFormResponses(req: Request, res: Response) {
 
     res.json({ responses: data ?? [], total: count ?? 0, page, limit });
   } catch (err) {
-    console.error("[BannersAdmin] listFormResponses error:", err);
+    log.error({ err }, "listFormResponses error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -445,7 +408,7 @@ async function exportFormResponsesRoute(req: Request, res: Response) {
     res.setHeader("Content-Disposition", `attachment; filename="banner-${bannerId}-responses.csv"`);
     res.send((result as any).csv);
   } catch (err) {
-    console.error("[BannersAdmin] exportFormResponses error:", err);
+    log.error({ err }, "exportFormResponses error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -480,7 +443,7 @@ async function listBannerViews(req: Request, res: Response) {
 
     res.json({ views: data ?? [], total: count ?? 0, page, limit });
   } catch (err) {
-    console.error("[BannersAdmin] listBannerViews error:", err);
+    log.error({ err }, "listBannerViews error");
     res.status(500).json({ error: "internal_error" });
   }
 }
@@ -490,16 +453,16 @@ async function listBannerViews(req: Request, res: Response) {
 // =============================================================================
 
 export function registerBannerAdminRoutes(app: Router): void {
-  app.get("/api/admin/banners", bannerAdminRateLimiter, listBanners);
-  app.get("/api/admin/banners/:id", bannerAdminRateLimiter, getBanner);
-  app.post("/api/admin/banners", bannerAdminRateLimiter, createBannerRoute);
-  app.put("/api/admin/banners/:id", bannerAdminRateLimiter, updateBannerRoute);
-  app.post("/api/admin/banners/:id/duplicate", bannerAdminRateLimiter, duplicateBannerRoute);
-  app.post("/api/admin/banners/:id/activate", bannerAdminRateLimiter, activateBannerRoute);
-  app.post("/api/admin/banners/:id/pause", bannerAdminRateLimiter, pauseBannerRoute);
-  app.post("/api/admin/banners/:id/disable", bannerAdminRateLimiter, disableBannerRoute);
-  app.get("/api/admin/banners/:id/stats", bannerAdminRateLimiter, getBannerStatsRoute);
-  app.get("/api/admin/banners/:id/form-responses", bannerAdminRateLimiter, listFormResponses);
-  app.get("/api/admin/banners/:id/form-responses/export", bannerAdminRateLimiter, exportFormResponsesRoute);
-  app.get("/api/admin/banners/:id/views", bannerAdminRateLimiter, listBannerViews);
+  app.get("/api/admin/banners", bannerAdminRateLimiter, zQuery(ListBannersQuery), listBanners);
+  app.get("/api/admin/banners/:id", zParams(zIdParam), bannerAdminRateLimiter, getBanner);
+  app.post("/api/admin/banners", bannerAdminRateLimiter, zBody(BannerCreateSchema), createBannerRoute);
+  app.put("/api/admin/banners/:id", zParams(zIdParam), bannerAdminRateLimiter, zBody(BannerUpdateSchema), updateBannerRoute);
+  app.post("/api/admin/banners/:id/duplicate", zParams(zIdParam), bannerAdminRateLimiter, duplicateBannerRoute);
+  app.post("/api/admin/banners/:id/activate", zParams(zIdParam), bannerAdminRateLimiter, activateBannerRoute);
+  app.post("/api/admin/banners/:id/pause", zParams(zIdParam), bannerAdminRateLimiter, pauseBannerRoute);
+  app.post("/api/admin/banners/:id/disable", zParams(zIdParam), bannerAdminRateLimiter, disableBannerRoute);
+  app.get("/api/admin/banners/:id/stats", zParams(zIdParam), bannerAdminRateLimiter, getBannerStatsRoute);
+  app.get("/api/admin/banners/:id/form-responses", zParams(zIdParam), bannerAdminRateLimiter, zQuery(ListBannerFormResponsesQuery), listFormResponses);
+  app.get("/api/admin/banners/:id/form-responses/export", zParams(zIdParam), bannerAdminRateLimiter, exportFormResponsesRoute);
+  app.get("/api/admin/banners/:id/views", zParams(zIdParam), bannerAdminRateLimiter, zQuery(ListBannerViewsQuery), listBannerViews);
 }

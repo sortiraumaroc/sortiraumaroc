@@ -13,6 +13,9 @@
  */
 
 import { getAdminSupabase } from "./supabaseAdmin";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("bannerLogic");
 import { getAudienceUserIds } from "./audienceSegmentService";
 import { emitAdminNotification } from "./adminNotifications";
 import type {
@@ -188,7 +191,7 @@ export async function createBanner(input: CreateBannerInput): Promise<{ ok: bool
     .single();
 
   if (error) {
-    console.error("[Banner] createBanner error:", error.message);
+    log.error({ err: error.message }, "createBanner error");
     return { ok: false, error: error.message };
   }
 
@@ -533,7 +536,7 @@ export async function trackBannerAction(
   });
 
   if (viewErr) {
-    console.error("[Banner] trackBannerAction insert error:", viewErr.message);
+    log.error({ err: viewErr.message }, "trackBannerAction insert error");
     return { ok: false };
   }
 
@@ -629,13 +632,13 @@ export async function expireOldBanners(): Promise<{ expired: number }> {
     .select("id");
 
   if (error) {
-    console.error("[Banner] expireOldBanners error:", error.message);
+    log.error({ err: error.message }, "expireOldBanners error");
     return { expired: 0 };
   }
 
   const count = data?.length ?? 0;
   if (count > 0) {
-    console.log(`[Banner] Expired ${count} banners`);
+    log.info({ count }, "Expired banners");
   }
 
   return { expired: count };

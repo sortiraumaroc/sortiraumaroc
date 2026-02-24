@@ -4,6 +4,9 @@ import { emitAdminNotification } from "./adminNotifications";
 import { sendTemplateEmail } from "./emailService";
 import { NotificationEventType } from "../shared/notifications";
 import { formatLeJjMmAaAHeure } from "../shared/datetime";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("waitlist");
 
 type SupabaseLike = {
   from: (table: string) => any;
@@ -115,8 +118,8 @@ export async function triggerWaitlistPromotionForSlot(args: {
         },
       });
     }
-  } catch {
-    // ignore
+  } catch (err) {
+    log.warn({ err }, "Best-effort: waitlist push notification to consumer failed");
   }
 
   // Inform PROs (visibility only; no manual action required)
@@ -137,8 +140,8 @@ export async function triggerWaitlistPromotionForSlot(args: {
           offerExpiresAt: expiresAtIso,
         },
       });
-    } catch {
-      // ignore
+    } catch (err) {
+      log.warn({ err }, "Best-effort: waitlist pro notification failed");
     }
   }
 
@@ -176,8 +179,8 @@ export async function triggerWaitlistPromotionForSlot(args: {
         },
       });
     }
-  } catch {
-    // ignore
+  } catch (err) {
+    log.warn({ err }, "Best-effort: waitlist consumer event insert failed");
   }
 
   // Email consumer (best-effort)
@@ -231,8 +234,8 @@ export async function triggerWaitlistPromotionForSlot(args: {
           position,
         },
       });
-    } catch {
-      // ignore
+    } catch (err) {
+      log.warn({ err }, "Best-effort: waitlist offer email to consumer failed");
     }
   })();
 

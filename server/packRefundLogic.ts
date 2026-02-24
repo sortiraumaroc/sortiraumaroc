@@ -13,6 +13,9 @@
 
 import { getAdminSupabase } from "./supabaseAdmin";
 import { generateRefundCreditNote } from "./vosfactures/documents";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("packRefund");
 import { emitConsumerUserEvent } from "./consumerNotifications";
 import { getBillingPeriodCode } from "../shared/packsBillingTypes";
 
@@ -221,7 +224,7 @@ export async function processRefund(
       billing_period: billingPeriod,
     }).then(
       () => {},
-      (err: any) => console.error("[PackRefund] Transaction insert failed:", err),
+      (err: any) => log.error({ err }, "Transaction insert failed"),
     );
   }
 
@@ -241,7 +244,7 @@ export async function processRefund(
           referenceId: r.pack_purchase_id,
         });
       } catch (err) {
-        console.error("[PackRefund] VosFactures credit note failed:", err);
+        log.error({ err }, "VosFactures credit note failed");
       }
     })();
   }
@@ -264,7 +267,7 @@ export async function processRefund(
           purchase_id: r.pack_purchase_id,
         },
       });
-    } catch { /* best-effort */ }
+    } catch (err) { log.warn({ err }, "Best-effort: pack refund consumer notification failed"); }
   })();
 
   return { ok: true, data: undefined };
@@ -302,14 +305,13 @@ export async function refundAllActivePacksForEstablishment(
       } else {
         errors++;
       }
-    } catch {
+    } catch (err) {
+      log.warn({ err, purchaseId: p.id }, "Bulk refund: single pack refund failed");
       errors++;
     }
   }
 
-  console.log(
-    `[PackRefund] Bulk refund for establishment ${establishmentId}: ${refunded} refunded, ${errors} errors`,
-  );
+  log.info({ establishmentId, refunded, errors }, "Bulk refund completed");
 
   return { refunded, errors };
 }

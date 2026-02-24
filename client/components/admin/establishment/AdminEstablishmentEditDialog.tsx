@@ -553,6 +553,7 @@ type Props = {
     name: string;
     city: string;
     universe: string;
+    category?: string;
     subcategory: string;
   } | null;
   onSaved: () => void;
@@ -599,11 +600,84 @@ export function AdminEstablishmentEditDialog({ open, onOpenChange, establishment
     if (open && establishment) {
       setName(establishment.name || "");
       setCity(establishment.city || "");
-      setUniverse(establishment.universe || "restaurants");
-      // Parse category from subcategory if needed
-      const parts = (establishment.subcategory || "").split("/").map(s => s.trim());
-      setCategory(parts[0] || "");
-      setSubcategory(parts[1] || parts[0] || "");
+      const uni = establishment.universe || "restaurants";
+      setUniverse(uni);
+
+      // Try to resolve category from DB data
+      const dbSubcategory = (establishment.subcategory || "").trim();
+      const dbCategory = (establishment.category || "").trim();
+      const config = UNIVERSE_CONFIG[uni];
+
+      if (config) {
+        // 1) If subcategory is in "category / subcategory" format, parse it
+        if (dbSubcategory.includes("/")) {
+          const parts = dbSubcategory.split("/").map(s => s.trim());
+          const catPart = parts[0] || "";
+          const subPart = parts[1] || "";
+          // Match category by id or name (case-insensitive)
+          const matchedCat = config.categories.find(c =>
+            c.id === catPart || c.name.toLowerCase() === catPart.toLowerCase()
+          );
+          setCategory(matchedCat?.id || catPart);
+          // Match subcategory by id or name
+          const catSubs = config.subcategories[matchedCat?.id || catPart] || [];
+          const matchedSub = catSubs.find(s =>
+            s.id === subPart || s.name.toLowerCase() === subPart.toLowerCase()
+          );
+          setSubcategory(matchedSub?.id || subPart);
+        }
+        // 2) Try using the separate category field from DB
+        else if (dbCategory) {
+          const matchedCat = config.categories.find(c =>
+            c.id === dbCategory || c.name.toLowerCase() === dbCategory.toLowerCase()
+          );
+          setCategory(matchedCat?.id || dbCategory);
+          // Try to match subcategory in that category's subcategories
+          if (dbSubcategory && matchedCat) {
+            const catSubs = config.subcategories[matchedCat.id] || [];
+            const matchedSub = catSubs.find(s =>
+              s.id === dbSubcategory || s.name.toLowerCase() === dbSubcategory.toLowerCase()
+            );
+            setSubcategory(matchedSub?.id || dbSubcategory);
+          } else {
+            setSubcategory(dbSubcategory);
+          }
+        }
+        // 3) Try matching subcategory directly as a category name
+        else if (dbSubcategory) {
+          const matchedCat = config.categories.find(c =>
+            c.id === dbSubcategory || c.name.toLowerCase() === dbSubcategory.toLowerCase()
+          );
+          if (matchedCat) {
+            setCategory(matchedCat.id);
+            setSubcategory("");
+          } else {
+            // Try to find which category contains this as a subcategory
+            let found = false;
+            for (const [catId, subs] of Object.entries(config.subcategories)) {
+              const matchedSub = subs.find(s =>
+                s.id === dbSubcategory || s.name.toLowerCase() === dbSubcategory.toLowerCase()
+              );
+              if (matchedSub) {
+                setCategory(catId);
+                setSubcategory(matchedSub.id);
+                found = true;
+                break;
+              }
+            }
+            if (!found) {
+              setCategory(dbSubcategory);
+              setSubcategory("");
+            }
+          }
+        } else {
+          setCategory("");
+          setSubcategory("");
+        }
+      } else {
+        setCategory("");
+        setSubcategory("");
+      }
     }
   }, [open, establishment]);
 

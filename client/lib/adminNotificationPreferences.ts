@@ -1,6 +1,7 @@
 export type AdminNotificationPreferences = {
   popupsEnabled: boolean;
   soundEnabled: boolean;
+  mutedCategories: string[];
 };
 
 const STORAGE_KEY = "sam:admin_notification_preferences:v1";
@@ -9,6 +10,7 @@ const CHANGE_EVENT = "sam:admin_notification_preferences_changed";
 const DEFAULT_PREFERENCES: AdminNotificationPreferences = {
   popupsEnabled: true,
   soundEnabled: true,
+  mutedCategories: [],
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -27,6 +29,9 @@ export function getAdminNotificationPreferences(): AdminNotificationPreferences 
     return {
       popupsEnabled: typeof parsed.popupsEnabled === "boolean" ? parsed.popupsEnabled : DEFAULT_PREFERENCES.popupsEnabled,
       soundEnabled: typeof parsed.soundEnabled === "boolean" ? parsed.soundEnabled : DEFAULT_PREFERENCES.soundEnabled,
+      mutedCategories: Array.isArray(parsed.mutedCategories)
+        ? (parsed.mutedCategories as unknown[]).filter((c): c is string => typeof c === "string")
+        : DEFAULT_PREFERENCES.mutedCategories,
     };
   } catch {
     return DEFAULT_PREFERENCES;

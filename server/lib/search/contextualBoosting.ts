@@ -10,6 +10,9 @@
 
 import { cachedQuery } from "../cache";
 import { getAdminSupabase } from "../../supabaseAdmin";
+import { createModuleLogger } from "../logger";
+
+const log = createModuleLogger("contextualBoosting");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -548,7 +551,7 @@ async function getActiveEventRules(): Promise<EventRule[]> {
         .gte("date_to", today);
 
       if (error) {
-        console.warn("[contextual-boost] Failed to load event rules:", error.message);
+        log.warn({ err: error.message }, "Failed to load event rules");
         return [];
       }
       return (data ?? []) as EventRule[];

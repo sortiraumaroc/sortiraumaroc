@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 type AdminSupabase = SupabaseClient;
@@ -44,5 +45,12 @@ export function checkAdminKey(requestHeaderValue: string | undefined): boolean {
   const expected = process.env.ADMIN_API_KEY;
   if (!expected) return false;
   if (!requestHeaderValue) return false;
-  return requestHeaderValue === expected;
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(requestHeaderValue),
+      Buffer.from(expected)
+    );
+  } catch { /* intentional: timingSafeEqual throws on length mismatch */
+    return false;
+  }
 }

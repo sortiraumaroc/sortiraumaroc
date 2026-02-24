@@ -13,6 +13,9 @@
  */
 
 import { getAdminSupabase } from "./supabaseAdmin";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("wheelOfFortune");
 import crypto, { randomUUID } from "crypto";
 import { fireNotification } from "./notificationEngine";
 import { emitAdminNotification } from "./adminNotifications";
@@ -438,7 +441,7 @@ async function assignExternalCode(
     .single();
 
   if (error || !code) {
-    console.error("[Wheel] No external code available for prize:", prizeId);
+    log.error({ prizeId }, "No external code available for prize");
     return null;
   }
 
@@ -488,7 +491,7 @@ async function createWheelGiftDistribution(
     .single();
 
   if (error) {
-    console.error("[Wheel] Failed to create gift distribution:", error.message);
+    log.error({ err: error.message }, "Failed to create gift distribution");
     return null;
   }
 

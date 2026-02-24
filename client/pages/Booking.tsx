@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useBooking, type ServiceType } from "@/hooks/useBooking";
 import Step1Selection from '@/components/booking/Step1Selection';
@@ -9,11 +9,12 @@ import { ChevronLeft } from "lucide-react";
 import { Header } from "@/components/Header";
 import { LanguageSwitcher } from "@/components/i18n/LanguageSwitcher";
 import { AuthModalV2 } from "@/components/AuthModalV2";
-import { isAuthed } from "@/lib/auth";
+import { isAuthed, AUTH_CHANGED_EVENT } from "@/lib/auth";
 import { getPublicEstablishment } from "@/lib/publicApi";
 import { isUuid } from "@/lib/pro/visits";
 import { useI18n } from "@/lib/i18n";
 import { applySeo, buildI18nSeoFields } from "@/lib/seo";
+import { saveBookingSession, getBookingSession, clearBookingSession } from "@/lib/bookingSessionStorage";
 
 
 function parseYmd(dateYmd: string): Date | null {
@@ -74,6 +75,7 @@ export default function Booking() {
   const {
     currentStep,
     setCurrentStep,
+    bookingType,
     setBookingType,
     setEstablishmentId,
     setEstablishmentName,
@@ -83,6 +85,7 @@ export default function Booking() {
     selectedDate,
     selectedTime,
     selectedService,
+    selectedPack,
     waitlistRequested,
     setWaitlistRequested,
     setPartySize,
@@ -90,12 +93,123 @@ export default function Booking() {
     setSelectedTime,
     setSelectedService,
     setSelectedPack,
+    // Hotel
+    checkInDate,
+    checkOutDate,
+    hotelRoomSelection,
+    setCheckInDate,
+    setCheckOutDate,
+    setHotelRoomSelection,
+    // Step 2
+    reservationMode,
+    setReservationMode,
+    // Step 3 — personal info
+    firstName,
+    lastName,
+    email,
+    phone,
+    message,
+    promoCode,
+    setFirstName,
+    setLastName,
+    setEmail,
+    setPhone,
+    setMessage,
+    setPromoCode,
   } = useBooking();
 
-  // Scroll to top when step changes
+  // Scroll to top when step changes — force window.scrollTo for reliable mobile behavior
+  const stepContainerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    // Use both methods for maximum reliability on mobile
     window.scrollTo({ top: 0, behavior: "instant" });
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: "instant" });
+    });
   }, [currentStep]);
+
+  // ---- Referrer URL for back button (establishment detail page) ----
+  const referrerUrl = useMemo(() => {
+    const raw = (searchParams.get("universe") ?? "restaurants").toLowerCase();
+    if (!establishmentId) return "/";
+    const slug = encodeURIComponent(establishmentId);
+    if (raw === "hotels" || raw === "hotel") return `/hotel/${slug}`;
+    if (raw === "loisirs" || raw === "loisir") return `/loisir/${slug}`;
+    if (raw === "wellness" || raw === "bien_etre") return `/wellness/${slug}`;
+    if (raw === "culture") return `/culture/${slug}`;
+    if (raw === "shopping") return `/shopping/${slug}`;
+    return `/restaurant/${slug}`;
+  }, [establishmentId, searchParams]);
+
+  // Track whether we already restored from sessionStorage (avoid double-restore)
+  const restoredRef = useRef(false);
+
+  // ---- Restore booking state after OAuth redirect ----
+  useEffect(() => {
+    if (restoredRef.current) return;
+
+    // On OAuth return, Supabase fires onAuthStateChange → AUTH_CHANGED_EVENT.
+    // The auth might already be ready (synchronous localStorage flag), or we
+    // need to wait for the event.
+    const tryRestore = () => {
+      if (!isAuthed()) return false;
+
+      const saved = getBookingSession();
+      if (!saved) return false;
+
+      // Only restore if same establishment
+      if (saved.establishmentId && saved.establishmentId !== establishmentId) {
+        clearBookingSession();
+        return false;
+      }
+
+      restoredRef.current = true;
+
+      // Restore Step 1 selections
+      if (saved.bookingType) setBookingType(saved.bookingType);
+      if (saved.partySize != null) setPartySize(saved.partySize);
+      if (saved.selectedDate) setSelectedDate(new Date(saved.selectedDate));
+      if (saved.selectedTime) setSelectedTime(saved.selectedTime);
+      if (saved.selectedService) setSelectedService(saved.selectedService);
+      if (saved.selectedPack) setSelectedPack(saved.selectedPack);
+      if (saved.waitlistRequested) setWaitlistRequested(true);
+
+      // Restore hotel fields
+      if (saved.checkInDate) setCheckInDate(new Date(saved.checkInDate));
+      if (saved.checkOutDate) setCheckOutDate(new Date(saved.checkOutDate));
+      if (saved.hotelRoomSelection) setHotelRoomSelection(saved.hotelRoomSelection);
+
+      // Restore Step 2
+      if (saved.reservationMode) setReservationMode(saved.reservationMode);
+
+      // Restore Step 3 personal info
+      if (saved.firstName) setFirstName(saved.firstName);
+      if (saved.lastName) setLastName(saved.lastName);
+      if (saved.email) setEmail(saved.email);
+      if (saved.phone) setPhone(saved.phone);
+      if (saved.message) setMessage(saved.message);
+      if (saved.promoCode) setPromoCode(saved.promoCode);
+
+      // Navigate to the step the user was on
+      if (saved.pendingStep >= 2) {
+        setCurrentStep(saved.pendingStep);
+      }
+
+      clearBookingSession();
+      return true;
+    };
+
+    // Try immediately (auth may already be ready from localStorage flag)
+    if (tryRestore()) return;
+
+    // Otherwise, listen for the auth changed event (fired after OAuth callback)
+    const handler = () => {
+      tryRestore();
+    };
+    window.addEventListener(AUTH_CHANGED_EVENT, handler);
+    return () => window.removeEventListener(AUTH_CHANGED_EVENT, handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [establishmentId]);
 
   useEffect(() => {
     const raw = (searchParams.get("universe") ?? "restaurants").toLowerCase();
@@ -201,6 +315,33 @@ export default function Booking() {
     setWaitlistRequested,
   ]);
 
+  // ---- Helper: persist booking state to sessionStorage before OAuth redirect ----
+  const persistBookingState = (step: number) => {
+    saveBookingSession({
+      bookingType,
+      establishmentId: bookingEstId ?? establishmentId ?? null,
+      partySize,
+      selectedDate: selectedDate?.toISOString() ?? null,
+      selectedTime,
+      selectedService,
+      selectedPack,
+      waitlistRequested,
+      checkInDate: checkInDate?.toISOString() ?? null,
+      checkOutDate: checkOutDate?.toISOString() ?? null,
+      hotelRoomSelection,
+      reservationMode,
+      firstName,
+      lastName,
+      email,
+      phone,
+      message,
+      promoCode,
+      pendingStep: step,
+      referrerUrl,
+      savedAt: Date.now(),
+    });
+  };
+
   useEffect(() => {
     if (authOpen) return;
 
@@ -209,6 +350,7 @@ export default function Booking() {
 
     // Step 2 should be behind auth (login after step 1).
     if (currentStep === 2) {
+      persistBookingState(2);
       setPendingStep(2);
       setAuthContext({
         title: t("booking.auth.title"),
@@ -221,6 +363,7 @@ export default function Booking() {
 
     // Step 3 also requires auth.
     if (currentStep === 3) {
+      persistBookingState(3);
       setPendingStep(3);
       setAuthContext({
         title: t("booking.auth.title"),
@@ -234,7 +377,8 @@ export default function Booking() {
     if (currentStep > 1) {
       setCurrentStep(currentStep - 1);
     } else {
-      navigate(-1);
+      // Navigate to the establishment detail page (computed from universe param)
+      navigate(referrerUrl);
     }
   };
 
@@ -265,7 +409,7 @@ export default function Booking() {
     <div className="min-h-screen bg-white">
       <Header />
 
-      <header className="sticky top-16 z-40 bg-white border-b border-slate-200">
+      <header ref={stepContainerRef} className="sticky top-16 z-40 bg-white border-b border-slate-200">
         <div className="max-w-3xl mx-auto px-4 h-16 flex items-center justify-between">
           <button
             onClick={handleBack}
@@ -321,6 +465,10 @@ export default function Booking() {
         contextTitle={authContext?.title}
         contextSubtitle={authContext?.subtitle}
         onClose={() => {
+          // Don't clear booking session here — if an OAuth redirect is
+          // in progress the session data is needed after the round-trip.
+          // It will be cleared by onAuthed (email/password path) or by
+          // tryRestore() after the OAuth callback returns.
           setAuthOpen(false);
           setAuthContext(null);
           const step = pendingStep;
@@ -328,6 +476,9 @@ export default function Booking() {
           if (step === 3) setCurrentStep(1);
         }}
         onAuthed={() => {
+          // Email/password login — no page redirect, Context is intact.
+          // Clear any sessionStorage saved for the OAuth path.
+          clearBookingSession();
           setAuthOpen(false);
           setAuthContext(null);
           const step = pendingStep;

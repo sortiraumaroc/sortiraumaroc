@@ -6,6 +6,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { BookingRecapCard } from "@/components/booking/BookingRecapCard";
 import { BookingStepHeader } from "@/components/booking/BookingStepHeader";
 import { DepositRequiredDialog } from "@/components/booking/DepositRequiredDialog";
+import { PhoneInput, toE164, COUNTRIES } from "@/components/auth/PhoneInput";
 import { useBooking } from "@/hooks/useBooking";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { useToast } from "@/hooks/use-toast";
@@ -25,6 +26,25 @@ import { isAuthed } from "@/lib/auth";
 import { getMyConsumerMe } from "@/lib/consumerMeApi";
 import { buildBookingPrefillPatch } from "@/lib/bookingPrefill";
 import { getBookingRecordById, upsertBookingRecord } from "@/lib/userData";
+
+/**
+ * Try to parse an E.164 phone string into { countryCode, localDigits }.
+ * Falls back to { "MA", rawDigits } when the dial prefix is unrecognised.
+ */
+function parseE164(e164: string): { countryCode: string; localDigits: string } {
+  if (!e164) return { countryCode: "MA", localDigits: "" };
+
+  // Sort countries so longer dial codes are checked first (+971 before +9)
+  const sorted = [...COUNTRIES].sort((a, b) => b.dial.length - a.dial.length);
+  for (const c of sorted) {
+    if (e164.startsWith(c.dial)) {
+      return { countryCode: c.code, localDigits: e164.slice(c.dial.length).replace(/\D/g, "") };
+    }
+  }
+
+  // No prefix matched — treat the whole string as local digits for Morocco
+  return { countryCode: "MA", localDigits: e164.replace(/\D/g, "") };
+}
 
 function buildDateTimeIso(
   date: Date | null,
@@ -132,6 +152,25 @@ export default function Step3Info() {
     valuesRef.current = { firstName, lastName, email, phone };
   }, [email, firstName, lastName, phone]);
 
+  // Phone input: separate country code + local digits
+  const initialParsed = useRef(parseE164(phone));
+  const [phoneCountry, setPhoneCountry] = useState(initialParsed.current.countryCode);
+  const [phoneLocal, setPhoneLocal] = useState(initialParsed.current.localDigits);
+
+  // Sync local phone → booking context phone (E.164)
+  useEffect(() => {
+    const e164 = toE164(phoneLocal, phoneCountry);
+    // Only update when there is a meaningful value (or empty to clear)
+    if (e164 || !phoneLocal) {
+      setPhone(e164 || "");
+    } else {
+      // Partial number — keep the concatenated form so canProceed still sees something
+      const country = COUNTRIES.find((c) => c.code === phoneCountry);
+      setPhone(country ? `${country.dial}${phoneLocal}` : phoneLocal);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phoneLocal, phoneCountry]);
+
   const [prefillLoading, setPrefillLoading] = useState(false);
   const [prefillError, setPrefillError] = useState<string | null>(null);
   const [serverReliabilityScore, setServerReliabilityScore] = useState<number | null>(null);
@@ -170,7 +209,13 @@ export default function Step3Info() {
 
         if (patch.firstName != null) setFirstName(patch.firstName);
         if (patch.lastName != null) setLastName(patch.lastName);
-        if (patch.phone != null) setPhone(patch.phone);
+        if (patch.phone != null) {
+          // Parse the E.164 phone from the server into country + local digits
+          const parsed = parseE164(patch.phone);
+          setPhoneCountry(parsed.countryCode);
+          setPhoneLocal(parsed.localDigits);
+          // setPhone will be called by the useEffect above
+        }
         if (patch.email != null) setEmail(patch.email);
       } catch {
         if (!alive) return;
@@ -545,21 +590,21 @@ export default function Step3Info() {
           />
         </div>
 
-        {/* Phone */}
+        {/* Phone — country dial code selector + free number input */}
         <div className="mb-5">
-          <label className="block text-sm font-semibold text-foreground mb-2">
-            {t("booking.form.phone")} <span className="text-primary">*</span>
-          </label>
-          <input
-            type="tel"
-            placeholder={t("booking.form.placeholder.phone")}
-            value={phone}
-            onChange={(e) => {
+          <PhoneInput
+            label={`${t("booking.form.phone")} *`}
+            value={phoneLocal}
+            onChange={(digits) => {
               touchedRef.current.phone = true;
-              setPhone(e.target.value);
+              setPhoneLocal(digits);
             }}
-            className="w-full px-4 py-3 border-2 border-slate-300 rounded-lg focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 text-foreground placeholder:text-slate-500 transition-colors bg-slate-50"
-            required
+            countryCode={phoneCountry}
+            onCountryChange={(code) => {
+              touchedRef.current.phone = true;
+              setPhoneCountry(code);
+            }}
+            placeholder={t("booking.form.placeholder.phone_local")}
           />
         </div>
 

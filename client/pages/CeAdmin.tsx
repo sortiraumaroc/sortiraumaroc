@@ -83,6 +83,7 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { CeNotificationsBell } from "@/components/ce/CeNotificationsBell";
 import type {
   Company,
   CompanyDashboardStats,
@@ -584,7 +585,9 @@ export default function CeAdmin() {
   }, [fetchCompany, fetchStats, navigate]);
 
   const signOut = async () => {
-    await consumerSupabase.auth.signOut();
+    // [FIX-AUTH] Use local scope to avoid revoking the refresh token
+    // server-side, which would invalidate consumer sessions on all devices.
+    await consumerSupabase.auth.signOut({ scope: "local" });
     navigate("/");
   };
 
@@ -616,9 +619,12 @@ export default function CeAdmin() {
               <p className="text-xs text-muted-foreground">Espace Comité d'Entreprise</p>
             </div>
           </div>
-          <Button variant="ghost" size="sm" onClick={signOut}>
-            <LogOut className="mr-1.5 h-4 w-4" /> Déconnexion
-          </Button>
+          <div className="flex items-center gap-2">
+            <CeNotificationsBell companyId={company.id} />
+            <Button variant="ghost" size="sm" onClick={signOut}>
+              <LogOut className="mr-1.5 h-4 w-4" /> Déconnexion
+            </Button>
+          </div>
         </div>
       </header>
 

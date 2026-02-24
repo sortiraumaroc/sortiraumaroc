@@ -390,7 +390,7 @@ export default function Shopping() {
         </div>
       </div>
 
-      <EstablishmentTabs universe="shopping" />
+      <EstablishmentTabs universe="shopping" hideTabs={data.reviews.length === 0 ? ["avis"] : undefined} />
 
       <main className="container mx-auto px-4 pt-6 pb-8 space-y-10">
         <CeAdvantageSection establishmentId={id} />
@@ -507,6 +507,7 @@ export default function Shopping() {
           <OpeningHoursBlock legacyHours={data.hours} />
         </section>
 
+        {data.reviews.length > 0 && (
         <section id="section-avis" data-tab="avis" className="scroll-mt-28">
           <div className="space-y-6">
             <div>
@@ -539,6 +540,7 @@ export default function Shopping() {
             </div>
           </div>
         </section>
+        )}
 
         <section id="section-carte" data-tab="carte" className="scroll-mt-28 space-y-4">
           <h2 className="text-xl font-bold mb-4">Localisation</h2>
