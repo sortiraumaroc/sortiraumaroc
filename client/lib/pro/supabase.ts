@@ -37,5 +37,6 @@ export const proSupabase = createClient(supabaseUrl, supabaseAnonKey, {
     storageKey: PRO_AUTH_STORAGE_KEY,
     persistSession: true,
     autoRefreshToken: true,
+    detectSessionInUrl: false,
   },
 });

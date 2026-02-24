@@ -311,6 +311,15 @@ export async function signupWithEmail(req: Request, res: Response) {
       console.error("[EmailSignup] Error creating consumer profile:", profileError);
     }
 
+    // Create consumer_user_stats with DB defaults (reliability_score=80, counts=0)
+    const { error: statsError } = await supabase
+      .from("consumer_user_stats")
+      .insert({ user_id: userId });
+
+    if (statsError) {
+      console.error("[EmailSignup] Error creating consumer_user_stats:", statsError);
+    }
+
     // Handle referral code if provided
     if (referralCode && typeof referralCode === "string") {
       try {

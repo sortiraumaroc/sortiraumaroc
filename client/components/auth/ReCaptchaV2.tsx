@@ -16,6 +16,10 @@ interface ReCaptchaV2Props {
 
 const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
 
+const isLocalhost =
+  typeof window !== "undefined" &&
+  (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+
 export const ReCaptchaV2 = forwardRef<ReCaptchaV2Ref, ReCaptchaV2Props>(
   ({ onVerify, onExpired, onError, size = "normal", theme = "light" }, ref) => {
     const recaptchaRef = useRef<ReCAPTCHA>(null);
@@ -52,13 +56,8 @@ export const ReCaptchaV2 = forwardRef<ReCaptchaV2Ref, ReCaptchaV2Props>(
       return () => observer.disconnect();
     }, []);
 
-    if (!RECAPTCHA_SITE_KEY) {
-      console.warn("[ReCaptchaV2] VITE_RECAPTCHA_SITE_KEY not configured");
-      return (
-        <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
-          reCAPTCHA non configuré
-        </div>
-      );
+    if (!RECAPTCHA_SITE_KEY || isLocalhost) {
+      return null;
     }
 
     return (
@@ -87,5 +86,6 @@ export const ReCaptchaV2 = forwardRef<ReCaptchaV2Ref, ReCaptchaV2Props>(
 ReCaptchaV2.displayName = "ReCaptchaV2";
 
 export function isRecaptchaConfigured(): boolean {
+  if (isLocalhost) return false;
   return Boolean(RECAPTCHA_SITE_KEY);
 }

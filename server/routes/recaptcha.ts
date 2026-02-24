@@ -22,9 +22,8 @@ export async function verifyRecaptchaToken(
   token: string,
   remoteip?: string
 ): Promise<boolean> {
-  // If reCAPTCHA is not configured, skip verification (development mode)
-  if (!RECAPTCHA_SECRET_KEY) {
-    console.warn("[recaptcha] RECAPTCHA_SECRET_KEY not configured, skipping verification");
+  // Skip verification in development or if not configured
+  if (!RECAPTCHA_SECRET_KEY || process.env.NODE_ENV === "development") {
     return true;
   }
 
@@ -74,5 +73,6 @@ export async function verifyRecaptchaToken(
  * Check if reCAPTCHA is configured
  */
 export function isRecaptchaConfigured(): boolean {
+  if (process.env.NODE_ENV === "development") return false;
   return Boolean(RECAPTCHA_SECRET_KEY);
 }

@@ -99,6 +99,7 @@ import {
   resetPhonePassword,
   trustedDeviceLogin,
 } from "./routes/twilioAuth";
+import { cleanupExpiredDevices } from "./trustedDeviceLogic";
 import {
   sendEmailVerificationCode,
   verifyEmailCode,
@@ -1423,6 +1424,21 @@ export function createServer() {
 
   // Admin/Cron: Purge audit logs older than 30 days (daily)
   app.post("/api/admin/cron/audit-log-cleanup", cronAuditLogCleanup);
+
+  // Admin/Cron: Cleanup expired/revoked trusted devices (daily)
+  app.post("/api/admin/cron/trusted-devices-cleanup", async (req, res) => {
+    const adminKey = req.headers["x-admin-key"];
+    if (adminKey !== process.env.ADMIN_API_KEY) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    try {
+      const deleted = await cleanupExpiredDevices();
+      res.json({ ok: true, deleted });
+    } catch (err) {
+      console.error("[TrustedDevice Cron] Error:", err);
+      res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
 
   // Username Subscription Cron Jobs
   // Expire trials and subscriptions past their end date (hourly)

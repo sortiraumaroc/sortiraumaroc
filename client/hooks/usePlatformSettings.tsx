@@ -122,12 +122,24 @@ export function PlatformSettingsProvider({ children }: { children: ReactNode }) 
         throw new Error("Failed to load platform settings");
       }
 
+      // Guard against Vite dev server returning HTML before Express is mounted
+      const ct = res.headers.get("content-type") || "";
+      if (!ct.includes("application/json")) {
+        setSettings(defaultSnapshot);
+        return;
+      }
+
       const data = await res.json();
       setSettings(data.snapshot || defaultSnapshot);
     } catch (e) {
-      console.error("[PlatformSettings] Load error:", e);
-      setError(e instanceof Error ? e.message : "Unknown error");
-      setSettings(defaultSnapshot);
+      // Silence in dev — race condition with Vite mounting Express
+      if (import.meta.env.DEV) {
+        setSettings(defaultSnapshot);
+      } else {
+        console.error("[PlatformSettings] Load error:", e);
+        setError(e instanceof Error ? e.message : "Unknown error");
+        setSettings(defaultSnapshot);
+      }
     } finally {
       setLoading(false);
     }

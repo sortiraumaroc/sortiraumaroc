@@ -369,6 +369,15 @@ export async function verifyPhoneCode(req: Request, res: Response): Promise<void
         console.error("[TwilioAuth] Error creating consumer profile:", profileError);
       }
 
+      // Create consumer_user_stats with DB defaults (reliability_score=80, counts=0)
+      const { error: statsError } = await supabase
+        .from("consumer_user_stats")
+        .insert({ user_id: userId });
+
+      if (statsError) {
+        console.error("[TwilioAuth] Error creating consumer_user_stats:", statsError);
+      }
+
       console.log("[TwilioAuth] New user created:", userId);
 
       // Handle referral code if provided (only for new users)
