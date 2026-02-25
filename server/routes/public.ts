@@ -140,6 +140,7 @@ import {
   getPublicHomeCities as _getPublicHomeCities,
   getPublicCountries as _getPublicCountries,
   detectUserCountry as _detectUserCountry,
+  detectUserCity as _detectUserCity,
   getPublicHomeVideos as _getPublicHomeVideos,
   getPublicHomeTakeover as _getPublicHomeTakeover,
   getPublicEstablishmentByUsername as _getPublicEstablishmentByUsername,
@@ -237,6 +238,7 @@ export {
   getPublicHomeCities,
   getPublicCountries,
   detectUserCountry,
+  detectUserCity,
   getPublicHomeVideos,
   getPublicHomeTakeover,
   getPublicEstablishmentByUsername,
@@ -248,6 +250,7 @@ export {
   getPublicLandingPage,
   getPublicLandingSlugMap,
 } from "./publicConfig";
+import { getPublicContentPage } from "./adminContent";
 
 // ── Route registration ──────────────────────────────────────────────────────
 
@@ -439,6 +442,10 @@ export function registerPublicRoutes(app: Express) {
   app.get("/api/public/home-takeover", _getPublicHomeTakeover);
   app.get("/api/public/countries", _getPublicCountries);
   app.get("/api/public/detect-country", _detectUserCountry);
+  app.get("/api/public/detect-city", _detectUserCity);
+
+  // ── Content pages (public, no auth) ─────────────────────────────────────
+  app.get("/api/public/content/pages/:slug", getPublicContentPage);
 
   // ── Consumer demo routes ──────────────────────────────────────────────────
   if (allowDemoRoutes) {
