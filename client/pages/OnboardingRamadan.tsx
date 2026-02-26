@@ -606,7 +606,9 @@ export default function OnboardingRamadan() {
             {step === 0 && (
               <div className="text-center px-5 py-8 sm:px-12 sm:py-16 onboarding-step-contained">
                 <div className="flex justify-center mb-4 sm:mb-6">
-                  <img src="/Logo_SAM_N.png" alt="SAM.ma" className="h-16 sm:h-24 w-auto" />
+                  <a href="https://sam.ma" aria-label="Retour à l'accueil SAM.ma">
+                    <img src="/Logo_SAM_N.png" alt="SAM.ma" className="h-16 sm:h-24 w-auto" />
+                  </a>
                 </div>
                 <h1 className="text-2xl sm:text-4xl font-bold mb-3 sm:mb-4" style={{ color: RAMADAN_COLORS.brandRed }}>
                   Bienvenue chez SAM.ma
