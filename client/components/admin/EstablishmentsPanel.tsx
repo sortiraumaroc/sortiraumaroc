@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, Copy, Plus, BadgeCheck, Crown, Star, Trash2, Power, Eye, GitCompareArrows, Loader2, CheckCircle, XCircle, PauseCircle, Sparkles, UtensilsCrossed, Utensils, BookOpen, Moon, Wifi } from "lucide-react";
+import { ArrowRight, Copy, Plus, BadgeCheck, Crown, Star, Trash2, Power, Eye, GitCompareArrows, Loader2, CheckCircle, XCircle, PauseCircle, Sparkles, UtensilsCrossed, Utensils, BookOpen, Moon, Wifi, WifiOff } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -1285,7 +1285,7 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
                                     : "bg-slate-100 text-slate-400 hover:bg-slate-200"
                                 } disabled:opacity-50`}
                               >
-                                <Wifi className="h-4 w-4" />
+                                {item.is_online ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
                               </button>
                             ) : (
                               <span
@@ -1295,7 +1295,7 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
                                     : "bg-slate-100 text-slate-400"
                                 }`}
                               >
-                                <Wifi className="h-4 w-4" />
+                                {item.is_online ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
                               </span>
                             )}
                           </TooltipTrigger>
