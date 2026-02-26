@@ -210,6 +210,9 @@ export default function OnboardingRamadan() {
   const [endTime, setEndTime] = useState("20:00");
   const [offerTitle, setOfferTitle] = useState("");
   const [offerDescription, setOfferDescription] = useState("");
+  const [offerPhotoUrl, setOfferPhotoUrl] = useState("");
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   // Step 5 — Offer details
   const [startDate, setStartDate] = useState(() => {
@@ -476,6 +479,10 @@ export default function OnboardingRamadan() {
       if (existingEstabGoogleMaps.trim()) payload.existing_establishment_google_maps = existingEstabGoogleMaps.trim();
     }
 
+    if (offerPhotoUrl) {
+      payload.cover_url = offerPhotoUrl;
+    }
+
     if (hasPromo && promoValue) {
       payload.promotion_type = promoType;
       payload.promotion_value = parseFloat(promoValue);
@@ -491,7 +498,7 @@ export default function OnboardingRamadan() {
     } else {
       setError(result.error || "Erreur lors de la soumission.");
     }
-  }, [selectedEstab, isNewEstab, newEstabName, newEstabSpecialty, newEstabGoogleMaps, newEstabInstagram, existingEstabInstagram, existingEstabGoogleMaps, email, phone, role, firstName, lastName, offerTitle, offerDescription, offerType, startDate, endDate, startTime, endTime, slotInterval, price, capacity, hasPromo, promoType, promoValue]);
+  }, [selectedEstab, isNewEstab, newEstabName, newEstabSpecialty, newEstabGoogleMaps, newEstabInstagram, existingEstabInstagram, existingEstabGoogleMaps, email, phone, role, firstName, lastName, offerTitle, offerDescription, offerPhotoUrl, offerType, startDate, endDate, startTime, endTime, slotInterval, price, capacity, hasPromo, promoType, promoValue]);
 
   const handleCommercialSlot = useCallback(
     async (slot: string) => {
@@ -1125,6 +1132,88 @@ export default function OnboardingRamadan() {
                     className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#D4AF37]/30 focus:border-[#D4AF37] text-sm resize-none"
                   />
                   <p className="text-xs text-gray-400 mt-1">Ce texte sera utilisé pour le référencement et l'assistant SAM AI</p>
+                </div>
+
+                {/* Photo upload */}
+                <div className="mt-5">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Photo de l'offre <span className="text-xs text-gray-400 font-normal">(optionnel)</span>
+                  </label>
+
+                  {offerPhotoUrl ? (
+                    <div className="relative inline-block">
+                      <img
+                        src={offerPhotoUrl}
+                        alt="Aperçu"
+                        className="w-full max-w-xs h-40 object-cover rounded-xl border border-gray-200"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setOfferPhotoUrl("")}
+                        className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs shadow hover:bg-red-600 transition"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={photoUploading}
+                      onClick={() => photoInputRef.current?.click()}
+                      className="w-full border-2 border-dashed border-gray-300 rounded-xl py-6 flex flex-col items-center gap-2 hover:border-[#D4AF37]/50 hover:bg-[#D4AF37]/5 transition text-sm text-gray-500 disabled:opacity-50"
+                    >
+                      {photoUploading ? (
+                        <>
+                          <Loader2 className="h-6 w-6 animate-spin text-[#D4AF37]" />
+                          <span>Upload en cours...</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                          <span>Choisir une photo</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+
+                  <input
+                    ref={photoInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      e.target.value = "";
+                      if (file.size > 5 * 1024 * 1024) {
+                        setError("La photo ne doit pas dépasser 5 Mo.");
+                        return;
+                      }
+                      setPhotoUploading(true);
+                      setError("");
+                      try {
+                        const formData = new FormData();
+                        formData.append("photo", file);
+                        const res = await fetch(`${API_BASE}/upload-photo`, {
+                          method: "POST",
+                          body: formData,
+                        });
+                        const json = await res.json();
+                        if (json.ok) {
+                          setOfferPhotoUrl(json.url);
+                        } else {
+                          setError(json.message || json.error || "Erreur lors de l'upload.");
+                        }
+                      } catch {
+                        setError("Erreur réseau lors de l'upload.");
+                      } finally {
+                        setPhotoUploading(false);
+                      }
+                    }}
+                  />
+                  <p className="text-xs text-gray-400 mt-1">JPG, PNG ou WebP — max 5 Mo</p>
                 </div>
               </div>
             )}
