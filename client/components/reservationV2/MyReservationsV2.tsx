@@ -223,7 +223,7 @@ function ReservationDetailDialog({
             {r.stock_type && (
               <div className="flex items-center gap-2">
                 <Shield className="h-4 w-4 text-muted-foreground" />
-                <span className="capitalize">{r.payment_type === "paid" ? "Réservation payante" : "Réservation gratuite"}</span>
+                <span className="capitalize">{r.payment_type === "paid" ? "Réservation payante" : "Réservation sans acompte"}</span>
               </div>
             )}
             {r.pro_custom_message && (
@@ -472,9 +472,10 @@ export function MyReservationsV2({ className }: MyReservationsV2Props) {
     const pending: ReservationV2Row[] = [];
 
     for (const r of resa.reservations) {
-      if (pendingStatuses.has(r.status)) {
+      const dateIsPast = r.starts_at && r.starts_at < now;
+      if (pendingStatuses.has(r.status) && !dateIsPast) {
         pending.push(r);
-      } else if (terminalStatuses.has(r.status) || (r.starts_at && r.starts_at < now)) {
+      } else if (terminalStatuses.has(r.status) || dateIsPast) {
         past.push(r);
       } else {
         upcoming.push(r);
