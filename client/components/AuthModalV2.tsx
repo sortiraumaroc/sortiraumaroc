@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { markAuthed } from "@/lib/auth";
 import { markEmailAsVerified, markPhoneAsVerified } from "@/lib/userData";
 import { consumerSupabase } from "@/lib/supabase";
@@ -9,6 +9,8 @@ import { validateReferralCode as apiValidateReferralCode } from "@/lib/referral/
 import { getDemoConsumerCredentials, isDemoModeEnabled } from "@/lib/demoMode";
 import { useSessionConflict } from "@/hooks/useSessionConflict";
 import { SessionConflictDialog } from "@/components/SessionConflictDialog";
+import { checkAlreadyLoggedIn, clearSession, type ActiveSession } from "@/lib/sessionConflict";
+import { LogOut, UserCheck } from "lucide-react";
 
 import {
   AuthChoiceScreen,
@@ -49,11 +51,6 @@ interface AuthModalV2Props {
   oauthOnboardingPrefill?: { firstName?: string; lastName?: string; email?: string };
 }
 
-// Generate 6-digit verification code
-function generateVerificationCode(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-}
-
 export function AuthModalV2({
   isOpen,
   onClose,
@@ -64,9 +61,13 @@ export function AuthModalV2({
   oauthOnboardingPrefill,
 }: AuthModalV2Props) {
 
-  // Session conflict check
+  // Session conflict check (cross-type: pro/admin already logged in)
   const { hasConflict, conflictingSession, clearConflict } = useSessionConflict("consumer");
   const [showConflictDialog, setShowConflictDialog] = useState(false);
+
+  // Already logged in check (same-type: consumer already logged in)
+  const [alreadyLoggedIn, setAlreadyLoggedIn] = useState<ActiveSession | null>(null);
+  const [switchingAccount, setSwitchingAccount] = useState(false);
 
   // Resolve initial step (supports "onboarding" for OAuth first sign-in)
   const resolveInitialStep = (s?: string): AuthStep => {
@@ -96,18 +97,29 @@ export function AuthModalV2({
     email: string;
     password: string;
     referralCode?: string;
-    expectedCode: string;
   } | null>(null);
 
   // Track which auth method was used for signup (to show email/password steps in onboarding)
   const [signupAuthMethod, setSignupAuthMethod] = useState<"phone" | "email" | null>(null);
 
-  // Check for session conflicts when modal opens
+  // Check for already logged in (same type) when modal opens
   useEffect(() => {
-    if (isOpen && hasConflict) {
+    if (!isOpen) {
+      setAlreadyLoggedIn(null);
+      setSwitchingAccount(false);
+      return;
+    }
+    void checkAlreadyLoggedIn("consumer").then((session) => {
+      if (session) setAlreadyLoggedIn(session);
+    });
+  }, [isOpen]);
+
+  // Check for session conflicts (cross-type) when modal opens
+  useEffect(() => {
+    if (isOpen && hasConflict && !alreadyLoggedIn) {
       setShowConflictDialog(true);
     }
-  }, [isOpen, hasConflict]);
+  }, [isOpen, hasConflict, alreadyLoggedIn]);
 
   // Reset state and close modal
   const handleClose = useCallback(() => {
@@ -235,16 +247,12 @@ export function AuthModalV2({
     setError(null);
 
     try {
-      // Generate verification code
-      const code = generateVerificationCode();
-
-      // Send verification email via backend
+      // Send verification email via backend (code generated server-side)
       const res = await fetch("/api/consumer/verify-email/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email: data.email,
-          code,
           recaptchaToken: data.recaptchaToken,
         }),
       });
@@ -267,7 +275,6 @@ export function AuthModalV2({
         email: data.email,
         password: data.password,
         referralCode: data.referralCode,
-        expectedCode: code,
       });
 
       // Move to verification step
@@ -290,13 +297,6 @@ export function AuthModalV2({
     let hasSpecificError = false;
 
     try {
-      // Verify code matches (client-side check)
-      if (code !== signupData.expectedCode) {
-        setError("Code incorrect");
-        hasSpecificError = true;
-        return; // Exit early, finally will set loading to false
-      }
-
       // Step 1: Verify code on the server
       const verifyRes = await fetch("/api/consumer/verify-email/verify", {
         method: "POST",
@@ -389,26 +389,17 @@ export function AuthModalV2({
     setError(null);
 
     try {
-      const newCode = generateVerificationCode();
-
       const res = await fetch("/api/consumer/verify-email/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email: signupData.email,
-          code: newCode,
         }),
       });
 
       if (!res.ok) {
         throw new Error("Failed to resend code");
       }
-
-      // Update expected code
-      setSignupData({
-        ...signupData,
-        expectedCode: newCode,
-      });
     } catch {
       setError("Échec du renvoi");
       throw new Error("Resend failed");
@@ -662,7 +653,56 @@ export function AuthModalV2({
           onPointerDownOutside={(e) => e.preventDefault()}
           onEscapeKeyDown={(e) => { if (step === "onboarding") e.preventDefault(); }}
         >
-          {renderStep()}
+          <DialogTitle className="sr-only">
+            {alreadyLoggedIn && !switchingAccount ? "Déjà connecté" :
+             step === "login" ? "Connexion" :
+             step === "signup_choice" || step === "signup_email" || step === "signup_phone" ? "Inscription" :
+             step === "verify_email" ? "Vérification email" :
+             step === "forgot" ? "Mot de passe oublié" :
+             step === "onboarding" ? "Profil" :
+             "Authentification"}
+          </DialogTitle>
+
+          {/* Already logged in screen */}
+          {alreadyLoggedIn && !switchingAccount ? (
+            <div className="flex flex-col items-center text-center py-4 space-y-4">
+              <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center">
+                <UserCheck className="w-7 h-7 text-green-600" />
+              </div>
+              <div className="space-y-1">
+                <h2 className="text-lg font-bold text-gray-900">Vous êtes déjà connecté(e)</h2>
+                {alreadyLoggedIn.email && (
+                  <p className="text-sm text-gray-500">{alreadyLoggedIn.email}</p>
+                )}
+              </div>
+              <p className="text-sm text-gray-600 px-2">
+                Souhaitez-vous rester sur ce compte ou vous déconnecter pour utiliser un autre compte ?
+              </p>
+              <div className="flex flex-col w-full gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-primary text-white font-semibold text-sm hover:bg-primary/90 transition-colors"
+                >
+                  <UserCheck className="w-4 h-4" />
+                  Rester connecté
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setSwitchingAccount(true);
+                    await clearSession("consumer");
+                    setAlreadyLoggedIn(null);
+                    setStep("choice");
+                  }}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-gray-700 font-medium text-sm hover:bg-gray-50 transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Changer de compte
+                </button>
+              </div>
+            </div>
+          ) : renderStep()}
 
         {/* Demo mode button (only on choice/login screens) */}
         {DEMO_ENABLED && (step === "choice" || step === "login") && (
