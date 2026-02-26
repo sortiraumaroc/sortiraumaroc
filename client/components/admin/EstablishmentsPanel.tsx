@@ -1282,7 +1282,7 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
                                 className={`p-1.5 rounded-md transition ${
                                   item.is_online
                                     ? "bg-emerald-100 text-emerald-600 hover:bg-emerald-200"
-                                    : "bg-slate-100 text-slate-400 hover:bg-slate-200"
+                                    : "bg-red-100 text-red-500 hover:bg-red-200"
                                 } disabled:opacity-50`}
                               >
                                 {item.is_online ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
@@ -1292,7 +1292,7 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
                                 className={`p-1.5 rounded-md ${
                                   item.is_online
                                     ? "bg-emerald-100 text-emerald-600"
-                                    : "bg-slate-100 text-slate-400"
+                                    : "bg-red-100 text-red-500"
                                 }`}
                               >
                                 {item.is_online ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
