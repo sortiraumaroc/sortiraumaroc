@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, Copy, Plus, BadgeCheck, Crown, Star, Trash2, Power, Eye, GitCompareArrows, Loader2, CheckCircle, XCircle, PauseCircle } from "lucide-react";
+import { ArrowRight, Copy, Plus, BadgeCheck, Crown, Star, Trash2, Power, Eye, GitCompareArrows, Loader2, CheckCircle, XCircle, PauseCircle, Sparkles, UtensilsCrossed, Utensils, BookOpen, Moon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -45,6 +45,10 @@ import {
   deleteEstablishment,
   isAdminSuperadmin,
   getAdminUserRole,
+  listAdminHomeCurationItems,
+  createAdminHomeCurationItem,
+  deleteAdminHomeCurationItem,
+  type HomeCurationKind,
 } from "@/lib/adminApi";
 import { MOROCCAN_CITIES } from "@/components/admin/wizard/wizardConstants";
 import { useToast } from "@/hooks/use-toast";
@@ -69,6 +73,15 @@ const FALLBACK_UNIVERSES: Array<{ value: string; label: string }> = [
   { value: "hebergement", label: "Hébergement" },
   { value: "shopping", label: "Shopping" },
 ];
+
+const FTOUR_SECTIONS: Array<{ kind: HomeCurationKind; Icon: typeof Sparkles; activeColor: string; label: string }> = [
+  { kind: "best_deals", Icon: Sparkles, activeColor: "bg-green-100 text-green-600 hover:bg-green-200", label: "Meilleures offres" },
+  { kind: "by_service_buffet", Icon: UtensilsCrossed, activeColor: "bg-orange-100 text-orange-600 hover:bg-orange-200", label: "Buffet" },
+  { kind: "by_service_table", Icon: Utensils, activeColor: "bg-violet-100 text-violet-600 hover:bg-violet-200", label: "Servi à table" },
+  { kind: "by_service_carte", Icon: BookOpen, activeColor: "bg-rose-100 text-rose-600 hover:bg-rose-200", label: "À la carte" },
+];
+
+const FTOUR_STORAGE_KEY = "admin_show_ftour_sections";
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "";
@@ -273,11 +286,93 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
     }
   };
 
+  // ── Ftour Sections toggle + curation state ──
+  const [showFtourSections, setShowFtourSections] = useState(() => {
+    try { return localStorage.getItem(FTOUR_STORAGE_KEY) !== "false"; } catch { return true; }
+  });
+
+  type CurationMap = Record<string, Record<string, string>>;
+  const [curationMap, setCurationMap] = useState<CurationMap>({});
+  const [curationLoading, setCurationLoading] = useState(false);
+
+  const toggleFtourSections = (val: boolean) => {
+    setShowFtourSections(val);
+    try { localStorage.setItem(FTOUR_STORAGE_KEY, String(val)); } catch { /* noop */ }
+  };
+
+  const loadCurationState = async () => {
+    if (!showFtourSections) return;
+    setCurationLoading(true);
+    try {
+      const results = await Promise.all(
+        FTOUR_SECTIONS.map((s) => listAdminHomeCurationItems(props.adminKey, { kind: s.kind })),
+      );
+      const map: CurationMap = {};
+      for (let i = 0; i < FTOUR_SECTIONS.length; i++) {
+        const kind = FTOUR_SECTIONS[i].kind;
+        for (const item of results[i].items) {
+          if (!map[item.establishment_id]) map[item.establishment_id] = {};
+          map[item.establishment_id][kind] = item.id;
+        }
+      }
+      setCurationMap(map);
+    } catch {
+      // Silently fail — badges show as inactive
+    } finally {
+      setCurationLoading(false);
+    }
+  };
+
+  const handleToggleCuration = async (establishmentId: string, kind: HomeCurationKind, universe: string, city?: string | null) => {
+    const existingId = curationMap[establishmentId]?.[kind];
+    setSavingIds((prev) => new Set(prev).add(establishmentId));
+    const sectionLabel = FTOUR_SECTIONS.find((s) => s.kind === kind)?.label ?? kind;
+
+    try {
+      if (existingId) {
+        await deleteAdminHomeCurationItem(props.adminKey, existingId);
+        setCurationMap((prev) => {
+          const next = { ...prev };
+          if (next[establishmentId]) {
+            const kinds = { ...next[establishmentId] };
+            delete kinds[kind];
+            if (Object.keys(kinds).length === 0) delete next[establishmentId];
+            else next[establishmentId] = kinds;
+          }
+          return next;
+        });
+        toast({ title: "Retiré", description: `Retiré de "${sectionLabel}".` });
+      } else {
+        const res = await createAdminHomeCurationItem(props.adminKey, {
+          universe: universe || "restaurants",
+          kind,
+          establishment_id: establishmentId,
+          city: city || null,
+        });
+        setCurationMap((prev) => ({
+          ...prev,
+          [establishmentId]: { ...(prev[establishmentId] ?? {}), [kind]: res.item.id },
+        }));
+        toast({ title: "Ajouté", description: `Ajouté à "${sectionLabel}"${city ? ` (${city})` : ""}.` });
+      }
+    } catch (e) {
+      if (e instanceof AdminApiError) setError(e.message);
+      else setError("Erreur inattendue");
+    } finally {
+      setSavingIds((prev) => { const c = new Set(prev); c.delete(establishmentId); return c; });
+    }
+  };
+
   useEffect(() => {
     void refresh(debouncedSearch);
     void loadUniverses();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.adminKey, statusFilter, debouncedSearch]);
+
+  useEffect(() => {
+    if (showFtourSections) void loadCurationState();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.adminKey, showFtourSections]);
 
   const handleCreate = async () => {
     if (!canCreate || createSaving) return;
@@ -566,7 +661,7 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
               </Button>
             )}
 
-            <RefreshIconButton className="h-9 w-9" loading={loading} label="Rafraîchir" onClick={() => void refresh()} />
+            <RefreshIconButton className="h-9 w-9" loading={loading} label="Rafraîchir" onClick={() => { void refresh(); if (showFtourSections) void loadCurationState(); }} />
           </div>
         </div>
 
@@ -630,6 +725,17 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
 
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-xs text-slate-500">{visibleItems.length} résultat(s)</div>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <Moon className="h-3.5 w-3.5 text-amber-500" />
+              <span className="text-xs font-medium text-slate-600">Sections Ftour</span>
+              <Switch
+                checked={showFtourSections}
+                onCheckedChange={toggleFtourSections}
+                className="scale-75"
+              />
+            </label>
+          </div>
           <Button
             variant="outline"
             size="sm"
@@ -1007,6 +1113,7 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
                 <TableHead>Ville</TableHead>
                 <TableHead>Statut</TableHead>
                 <TableHead className="text-center">Badges</TableHead>
+                {showFtourSections && <TableHead className="text-center">Sections</TableHead>}
                 <TableHead>Date</TableHead>
                 <TableHead className="text-xs">Créé par</TableHead>
                 <TableHead className="text-xs">Modifié par</TableHead>
@@ -1163,6 +1270,34 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
                         </Tooltip>
                       </div>
                     </TableCell>
+                    {showFtourSections && (
+                      <TableCell>
+                        <div className="flex items-center gap-1.5 justify-center">
+                          {FTOUR_SECTIONS.map(({ kind, Icon, activeColor, label }) => {
+                            const isActive = !!curationMap[item.id]?.[kind];
+                            return (
+                              <Tooltip key={kind}>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleToggleCuration(item.id, kind, (item as any).universe ?? "restaurants")}
+                                    disabled={isSaving || curationLoading}
+                                    className={`p-1 rounded-md transition ${
+                                      isActive ? activeColor : "bg-slate-100 text-slate-400 hover:bg-slate-200"
+                                    } disabled:opacity-50`}
+                                  >
+                                    <Icon className="h-3.5 w-3.5" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{isActive ? `${label} ✓` : label}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            );
+                          })}
+                        </div>
+                      </TableCell>
+                    )}
                     <TableCell className="text-xs text-slate-600">
                       <div>{formatDate(item.updated_at ?? item.created_at ?? null)}</div>
                       {item.updated_at && item.updated_at !== item.created_at ? (
@@ -1245,7 +1380,7 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
 
               {!visibleItems.length && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-sm text-slate-600">
+                  <TableCell colSpan={showFtourSections ? 10 : 9} className="text-center text-sm text-slate-600">
                     Aucun établissement.
                   </TableCell>
                 </TableRow>

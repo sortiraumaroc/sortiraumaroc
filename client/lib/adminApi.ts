@@ -2966,11 +2966,50 @@ export async function adminBulkDeleteSlots(
   adminKey: string | undefined,
   establishmentId: string,
   slotIds: string[],
-): Promise<{ ok: true; deleted: number }> {
-  return requestJson<{ ok: true; deleted: number }>(
+): Promise<{ ok: true; deleted: number; deactivated?: number }> {
+  return requestJson<{ ok: true; deleted: number; deactivated?: number }>(
     `/api/admin/establishments/${encodeURIComponent(establishmentId)}/slots/bulk`,
     adminKey,
     { method: "DELETE", body: JSON.stringify({ slotIds }) },
+  );
+}
+
+// =============================================================================
+// Ftour Slots (cross-establishment listing)
+// =============================================================================
+
+export type FtourSlotWithEstablishment = {
+  id: string;
+  establishment_id: string;
+  starts_at: string;
+  ends_at: string | null;
+  capacity: number;
+  base_price: number | null;
+  service_label: string | null;
+  promo_type: string | null;
+  promo_value: number | null;
+  promo_label: string | null;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+  establishments: {
+    id: string;
+    name: string;
+    city: string | null;
+  };
+};
+
+export async function listAdminFtourSlots(
+  adminKey: string | undefined,
+  opts?: { from?: string; to?: string },
+): Promise<{ ok: true; slots: FtourSlotWithEstablishment[] }> {
+  const qs = new URLSearchParams();
+  if (opts?.from) qs.set("from", opts.from);
+  if (opts?.to) qs.set("to", opts.to);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return requestJson<{ ok: true; slots: FtourSlotWithEstablishment[] }>(
+    `/api/admin/ftour-slots${suffix}`,
+    adminKey,
   );
 }
 
@@ -7857,6 +7896,8 @@ export type ClaimRequestAdmin = {
   updated_at: string | null;
   processed_at: string | null;
   processed_by: string | null;
+  instagram_url: string | null;
+  google_maps_url: string | null;
 };
 
 export async function listAdminClaimRequests(
@@ -7908,6 +7949,17 @@ export async function updateAdminClaimRequest(
   );
 }
 
+export async function deleteAdminClaimRequest(
+  adminKey: string | undefined,
+  id: string,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/claim-requests/${encodeURIComponent(id)}`,
+    adminKey,
+    { method: "DELETE" },
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Establishment Leads (Demandes d'ajout d'établissement)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -7954,6 +8006,17 @@ export async function updateAdminEstablishmentLead(
       method: "POST",
       body: JSON.stringify(data),
     },
+  );
+}
+
+export async function deleteAdminEstablishmentLead(
+  adminKey: string | undefined,
+  id: string,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/establishment-leads/${encodeURIComponent(id)}`,
+    adminKey,
+    { method: "DELETE" },
   );
 }
 
@@ -8193,5 +8256,210 @@ export async function moderateAdminResponseV2(
     `/api/admin/v2/reviews/responses/${encodeURIComponent(responseId)}/moderate`,
     adminKey,
     { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+// =============================================================================
+// Conciergerie Admin
+// =============================================================================
+
+export type AdminConciergeRow = {
+  id: string;
+  name: string;
+  type: string;
+  city: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  commission_rate: number;
+  status: string;
+  establishment_id: string | null;
+  establishment_name?: string | null;
+  created_at: string;
+  user_count?: number;
+  journey_count?: number;
+};
+
+export type AdminConciergeUserRow = {
+  id: string;
+  concierge_id: string;
+  user_id: string;
+  role: string;
+  email: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  status: string;
+  created_at: string;
+};
+
+export async function listAdminConciergeries(
+  adminKey?: string,
+): Promise<{ ok: true; concierges: AdminConciergeRow[] }> {
+  return requestJson<{ ok: true; concierges: AdminConciergeRow[] }>(
+    "/api/admin/conciergeries",
+    adminKey,
+  );
+}
+
+export async function getAdminConciergerie(
+  adminKey: string | undefined,
+  id: string,
+): Promise<{ ok: true; concierge: AdminConciergeRow; users: AdminConciergeUserRow[] }> {
+  return requestJson<{ ok: true; concierge: AdminConciergeRow; users: AdminConciergeUserRow[] }>(
+    `/api/admin/conciergeries/${encodeURIComponent(id)}`,
+    adminKey,
+  );
+}
+
+export async function createAdminConciergerie(
+  adminKey: string | undefined,
+  payload: { establishment_id: string; commission_rate?: number },
+): Promise<{ ok: true; concierge: AdminConciergeRow }> {
+  return requestJson<{ ok: true; concierge: AdminConciergeRow }>(
+    "/api/admin/conciergeries",
+    adminKey,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+export async function updateAdminConciergerie(
+  adminKey: string | undefined,
+  id: string,
+  payload: { commission_rate?: number; status?: string },
+): Promise<{ ok: true; concierge: AdminConciergeRow }> {
+  return requestJson<{ ok: true; concierge: AdminConciergeRow }>(
+    `/api/admin/conciergeries/${encodeURIComponent(id)}`,
+    adminKey,
+    { method: "PUT", body: JSON.stringify(payload) },
+  );
+}
+
+export async function deleteAdminConciergerie(
+  adminKey: string | undefined,
+  id: string,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/conciergeries/${encodeURIComponent(id)}`,
+    adminKey,
+    { method: "DELETE" },
+  );
+}
+
+export async function addAdminConciergerieUser(
+  adminKey: string | undefined,
+  conciergeId: string,
+  payload: {
+    email: string;
+    password: string;
+    first_name?: string;
+    last_name?: string;
+    role?: string;
+  },
+): Promise<{ ok: true; user: AdminConciergeUserRow }> {
+  return requestJson<{ ok: true; user: AdminConciergeUserRow }>(
+    `/api/admin/conciergeries/${encodeURIComponent(conciergeId)}/users`,
+    adminKey,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+export async function removeAdminConciergerieUser(
+  adminKey: string | undefined,
+  conciergeId: string,
+  userId: string,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/conciergeries/${encodeURIComponent(conciergeId)}/users/${encodeURIComponent(userId)}`,
+    adminKey,
+    { method: "DELETE" },
+  );
+}
+
+// ── Conciergerie Allowed Cities ──────────────────────────────────────────
+
+export async function updateAdminConciergerieCities(
+  adminKey: string | undefined,
+  conciergeId: string,
+  cities: string[],
+): Promise<{ ok: true; allowed_cities: string[] }> {
+  return requestJson<{ ok: true; allowed_cities: string[] }>(
+    `/api/admin/conciergeries/${encodeURIComponent(conciergeId)}/cities`,
+    adminKey,
+    { method: "PUT", body: JSON.stringify({ cities }) },
+  );
+}
+
+// ── Conciergerie Partners ─────────────────────────────────────────────────
+
+export type AdminConciergePartnerRow = {
+  id: string;
+  concierge_id: string;
+  establishment_id: string;
+  establishment_name: string;
+  establishment_city: string | null;
+  commission_rate: number;
+  admin_share: number;
+  concierge_share: number;
+  status: string;
+  notes: string | null;
+  created_at: string;
+};
+
+export async function listAdminConciergeriePartners(
+  adminKey: string | undefined,
+  conciergeId: string,
+): Promise<{ ok: true; partners: AdminConciergePartnerRow[] }> {
+  return requestJson<{ ok: true; partners: AdminConciergePartnerRow[] }>(
+    `/api/admin/conciergeries/${encodeURIComponent(conciergeId)}/partners`,
+    adminKey,
+  );
+}
+
+export async function createAdminConciergeriePartner(
+  adminKey: string | undefined,
+  conciergeId: string,
+  payload: {
+    establishment_id: string;
+    commission_rate: number;
+    admin_share: number;
+    concierge_share: number;
+    notes?: string;
+  },
+): Promise<{ ok: true; partner: AdminConciergePartnerRow }> {
+  return requestJson<{ ok: true; partner: AdminConciergePartnerRow }>(
+    `/api/admin/conciergeries/${encodeURIComponent(conciergeId)}/partners`,
+    adminKey,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+export async function updateAdminConciergeriePartner(
+  adminKey: string | undefined,
+  conciergeId: string,
+  partnerId: string,
+  payload: {
+    commission_rate?: number;
+    admin_share?: number;
+    concierge_share?: number;
+    status?: string;
+    notes?: string;
+  },
+): Promise<{ ok: true; partner: AdminConciergePartnerRow }> {
+  return requestJson<{ ok: true; partner: AdminConciergePartnerRow }>(
+    `/api/admin/conciergeries/${encodeURIComponent(conciergeId)}/partners/${encodeURIComponent(partnerId)}`,
+    adminKey,
+    { method: "PUT", body: JSON.stringify(payload) },
+  );
+}
+
+export async function deleteAdminConciergeriePartner(
+  adminKey: string | undefined,
+  conciergeId: string,
+  partnerId: string,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/conciergeries/${encodeURIComponent(conciergeId)}/partners/${encodeURIComponent(partnerId)}`,
+    adminKey,
+    { method: "DELETE" },
   );
 }

@@ -260,6 +260,8 @@ router.post("/submit", zBody(ramadanSubmitSchema), (async (req, res) => {
     const newEstablishmentSpecialty = asString(body.new_establishment_specialty);
     const newEstablishmentGoogleMaps = asString(body.new_establishment_google_maps);
     const newEstablishmentInstagram = asString(body.new_establishment_instagram);
+    const existingEstabInstagram = asString(body.existing_establishment_instagram);
+    const existingEstabGoogleMaps = asString(body.existing_establishment_google_maps);
 
     const email = asString(body.email)?.toLowerCase();
     const phone = asString(body.phone);
@@ -336,15 +338,20 @@ router.post("/submit", zBody(ramadanSubmitSchema), (async (req, res) => {
       const suffix = Math.random().toString(16).slice(2, 6);
       const slug = `${baseSlug}-${suffix}`;
 
+      const socialLinks: Record<string, string> = {};
+      if (newEstablishmentInstagram) socialLinks.instagram = newEstablishmentInstagram;
+      if (newEstablishmentGoogleMaps) socialLinks.google_maps = newEstablishmentGoogleMaps;
+
       const newEstabRow: Record<string, unknown> = {
         name: newEstablishmentName,
         slug,
         universe: "restaurant",
         subcategory: "Restaurant",
         cuisine_types: [newEstablishmentSpecialty],
+        phone: phone || null,
         google_maps_url: newEstablishmentGoogleMaps,
         highlights: { instagram_url: newEstablishmentInstagram },
-        social_links: {},
+        social_links: socialLinks,
         country: "Maroc",
         city: "Non renseignée",
         status: "pending",
@@ -379,15 +386,56 @@ router.post("/submit", zBody(ramadanSubmitSchema), (async (req, res) => {
         data: { establishmentId, establishmentName, specialty: newEstablishmentSpecialty, googleMaps: newEstablishmentGoogleMaps, instagram: newEstablishmentInstagram },
       });
     } else {
-      // --- Fetch existing establishment name ---
+      // --- Fetch existing establishment & update empty fields ---
       const { data: estab } = await supabase
         .from("establishments")
-        .select("id, name")
+        .select("id, name, phone, social_links, google_maps_url")
         .eq("id", establishmentId)
         .maybeSingle();
 
       if (!estab) return res.status(404).json({ error: "Établissement introuvable." });
       establishmentName = (estab as any).name || "Établissement";
+
+      // Fill empty fields with wizard data (don't overwrite existing admin data)
+      const updatePayload: Record<string, unknown> = {};
+
+      if (phone && !(estab as any).phone) {
+        updatePayload.phone = phone;
+      }
+
+      const currentSocial = ((estab as any).social_links || {}) as Record<string, string>;
+      let socialChanged = false;
+      const newSocial = { ...currentSocial };
+
+      if (existingEstabInstagram && !currentSocial.instagram) {
+        newSocial.instagram = existingEstabInstagram;
+        socialChanged = true;
+      }
+      if (existingEstabGoogleMaps && !currentSocial.google_maps) {
+        newSocial.google_maps = existingEstabGoogleMaps;
+        socialChanged = true;
+      }
+      if (socialChanged) {
+        updatePayload.social_links = newSocial;
+      }
+
+      if (existingEstabGoogleMaps && !(estab as any).google_maps_url) {
+        updatePayload.google_maps_url = existingEstabGoogleMaps;
+      }
+
+      if (Object.keys(updatePayload).length > 0) {
+        const { error: updateErr } = await supabase
+          .from("establishments")
+          .update(updatePayload)
+          .eq("id", establishmentId);
+
+        if (updateErr) {
+          log.error({ err: updateErr, establishmentId }, "onboarding: failed to enrich establishment");
+        } else {
+          log.info({ establishmentId, fields: Object.keys(updatePayload) }, "onboarding: enriched establishment");
+          cachedEstablishments = null;
+        }
+      }
     }
 
     // At this point establishmentId is guaranteed to be set
@@ -422,6 +470,12 @@ router.post("/submit", zBody(ramadanSubmitSchema), (async (req, res) => {
         preferred_time: wantCommercial && commercialSlot ? commercialSlot : "aucun",
         status: "pending",
         created_at: new Date().toISOString(),
+        instagram_url: isNewEstablishment
+          ? newEstablishmentInstagram || null
+          : existingEstabInstagram || null,
+        google_maps_url: isNewEstablishment
+          ? newEstablishmentGoogleMaps || null
+          : existingEstabGoogleMaps || null,
       });
 
       void emitAdminNotification({
@@ -487,6 +541,7 @@ router.post("/submit", zBody(ramadanSubmitSchema), (async (req, res) => {
     const { error: profileErr } = await supabase.from("pro_profiles").upsert(
       {
         id: userId,
+        email: email?.toLowerCase().trim() || undefined,
         must_change_password: isNewUser ? true : undefined,
       },
       { onConflict: "id" },

@@ -184,6 +184,8 @@ export default function OnboardingRamadan() {
   const [newEstabSpecialty, setNewEstabSpecialty] = useState("");
   const [newEstabGoogleMaps, setNewEstabGoogleMaps] = useState("");
   const [newEstabInstagram, setNewEstabInstagram] = useState("");
+  const [existingEstabInstagram, setExistingEstabInstagram] = useState("");
+  const [existingEstabGoogleMaps, setExistingEstabGoogleMaps] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const searchWrapperRef = useRef<HTMLDivElement>(null);
 
@@ -470,6 +472,8 @@ export default function OnboardingRamadan() {
       payload.new_establishment_instagram = newEstabInstagram.trim();
     } else {
       payload.establishment_id = selectedEstab?.id;
+      if (existingEstabInstagram.trim()) payload.existing_establishment_instagram = existingEstabInstagram.trim();
+      if (existingEstabGoogleMaps.trim()) payload.existing_establishment_google_maps = existingEstabGoogleMaps.trim();
     }
 
     if (hasPromo && promoValue) {
@@ -487,7 +491,7 @@ export default function OnboardingRamadan() {
     } else {
       setError(result.error || "Erreur lors de la soumission.");
     }
-  }, [selectedEstab, isNewEstab, newEstabName, newEstabSpecialty, newEstabGoogleMaps, newEstabInstagram, email, phone, role, firstName, lastName, offerTitle, offerDescription, offerType, startDate, endDate, startTime, endTime, slotInterval, price, capacity, hasPromo, promoType, promoValue]);
+  }, [selectedEstab, isNewEstab, newEstabName, newEstabSpecialty, newEstabGoogleMaps, newEstabInstagram, existingEstabInstagram, existingEstabGoogleMaps, email, phone, role, firstName, lastName, offerTitle, offerDescription, offerType, startDate, endDate, startTime, endTime, slotInterval, price, capacity, hasPromo, promoType, promoValue]);
 
   const handleCommercialSlot = useCallback(
     async (slot: string) => {
@@ -669,6 +673,39 @@ export default function OnboardingRamadan() {
                     >
                       Changer
                     </button>
+                  </div>
+                )}
+
+                {/* ---- Optional Google Maps / Instagram for existing establishments ---- */}
+                {selectedEstab && !isNewEstab && (
+                  <div className="space-y-3 mb-4">
+                    <p className="text-xs text-gray-400">Complétez si possible (optionnel)</p>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Lien Google Maps</label>
+                      <div className="relative">
+                        <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input
+                          type="url"
+                          placeholder="https://maps.google.com/..."
+                          value={existingEstabGoogleMaps}
+                          onChange={(e) => setExistingEstabGoogleMaps(e.target.value)}
+                          className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#D4AF37]/30 focus:border-[#D4AF37] text-sm"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Lien Instagram</label>
+                      <div className="relative">
+                        <Instagram className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input
+                          type="url"
+                          placeholder="https://instagram.com/..."
+                          value={existingEstabInstagram}
+                          onChange={(e) => setExistingEstabInstagram(e.target.value)}
+                          className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#D4AF37]/30 focus:border-[#D4AF37] text-sm"
+                        />
+                      </div>
+                    </div>
                   </div>
                 )}
 

@@ -36,23 +36,23 @@ const VALID_CURATION_KINDS = [
 export const CreateHomeCurationItemSchema = z.object({
   universe: z.string().min(1),
   kind: z.enum(VALID_CURATION_KINDS),
-  city: z.string().optional(),
+  city: z.string().nullable().optional(),
   establishment_id: z.string().uuid(),
-  starts_at: z.string().optional(),
-  ends_at: z.string().optional(),
-  weight: z.coerce.number().optional(),
-  note: z.string().max(1000).optional(),
+  starts_at: z.string().nullable().optional(),
+  ends_at: z.string().nullable().optional(),
+  weight: z.coerce.number().nullable().optional(),
+  note: z.string().max(1000).nullable().optional(),
 });
 
 export const UpdateHomeCurationItemSchema = z.object({
   universe: z.string().min(1).optional(),
   kind: z.enum(VALID_CURATION_KINDS).optional(),
-  city: z.string().optional(),
+  city: z.string().nullable().optional(),
   establishment_id: z.string().uuid().optional(),
-  starts_at: z.string().optional(),
-  ends_at: z.string().optional(),
-  weight: z.coerce.number().optional(),
-  note: z.string().max(1000).optional(),
+  starts_at: z.string().nullable().optional(),
+  ends_at: z.string().nullable().optional(),
+  weight: z.coerce.number().nullable().optional(),
+  note: z.string().max(1000).nullable().optional(),
 });
 
 // =============================================================================

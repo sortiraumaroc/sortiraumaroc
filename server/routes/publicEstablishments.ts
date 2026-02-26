@@ -2834,12 +2834,14 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
 
   // 3) admin curation overlay
   const curatedByKind = new Map<HomeCurationKind, string[]>();
-  if (curationUniverse) {
-    const { data: curations } = await supabase
+  {
+    let curationQuery = supabase
       .from("home_curation_items")
-      .select("kind,establishment_id,weight,city,starts_at,ends_at")
-      .eq("universe", curationUniverse)
-      .limit(200);
+      .select("kind,establishment_id,weight,city,starts_at,ends_at");
+    if (curationUniverse) {
+      curationQuery = curationQuery.eq("universe", curationUniverse);
+    }
+    const { data: curations } = await curationQuery.limit(200);
 
     const nowTs = Date.now();
     const active = (
@@ -2850,11 +2852,10 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
 
       const rowCity = typeof row.city === "string" ? row.city : null;
       if (city && !isNearMe) {
+        // With city filter: exclude curations targeting a DIFFERENT city.
         if (rowCity && !sameText(rowCity, city)) return false;
-      } else {
-        // If no city filter (or near-me mode), only keep global curations.
-        if (rowCity) return false;
       }
+      // Without city filter: keep ALL curations (global + city-specific).
 
       const startsAt =
         typeof row.starts_at === "string" ? Date.parse(row.starts_at) : NaN;
@@ -2893,6 +2894,60 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
         arr.map((x) => x.id),
       );
     });
+  }
+
+  // ── Supplemental fetch for curated establishments not in candidate pool ──
+  {
+    const allCuratedIds = new Set<string>();
+    for (const ids of curatedByKind.values()) {
+      for (const id of ids) allCuratedIds.add(id);
+    }
+    const missingIds = [...allCuratedIds].filter((id) => !candidateById.has(id));
+    if (missingIds.length > 0) {
+      const { data: extras } = await supabase
+        .from("establishments")
+        .select(
+          "id,slug,name,universe,subcategory,city,address,neighborhood,region,country,lat,lng,cover_url,booking_enabled,google_rating,google_review_count,service_types",
+        )
+        .in("id", missingIds)
+        .eq("status", "active")
+        .eq("is_online", true)
+        .not("cover_url", "is", null)
+        .neq("cover_url", "");
+      for (const e of (extras ?? []) as Array<Record<string, unknown>>) {
+        const id = typeof e.id === "string" ? e.id : "";
+        if (!id) continue;
+        const item: PublicHomeFeedItem = {
+          id,
+          name: typeof e.name === "string" ? e.name : null,
+          universe: typeof e.universe === "string" ? e.universe : null,
+          subcategory: typeof e.subcategory === "string" ? e.subcategory : null,
+          city: typeof e.city === "string" ? e.city : null,
+          address: typeof e.address === "string" ? e.address : null,
+          neighborhood: typeof e.neighborhood === "string" ? e.neighborhood : null,
+          region: typeof e.region === "string" ? e.region : null,
+          country: typeof e.country === "string" ? e.country : null,
+          lat: typeof e.lat === "number" ? e.lat : null,
+          lng: typeof e.lng === "number" ? e.lng : null,
+          cover_url: typeof e.cover_url === "string" ? e.cover_url : null,
+          booking_enabled: typeof e.booking_enabled === "boolean" ? e.booking_enabled : null,
+          promo_percent: promoByEst.get(id) ?? null,
+          next_slot_at: nextSlotByEst.get(id) ?? null,
+          reservations_30d: reservationCountByEst.get(id) ?? 0,
+          distance_km: null,
+          google_rating: typeof e.google_rating === "number" ? e.google_rating : null,
+          google_review_count: typeof e.google_review_count === "number" ? e.google_review_count : null,
+        };
+        candidateById.set(id, item);
+        // Also populate estMeta for service_type sections
+        const serviceTypes = Array.isArray(e.service_types)
+          ? (e.service_types as unknown[]).filter((t): t is string => typeof t === "string")
+          : [];
+        if (!estMeta.has(id)) {
+          estMeta.set(id, { hours: null, tags: [], highlights: [], created_at: null, service_types: serviceTypes });
+        }
+      }
+    }
   }
 
   const withCuratedFirst = (

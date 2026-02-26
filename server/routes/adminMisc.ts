@@ -1762,49 +1762,64 @@ export const updateAdminClaimRequest: RequestHandler = async (req, res) => {
     if (claimEmail && claimEmail.includes("@")) {
       const provisionalPassword = generateProvisionalPassword();
 
-      // Check if user already exists
-      const { data: existingUsers } = await supabase.auth.admin.listUsers({ perPage: 1 });
+      // Check if user already exists — first in pro_profiles, then in auth.users
+      const normalizedEmail = claimEmail.toLowerCase().trim();
       const { data: existingLookup } = await supabase
         .from("pro_profiles")
         .select("user_id")
-        .eq("email", claimEmail.toLowerCase().trim())
+        .eq("email", normalizedEmail)
         .maybeSingle();
 
       let userId: string | null = null;
 
       if (existingLookup?.user_id) {
-        // User already exists -- just link to establishment if not already
+        // User found via pro_profiles — reuse
         userId = existingLookup.user_id;
       } else {
-        // Create new Supabase auth user
-        const { data: createdUser, error: createUserErr } =
-          await supabase.auth.admin.createUser({
-            email: claimEmail.toLowerCase().trim(),
-            password: provisionalPassword,
-            email_confirm: true,
-          });
-
-        if (createUserErr || !createdUser.user) {
-          log.error({ err: createUserErr }, "claim approve failed to create user");
-          // Return success for the claim update but note the error
-          const auditActor = getAuditActorInfo(req);
-          await supabase.from("admin_audit_log").insert({
-            actor_id: auditActor.actor_id,
-            action: `claim_request.${status}`,
-            entity_type: "claim_request",
-            entity_id: id,
-            metadata: { status, notes, sendCredentials, create_user_error: createUserErr?.message, actor_email: auditActor.actor_email, actor_name: auditActor.actor_name, actor_role: auditActor.actor_role },
-          });
-          return res.json({ ok: true, item: data, credentialsError: createUserErr?.message ?? "Impossible de créer le compte" });
-        }
-
-        userId = createdUser.user.id;
-
-        // Create pro_profiles entry
-        await supabase.from("pro_profiles").upsert(
-          { user_id: userId, email: claimEmail.toLowerCase().trim(), client_type: "A", must_change_password: true },
-          { onConflict: "user_id" },
+        // Fallback: search auth.users (pro_profiles.email may be NULL if created by Ramadan wizard)
+        const { data: authList } = await supabase.auth.admin.listUsers({ perPage: 500 });
+        const existingAuth = authList?.users?.find(
+          (u: any) => u.email?.toLowerCase() === normalizedEmail,
         );
+
+        if (existingAuth) {
+          // Auth user exists but pro_profiles.email was missing — fix it
+          userId = existingAuth.id;
+          await supabase.from("pro_profiles").upsert(
+            { user_id: userId, email: normalizedEmail, client_type: "A", must_change_password: true },
+            { onConflict: "user_id" },
+          );
+          log.info({ userId, email: normalizedEmail }, "claim approve: found existing auth user, patched pro_profiles email");
+        } else {
+          // No user exists — create new Supabase auth user
+          const { data: createdUser, error: createUserErr } =
+            await supabase.auth.admin.createUser({
+              email: normalizedEmail,
+              password: provisionalPassword,
+              email_confirm: true,
+            });
+
+          if (createUserErr || !createdUser.user) {
+            log.error({ err: createUserErr }, "claim approve failed to create user");
+            const auditActor = getAuditActorInfo(req);
+            await supabase.from("admin_audit_log").insert({
+              actor_id: auditActor.actor_id,
+              action: `claim_request.${status}`,
+              entity_type: "claim_request",
+              entity_id: id,
+              metadata: { status, notes, sendCredentials, create_user_error: createUserErr?.message, actor_email: auditActor.actor_email, actor_name: auditActor.actor_name, actor_role: auditActor.actor_role },
+            });
+            return res.json({ ok: true, item: data, credentialsError: createUserErr?.message ?? "Impossible de créer le compte" });
+          }
+
+          userId = createdUser.user.id;
+
+          // Create pro_profiles entry
+          await supabase.from("pro_profiles").upsert(
+            { user_id: userId, email: normalizedEmail, client_type: "A", must_change_password: true },
+            { onConflict: "user_id" },
+          );
+        }
       }
 
       // Link to establishment if not already linked
@@ -1949,6 +1964,32 @@ export const updateAdminEstablishmentLead: RequestHandler = async (req, res) => 
   }
 
   res.json({ ok: true, item: data });
+};
+
+export const deleteAdminClaimRequest: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const id = typeof req.params.id === "string" ? req.params.id : "";
+  if (!id) return res.status(400).json({ error: "Identifiant requis" });
+
+  const supabase = getAdminSupabase();
+  const { error } = await supabase.from("claim_requests").delete().eq("id", id);
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+};
+
+export const deleteAdminEstablishmentLead: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const id = typeof req.params.id === "string" ? req.params.id : "";
+  if (!id) return res.status(400).json({ error: "Identifiant requis" });
+
+  const supabase = getAdminSupabase();
+  const { error } = await supabase.from("lead_establishment_requests").delete().eq("id", id);
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
 };
 
 // =============================================================================

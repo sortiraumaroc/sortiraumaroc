@@ -1477,6 +1477,7 @@ export const adminUpsertSlots: RequestHandler = async (req, res) => {
 /**
  * DELETE /api/admin/establishments/:id/slots/:slotId
  * Delete a single slot for an establishment (admin version).
+ * If the slot has reservations (FK constraint), deactivate it instead.
  */
 export const adminDeleteSlot: RequestHandler = async (req, res) => {
   if (!requireAdminKey(req, res)) return;
@@ -1487,7 +1488,20 @@ export const adminDeleteSlot: RequestHandler = async (req, res) => {
 
   const supabase = getAdminSupabase();
   const { error } = await supabase.from("pro_slots").delete().eq("id", slotId).eq("establishment_id", establishmentId);
-  if (error) return res.status(500).json({ error: error.message });
+
+  if (error) {
+    // FK violation → slot has reservations, deactivate instead
+    if (error.code === "23503" || error.message?.includes("foreign key")) {
+      const { error: upErr } = await supabase
+        .from("pro_slots")
+        .update({ active: false })
+        .eq("id", slotId)
+        .eq("establishment_id", establishmentId);
+      if (upErr) return res.status(500).json({ error: upErr.message });
+      return res.json({ ok: true, deactivated: true });
+    }
+    return res.status(500).json({ error: error.message });
+  }
 
   res.json({ ok: true });
 };
@@ -1495,6 +1509,7 @@ export const adminDeleteSlot: RequestHandler = async (req, res) => {
 /**
  * DELETE /api/admin/establishments/:id/slots/bulk
  * Delete multiple slots at once for an establishment (admin version).
+ * Slots with reservations (FK constraint) are deactivated instead of deleted.
  */
 export const adminBulkDeleteSlots: RequestHandler = async (req, res) => {
   if (!requireAdminKey(req, res)) return;
@@ -1507,15 +1522,86 @@ export const adminBulkDeleteSlots: RequestHandler = async (req, res) => {
   if (!validIds.length) return res.status(400).json({ error: "slotIds array is required" });
 
   const supabase = getAdminSupabase();
+
+  // Try to delete all at once
   const { error, count } = await supabase
     .from("pro_slots")
     .delete({ count: "exact" })
     .in("id", validIds)
     .eq("establishment_id", establishmentId);
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (!error) {
+    return res.json({ ok: true, deleted: count ?? validIds.length, deactivated: 0 });
+  }
 
-  res.json({ ok: true, deleted: count ?? validIds.length });
+  // FK violation → some slots have reservations.
+  // Fall back to one-by-one: delete if possible, deactivate otherwise.
+  if (error.code === "23503" || error.message?.includes("foreign key")) {
+    let deleted = 0;
+    let deactivated = 0;
+
+    for (const id of validIds) {
+      const { error: delErr } = await supabase
+        .from("pro_slots")
+        .delete()
+        .eq("id", id)
+        .eq("establishment_id", establishmentId);
+
+      if (!delErr) {
+        deleted++;
+      } else if (delErr.code === "23503" || delErr.message?.includes("foreign key")) {
+        const { error: upErr } = await supabase
+          .from("pro_slots")
+          .update({ active: false })
+          .eq("id", id)
+          .eq("establishment_id", establishmentId);
+        if (!upErr) deactivated++;
+      }
+    }
+
+    return res.json({ ok: true, deleted, deactivated });
+  }
+
+  return res.status(500).json({ error: error.message });
+};
+
+/**
+ * GET /api/admin/ftour-slots
+ * List all Ftour-type slots across all establishments, with establishment info.
+ * Query params: ?from=ISO&to=ISO (optional date range filter)
+ */
+export const listAdminFtourSlots: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  try {
+    const supabase = getAdminSupabase();
+
+    let query = supabase
+      .from("pro_slots")
+      .select("*, establishments!inner(id, name, city)")
+      .eq("service_label", "Ftour")
+      .eq("active", true)
+      .order("starts_at", { ascending: true })
+      .limit(2000);
+
+    if (typeof req.query.from === "string" && req.query.from) {
+      query = query.gte("starts_at", req.query.from);
+    }
+    if (typeof req.query.to === "string" && req.query.to) {
+      query = query.lte("starts_at", req.query.to);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      res.status(500).json({ error: error.message });
+      return;
+    }
+
+    res.json({ ok: true, slots: data ?? [] });
+  } catch (err) {
+    console.error("[admin] listAdminFtourSlots error:", err);
+    res.status(500).json({ error: "internal_error" });
+  }
 };
 
 export const detectDuplicateEstablishments: RequestHandler = async (req, res) => {

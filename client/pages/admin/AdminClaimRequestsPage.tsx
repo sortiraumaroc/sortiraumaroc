@@ -8,17 +8,21 @@ import {
   CheckCircle,
   Clock,
   Copy,
+  Eye,
   ExternalLink,
+  Instagram,
   Key,
   Loader2,
   Mail,
   MapPin,
+  MessageSquare,
   Phone,
   Plus,
   RefreshCcw,
   Send,
   Tag,
   User,
+  Trash2,
   XCircle,
 } from "lucide-react";
 
@@ -52,8 +56,10 @@ import {
   AdminApiError,
   listAdminClaimRequests,
   updateAdminClaimRequest,
+  deleteAdminClaimRequest,
   listAdminEstablishmentLeads,
   updateAdminEstablishmentLead,
+  deleteAdminEstablishmentLead,
   type ClaimRequestAdmin,
   type EstablishmentLeadAdmin,
 } from "@/lib/adminApi";
@@ -89,6 +95,8 @@ type ClaimRow = {
   notes: string | null;
   processedAt: string | null;
   processedBy: string | null;
+  instagramUrl: string | null;
+  googleMapsUrl: string | null;
 };
 
 function mapClaim(c: ClaimRequestAdmin): ClaimRow {
@@ -111,6 +119,8 @@ function mapClaim(c: ClaimRequestAdmin): ClaimRow {
     notes: c.admin_notes,
     processedAt: c.processed_at ? formatLocal(c.processed_at) : null,
     processedBy: c.processed_by,
+    instagramUrl: c.instagram_url || null,
+    googleMapsUrl: c.google_maps_url || null,
   };
 }
 
@@ -259,6 +269,10 @@ export default function AdminClaimRequestsPage({ defaultTab }: { defaultTab?: "c
     establishmentName: string;
   } | null>(null);
 
+  // Claims detail dialog (read-only)
+  const [detailClaimOpen, setDetailClaimOpen] = useState(false);
+  const [detailClaim, setDetailClaim] = useState<ClaimRow | null>(null);
+
   // ── Leads state ──
   const [leadItems, setLeadItems] = useState<LeadRow[]>([]);
   const [leadLoading, setLeadLoading] = useState(true);
@@ -271,6 +285,10 @@ export default function AdminClaimRequestsPage({ defaultTab }: { defaultTab?: "c
   const [leadNewStatus, setLeadNewStatus] = useState<string>("");
   const [leadNotes, setLeadNotes] = useState<string>("");
   const [leadSaving, setLeadSaving] = useState(false);
+
+  // Leads detail dialog (read-only)
+  const [detailLeadOpen, setDetailLeadOpen] = useState(false);
+  const [detailLead, setDetailLead] = useState<LeadRow | null>(null);
 
   // ── Claims refresh ──
   const refreshClaims = useCallback(async () => {
@@ -411,6 +429,28 @@ export default function AdminClaimRequestsPage({ defaultTab }: { defaultTab?: "c
     toast({ title: "Copié !", description: "Copié dans le presse-papiers" });
   };
 
+  const handleDeleteClaim = async (id: string, name: string) => {
+    if (!window.confirm(`Supprimer la revendication de "${name}" ?`)) return;
+    try {
+      await deleteAdminClaimRequest(undefined, id);
+      toast({ title: "Supprimé", description: "Revendication supprimée" });
+      void refreshClaims();
+    } catch (e) {
+      toast({ title: "Erreur", description: e instanceof AdminApiError ? e.message : "Erreur", variant: "destructive" });
+    }
+  };
+
+  const handleDeleteLead = async (id: string, name: string) => {
+    if (!window.confirm(`Supprimer la demande de "${name}" ?`)) return;
+    try {
+      await deleteAdminEstablishmentLead(undefined, id);
+      toast({ title: "Supprimé", description: "Demande supprimée" });
+      void refreshLeads();
+    } catch (e) {
+      toast({ title: "Erreur", description: e instanceof AdminApiError ? e.message : "Erreur", variant: "destructive" });
+    }
+  };
+
   // ── Claims columns ──
   const claimColumns: ColumnDef<ClaimRow>[] = [
     {
@@ -476,9 +516,28 @@ export default function AdminClaimRequestsPage({ defaultTab }: { defaultTab?: "c
       id: "actions",
       header: "",
       cell: ({ row }) => (
-        <Button variant="outline" size="sm" onClick={() => openClaimDialog(row.original)}>
-          Traiter
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-slate-400 hover:text-primary"
+            title="Voir les détails"
+            onClick={() => { setDetailClaim(row.original); setDetailClaimOpen(true); }}
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => openClaimDialog(row.original)}>
+            Traiter
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-slate-400 hover:text-red-600"
+            onClick={() => handleDeleteClaim(row.original.id, row.original.contactName)}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
       ),
     },
   ];
@@ -550,9 +609,28 @@ export default function AdminClaimRequestsPage({ defaultTab }: { defaultTab?: "c
       id: "actions",
       header: "",
       cell: ({ row }) => (
-        <Button variant="outline" size="sm" onClick={() => openLeadDialog(row.original)}>
-          Traiter
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-slate-400 hover:text-primary"
+            title="Voir les détails"
+            onClick={() => { setDetailLead(row.original); setDetailLeadOpen(true); }}
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => openLeadDialog(row.original)}>
+            Traiter
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-slate-400 hover:text-red-600"
+            onClick={() => handleDeleteLead(row.original.id, row.original.establishmentName)}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
       ),
     },
   ];
@@ -993,6 +1071,271 @@ export default function AdminClaimRequestsPage({ defaultTab }: { defaultTab?: "c
           <DialogFooter>
             <Button onClick={() => setCredentialsResult(null)}>
               Fermer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ════════════════════════════════════════════════════════════════════ */}
+      {/* CLAIM DETAIL DIALOG (read-only) */}
+      {/* ════════════════════════════════════════════════════════════════════ */}
+      <Dialog open={detailClaimOpen} onOpenChange={setDetailClaimOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="h-5 w-5 text-slate-500" />
+              Détails de la revendication
+            </DialogTitle>
+            <DialogDescription>
+              Informations soumises par le client pour{" "}
+              <strong>{detailClaim?.establishmentName}</strong>
+            </DialogDescription>
+          </DialogHeader>
+
+          {detailClaim ? (
+            <div className="space-y-4">
+              {/* Établissement */}
+              <div className="rounded-lg border border-slate-200 p-4 space-y-2">
+                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  Établissement
+                </div>
+                <div className="flex items-center gap-2">
+                  <Building2 className="h-4 w-4 text-slate-400" />
+                  <Link
+                    to={`/admin/establishments/${encodeURIComponent(detailClaim.establishmentId)}`}
+                    target="_blank"
+                    className="text-sm font-medium text-primary hover:underline flex items-center gap-1"
+                  >
+                    {detailClaim.establishmentName}
+                    <ExternalLink className="h-3 w-3" />
+                  </Link>
+                </div>
+              </div>
+
+              {/* Contact */}
+              <div className="rounded-lg border border-slate-200 p-4 space-y-3">
+                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  Informations du contact
+                </div>
+                <div className="grid grid-cols-1 gap-3 text-sm">
+                  <div className="flex items-center gap-2">
+                    <User className="h-4 w-4 text-slate-400 shrink-0" />
+                    <span className="text-slate-500">Nom :</span>
+                    <span className="font-medium">{detailClaim.contactName}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Mail className="h-4 w-4 text-slate-400 shrink-0" />
+                    <span className="text-slate-500">Email :</span>
+                    <a href={`mailto:${detailClaim.email}`} className="font-medium text-primary hover:underline">
+                      {detailClaim.email}
+                    </a>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Phone className="h-4 w-4 text-slate-400 shrink-0" />
+                    <span className="text-slate-500">Téléphone :</span>
+                    <a href={`tel:${detailClaim.phone}`} className="font-medium text-primary hover:underline">
+                      {detailClaim.phone}
+                    </a>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-slate-400 shrink-0" />
+                    <span className="text-slate-500">Créneau préféré :</span>
+                    <span className="font-medium">{detailClaim.preferredSlot}</span>
+                  </div>
+                  {detailClaim.instagramUrl && (
+                    <div className="flex items-center gap-2">
+                      <Instagram className="h-4 w-4 text-slate-400 shrink-0" />
+                      <span className="text-slate-500">Instagram :</span>
+                      <a href={detailClaim.instagramUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline truncate">
+                        {detailClaim.instagramUrl}
+                      </a>
+                    </div>
+                  )}
+                  {detailClaim.googleMapsUrl && (
+                    <div className="flex items-center gap-2">
+                      <MapPin className="h-4 w-4 text-slate-400 shrink-0" />
+                      <span className="text-slate-500">Google Maps :</span>
+                      <a href={detailClaim.googleMapsUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline truncate">
+                        Voir sur Google Maps
+                      </a>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Statut & dates */}
+              <div className="rounded-lg border border-slate-200 p-4 space-y-3">
+                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  Statut & suivi
+                </div>
+                <div className="grid grid-cols-1 gap-3 text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500">Statut :</span>
+                    <ClaimStatusBadge status={detailClaim.status} />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500">Soumis le :</span>
+                    <span className="font-medium tabular-nums">{detailClaim.createdAt}</span>
+                  </div>
+                  {detailClaim.processedAt ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-500">Traité le :</span>
+                      <span className="font-medium tabular-nums">{detailClaim.processedAt}</span>
+                    </div>
+                  ) : null}
+                  {detailClaim.notes ? (
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <MessageSquare className="h-4 w-4 text-slate-400 shrink-0" />
+                        <span className="text-slate-500">Notes admin :</span>
+                      </div>
+                      <div className="text-sm text-slate-700 bg-slate-50 rounded p-2">
+                        {detailClaim.notes}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDetailClaimOpen(false)}>
+              Fermer
+            </Button>
+            <Button onClick={() => { setDetailClaimOpen(false); if (detailClaim) openClaimDialog(detailClaim); }}>
+              Traiter
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ════════════════════════════════════════════════════════════════════ */}
+      {/* LEAD DETAIL DIALOG (read-only) */}
+      {/* ════════════════════════════════════════════════════════════════════ */}
+      <Dialog open={detailLeadOpen} onOpenChange={setDetailLeadOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="h-5 w-5 text-slate-500" />
+              Détails du lead
+            </DialogTitle>
+            <DialogDescription>
+              Informations soumises par le client pour{" "}
+              <strong>{detailLead?.establishmentName}</strong>
+            </DialogDescription>
+          </DialogHeader>
+
+          {detailLead ? (
+            <div className="space-y-4">
+              {/* Établissement */}
+              <div className="rounded-lg border border-slate-200 p-4 space-y-2">
+                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  Établissement proposé
+                </div>
+                <div className="grid grid-cols-1 gap-3 text-sm">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="h-4 w-4 text-slate-400 shrink-0" />
+                    <span className="text-slate-500">Nom :</span>
+                    <span className="font-medium">{detailLead.establishmentName}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4 text-slate-400 shrink-0" />
+                    <span className="text-slate-500">Ville :</span>
+                    <span className="font-medium">{detailLead.city}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Tag className="h-4 w-4 text-slate-400 shrink-0" />
+                    <span className="text-slate-500">Catégorie :</span>
+                    <CategoryBadge category={detailLead.category} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Contact */}
+              <div className="rounded-lg border border-slate-200 p-4 space-y-3">
+                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  Informations du contact
+                </div>
+                <div className="grid grid-cols-1 gap-3 text-sm">
+                  <div className="flex items-center gap-2">
+                    <User className="h-4 w-4 text-slate-400 shrink-0" />
+                    <span className="text-slate-500">Nom :</span>
+                    <span className="font-medium">{detailLead.fullName}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Mail className="h-4 w-4 text-slate-400 shrink-0" />
+                    <span className="text-slate-500">Email :</span>
+                    <a href={`mailto:${detailLead.email}`} className="font-medium text-primary hover:underline">
+                      {detailLead.email}
+                    </a>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Phone className="h-4 w-4 text-slate-400 shrink-0" />
+                    <span className="text-slate-500">Téléphone :</span>
+                    <a href={`tel:${detailLead.phone}`} className="font-medium text-primary hover:underline">
+                      {detailLead.phone}
+                    </a>
+                  </div>
+                  {detailLead.whatsapp && detailLead.whatsapp !== "—" ? (
+                    <div className="flex items-center gap-2">
+                      <MessageSquare className="h-4 w-4 text-slate-400 shrink-0" />
+                      <span className="text-slate-500">WhatsApp :</span>
+                      <a
+                        href={`https://wa.me/${detailLead.whatsapp.replace(/\D/g, "")}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-primary hover:underline"
+                      >
+                        {detailLead.whatsapp}
+                      </a>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              {/* Statut & dates */}
+              <div className="rounded-lg border border-slate-200 p-4 space-y-3">
+                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  Statut & suivi
+                </div>
+                <div className="grid grid-cols-1 gap-3 text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500">Statut :</span>
+                    <LeadStatusBadge status={detailLead.status} />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500">Soumis le :</span>
+                    <span className="font-medium tabular-nums">{detailLead.createdAt}</span>
+                  </div>
+                  {detailLead.processedAt ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-500">Traité le :</span>
+                      <span className="font-medium tabular-nums">{detailLead.processedAt}</span>
+                    </div>
+                  ) : null}
+                  {detailLead.notes ? (
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <MessageSquare className="h-4 w-4 text-slate-400 shrink-0" />
+                        <span className="text-slate-500">Notes admin :</span>
+                      </div>
+                      <div className="text-sm text-slate-700 bg-slate-50 rounded p-2">
+                        {detailLead.notes}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDetailLeadOpen(false)}>
+              Fermer
+            </Button>
+            <Button onClick={() => { setDetailLeadOpen(false); if (detailLead) openLeadDialog(detailLead); }}>
+              Traiter
             </Button>
           </DialogFooter>
         </DialogContent>
