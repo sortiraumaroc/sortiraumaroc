@@ -216,7 +216,6 @@ export const UpdateEstablishmentFlagsSchema = z.object({
   verified: z.boolean().optional(),
   premium: z.boolean().optional(),
   curated: z.boolean().optional(),
-  is_online: z.boolean().optional(),
 });
 
 // =============================================================================

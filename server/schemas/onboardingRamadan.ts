@@ -44,7 +44,6 @@ export const ramadanSubmitSchema = z.object({
   commercial_slot: z.string().optional(),
   existing_establishment_instagram: z.string().optional(),
   existing_establishment_google_maps: z.string().optional(),
-  cover_url: z.string().url().optional(),
 });
 
 /** POST /commercial-callback */

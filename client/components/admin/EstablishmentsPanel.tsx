@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, Copy, Plus, BadgeCheck, Crown, Star, Trash2, Power, Eye, GitCompareArrows, Loader2, CheckCircle, XCircle, PauseCircle, Sparkles, UtensilsCrossed, Utensils, BookOpen, Moon, Wifi, WifiOff } from "lucide-react";
+import { ArrowRight, Copy, Plus, BadgeCheck, Crown, Star, Trash2, Power, Eye, GitCompareArrows, Loader2, CheckCircle, XCircle, PauseCircle, Sparkles, UtensilsCrossed, Utensils, BookOpen, Moon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -435,9 +435,7 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
     }
   };
 
-  const isSuperAdmin = useMemo(() => isAdminSuperadmin(), []);
-
-  const handleToggleFlag = async (id: string, flag: "verified" | "premium" | "curated" | "is_online", currentValue: boolean) => {
+  const handleToggleFlag = async (id: string, flag: "verified" | "premium" | "curated", currentValue: boolean) => {
     setSavingIds((prev) => new Set(prev).add(id));
     setError(null);
 
@@ -449,15 +447,14 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
         item.id === id ? { ...item, [flag]: !currentValue } : item
       ));
 
-      const flagLabels: Record<string, string> = { verified: "Vérifié", premium: "Premium", curated: "Sélection", is_online: "En ligne" };
+      const flagLabels = { verified: "Vérifié", premium: "Premium", curated: "Sélection" };
       toast({
         title: !currentValue ? `${flagLabels[flag]} activé` : `${flagLabels[flag]} désactivé`,
         description: `L'établissement a été mis à jour.`
       });
     } catch (e) {
-      const msg = e instanceof AdminApiError ? e.message : "Erreur inattendue";
-      setError(msg);
-      toast({ title: "Erreur", description: msg, variant: "destructive" });
+      if (e instanceof AdminApiError) setError(e.message);
+      else setError("Erreur inattendue");
     } finally {
       setSavingIds((prev) => {
         const copy = new Set(prev);
@@ -1269,27 +1266,6 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
                           </TooltipTrigger>
                           <TooltipContent>
                             <p>{item.curated ? "Sélection SAM ✓" : "Non sélectionné"}</p>
-                          </TooltipContent>
-                        </Tooltip>
-
-                        {/* En ligne */}
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              onClick={isSuperAdmin ? () => void handleToggleFlag(item.id, "is_online", !!item.is_online) : undefined}
-                              disabled={isSaving}
-                              className={`p-1.5 rounded-md transition ${
-                                item.is_online
-                                  ? "bg-emerald-100 text-emerald-600 hover:bg-emerald-200"
-                                  : "bg-red-100 text-red-500 hover:bg-red-200"
-                              } ${!isSuperAdmin ? "cursor-default" : "cursor-pointer"} disabled:opacity-50`}
-                            >
-                              {item.is_online ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>{item.is_online ? "En ligne ✓" : "Hors ligne"}{isSuperAdmin ? " (cliquer pour changer)" : ""}</p>
                           </TooltipContent>
                         </Tooltip>
                       </div>

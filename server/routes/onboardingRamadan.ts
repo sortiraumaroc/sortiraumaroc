@@ -10,8 +10,7 @@
 
 import { Router } from "express";
 import type { RequestHandler } from "express";
-import crypto, { randomUUID } from "crypto";
-import multer from "multer";
+import crypto from "crypto";
 import { createModuleLogger } from "../lib/logger";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { zBody } from "../lib/validate";
@@ -50,20 +49,6 @@ const MAX_SEND_PER_HOUR = 5;
 const submitRateLimit = new Map<string, { count: number; resetAt: number }>();
 const MAX_SUBMIT_PER_HOUR = 3;
 
-/** Upload rate limiting: ip → { count, resetAt } */
-const uploadRateLimit = new Map<string, { count: number; resetAt: number }>();
-const MAX_UPLOAD_PER_HOUR = 10;
-
-// Upload constants
-const RAMADAN_IMAGES_BUCKET = "ramadan-offer-images";
-const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
-const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-
-const onboardingPhotoUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_IMAGE_SIZE_BYTES },
-});
-
 /** Establishment cache */
 let cachedEstablishments: { data: any[]; fetchedAt: number } | null = null;
 const CACHE_TTL = 5 * 60 * 1000; // 5 min
@@ -75,7 +60,6 @@ setInterval(() => {
   for (const [k, v] of verifiedEmails) if (v.expiresAt < now) verifiedEmails.delete(k);
   for (const [k, v] of emailRateLimit) if (v.resetAt < now) emailRateLimit.delete(k);
   for (const [k, v] of submitRateLimit) if (v.resetAt < now) submitRateLimit.delete(k);
-  for (const [k, v] of uploadRateLimit) if (v.resetAt < now) uploadRateLimit.delete(k);
 }, 5 * 60 * 1000);
 
 // =============================================================================
@@ -607,8 +591,6 @@ router.post("/submit", zBody(ramadanSubmitSchema), (async (req, res) => {
       : offerType === "pack_famille" ? "Pack Famille"
       : "Spécial";
 
-    const coverUrl = asString(body.cover_url);
-
     const createResult = await createRamadanOffer(
       {
         establishmentId,
@@ -622,7 +604,6 @@ router.post("/submit", zBody(ramadanSubmitSchema), (async (req, res) => {
         timeSlots: [{ start: startTime, end: endTime, label: offerTypeLabel }],
         validFrom: startDate,
         validTo: endDate,
-        coverUrl: coverUrl || null,
       },
       userId,
     );
@@ -784,96 +765,6 @@ router.post("/commercial-callback", zBody(ramadanCommercialCallbackSchema), (asy
     return res.json({ ok: true });
   } catch (err) {
     log.error({ err }, "commercial-callback error");
-    return res.status(500).json({ error: "Erreur serveur" });
-  }
-}) as RequestHandler);
-
-// =============================================================================
-// POST /upload-photo — Upload offre image (public, rate-limited)
-// =============================================================================
-
-async function ensureStorageBucket(
-  supabase: ReturnType<typeof getAdminSupabase>,
-  bucket: string,
-): Promise<void> {
-  try {
-    const exists = await supabase.storage.getBucket(bucket);
-    if (!exists.error) return;
-
-    const msg = String(exists.error.message ?? "").toLowerCase();
-    const status = (exists.error as any)?.statusCode ?? (exists.error as any)?.status ?? null;
-
-    if (status === 404 || msg.includes("not found") || msg.includes("does not exist")) {
-      const created = await supabase.storage.createBucket(bucket, { public: true });
-      const cmsg = String(created.error?.message ?? "").toLowerCase();
-      if (created.error && !cmsg.includes("exists") && !cmsg.includes("duplicate")) {
-        throw created.error;
-      }
-    }
-  } catch (err) {
-    log.warn({ err }, "Best-effort: storage bucket creation failed");
-  }
-}
-
-router.post("/upload-photo", onboardingPhotoUpload.single("photo"), (async (req, res) => {
-  try {
-    // Rate limit by IP
-    const ip = req.ip || "unknown";
-    const now = Date.now();
-    const rl = uploadRateLimit.get(ip);
-    if (rl && rl.resetAt > now && rl.count >= MAX_UPLOAD_PER_HOUR) {
-      return res.status(429).json({ error: "Trop de tentatives d'upload. Réessayez dans une heure." });
-    }
-    if (!rl || rl.resetAt <= now) {
-      uploadRateLimit.set(ip, { count: 1, resetAt: now + 60 * 60 * 1000 });
-    } else {
-      rl.count++;
-    }
-
-    const file = (req as any).file;
-    if (!file) {
-      return res.status(400).json({ error: "Aucun fichier uploadé." });
-    }
-
-    if (file.size > MAX_IMAGE_SIZE_BYTES) {
-      return res.status(400).json({
-        error: "file_too_large",
-        message: "Le fichier dépasse la taille maximale de 5 Mo.",
-      });
-    }
-
-    if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
-      return res.status(400).json({
-        error: "invalid_mime_type",
-        message: "Format non accepté. Formats autorisés : JPG, PNG, WebP, GIF.",
-      });
-    }
-
-    const extension = file.originalname.split(".").pop()?.toLowerCase() || "jpg";
-    const filename = `onboarding/${randomUUID()}.${extension}`;
-
-    const supabase = getAdminSupabase();
-    await ensureStorageBucket(supabase, RAMADAN_IMAGES_BUCKET);
-
-    const { error: uploadError } = await supabase.storage
-      .from(RAMADAN_IMAGES_BUCKET)
-      .upload(filename, file.buffer, {
-        contentType: file.mimetype,
-        upsert: false,
-      });
-
-    if (uploadError) {
-      log.error({ err: uploadError }, "ramadan upload-photo error");
-      return res.status(500).json({ error: "upload_failed", message: uploadError.message });
-    }
-
-    const { data: { publicUrl } } = supabase.storage
-      .from(RAMADAN_IMAGES_BUCKET)
-      .getPublicUrl(filename);
-
-    return res.json({ ok: true, url: publicUrl });
-  } catch (err) {
-    log.error({ err }, "upload-photo error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 }) as RequestHandler);
