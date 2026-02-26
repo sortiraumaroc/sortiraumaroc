@@ -106,35 +106,78 @@ const VALID_COMMERCIAL_SLOTS = ["10h-13h", "14h-17h", "20h-22h"];
 const router = Router();
 
 // ---------------------------------------------------------------------------
-// GET /establishments — Liste des établissements actifs
+// GET /establishments?q=... — Recherche établissements par nom/ville (ILIKE)
 // ---------------------------------------------------------------------------
-router.get("/establishments", (async (_req, res) => {
+router.get("/establishments", (async (req, res) => {
   try {
-    // Check cache
+    const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+    const supabase = getAdminSupabase();
+
+    // Fetch claimed establishment IDs (cached alongside establishments)
+    const getClaimedIds = async () => {
+      const { data: claimedRows } = await supabase
+        .from("pro_establishment_memberships")
+        .select("establishment_id");
+      return new Set((claimedRows ?? []).map((r: any) => r.establishment_id));
+    };
+
+    // --- Server-side search when q is provided (≥ 2 chars) ---
+    if (q.length >= 2) {
+      const pattern = `%${q}%`;
+      const { data, error } = await supabase
+        .from("establishments")
+        .select("id, name, city, cover_url")
+        .or(`name.ilike.${pattern},city.ilike.${pattern}`)
+        .order("name", { ascending: true })
+        .limit(20);
+
+      if (error) {
+        log.error({ err: error }, "failed to search establishments");
+        return res.status(500).json({ error: "Erreur serveur" });
+      }
+
+      const claimedIds = await getClaimedIds();
+      const establishments = (data ?? []).map((e: any) => ({
+        id: e.id,
+        name: e.name,
+        city: e.city ?? "",
+        cover_url: e.cover_url ?? null,
+        claimed: claimedIds.has(e.id),
+      }));
+
+      return res.json({ establishments });
+    }
+
+    // --- No query: return cached full list (paginate to get ALL) ---
     if (cachedEstablishments && Date.now() - cachedEstablishments.fetchedAt < CACHE_TTL) {
       return res.json({ establishments: cachedEstablishments.data });
     }
 
-    const supabase = getAdminSupabase();
-    const { data, error } = await supabase
-      .from("establishments")
-      .select("id, name, city, cover_url")
-      .order("name", { ascending: true })
-      .limit(2000);
+    // Paginate to get ALL establishments (Supabase limits per request)
+    const PAGE_SIZE = 1000;
+    let allData: any[] = [];
+    let from = 0;
+    let hasMore = true;
 
-    if (error) {
-      log.error({ err: error }, "failed to fetch establishments");
-      return res.status(500).json({ error: "Erreur serveur" });
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from("establishments")
+        .select("id, name, city, cover_url")
+        .order("name", { ascending: true })
+        .range(from, from + PAGE_SIZE - 1);
+
+      if (error) {
+        log.error({ err: error }, "failed to fetch establishments");
+        return res.status(500).json({ error: "Erreur serveur" });
+      }
+
+      allData = allData.concat(data ?? []);
+      hasMore = (data ?? []).length === PAGE_SIZE;
+      from += PAGE_SIZE;
     }
 
-    // Fetch claimed establishment IDs (those with at least one membership)
-    const { data: claimedRows } = await supabase
-      .from("pro_establishment_memberships")
-      .select("establishment_id");
-
-    const claimedIds = new Set((claimedRows ?? []).map((r: any) => r.establishment_id));
-
-    const establishments = (data ?? []).map((e: any) => ({
+    const claimedIds = await getClaimedIds();
+    const establishments = allData.map((e: any) => ({
       id: e.id,
       name: e.name,
       city: e.city ?? "",

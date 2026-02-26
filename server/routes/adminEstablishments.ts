@@ -1609,18 +1609,30 @@ export const detectDuplicateEstablishments: RequestHandler = async (req, res) =>
 
   const supabase = getAdminSupabase();
 
-  const { data, error } = await supabase
-    .from("establishments")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(500);
+  // Paginate to get ALL establishments (Supabase limits per request)
+  type Row = Record<string, unknown> & { id: string; name: string | null; city: string | null; created_at: string | null; status: string | null };
+  const PAGE_SIZE = 1000;
+  let allRows: Row[] = [];
+  let from = 0;
+  let hasMore = true;
 
-  if (error) return res.status(500).json({ error: error.message });
-  if (!data || data.length === 0) return res.json({ groups: [] });
+  while (hasMore) {
+    const { data, error } = await supabase
+      .from("establishments")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) return res.status(500).json({ error: error.message });
+    allRows = allRows.concat((data ?? []) as Row[]);
+    hasMore = (data ?? []).length === PAGE_SIZE;
+    from += PAGE_SIZE;
+  }
+
+  if (allRows.length === 0) return res.json({ groups: [] });
 
   // Build groups: same normalised name + same normalised city
-  type Row = Record<string, unknown> & { id: string; name: string | null; city: string | null; created_at: string | null; status: string | null };
-  const rows = data as Row[];
+  const rows = allRows;
 
   const buckets = new Map<string, Row[]>();
 

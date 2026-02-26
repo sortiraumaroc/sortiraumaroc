@@ -80,6 +80,13 @@ async function fetchEstablishments(): Promise<Establishment[]> {
   return data.establishments ?? [];
 }
 
+async function searchEstablishments(q: string): Promise<Establishment[]> {
+  const resp = await fetch(`${API_BASE}/establishments?q=${encodeURIComponent(q)}`);
+  if (!resp.ok) throw new Error("Erreur réseau");
+  const data = await resp.json();
+  return data.establishments ?? [];
+}
+
 async function sendOtpCode(email: string): Promise<{ ok: boolean; error?: string }> {
   const resp = await fetch(`${API_BASE}/send-code`, {
     method: "POST",
@@ -265,14 +272,24 @@ export default function OnboardingRamadan() {
     return () => window.removeEventListener("popstate", handler);
   }, []);
 
-  // Fetch establishments on mount
+  // Debounced server search when user types
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
+    const q = estabSearch.trim();
+    if (q.length < 2) {
+      setEstablishments([]);
+      return;
+    }
     setEstabLoading(true);
-    fetchEstablishments()
-      .then(setEstablishments)
-      .catch(() => setError("Impossible de charger les établissements"))
-      .finally(() => setEstabLoading(false));
-  }, []);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      searchEstablishments(q)
+        .then(setEstablishments)
+        .catch(() => setError("Impossible de charger les établissements"))
+        .finally(() => setEstabLoading(false));
+    }, 300);
+    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
+  }, [estabSearch]);
 
   // OTP timer
   useEffect(() => {
@@ -281,14 +298,8 @@ export default function OnboardingRamadan() {
     return () => clearTimeout(id);
   }, [otpTimer]);
 
-  // Filtered establishments — only show when search has 2+ chars
-  const filteredEstabs = useMemo(() => {
-    const q = estabSearch.trim().toLowerCase();
-    if (q.length < 2) return [];
-    return establishments.filter(
-      (e) => e.name.toLowerCase().includes(q) || e.city.toLowerCase().includes(q),
-    );
-  }, [establishments, estabSearch]);
+  // Results from server search (no local filtering needed)
+  const filteredEstabs = establishments;
 
   // Close suggestions when clicking outside
   useEffect(() => {
