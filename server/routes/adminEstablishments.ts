@@ -10,6 +10,7 @@
 import type { RequestHandler } from "express";
 import {
   requireAdminKey,
+  checkAdminKey,
   isRecord,
   asString,
   asStringArray,
@@ -935,8 +936,12 @@ export const updateEstablishmentFlags: RequestHandler = async (req, res) => {
 
   // is_online: superadmin only
   if (typeof body.is_online === "boolean") {
-    const actor = getAuditActorInfo(req);
-    if (actor.actor_role !== "superadmin") {
+    const headerKey = req.header("x-admin-key") ?? undefined;
+    const isKeyAuth = !!headerKey && checkAdminKey(headerKey);
+    const session = (req as any).adminSession;
+    const isSuperAdmin = isKeyAuth || session?.role === "superadmin";
+
+    if (!isSuperAdmin) {
       return res.status(403).json({ error: "Seul le superadmin peut modifier le statut en ligne." });
     }
     updates.is_online = body.is_online;
