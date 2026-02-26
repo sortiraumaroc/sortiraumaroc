@@ -210,7 +210,7 @@ export const listEstablishments: RequestHandler = async (req, res) => {
   const supabase = getAdminSupabase();
 
   const selectCols =
-    "id,name,city,universe,subcategory,status,created_at,updated_at,verified,premium,curated,admin_created_by_name,admin_updated_by_name,cover_url";
+    "id,name,city,universe,subcategory,status,created_at,updated_at,verified,premium,curated,admin_created_by_name,admin_updated_by_name,cover_url,is_online";
 
   // Paginate to fetch all rows (Supabase caps at 1000 per request)
   const PAGE_SIZE = 1000;
@@ -932,6 +932,15 @@ export const updateEstablishmentFlags: RequestHandler = async (req, res) => {
   if (typeof body.verified === "boolean") updates.verified = body.verified;
   if (typeof body.premium === "boolean") updates.premium = body.premium;
   if (typeof body.curated === "boolean") updates.curated = body.curated;
+
+  // is_online: superadmin only
+  if (typeof body.is_online === "boolean") {
+    const actor = getAuditActorInfo(req);
+    if (actor.actor_role !== "superadmin") {
+      return res.status(403).json({ error: "Seul le superadmin peut modifier le statut en ligne." });
+    }
+    updates.is_online = body.is_online;
+  }
 
   if (Object.keys(updates).length === 0) {
     return res.status(400).json({ error: "Aucun flag à mettre à jour" });
