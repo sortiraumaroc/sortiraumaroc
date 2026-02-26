@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, Copy, Plus, BadgeCheck, Crown, Star, Trash2, Power, Eye, GitCompareArrows, Loader2, CheckCircle, XCircle, PauseCircle, Sparkles, UtensilsCrossed, Utensils, BookOpen, Moon } from "lucide-react";
+import { ArrowRight, Copy, Plus, BadgeCheck, Crown, Star, Trash2, Power, Eye, GitCompareArrows, Loader2, CheckCircle, XCircle, PauseCircle, Sparkles, UtensilsCrossed, Utensils, BookOpen, Moon, Wifi, WifiOff } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -435,7 +435,7 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
     }
   };
 
-  const handleToggleFlag = async (id: string, flag: "verified" | "premium" | "curated", currentValue: boolean) => {
+  const handleToggleFlag = async (id: string, flag: "verified" | "premium" | "curated" | "is_online", currentValue: boolean) => {
     setSavingIds((prev) => new Set(prev).add(id));
     setError(null);
 
@@ -447,7 +447,7 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
         item.id === id ? { ...item, [flag]: !currentValue } : item
       ));
 
-      const flagLabels = { verified: "Vérifié", premium: "Premium", curated: "Sélection" };
+      const flagLabels: Record<string, string> = { verified: "Vérifié", premium: "Premium", curated: "Sélection", is_online: "En ligne" };
       toast({
         title: !currentValue ? `${flagLabels[flag]} activé` : `${flagLabels[flag]} désactivé`,
         description: `L'établissement a été mis à jour.`
@@ -1266,6 +1266,27 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
                           </TooltipTrigger>
                           <TooltipContent>
                             <p>{item.curated ? "Sélection SAM ✓" : "Non sélectionné"}</p>
+                          </TooltipContent>
+                        </Tooltip>
+
+                        {/* En ligne / Hors ligne */}
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={() => void handleToggleFlag(item.id, "is_online", item.is_online !== false)}
+                              disabled={isSaving}
+                              className={`p-1.5 rounded-md transition ${
+                                item.is_online !== false
+                                  ? "bg-green-100 text-green-600 hover:bg-green-200"
+                                  : "bg-red-100 text-red-600 hover:bg-red-200"
+                              } disabled:opacity-50`}
+                            >
+                              {item.is_online !== false ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{item.is_online !== false ? "En ligne ✓" : "Hors ligne"}</p>
                           </TooltipContent>
                         </Tooltip>
                       </div>

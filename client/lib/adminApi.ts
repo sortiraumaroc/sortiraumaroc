@@ -71,6 +71,7 @@ export type Establishment = {
   verified?: boolean;
   premium?: boolean;
   curated?: boolean;
+  is_online?: boolean;
   // Wizard fields
   admin_created_by_name?: string | null;
   admin_created_by_id?: string | null;
@@ -1636,7 +1637,7 @@ export async function batchEstablishmentsStatus(
 export async function updateEstablishmentFlags(
   adminKey: string | undefined,
   id: string,
-  flags: { verified?: boolean; premium?: boolean; curated?: boolean },
+  flags: { verified?: boolean; premium?: boolean; curated?: boolean; is_online?: boolean },
 ): Promise<{ ok: true }> {
   return requestJson<{ ok: true }>(
     `/api/admin/establishments/${encodeURIComponent(id)}/flags`,
