@@ -455,8 +455,9 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
         description: `L'établissement a été mis à jour.`
       });
     } catch (e) {
-      if (e instanceof AdminApiError) setError(e.message);
-      else setError("Erreur inattendue");
+      const msg = e instanceof AdminApiError ? e.message : "Erreur inattendue";
+      setError(msg);
+      toast({ title: "Erreur", description: msg, variant: "destructive" });
     } finally {
       setSavingIds((prev) => {
         const copy = new Set(prev);
@@ -1274,33 +1275,21 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
                         {/* En ligne */}
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            {isSuperAdmin ? (
-                              <button
-                                type="button"
-                                onClick={() => void handleToggleFlag(item.id, "is_online", !!item.is_online)}
-                                disabled={isSaving}
-                                className={`p-1.5 rounded-md transition ${
-                                  item.is_online
-                                    ? "bg-emerald-100 text-emerald-600 hover:bg-emerald-200"
-                                    : "bg-red-100 text-red-500 hover:bg-red-200"
-                                } disabled:opacity-50`}
-                              >
-                                {item.is_online ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
-                              </button>
-                            ) : (
-                              <span
-                                className={`p-1.5 rounded-md ${
-                                  item.is_online
-                                    ? "bg-emerald-100 text-emerald-600"
-                                    : "bg-red-100 text-red-500"
-                                }`}
-                              >
-                                {item.is_online ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
-                              </span>
-                            )}
+                            <button
+                              type="button"
+                              onClick={isSuperAdmin ? () => void handleToggleFlag(item.id, "is_online", !!item.is_online) : undefined}
+                              disabled={isSaving}
+                              className={`p-1.5 rounded-md transition ${
+                                item.is_online
+                                  ? "bg-emerald-100 text-emerald-600 hover:bg-emerald-200"
+                                  : "bg-red-100 text-red-500 hover:bg-red-200"
+                              } ${!isSuperAdmin ? "cursor-default" : "cursor-pointer"} disabled:opacity-50`}
+                            >
+                              {item.is_online ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
+                            </button>
                           </TooltipTrigger>
                           <TooltipContent>
-                            <p>{item.is_online ? "En ligne ✓" : "Hors ligne"}</p>
+                            <p>{item.is_online ? "En ligne ✓" : "Hors ligne"}{isSuperAdmin ? " (cliquer pour changer)" : ""}</p>
                           </TooltipContent>
                         </Tooltip>
                       </div>
