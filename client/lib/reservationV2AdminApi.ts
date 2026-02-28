@@ -101,7 +101,7 @@ export async function adminListReservationsV2(
   if (opts?.limit) params.set("limit", String(opts.limit));
   if (opts?.offset) params.set("offset", String(opts.offset));
   const qs = params.toString();
-  return adminJson(`/api/admin/reservations/v2${qs ? `?${qs}` : ""}`);
+  return adminJson(`/api/admin/reservations${qs ? `?${qs}` : ""}`);
 }
 
 // =============================================================================
@@ -114,7 +114,7 @@ export async function adminListDisputes(
   const params = new URLSearchParams();
   if (opts?.status) params.set("status", opts.status);
   if (opts?.limit) params.set("limit", String(opts.limit));
-  return adminJson(`/api/admin/reservations/v2/disputes?${params}`);
+  return adminJson(`/api/admin/disputes?${params}`);
 }
 
 export async function adminArbitrateDispute(
@@ -122,7 +122,7 @@ export async function adminArbitrateDispute(
   decision: "favor_client" | "favor_pro" | "indeterminate",
   notes?: string,
 ): Promise<{ ok: true }> {
-  return adminJson(`/api/admin/reservations/v2/disputes/${encodeURIComponent(disputeId)}/arbitrate`, {
+  return adminJson(`/api/admin/disputes/${encodeURIComponent(disputeId)}/arbitrate`, {
     method: "POST",
     body: JSON.stringify({ decision, notes }),
   });
@@ -138,7 +138,7 @@ export async function adminListSanctions(
   const params = new URLSearchParams();
   if (opts?.establishment_id) params.set("establishment_id", opts.establishment_id);
   if (opts?.active_only) params.set("active_only", "true");
-  return adminJson(`/api/admin/reservations/v2/sanctions?${params}`);
+  return adminJson(`/api/admin/sanctions?${params}`);
 }
 
 export async function adminDeactivateEstablishment(
@@ -146,7 +146,7 @@ export async function adminDeactivateEstablishment(
   reason: string,
   durationDays: number,
 ): Promise<{ ok: true }> {
-  return adminJson(`/api/admin/reservations/v2/establishments/${encodeURIComponent(establishmentId)}/deactivate`, {
+  return adminJson(`/api/admin/establishments/${encodeURIComponent(establishmentId)}/deactivate`, {
     method: "POST",
     body: JSON.stringify({ reason, duration_days: durationDays }),
   });
@@ -156,7 +156,7 @@ export async function adminReactivateEstablishment(
   establishmentId: string,
   reason: string,
 ): Promise<{ ok: true }> {
-  return adminJson(`/api/admin/reservations/v2/establishments/${encodeURIComponent(establishmentId)}/reactivate`, {
+  return adminJson(`/api/admin/establishments/${encodeURIComponent(establishmentId)}/reactivate`, {
     method: "POST",
     body: JSON.stringify({ reason }),
   });
@@ -179,14 +179,14 @@ export async function adminListSuspendedClients(): Promise<{
     consecutive_no_shows: number;
   }>;
 }> {
-  return adminJson(`/api/admin/reservations/v2/clients/suspended`);
+  return adminJson(`/api/admin/clients/low-score`);
 }
 
 export async function adminLiftClientSuspension(
   userId: string,
   reason: string,
 ): Promise<{ ok: true }> {
-  return adminJson(`/api/admin/reservations/v2/clients/${encodeURIComponent(userId)}/lift-suspension`, {
+  return adminJson(`/api/admin/clients/${encodeURIComponent(userId)}/unsuspend`, {
     method: "POST",
     body: JSON.stringify({ reason }),
   });
@@ -202,7 +202,7 @@ export async function adminListProTrustScores(
   const params = new URLSearchParams();
   if (opts?.limit) params.set("limit", String(opts.limit));
   if (opts?.sort) params.set("sort", opts.sort);
-  return adminJson(`/api/admin/reservations/v2/pro-trust-scores?${params}`);
+  return adminJson(`/api/admin/pro-trust-scores?${params}`);
 }
 
 // =============================================================================
@@ -227,5 +227,5 @@ export async function adminGetReservationGlobalStats(
 ): Promise<{ ok: true; stats: AdminReservationGlobalStats }> {
   const params = new URLSearchParams();
   if (period) params.set("period", period);
-  return adminJson(`/api/admin/reservations/v2/stats?${params}`);
+  return adminJson(`/api/admin/stats/reservations?${params}`);
 }

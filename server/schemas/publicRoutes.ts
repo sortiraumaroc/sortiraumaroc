@@ -127,7 +127,7 @@ export const CreateConsumerReservationSchema = z.object({
   slot_id: z.string().optional().nullable(),
   slotId: z.string().optional().nullable(),
   kind: z.string().optional(),
-  status: z.string().optional(),
+  status: z.enum(["requested"]).optional(),
   party_size: z.coerce.number().optional(),
   partySize: z.coerce.number().optional(),
   amount_total: z.coerce.number().optional(),

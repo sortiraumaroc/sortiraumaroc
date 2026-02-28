@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import crypto from "crypto";
 
 import { createModuleLogger } from "../lib/logger";
 
@@ -467,14 +468,15 @@ export async function createConsumerReservation(req: Request, res: Response) {
   const slotId = asString(body.slot_id) ?? asString(body.slotId);
 
   const kind = asString(body.kind) ?? "restaurant";
-  const statusInput = asString(body.status) ?? "requested";
 
   // payment_status is server-managed (webhook/admin). Consumers cannot create a paid reservation.
   let paymentStatus = "pending";
 
-  // Backward compatible mapping: old clients send status="requested" for non-guaranteed.
-  let status =
-    statusInput === "requested" ? "pending_pro_validation" : statusInput;
+  // SECURITY: Always set initial status server-side. Consumers cannot choose their own status.
+  // Old clients send status="requested" which maps to "pending_pro_validation".
+  // Schema now enforces only "requested" is accepted, but we ignore the field entirely
+  // as a defense-in-depth measure.
+  let status = "pending_pro_validation";
 
   const partySize =
     typeof body.party_size === "number"
@@ -501,15 +503,6 @@ export async function createConsumerReservation(req: Request, res: Response) {
   // These will be overwritten with server-calculated values
   let amountTotal: number | null = null;
   let amountDeposit: number | null = null;
-
-  // Enforce: a guaranteed reservation (deposit > 0) cannot be confirmed until payment is validated.
-  if (
-    (amountDeposit ?? 0) > 0 &&
-    paymentStatus !== "paid" &&
-    status === "confirmed"
-  ) {
-    status = "pending_pro_validation";
-  }
 
   const meta = asRecord(body.meta) ?? {};
 
@@ -779,14 +772,22 @@ export async function createConsumerReservation(req: Request, res: Response) {
     payload.payment_status = "pending";
   }
 
-  if (bookingReference) payload.booking_reference = bookingReference;
+  // SECURITY: Generate booking_reference server-side when not provided (crypto-secure).
+  // Client-provided reference is still accepted for upsert dedup but gated by user_id below.
+  if (bookingReference) {
+    payload.booking_reference = bookingReference;
+  } else {
+    payload.booking_reference = `SAM-${crypto.randomBytes(8).toString("hex").toUpperCase()}`;
+  }
 
   // If booking_reference is present, try update first, else insert.
+  // SECURITY FIX: scope lookup to current user_id to prevent cross-user hijacking.
   if (bookingReference) {
     const { data: existing } = await supabase
       .from("reservations")
-      .select("id,booking_reference")
+      .select("id,booking_reference,user_id")
       .eq("booking_reference", bookingReference)
+      .eq("user_id", userResult.userId)
       .maybeSingle();
 
     if (existing?.id) {

@@ -72,7 +72,22 @@ export function setBookingAttributionCookie(
  */
 export function getBookingAttribution(req: Request): BookingAttribution | null {
   try {
-    const cookieValue = req.cookies?.[COOKIE_NAME];
+    // Try parsed cookies first; fall back to manual parse from raw header
+    // (no cookie-parser middleware is currently registered globally)
+    let cookieValue: string | undefined = req.cookies?.[COOKIE_NAME];
+    if (!cookieValue) {
+      const raw = req.headers.cookie;
+      if (raw && typeof raw === "string") {
+        for (const part of raw.split(";")) {
+          const eqIdx = part.indexOf("=");
+          if (eqIdx === -1) continue;
+          if (part.slice(0, eqIdx).trim() === COOKIE_NAME) {
+            cookieValue = decodeURIComponent(part.slice(eqIdx + 1).trim());
+            break;
+          }
+        }
+      }
+    }
     if (!cookieValue || typeof cookieValue !== "string") {
       return null;
     }
