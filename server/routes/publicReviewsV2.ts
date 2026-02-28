@@ -11,6 +11,7 @@ import type { Express } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { createModuleLogger } from "../lib/logger";
 import { zParams } from "../lib/validate";
+import { cacheMiddleware, buildCacheKey } from "../lib/cache";
 import { EstablishmentRefParams } from "../schemas/publicRoutes";
 
 const log = createModuleLogger("publicReviewsV2");
@@ -241,6 +242,26 @@ export const getPublicReviewSummaryV2: RequestHandler = async (req, res) => {
 // ---------------------------------------------------------------------------
 
 export function registerPublicReviewsV2Routes(app: Express) {
-  app.get("/api/public/v2/establishments/:ref/reviews", zParams(EstablishmentRefParams), reviewPublicReadRateLimiter, listPublicReviewsV2);
-  app.get("/api/public/v2/establishments/:ref/reviews/summary", zParams(EstablishmentRefParams), getPublicReviewSummaryV2);
+  app.get(
+    "/api/public/v2/establishments/:ref/reviews",
+    zParams(EstablishmentRefParams),
+    reviewPublicReadRateLimiter,
+    cacheMiddleware(120, (req) =>
+      buildCacheKey("reviews-v2", {
+        ref: req.params.ref ?? "",
+        page: String(req.query.page ?? "1"),
+        limit: String(req.query.limit ?? "10"),
+        sort: String(req.query.sort ?? ""),
+      }),
+    ),
+    listPublicReviewsV2,
+  );
+  app.get(
+    "/api/public/v2/establishments/:ref/reviews/summary",
+    zParams(EstablishmentRefParams),
+    cacheMiddleware(120, (req) =>
+      buildCacheKey("reviews-summary", { ref: req.params.ref ?? "" }),
+    ),
+    getPublicReviewSummaryV2,
+  );
 }

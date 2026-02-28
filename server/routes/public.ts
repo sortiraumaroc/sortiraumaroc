@@ -307,8 +307,22 @@ export function registerPublicRoutes(app: Express) {
   );
 
   // Direct booking by username (book.sam.ma/:username)
-  app.get("/api/public/establishments/by-username/:username", zParams(UsernameParams), _getPublicEstablishmentByUsername);
-  app.get("/api/public/establishments/:ref", zParams(EstablishmentRefParams), _getPublicEstablishment);
+  app.get(
+    "/api/public/establishments/by-username/:username",
+    zParams(UsernameParams),
+    cacheMiddleware(60, (req) =>
+      buildCacheKey("est-username", { username: req.params.username ?? "" }),
+    ),
+    _getPublicEstablishmentByUsername,
+  );
+  app.get(
+    "/api/public/establishments/:ref",
+    zParams(EstablishmentRefParams),
+    cacheMiddleware(60, (req) =>
+      buildCacheKey("est-detail", { ref: req.params.ref ?? "" }),
+    ),
+    _getPublicEstablishment,
+  );
 
   // ── Home feed ─────────────────────────────────────────────────────────────
   app.get(
@@ -335,8 +349,22 @@ export function registerPublicRoutes(app: Express) {
     _getPublicHomeFeed,
   );
 
-  app.get("/api/public/categories", zQuery(PublicCategoriesQuery), _getPublicCategories);
-  app.get("/api/public/category-images", zQuery(PublicCategoryImagesQuery), _getPublicCategoryImages);
+  app.get(
+    "/api/public/categories",
+    zQuery(PublicCategoriesQuery),
+    cacheMiddleware(300, (req) =>
+      buildCacheKey("categories", { lang: String(req.query.lang ?? "fr"), universe: String(req.query.universe ?? "") }),
+    ),
+    _getPublicCategories,
+  );
+  app.get(
+    "/api/public/category-images",
+    zQuery(PublicCategoryImagesQuery),
+    cacheMiddleware(300, (req) =>
+      buildCacheKey("cat-images", { universe: String(req.query.universe ?? "") }),
+    ),
+    _getPublicCategoryImages,
+  );
 
   // ── Search ────────────────────────────────────────────────────────────────
   app.get(

@@ -60,6 +60,7 @@
     "firebase-admin": "^13.6.0",
     "helmet": "^8.1.0",
     "html2canvas": "^1.4.1",
+    "ioredis": "^5.10.0",
     "jsqr": "^1.4.0",
     "multer": "^2.0.2",
     "node-cache": "^5.1.2",

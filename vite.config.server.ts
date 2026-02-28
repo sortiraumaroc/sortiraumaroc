@@ -82,6 +82,8 @@ export default defineConfig({
         "cors",
         // sharp has native binaries (.node files) that cannot be bundled
         "sharp",
+        // ioredis uses native net/tls, better to keep external
+        "ioredis",
       ],
       output: {
         format: "es",

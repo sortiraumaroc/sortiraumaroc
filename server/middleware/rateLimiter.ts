@@ -1,17 +1,21 @@
 /**
  * Rate Limiter Middleware - SAM
  *
- * In-memory rate limiting with abstract store interface.
- * Ready for Redis migration: set REDIS_URL env to switch automatically.
+ * Pluggable rate limiting with MemoryStore (default) and RedisStore (cluster mode).
+ * Set REDIS_URL env to automatically use Redis across all cluster workers.
  *
  * Architecture:
  * - RateLimitStore interface allows pluggable backends (memory, Redis, etc.)
- * - MemoryStore: current default, works single-instance
- * - RedisStore: TODO — plug in when Redis is available on the VPS
+ * - MemoryStore: default, works single-instance or as fallback
+ * - RedisStore: shared across cluster workers when REDIS_URL is set
  */
 
 import type { Request, Response, NextFunction, RequestHandler } from "express";
 import { errors } from "../lib/apiResponse";
+import { redis, isRedisAvailable } from "../lib/redis";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("rateLimiter");
 
 // ============================================
 // TYPES
@@ -107,18 +111,100 @@ class MemoryStore implements RateLimitStore {
 }
 
 // ============================================
-// STORE FACTORY
+// REDIS STORE (cluster-safe)
 // ============================================
 
 /**
+ * Redis-backed rate limit store. Shared across all cluster workers.
+ * Uses atomic INCR + PEXPIRE for accurate counting under concurrency.
+ * Falls back to MemoryStore if Redis becomes unavailable.
+ */
+class RedisStore implements RateLimitStore {
+  private prefix: string;
+  private fallback = new MemoryStore();
+
+  constructor(name: string) {
+    this.prefix = `rl:${name}:`;
+  }
+
+  /**
+   * Synchronous get — returns from fallback only.
+   * Real Redis checks happen in incrementAsync() called from the middleware.
+   */
+  get(key: string): RateLimitEntry | null {
+    return this.fallback.get(this.prefix + key);
+  }
+
+  set(key: string, entry: RateLimitEntry): void {
+    this.fallback.set(this.prefix + key, entry);
+  }
+
+  /**
+   * Synchronous increment — uses fallback store.
+   * The async version (incrementAsync) is preferred and called from the middleware.
+   */
+  increment(key: string, windowMs: number): RateLimitEntry {
+    return this.fallback.increment(this.prefix + key, windowMs);
+  }
+
+  /**
+   * Async Redis increment using atomic INCR + PEXPIRE.
+   * Falls back to MemoryStore if Redis is down.
+   */
+  async incrementAsync(key: string, windowMs: number): Promise<RateLimitEntry> {
+    if (!isRedisAvailable() || !redis) {
+      return this.fallback.increment(this.prefix + key, windowMs);
+    }
+
+    const redisKey = this.prefix + key;
+    try {
+      const pipeline = redis.pipeline();
+      pipeline.incr(redisKey);
+      pipeline.pttl(redisKey);
+      const results = await pipeline.exec();
+
+      if (!results) {
+        return this.fallback.increment(this.prefix + key, windowMs);
+      }
+
+      const count = (results[0]?.[1] as number) ?? 1;
+      const ttl = (results[1]?.[1] as number) ?? -1;
+
+      // Set expiry on first request (ttl === -1 means no expiry set yet)
+      if (ttl === -1 || ttl === -2) {
+        await redis.pexpire(redisKey, windowMs);
+      }
+
+      const resetAt = Date.now() + (ttl > 0 ? ttl : windowMs);
+      return { count, resetAt };
+    } catch (err) {
+      log.warn({ err, key: redisKey }, "Redis increment failed — falling back to memory");
+      return this.fallback.increment(this.prefix + key, windowMs);
+    }
+  }
+
+  cleanup(): void {
+    // Redis handles expiry via PEXPIRE — cleanup only needed for fallback
+    this.fallback.cleanup();
+  }
+}
+
+// ============================================
+// STORE FACTORY
+// ============================================
+
+/** Track which stores are Redis-backed for async middleware path */
+const redisStores = new Set<string>();
+
+/**
  * Creates the appropriate store based on environment.
- * When REDIS_URL is set, this will return a RedisStore (once implemented).
+ * Uses RedisStore when REDIS_URL is set, MemoryStore otherwise.
  */
 function createStore(name: string): RateLimitStore {
-  // TODO: When Redis is installed on the VPS:
-  // if (process.env.REDIS_URL) {
-  //   return new RedisStore(name, process.env.REDIS_URL);
-  // }
+  if (process.env.REDIS_URL) {
+    redisStores.add(name);
+    return new RedisStore(name);
+  }
   return new MemoryStore();
 }
 
@@ -147,6 +233,8 @@ export function createRateLimiter(name: string, config: RateLimitConfig): Reques
 
   const store = stores.get(name)!;
 
+  const isRedis = redisStores.has(name);
+
   return (req: Request, res: Response, next: NextFunction): void => {
     // Skip si configuré
     if (skip && skip(req)) {
@@ -155,8 +243,31 @@ export function createRateLimiter(name: string, config: RateLimitConfig): Reques
     }
 
     const key = `${name}:${keyGenerator(req)}`;
-    const entry = store.increment(key, windowMs);
 
+    // Use async path for Redis stores, sync for memory
+    if (isRedis && store instanceof RedisStore) {
+      store.incrementAsync(key, windowMs).then((entry) => {
+        applyRateLimit(res, next, entry, maxRequests, message);
+      }).catch(() => {
+        // On Redis failure, let the request through (fail-open)
+        next();
+      });
+      return;
+    }
+
+    const entry = store.increment(key, windowMs);
+    applyRateLimit(res, next, entry, maxRequests, message);
+  };
+}
+
+/** Apply rate limit headers and block if over limit */
+function applyRateLimit(
+  res: Response,
+  next: NextFunction,
+  entry: RateLimitEntry,
+  maxRequests: number,
+  message: string,
+): void {
     // Ajouter les headers de rate limit
     const remaining = Math.max(0, maxRequests - entry.count);
     const resetSeconds = Math.ceil((entry.resetAt - Date.now()) / 1000);
@@ -173,7 +284,6 @@ export function createRateLimiter(name: string, config: RateLimitConfig): Reques
     }
 
     next();
-  };
 }
 
 // ============================================

@@ -12,6 +12,7 @@ import type { RequestHandler, Request } from "express";
 import { createHash } from "node:crypto";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { createModuleLogger } from "../lib/logger";
+import { cacheMiddleware, buildCacheKey } from "../lib/cache";
 import { resolveEstablishmentId } from "./publicHelpers";
 
 const log = createModuleLogger("ramadanPublic");
@@ -61,7 +62,17 @@ const router = Router();
 // ---------------------------------------------------------------------------
 // GET /api/public/ramadan-offers — Offres actives
 // ---------------------------------------------------------------------------
-router.get("/", (async (req, res) => {
+router.get("/", cacheMiddleware(120, (req) =>
+  buildCacheKey("ramadan-offers", {
+    type: String(req.query.type ?? ""),
+    city: String(req.query.city ?? ""),
+    featured: String(req.query.featured ?? ""),
+    min_price: String(req.query.min_price ?? ""),
+    max_price: String(req.query.max_price ?? ""),
+    limit: String(req.query.limit ?? ""),
+    offset: String(req.query.offset ?? ""),
+  }),
+), (async (req, res) => {
   const supabase = getAdminSupabase();
 
   const type = asString(req.query.type);
