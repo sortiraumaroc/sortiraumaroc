@@ -22,7 +22,9 @@ import type {
   ConciergeProfile,
   JourneyWithSteps,
   JourneyListItem,
+  ConciergeUsage,
 } from "../../shared/conciergerieTypes";
+import { TIER_CONFIG } from "../../shared/conciergerieTypes";
 import { createModuleLogger } from "../lib/logger";
 import { zBody, zParams } from "../lib/validate";
 import { CreateJourneySchema, UpdateJourneySchema, SendStepRequestsSchema, JourneyIdParams, StepIdParams, StepRequestIdParams } from "../schemas/conciergerieRoutes";
@@ -122,23 +124,65 @@ export function registerConciergerieRoutes(app: Express) {
 
       const sb = supabase();
 
-      // Get concierge_user details
-      const { data: cu } = await sb
-        .from("concierge_users")
-        .select("*")
-        .eq("id", auth.conciergeUserId)
-        .single();
+      // Get concierge_user details + concierge details in parallel
+      const [{ data: cu }, { data: concierge }] = await Promise.all([
+        sb.from("concierge_users").select("*").eq("id", auth.conciergeUserId).single(),
+        sb.from("concierges").select("*").eq("id", auth.conciergeId).single(),
+      ]);
 
-      // Get concierge details
-      const { data: concierge } = await sb
-        .from("concierges")
-        .select("*")
-        .eq("id", auth.conciergeId)
-        .single();
+      // Compute monthly usage: count accepted step_requests this month
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
 
-      const profile: ConciergeProfile = {
+      const { data: journeyIds } = await sb
+        .from("experience_journeys")
+        .select("id")
+        .eq("concierge_id", auth.conciergeId)
+        .is("deleted_at", null);
+
+      let monthReservations = 0;
+      const jIds = (journeyIds ?? []).map((j: any) => j.id);
+
+      if (jIds.length > 0) {
+        const { data: stepIds } = await sb
+          .from("journey_steps")
+          .select("id")
+          .in("journey_id", jIds)
+          .is("deleted_at", null);
+
+        const sIds = (stepIds ?? []).map((s: any) => s.id);
+
+        if (sIds.length > 0) {
+          const { count } = await sb
+            .from("step_requests")
+            .select("id", { count: "exact", head: true })
+            .in("step_id", sIds)
+            .eq("status", "accepted")
+            .gte("responded_at", startOfMonth.toISOString());
+
+          monthReservations = count ?? 0;
+        }
+      }
+
+      // Determine tier
+      let tierKey: "free" | "standard" | "premium" = "free";
+      if (monthReservations > TIER_CONFIG.standard.maxReservations) tierKey = "premium";
+      else if (monthReservations > TIER_CONFIG.free.maxReservations) tierKey = "standard";
+
+      const tier = TIER_CONFIG[tierKey];
+      const usage: ConciergeUsage = {
+        month_reservations: monthReservations,
+        tier: tierKey,
+        tier_label: tier.label,
+        tier_price: tier.price,
+        limit: tier.maxReservations,
+      };
+
+      const profile: ConciergeProfile & { usage: ConciergeUsage } = {
         concierge: concierge as any,
         user: cu as any,
+        usage,
       };
 
       return res.json(profile);
@@ -687,6 +731,21 @@ export function registerConciergerieRoutes(app: Express) {
       const limit = Math.min(30, Math.max(1, parseInt(String(req.query.limit ?? "15"), 10)));
 
       const sb = supabase();
+
+      // Build list of allowed cities (concierge city + extra cities from admin)
+      const [{ data: conciergeRow }, { data: extraCities }] = await Promise.all([
+        sb.from("concierges").select("city").eq("id", auth.conciergeId).maybeSingle(),
+        sb.from("concierge_allowed_cities").select("city").eq("concierge_id", auth.conciergeId),
+      ]);
+
+      const allowedCities: string[] = [];
+      if (conciergeRow?.city) allowedCities.push(conciergeRow.city);
+      for (const row of extraCities ?? []) {
+        if ((row as any).city && !allowedCities.includes((row as any).city)) {
+          allowedCities.push((row as any).city);
+        }
+      }
+
       let query = sb
         .from("establishments")
         .select("id, name, slug, cover_url, city, universe, category, rating_average")
@@ -695,12 +754,37 @@ export function registerConciergerieRoutes(app: Express) {
         .limit(limit);
 
       if (q) query = query.ilike("name", `%${q}%`);
-      if (city) query = query.ilike("city", `%${city}%`);
+
+      // If explicit city filter, use it; otherwise restrict to allowed cities
+      if (city) {
+        query = query.ilike("city", `%${city}%`);
+      } else if (allowedCities.length > 0) {
+        // Filter by allowed cities (case-insensitive via or)
+        const cityFilters = allowedCities.map((c) => `city.ilike.%${c}%`).join(",");
+        query = query.or(cityFilters);
+      }
+
       if (universe) query = query.eq("universe", universe);
       if (category) query = query.eq("category", category);
 
       const { data, error } = await query.order("rating_average", { ascending: false, nullsFirst: false });
       if (error) throw error;
+
+      // Check which results are partners (for badge display)
+      const resultIds = (data ?? []).map((e: any) => e.id);
+      let partnerMap: Record<string, number> = {};
+      if (resultIds.length > 0) {
+        const { data: partnerRows } = await sb
+          .from("concierge_partners")
+          .select("establishment_id, commission_rate")
+          .eq("concierge_id", auth.conciergeId)
+          .in("establishment_id", resultIds)
+          .is("deleted_at", null);
+
+        for (const p of partnerRows ?? []) {
+          partnerMap[(p as any).establishment_id] = (p as any).commission_rate;
+        }
+      }
 
       const results = (data ?? []).map((e: any) => ({
         id: e.id,
@@ -711,9 +795,11 @@ export function registerConciergerieRoutes(app: Express) {
         universe: e.universe,
         category: e.category,
         rating: e.rating_average,
+        is_partner: e.id in partnerMap,
+        partner_commission: partnerMap[e.id] ?? null,
       }));
 
-      return res.json({ results });
+      return res.json({ results, allowed_cities: allowedCities });
     } catch (e: any) {
       log.error({ err: e }, "GET /search/establishments error");
       return res.status(500).json({ error: "Internal error" });
@@ -822,6 +908,280 @@ export function registerConciergerieRoutes(app: Express) {
       return res.json({ payload: result.payload, expiresIn: result.expiresIn });
     } catch (e: any) {
       log.error({ err: e }, "GET /scan-qr/:id error");
+      return res.status(500).json({ error: "Internal error" });
+    }
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/conciergerie/partners — Partenaires avec stats & scoring
+  // -----------------------------------------------------------------------
+  app.get("/api/conciergerie/partners", async (req: Request, res: Response) => {
+    try {
+      const auth = await ensureConciergeUser(req);
+      if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+      const db = supabase();
+      const conciergeId = auth.conciergeId;
+
+      // 1. Fetch active partners
+      const { data: partners, error: pErr } = await db
+        .from("concierge_partners")
+        .select("*")
+        .eq("concierge_id", conciergeId)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false });
+
+      if (pErr) return res.status(500).json({ error: pErr.message });
+      if (!partners || partners.length === 0) {
+        return res.json({ partners: [], activity: [] });
+      }
+
+      const estIds = partners.map((p: any) => p.establishment_id);
+
+      // 2. Fetch establishment info
+      const { data: establishments } = await db
+        .from("establishments")
+        .select("id,name,city,cover_url,universe")
+        .in("id", estIds);
+
+      const estMap: Record<string, any> = {};
+      for (const e of establishments ?? []) {
+        estMap[e.id] = e;
+      }
+
+      // 3. Fetch all journey IDs for this concierge
+      const { data: journeys } = await db
+        .from("experience_journeys")
+        .select("id")
+        .eq("concierge_id", conciergeId)
+        .is("deleted_at", null);
+
+      const journeyIds = (journeys ?? []).map((j: any) => j.id);
+
+      // 4. If no journeys, return partners with zero stats
+      if (journeyIds.length === 0) {
+        const result = partners.map((p: any, idx: number) => ({
+          ...p,
+          establishment_name: estMap[p.establishment_id]?.name ?? "—",
+          establishment_city: estMap[p.establishment_id]?.city ?? null,
+          establishment_cover_url: estMap[p.establishment_id]?.cover_url ?? null,
+          establishment_universe: estMap[p.establishment_id]?.universe ?? null,
+          total_requests: 0,
+          accepted_requests: 0,
+          acceptance_rate: 0,
+          avg_response_time_hours: null,
+          total_confirmed_bookings: 0,
+          total_revenue: 0,
+          score: 0,
+          rank: idx + 1,
+          badge: "none" as const,
+        }));
+        return res.json({ partners: result, activity: [] });
+      }
+
+      // 5. Fetch all steps for these journeys
+      const { data: steps } = await db
+        .from("journey_steps")
+        .select("id,accepted_establishment_id,confirmed_price,status")
+        .in("journey_id", journeyIds)
+        .is("deleted_at", null);
+
+      const stepIds = (steps ?? []).map((s: any) => s.id);
+
+      // 6. Fetch all step_requests for these steps + partner establishments
+      let allRequests: any[] = [];
+      if (stepIds.length > 0) {
+        const { data: reqs } = await db
+          .from("step_requests")
+          .select("id,step_id,establishment_id,status,proposed_price,created_at,responded_at")
+          .in("step_id", stepIds)
+          .in("establishment_id", estIds);
+
+        allRequests = reqs ?? [];
+      }
+
+      // 7. Aggregate stats per establishment
+      type EstStats = {
+        total_requests: number;
+        accepted_requests: number;
+        response_times: number[]; // hours
+        total_confirmed_bookings: number;
+        total_revenue: number;
+      };
+
+      const statsMap: Record<string, EstStats> = {};
+      for (const eid of estIds) {
+        statsMap[eid] = {
+          total_requests: 0,
+          accepted_requests: 0,
+          response_times: [],
+          total_confirmed_bookings: 0,
+          total_revenue: 0,
+        };
+      }
+
+      // Count requests
+      for (const r of allRequests) {
+        const s = statsMap[r.establishment_id];
+        if (!s) continue;
+        s.total_requests++;
+        if (r.status === "accepted") {
+          s.accepted_requests++;
+        }
+        if (r.responded_at && r.created_at) {
+          const hours =
+            (new Date(r.responded_at).getTime() - new Date(r.created_at).getTime()) /
+            (1000 * 60 * 60);
+          if (hours >= 0) s.response_times.push(hours);
+        }
+      }
+
+      // Count confirmed bookings + revenue from steps
+      for (const step of steps ?? []) {
+        const eid = (step as any).accepted_establishment_id;
+        if (eid && statsMap[eid]) {
+          statsMap[eid].total_confirmed_bookings++;
+          statsMap[eid].total_revenue += (step as any).confirmed_price ?? 0;
+        }
+      }
+
+      // 8. Calculate scores
+      const maxBookings = Math.max(
+        1,
+        ...Object.values(statsMap).map((s) => s.total_confirmed_bookings),
+      );
+      const maxRevenue = Math.max(
+        1,
+        ...Object.values(statsMap).map((s) => s.total_revenue),
+      );
+
+      type ScoredPartner = any & { score: number };
+      const scored: ScoredPartner[] = partners.map((p: any) => {
+        const s = statsMap[p.establishment_id] ?? {
+          total_requests: 0,
+          accepted_requests: 0,
+          response_times: [],
+          total_confirmed_bookings: 0,
+          total_revenue: 0,
+        };
+
+        const acceptanceRate =
+          s.total_requests > 0 ? (s.accepted_requests / s.total_requests) * 100 : 0;
+
+        const avgResponseHours =
+          s.response_times.length > 0
+            ? s.response_times.reduce((a: number, b: number) => a + b, 0) /
+              s.response_times.length
+            : null;
+
+        // Speed score: < 1h = 1.0, > 24h = 0
+        let speedScore = 0;
+        if (avgResponseHours !== null) {
+          speedScore = Math.max(0, Math.min(1, (24 - avgResponseHours) / 24));
+        }
+
+        const volumeScore = Math.min(s.total_confirmed_bookings / maxBookings, 1);
+        const revenueScore = Math.min(s.total_revenue / maxRevenue, 1);
+
+        const score = Math.round(
+          (acceptanceRate / 100) * 40 +
+            speedScore * 25 +
+            volumeScore * 20 +
+            revenueScore * 15,
+        );
+
+        return {
+          ...p,
+          establishment_name: estMap[p.establishment_id]?.name ?? "—",
+          establishment_city: estMap[p.establishment_id]?.city ?? null,
+          establishment_cover_url: estMap[p.establishment_id]?.cover_url ?? null,
+          establishment_universe: estMap[p.establishment_id]?.universe ?? null,
+          total_requests: s.total_requests,
+          accepted_requests: s.accepted_requests,
+          acceptance_rate: Math.round(acceptanceRate),
+          avg_response_time_hours: avgResponseHours !== null ? Math.round(avgResponseHours * 10) / 10 : null,
+          total_confirmed_bookings: s.total_confirmed_bookings,
+          total_revenue: s.total_revenue,
+          score,
+        };
+      });
+
+      // 9. Sort by score desc, assign rank & badge
+      scored.sort((a: ScoredPartner, b: ScoredPartner) => b.score - a.score);
+      const total = scored.length;
+      scored.forEach((p: ScoredPartner, idx: number) => {
+        p.rank = idx + 1;
+        if (p.score >= 80 || (total >= 5 && idx < Math.ceil(total * 0.1))) {
+          p.badge = "gold";
+        } else if (p.score >= 60 || (total >= 5 && idx < Math.ceil(total * 0.3))) {
+          p.badge = "silver";
+        } else if (p.score >= 40 || (total >= 5 && idx < Math.ceil(total * 0.5))) {
+          p.badge = "bronze";
+        } else {
+          p.badge = "none";
+        }
+      });
+
+      // 10. Build activity feed (last 10 events)
+      const activity: any[] = [];
+
+      // Recent partner additions
+      for (const p of partners) {
+        activity.push({
+          type: "partner_added",
+          establishment_name: estMap[(p as any).establishment_id]?.name ?? "—",
+          date: (p as any).created_at,
+        });
+      }
+
+      // Recent acceptations
+      const recentAccepted = allRequests
+        .filter((r: any) => r.status === "accepted" && r.responded_at)
+        .sort(
+          (a: any, b: any) =>
+            new Date(b.responded_at).getTime() - new Date(a.responded_at).getTime(),
+        )
+        .slice(0, 10);
+
+      for (const r of recentAccepted) {
+        activity.push({
+          type: "request_accepted",
+          establishment_name: estMap[r.establishment_id]?.name ?? "—",
+          date: r.responded_at,
+          details: r.proposed_price
+            ? `${(r.proposed_price / 100).toFixed(0)} DH`
+            : undefined,
+        });
+      }
+
+      // Recent refusals
+      const recentRefused = allRequests
+        .filter((r: any) => r.status === "refused" && r.responded_at)
+        .sort(
+          (a: any, b: any) =>
+            new Date(b.responded_at).getTime() - new Date(a.responded_at).getTime(),
+        )
+        .slice(0, 5);
+
+      for (const r of recentRefused) {
+        activity.push({
+          type: "request_refused",
+          establishment_name: estMap[r.establishment_id]?.name ?? "—",
+          date: r.responded_at,
+        });
+      }
+
+      // Sort activity by date desc, limit to 10
+      activity.sort(
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+      );
+
+      return res.json({
+        partners: scored,
+        activity: activity.slice(0, 10),
+      });
+    } catch (e: any) {
+      log.error({ err: e }, "GET /conciergerie/partners error");
       return res.status(500).json({ error: "Internal error" });
     }
   });

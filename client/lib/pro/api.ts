@@ -4475,7 +4475,7 @@ export async function uploadPartnerDeliverableFile(args: {
       headers: {
         authorization: `Bearer ${token}`,
         "content-type": args.file.type || "application/octet-stream",
-        "x-file-name": args.file.name,
+        "x-file-name": encodeURIComponent(args.file.name),
       },
       body,
     },

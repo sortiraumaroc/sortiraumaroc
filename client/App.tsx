@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { BookingProvider } from "@/hooks/useBooking";
@@ -17,6 +17,7 @@ import { useI18n } from "@/lib/i18n";
 import type { AppLocale } from "@/lib/i18n/types";
 import { ScrollProvider } from "@/lib/scrollContext";
 import { initNavigationStateTracking } from "@/lib/navigationState";
+import { startPageViewTracking, notifyRouteChange, stopPageViewTracking } from "@/lib/pageViewTracker";
 import { BannerProvider } from "@/components/banners/BannerProvider";
 
 const Index = lazy(() => import("./pages/Index"));
@@ -402,6 +403,11 @@ const AdminFinancesPage = lazy(() =>
     default: m.AdminFinancesDashboard,
   })),
 );
+const AdminFtourPage = lazy(() =>
+  import("./components/packs/AdminFtourDashboard").then((m) => ({
+    default: m.AdminFtourDashboard,
+  })),
+);
 const AdminLoyaltyV2Page = lazy(() =>
   import("./components/loyaltyV2/AdminLoyaltyV2Dashboard").then((m) => ({
     default: m.AdminLoyaltyV2Dashboard,
@@ -415,6 +421,11 @@ const AdminCePage = lazy(() =>
 const AdminPartnershipsPage = lazy(() =>
   import("./pages/admin/AdminPartnershipsPage").then((m) => ({
     default: m.AdminPartnershipsPage,
+  })),
+);
+const AdminConciergeriePage = lazy(() =>
+  import("./components/admin/AdminConciergerieDashboard").then((m) => ({
+    default: m.AdminConciergerieDashboard,
   })),
 );
 const AdminRentalPage = lazy(() =>
@@ -559,6 +570,21 @@ const queryClient = new QueryClient({
   },
 });
 
+function PageViewTracker() {
+  const location = useLocation();
+
+  useEffect(() => {
+    startPageViewTracking();
+    return () => stopPageViewTracking();
+  }, []);
+
+  useEffect(() => {
+    notifyRouteChange(location.pathname);
+  }, [location.pathname]);
+
+  return null;
+}
+
 function AppContent() {
   // Initialize navigation state tracking on mount
   useEffect(() => {
@@ -568,6 +594,7 @@ function AppContent() {
   return (
     <>
       <ScrollToTop />
+      <PageViewTracker />
       <PlatformSettingsProvider>
         <BookingProvider>
           <BannerProvider>
@@ -682,9 +709,11 @@ function AppContent() {
               <Route path="packs-moderation" element={<AdminPacksModerationPage />} />
               <Route path="ramadan" element={<AdminRamadanModerationPage />} />
               <Route path="finances" element={<AdminFinancesPage />} />
+              <Route path="ftour" element={<AdminFtourPage />} />
               <Route path="loyalty-v2" element={<AdminLoyaltyV2Page />} />
               <Route path="ce" element={<AdminCePage />} />
               <Route path="partnerships" element={<AdminPartnershipsPage />} />
+              <Route path="conciergeries" element={<AdminConciergeriePage />} />
               <Route path="rental" element={<AdminRentalPage />} />
               <Route path="content" element={<AdminContentPage />} />
               <Route path="homepage" element={<AdminHomePage />} />

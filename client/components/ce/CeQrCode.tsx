@@ -33,6 +33,8 @@ interface CeQrCodeProps {
   showTimer?: boolean;
   /** Allow fullscreen mode */
   allowFullscreen?: boolean;
+  /** Company name to display */
+  companyName?: string | null;
   /** Custom class */
   className?: string;
 }
@@ -85,6 +87,7 @@ export function CeQrCode({
   size = 240,
   showTimer = true,
   allowFullscreen = true,
+  companyName,
   className,
 }: CeQrCodeProps) {
   const [secretData, setSecretData] = useState<CeSecretData | null>(null);
@@ -192,6 +195,14 @@ export function CeQrCode({
             <span>Expire dans {secondsRemaining}s</span>
           </div>
         )}
+        {companyName && (
+          <div className="mt-4 flex flex-col items-center gap-1">
+            <p className="text-sm font-semibold text-slate-700">Salarié de {companyName}</p>
+            <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700">
+              <Shield className="h-3 w-3" /> Profil vérifié
+            </span>
+          </div>
+        )}
         <p className="mt-3 text-xs text-slate-400">Présentez ce QR code CE au personnel</p>
       </div>
     );
@@ -238,6 +249,16 @@ export function CeQrCode({
             )}
           </div>
         ) : null}
+
+        {/* Company info */}
+        {companyName && !loading && !error && (
+          <div className="mt-3 flex flex-col items-center gap-1">
+            <p className="text-xs font-semibold text-slate-700">Salarié de {companyName}</p>
+            <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">
+              <Shield className="h-2.5 w-2.5" /> Profil vérifié
+            </span>
+          </div>
+        )}
 
         {/* Timer */}
         {showTimer && !loading && !error && (

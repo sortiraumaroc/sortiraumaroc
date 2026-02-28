@@ -5,7 +5,7 @@
  * Dashboard de stats rapides.
  */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   Moon,
   CheckCircle,
@@ -17,9 +17,15 @@ import {
   PauseCircle,
   PlayCircle,
   Trash2,
+  Upload,
+  Loader2,
+  Zap,
+  Eye,
+  Save,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -42,6 +48,13 @@ import {
   suspendRamadanOffer,
   resumeRamadanOffer,
   deleteRamadanOffer,
+  uploadRamadanOfferImage,
+  updateRamadanOfferCover,
+  activateRamadanOffer as activateRamadanOfferApi,
+  bulkFtourSlotAction,
+  updateFtourSlot,
+  updateFtourGroupCover,
+  featureFtourGroup,
 } from "@/lib/ramadanAdminApi";
 import type { RamadanOfferWithEstablishment } from "@/lib/ramadanAdminApi";
 import {
@@ -67,8 +80,31 @@ function statusBadgeColor(status: string): string {
   }
 }
 
-function formatPrice(centimes: number): string {
+function formatPrice(centimes: number | null | undefined): string {
+  if (centimes == null || Number.isNaN(centimes)) return "—";
   return `${(centimes / 100).toFixed(0)} MAD`;
+}
+
+/** Formater une date YYYY-MM-DD en DD/MM/YYYY */
+function fmtDate(iso: string): string {
+  if (!iso) return "—";
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+/** Indicateur visuel de période (en cours / à venir / expirée) */
+function dateRangeIndicator(validFrom: string, validTo: string): {
+  label: string;
+  className: string;
+} {
+  const today = new Date().toISOString().split("T")[0];
+  if (validTo && validTo < today) {
+    return { label: "Expirée", className: "text-red-600 bg-red-50" };
+  }
+  if (validFrom && validFrom > today) {
+    return { label: `Commence le ${fmtDate(validFrom)}`, className: "text-amber-600 bg-amber-50" };
+  }
+  return { label: "En cours", className: "text-emerald-600 bg-emerald-50" };
 }
 
 // =============================================================================
@@ -87,12 +123,23 @@ export default function AdminRamadanModerationPage() {
   const [totalScans, setTotalScans] = useState(0);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
+  // Upload cover
+  const [uploadingCoverId, setUploadingCoverId] = useState<string | null>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
+  const uploadTargetRef = useRef<{ offerId: string; establishmentId: string; slotIds?: string[] } | null>(null);
+
   // Dialogs
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [modifDialogOpen, setModifDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [dialogOfferId, setDialogOfferId] = useState("");
   const [dialogText, setDialogText] = useState("");
+
+  // Ftour detail dialog
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+  const [detailGroup, setDetailGroup] = useState<any>(null);
+  const [editingSlots, setEditingSlots] = useState<Record<string, { price: string; capacity: string }>>({});
+  const [savingSlotId, setSavingSlotId] = useState<string | null>(null);
 
   const loadOffers = useCallback(async () => {
     setLoading(true);
@@ -120,12 +167,70 @@ export default function AdminRamadanModerationPage() {
   useEffect(() => { loadOffers(); }, [loadOffers]);
   useEffect(() => { loadStats(); }, [loadStats]);
 
-  // Actions
+  // Cover upload
+  const handleCoverUploadClick = (offerId: string, establishmentId: string, slotIds?: string[]) => {
+    uploadTargetRef.current = { offerId, establishmentId, slotIds };
+    coverInputRef.current?.click();
+  };
+
+  const handleCoverFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !uploadTargetRef.current) return;
+
+    const { offerId, establishmentId, slotIds } = uploadTargetRef.current;
+    setUploadingCoverId(offerId);
+
+    try {
+      const result = await uploadRamadanOfferImage({ establishmentId, file });
+      if (slotIds?.length) {
+        // Ftour group: update cover on all slots
+        await updateFtourGroupCover(slotIds, result.url);
+      } else {
+        // Regular ramadan offer
+        await updateRamadanOfferCover(offerId, result.url);
+      }
+      toast({ title: "Photo mise à jour" });
+      await loadOffers();
+    } catch (err) {
+      toast({
+        title: "Erreur d'upload",
+        description: err instanceof Error ? err.message : "Erreur",
+        variant: "destructive",
+      });
+    } finally {
+      setUploadingCoverId(null);
+      uploadTargetRef.current = null;
+    }
+  };
+
+  // Actions — route to correct API based on item_type
+  const getItem = (id: string) => offers.find((o) => o.id === id) as any;
+
   const handleApprove = async (offerId: string) => {
     setActionLoading(offerId);
     try {
-      await approveRamadanOffer(offerId);
+      const item = getItem(offerId);
+      if (item?.item_type === "ftour_group") {
+        await bulkFtourSlotAction(item.slot_ids, "approve");
+      } else {
+        await approveRamadanOffer(offerId);
+      }
       toast({ title: "Offre approuvée" });
+      await loadOffers();
+      await loadStats();
+    } catch (e) {
+      toast({ title: "Erreur", description: e instanceof Error ? e.message : "Erreur", variant: "destructive" });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleActivate = async (offerId: string) => {
+    setActionLoading(offerId);
+    try {
+      await activateRamadanOfferApi(offerId);
+      toast({ title: "Offre publiée immédiatement" });
       await loadOffers();
       await loadStats();
     } catch (e) {
@@ -139,7 +244,12 @@ export default function AdminRamadanModerationPage() {
     if (!dialogText.trim()) return;
     setActionLoading(dialogOfferId);
     try {
-      await rejectRamadanOffer(dialogOfferId, dialogText.trim());
+      const item = getItem(dialogOfferId);
+      if (item?.item_type === "ftour_group") {
+        await bulkFtourSlotAction(item.slot_ids, "reject", dialogText.trim());
+      } else {
+        await rejectRamadanOffer(dialogOfferId, dialogText.trim());
+      }
       toast({ title: "Offre rejetée" });
       setRejectDialogOpen(false);
       setDialogText("");
@@ -171,7 +281,10 @@ export default function AdminRamadanModerationPage() {
 
   const handleFeature = async (offerId: string, featured: boolean) => {
     try {
-      if (featured) {
+      const item = getItem(offerId);
+      if (item?.item_type === "ftour_group") {
+        await featureFtourGroup(item.slot_ids, featured);
+      } else if (featured) {
         await featureRamadanOffer(offerId);
       } else {
         await unfeatureRamadanOffer(offerId);
@@ -186,7 +299,12 @@ export default function AdminRamadanModerationPage() {
   const handleSuspend = async (offerId: string) => {
     setActionLoading(offerId);
     try {
-      await suspendRamadanOffer(offerId);
+      const item = getItem(offerId);
+      if (item?.item_type === "ftour_group") {
+        await bulkFtourSlotAction(item.slot_ids, "suspend");
+      } else {
+        await suspendRamadanOffer(offerId);
+      }
       toast({ title: "Offre suspendue" });
       await loadOffers();
       await loadStats();
@@ -200,7 +318,12 @@ export default function AdminRamadanModerationPage() {
   const handleResume = async (offerId: string) => {
     setActionLoading(offerId);
     try {
-      await resumeRamadanOffer(offerId);
+      const item = getItem(offerId);
+      if (item?.item_type === "ftour_group") {
+        await bulkFtourSlotAction(item.slot_ids, "resume");
+      } else {
+        await resumeRamadanOffer(offerId);
+      }
       toast({ title: "Offre réactivée" });
       await loadOffers();
       await loadStats();
@@ -214,7 +337,12 @@ export default function AdminRamadanModerationPage() {
   const handleDelete = async () => {
     setActionLoading(dialogOfferId);
     try {
-      await deleteRamadanOffer(dialogOfferId);
+      const item = getItem(dialogOfferId);
+      if (item?.item_type === "ftour_group") {
+        await bulkFtourSlotAction(item.slot_ids, "delete");
+      } else {
+        await deleteRamadanOffer(dialogOfferId);
+      }
       toast({ title: "Offre supprimée" });
       setDeleteDialogOpen(false);
       await loadOffers();
@@ -223,6 +351,44 @@ export default function AdminRamadanModerationPage() {
       toast({ title: "Erreur", description: e instanceof Error ? e.message : "Erreur", variant: "destructive" });
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  // Ftour detail dialog handlers
+  const openDetailDialog = (group: any) => {
+    setDetailGroup(group);
+    const initial: Record<string, { price: string; capacity: string }> = {};
+    for (const s of group.slots ?? []) {
+      initial[s.id] = {
+        price: s.base_price != null ? String(Math.round(s.base_price / 100)) : "",
+        capacity: s.capacity != null ? String(s.capacity) : "",
+      };
+    }
+    setEditingSlots(initial);
+    setDetailDialogOpen(true);
+  };
+
+  const handleSaveSlot = async (slotId: string) => {
+    const edit = editingSlots[slotId];
+    if (!edit) return;
+
+    setSavingSlotId(slotId);
+    try {
+      const updates: Record<string, unknown> = {};
+      const priceMAD = Number(edit.price);
+      if (!Number.isNaN(priceMAD) && priceMAD >= 0) updates.base_price = Math.round(priceMAD * 100);
+      const cap = Number(edit.capacity);
+      if (!Number.isNaN(cap) && cap > 0) updates.capacity = Math.round(cap);
+
+      if (!Object.keys(updates).length) return;
+
+      await updateFtourSlot(slotId, updates as any);
+      toast({ title: "Créneau modifié" });
+      await loadOffers();
+    } catch (e) {
+      toast({ title: "Erreur", description: e instanceof Error ? e.message : "Erreur", variant: "destructive" });
+    } finally {
+      setSavingSlotId(null);
     }
   };
 
@@ -297,6 +463,8 @@ export default function AdminRamadanModerationPage() {
           {offers.map((offer) => {
             const isLoading = actionLoading === offer.id;
             const isPending = offer.moderation_status === "pending_moderation";
+            const isFtourGroup = (offer as any).item_type === "ftour_group";
+            const d = offer as any;
 
             return (
               <div
@@ -304,13 +472,32 @@ export default function AdminRamadanModerationPage() {
                 className="rounded-lg border bg-white p-4 hover:shadow-sm transition-shadow"
               >
                 <div className="flex items-start gap-4">
-                  {/* Cover */}
-                  <div className="w-24 h-24 rounded-lg bg-slate-100 overflow-hidden shrink-0">
-                    {offer.cover_url ? (
-                      <img src={offer.cover_url} alt={offer.title} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="flex items-center justify-center h-full text-3xl">🌙</div>
-                    )}
+                  {/* Cover + Upload */}
+                  <div className="shrink-0 flex flex-col items-center gap-1">
+                    <div className="w-24 h-24 rounded-lg bg-slate-100 overflow-hidden">
+                      {uploadingCoverId === offer.id ? (
+                        <div className="flex items-center justify-center h-full">
+                          <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                        </div>
+                      ) : offer.cover_url ? (
+                        <img src={offer.cover_url} alt={isFtourGroup ? "Ftour" : offer.title} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-3xl">{isFtourGroup ? "🍽️" : "🌙"}</div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className="flex items-center gap-1 text-[10px] text-primary hover:underline"
+                      onClick={() => handleCoverUploadClick(
+                        offer.id,
+                        offer.establishment_id,
+                        isFtourGroup ? (d as any).slot_ids : undefined,
+                      )}
+                      disabled={uploadingCoverId === offer.id}
+                    >
+                      <Upload className="h-3 w-3" />
+                      Photo
+                    </button>
                   </div>
 
                   {/* Info */}
@@ -320,40 +507,103 @@ export default function AdminRamadanModerationPage() {
                         {RAMADAN_OFFER_STATUS_LABELS[offer.moderation_status] ?? offer.moderation_status}
                       </Badge>
                       <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                        {RAMADAN_OFFER_TYPE_LABELS[offer.type] ?? offer.type}
+                        {isFtourGroup ? "Créneau Ftour" : (RAMADAN_OFFER_TYPE_LABELS[offer.type] ?? offer.type)}
                       </Badge>
-                      {offer.is_featured ? (
+                      {!isFtourGroup && offer.is_featured ? (
                         <Badge className="text-[10px] px-1.5 py-0 bg-amber-100 text-amber-700">
                           ⭐ En vedette
                         </Badge>
                       ) : null}
                     </div>
-                    <h3 className="text-sm font-bold text-slate-900">{offer.title}</h3>
-                    <div className="text-xs text-slate-500 mt-0.5">
-                      {offer.establishments?.name ?? "—"} · {offer.establishments?.city ?? ""}
-                    </div>
-                    <div className="text-sm text-primary font-bold mt-0.5">
-                      {formatPrice(offer.price)}
-                      {offer.original_price ? (
-                        <span className="text-xs text-slate-400 line-through ml-2">
-                          {formatPrice(offer.original_price)}
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="text-xs text-slate-500 mt-0.5">
-                      {offer.valid_from} → {offer.valid_to} · {offer.capacity_per_slot} places
-                    </div>
-                    {offer.description_fr ? (
-                      <div className="text-xs text-slate-600 mt-1 line-clamp-2">
-                        {offer.description_fr}
-                      </div>
-                    ) : null}
+
+                    {isFtourGroup ? (
+                      (() => {
+                        const dateFrom = d.date_from?.split("T")[0] ?? "";
+                        const dateTo = d.date_to?.split("T")[0] ?? "";
+                        const sameDate = dateFrom === dateTo;
+                        return (
+                          <>
+                            <h3 className="text-sm font-bold text-slate-900">
+                              Ftour — {d.establishments?.name ?? "—"}
+                            </h3>
+                            <div className="text-xs text-slate-500 mt-0.5">
+                              {d.establishments?.city ?? ""}
+                            </div>
+                            <div className="text-sm text-primary font-bold mt-0.5">
+                              {formatPrice(d.base_price)}
+                              {d.promo_type === "percent" && d.promo_value ? (
+                                <span className="ml-2 text-xs text-emerald-600 font-bold">-{d.promo_value}%</span>
+                              ) : null}
+                            </div>
+                            <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-2">
+                              <span>
+                                {sameDate
+                                  ? fmtDate(dateFrom)
+                                  : `${fmtDate(dateFrom)} → ${fmtDate(dateTo)}`}
+                              </span>
+                              <span className={cn("text-[10px] font-medium px-1.5 py-0.5 rounded", dateRangeIndicator(dateFrom, dateTo).className)}>
+                                {dateRangeIndicator(dateFrom, dateTo).label}
+                              </span>
+                              <span>· {d.slot_count ?? 0} créneau{(d.slot_count ?? 0) > 1 ? "x" : ""}</span>
+                              <span>· {d.total_capacity ?? 0} places</span>
+                            </div>
+                            {d.promo_label && (
+                              <div className="text-xs text-slate-600 mt-1">{d.promo_label}</div>
+                            )}
+                          </>
+                        );
+                      })()
+                    ) : (
+                      <>
+                        <h3 className="text-sm font-bold text-slate-900">{offer.title || "Sans titre"}</h3>
+                        <div className="text-xs text-slate-500 mt-0.5">
+                          {offer.establishments?.name ?? "—"} · {offer.establishments?.city ?? ""}
+                        </div>
+                        <div className="text-sm text-primary font-bold mt-0.5">
+                          {formatPrice(offer.price)}
+                          {offer.original_price ? (
+                            <span className="text-xs text-slate-400 line-through ml-2">
+                              {formatPrice(offer.original_price)}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-2">
+                          <span>{fmtDate(offer.valid_from ?? "")} → {fmtDate(offer.valid_to ?? "")}</span>
+                          <span className={cn("text-[10px] font-medium px-1.5 py-0.5 rounded", dateRangeIndicator(offer.valid_from ?? "", offer.valid_to ?? "").className)}>
+                            {dateRangeIndicator(offer.valid_from ?? "", offer.valid_to ?? "").label}
+                          </span>
+                          <span>· {offer.capacity_per_slot ?? 0} places</span>
+                        </div>
+                        {offer.description_fr ? (
+                          <div className="text-xs text-slate-600 mt-1 line-clamp-2">
+                            {offer.description_fr}
+                          </div>
+                        ) : null}
+                      </>
+                    )}
                   </div>
 
                   {/* Actions */}
-                  <div className="flex flex-col gap-1.5 shrink-0">
-                    {/* Pending: Approuver, Demander modif, Rejeter */}
-                    {isPending && (
+                  <div className="grid grid-cols-2 gap-1.5 shrink-0">
+                    {/* Pending ftour: icon-only row */}
+                    {isPending && isFtourGroup && (
+                      <div className="col-span-2 flex flex-row gap-1.5">
+                        <Button size="icon" variant="outline" className="h-8 w-8" title="Détail" onClick={() => openDetailDialog(d)}>
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button size="icon" className="h-8 w-8 bg-emerald-600 hover:bg-emerald-700 text-white" title="Approuver" disabled={isLoading} onClick={() => handleApprove(offer.id)}>
+                          <CheckCircle className="h-4 w-4" />
+                        </Button>
+                        <Button size="icon" variant="outline" className="h-8 w-8 text-red-600 border-red-200" title="Rejeter" disabled={isLoading} onClick={() => { setDialogOfferId(offer.id); setDialogText(""); setRejectDialogOpen(true); }}>
+                          <XCircle className="h-4 w-4" />
+                        </Button>
+                        <Button size="icon" variant="outline" className="h-8 w-8 text-red-600 border-red-200" title="Supprimer" disabled={isLoading} onClick={() => { setDialogOfferId(offer.id); setDeleteDialogOpen(true); }}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+                    {/* Pending offers: normal buttons */}
+                    {isPending && !isFtourGroup && (
                       <>
                         <Button
                           size="sm"
@@ -395,9 +645,36 @@ export default function AdminRamadanModerationPage() {
                       </>
                     )}
 
-                    {/* Active: Suspendre, Toggle vedette */}
+                    {/* Active: 4 icon-only buttons for all items */}
                     {offer.moderation_status === "active" && (
+                      <div className="col-span-2 flex flex-row gap-1.5">
+                        <Button size="icon" variant="outline" className="h-8 w-8" title="Détail" onClick={() => isFtourGroup ? openDetailDialog(d) : undefined}>
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button size="icon" variant="outline" className={cn("h-8 w-8", offer.is_featured ? "border-amber-400" : "")} title={offer.is_featured ? "Retirer vedette" : "Mettre en vedette"} onClick={() => handleFeature(offer.id, !offer.is_featured)}>
+                          <Star className={cn("h-4 w-4", offer.is_featured ? "fill-amber-400 text-amber-400" : "")} />
+                        </Button>
+                        <Button size="icon" variant="outline" className="h-8 w-8 text-orange-600 border-orange-200" title="Suspendre" disabled={isLoading} onClick={() => handleSuspend(offer.id)}>
+                          <PauseCircle className="h-4 w-4" />
+                        </Button>
+                        <Button size="icon" variant="outline" className="h-8 w-8 text-red-600 border-red-200" title="Supprimer" disabled={isLoading} onClick={() => { setDialogOfferId(offer.id); setDeleteDialogOpen(true); }}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* Approved: Publier maintenant, Suspendre (ramadan offers only) */}
+                    {!isFtourGroup && offer.moderation_status === "approved" && (
                       <>
+                        <Button
+                          size="sm"
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs"
+                          disabled={isLoading}
+                          onClick={() => handleActivate(offer.id)}
+                        >
+                          <Zap className="h-3.5 w-3.5 mr-1" />
+                          Publier maintenant
+                        </Button>
                         <Button
                           size="sm"
                           variant="outline"
@@ -408,34 +685,22 @@ export default function AdminRamadanModerationPage() {
                           <PauseCircle className="h-3.5 w-3.5 mr-1" />
                           Suspendre
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-xs"
-                          onClick={() => handleFeature(offer.id, !offer.is_featured)}
-                        >
-                          <Star className={cn("h-3.5 w-3.5 mr-1", offer.is_featured ? "fill-amber-400 text-amber-400" : "")} />
-                          {offer.is_featured ? "Retirer vedette" : "Mettre en vedette"}
-                        </Button>
                       </>
                     )}
 
-                    {/* Approved: Suspendre */}
-                    {offer.moderation_status === "approved" && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="text-orange-600 border-orange-200 text-xs"
-                        disabled={isLoading}
-                        onClick={() => handleSuspend(offer.id)}
-                      >
-                        <PauseCircle className="h-3.5 w-3.5 mr-1" />
-                        Suspendre
-                      </Button>
+                    {/* Suspended ftour: icon-only */}
+                    {offer.moderation_status === "suspended" && isFtourGroup && (
+                      <div className="col-span-2 flex flex-row gap-1.5">
+                        <Button size="icon" className="h-8 w-8 bg-emerald-600 hover:bg-emerald-700 text-white" title="Réactiver" disabled={isLoading} onClick={() => handleResume(offer.id)}>
+                          <PlayCircle className="h-4 w-4" />
+                        </Button>
+                        <Button size="icon" variant="outline" className="h-8 w-8 text-red-600 border-red-200" title="Supprimer" disabled={isLoading} onClick={() => { setDialogOfferId(offer.id); setDeleteDialogOpen(true); }}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     )}
-
-                    {/* Suspended: Réactiver, Supprimer */}
-                    {offer.moderation_status === "suspended" && (
+                    {/* Suspended offers: normal buttons */}
+                    {offer.moderation_status === "suspended" && !isFtourGroup && (
                       <>
                         <Button
                           size="sm"
@@ -462,8 +727,34 @@ export default function AdminRamadanModerationPage() {
                       </>
                     )}
 
-                    {/* Rejected, Draft, Modification requested, Expired: Supprimer */}
-                    {["rejected", "draft", "modification_requested", "expired"].includes(offer.moderation_status) && (
+                    {/* Rejected/Draft/etc ftour: icon-only delete */}
+                    {isFtourGroup && ["rejected", "draft", "modification_requested", "expired"].includes(offer.moderation_status) && (
+                      <div className="col-span-2 flex flex-row gap-1.5">
+                        <Button size="icon" variant="outline" className="h-8 w-8 text-red-600 border-red-200" title="Supprimer" disabled={isLoading} onClick={() => { setDialogOfferId(offer.id); setDeleteDialogOpen(true); }}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* Rejected, Draft, Modification requested, Expired: Supprimer (offers) */}
+                    {!isFtourGroup && ["rejected", "draft", "modification_requested", "expired"].includes(offer.moderation_status) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-red-600 border-red-200 text-xs"
+                        disabled={isLoading}
+                        onClick={() => {
+                          setDialogOfferId(offer.id);
+                          setDeleteDialogOpen(true);
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5 mr-1" />
+                        Supprimer
+                      </Button>
+                    )}
+
+                    {/* Approved, Pending (non-ftour): Supprimer — active handled in icon row above */}
+                    {!isFtourGroup && ["approved", "pending_moderation"].includes(offer.moderation_status) && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -485,6 +776,15 @@ export default function AdminRamadanModerationPage() {
           })}
         </div>
       )}
+
+      {/* Hidden file input for cover upload */}
+      <input
+        ref={coverInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/heic,image/avif"
+        className="hidden"
+        onChange={handleCoverFileChange}
+      />
 
       {/* Dialog Rejet */}
       <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
@@ -559,6 +859,102 @@ export default function AdminRamadanModerationPage() {
             >
               <Trash2 className="h-4 w-4 mr-1" />
               Supprimer définitivement
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog Détail Ftour */}
+      <Dialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              Détail — {detailGroup?.establishments?.name ?? "Ftour"}
+            </DialogTitle>
+          </DialogHeader>
+          {detailGroup?.slots?.length ? (
+            <div className="max-h-[60vh] overflow-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 sticky top-0">
+                  <tr>
+                    <th className="text-left px-3 py-2 text-xs font-medium text-slate-500">Date</th>
+                    <th className="text-left px-3 py-2 text-xs font-medium text-slate-500">Horaire</th>
+                    <th className="text-right px-3 py-2 text-xs font-medium text-slate-500">Prix (MAD)</th>
+                    <th className="text-right px-3 py-2 text-xs font-medium text-slate-500">Capacité</th>
+                    <th className="px-3 py-2 w-10" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {(detailGroup.slots as any[]).map((slot: any) => {
+                    const edit = editingSlots[slot.id];
+                    const isSaving = savingSlotId === slot.id;
+                    return (
+                      <tr key={slot.id} className="hover:bg-slate-50">
+                        <td className="px-3 py-2 text-xs whitespace-nowrap">
+                          {fmtDate(slot.starts_at?.split("T")[0] ?? "")}
+                        </td>
+                        <td className="px-3 py-2 text-xs whitespace-nowrap text-slate-500">
+                          {new Date(slot.starts_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                          {" → "}
+                          {new Date(slot.ends_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                        </td>
+                        <td className="px-3 py-2">
+                          <Input
+                            type="number"
+                            min={0}
+                            className="h-7 w-24 text-xs text-right ml-auto"
+                            value={edit?.price ?? ""}
+                            onChange={(e) =>
+                              setEditingSlots((prev) => ({
+                                ...prev,
+                                [slot.id]: { ...prev[slot.id], price: e.target.value },
+                              }))
+                            }
+                            disabled={isSaving}
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <Input
+                            type="number"
+                            min={1}
+                            className="h-7 w-20 text-xs text-right ml-auto"
+                            value={edit?.capacity ?? ""}
+                            onChange={(e) =>
+                              setEditingSlots((prev) => ({
+                                ...prev,
+                                [slot.id]: { ...prev[slot.id], capacity: e.target.value },
+                              }))
+                            }
+                            disabled={isSaving}
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0"
+                            onClick={() => handleSaveSlot(slot.id)}
+                            disabled={isSaving}
+                          >
+                            {isSaving ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Save className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500 text-center py-4">Aucun créneau.</p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDetailDialogOpen(false)}>
+              Fermer
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -7,6 +7,7 @@
 import { getAdminSupabase } from "./supabaseAdmin";
 import { LOYALTY_FRAUD_THRESHOLDS } from "../shared/loyaltyTypesV2";
 import { emitAdminNotification } from "./adminNotifications";
+import { reportSuspiciousActivity, type SuspiciousAlertType } from "./suspiciousActivity";
 import { createModuleLogger } from "./lib/logger";
 
 const log = createModuleLogger("loyaltyFraudDetection");
@@ -74,7 +75,8 @@ export async function detectSuspiciousStamping(args: {
     // Notification admin
     void notifyAdminAlert(
       "suspicious_stamping",
-      `Tamponnage suspect détecté : ${count} tampons en ${periodDays} jours`
+      `Tamponnage suspect détecté : ${count} tampons en ${periodDays} jours`,
+      { userId: args.userId, establishmentId: args.establishmentId },
     );
   } catch (err) {
     log.error({ err }, "detectSuspiciousStamping error");
@@ -202,7 +204,8 @@ export async function detectHighValueReward(args: {
 
     void notifyAdminAlert(
       "high_value_reward",
-      `Cadeau haute valeur détecté : ${numericValue} MAD`
+      `Cadeau haute valeur détecté : ${numericValue} MAD`,
+      { establishmentId: args.establishmentId },
     );
   } catch (err) {
     log.error({ err }, "detectHighValueReward error");
@@ -349,7 +352,8 @@ export async function alertProgramCreated(args: {
 
     void notifyAdminAlert(
       "program_created",
-      `Nouveau programme fidélité : "${args.programName}"`
+      `Nouveau programme fidélité : "${args.programName}"`,
+      { userId: args.createdBy, establishmentId: args.establishmentId },
     );
   } catch (err) {
     log.error({ err }, "alertProgramCreated error");
@@ -427,13 +431,41 @@ export async function dismissAlert(args: {
 // HELPER INTERNE
 // =============================================================================
 
-async function notifyAdminAlert(type: string, message: string): Promise<void> {
+function mapLoyaltyAlertType(type: string): SuspiciousAlertType {
+  switch (type) {
+    case "suspicious_stamping": return "loyalty_suspicious_stamping";
+    case "abnormal_frequency": return "pro_loyalty_abnormal_frequency";
+    case "high_value_reward": return "loyalty_high_value_reward";
+    case "suspicious_amount_pattern": return "pro_loyalty_amount_pattern";
+    case "program_created": return "loyalty_program_created";
+    default: return "loyalty_suspicious_stamping";
+  }
+}
+
+async function notifyAdminAlert(
+  type: string,
+  message: string,
+  extra?: { userId?: string; establishmentId?: string },
+): Promise<void> {
   try {
     await emitAdminNotification({
       type: `loyalty_alert_${type}`,
       title: "Alerte Fidélité",
       body: message,
       data: { alert_type: type },
+    });
+
+    // Alerte unifiée (persistance DB + email admin)
+    const isPro = type === "abnormal_frequency" || type === "suspicious_amount_pattern";
+    void reportSuspiciousActivity({
+      actorType: isPro ? "pro" : "consumer",
+      actorId: extra?.userId || "unknown",
+      alertType: mapLoyaltyAlertType(type),
+      severity: type === "program_created" ? "info" : "warning",
+      title: `Fidélité — ${message.substring(0, 80)}`,
+      details: message,
+      establishmentId: extra?.establishmentId,
+      deduplicationKey: `loyalty_${type}_${extra?.userId || "unknown"}`,
     });
   } catch (err) {
     log.warn({ err }, "Best-effort: admin fraud alert notification failed");

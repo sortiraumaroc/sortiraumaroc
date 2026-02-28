@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import type { WheelPrizeType } from "../../../shared/notificationsBannersWheelTypes";
-import { X, Gift, Copy, Check, ExternalLink, Clock } from "lucide-react";
+import { Copy, Check, ExternalLink, Clock } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -14,6 +14,7 @@ interface WheelResultModalProps {
     name: string;
     type: string;
     description: string | null;
+    establishment_id?: string;
     establishment_name?: string;
     value?: number;
     expires_at?: string;
@@ -23,6 +24,13 @@ interface WheelResultModalProps {
   } | null;
   giftDistributionId?: string | null;
   nextSpinAt?: string | null;
+  deviceId?: string;
+  /** Called when user clicks "Réserver maintenant" for ftour prizes */
+  onReserve?: () => void;
+}
+
+function isFtourPrize(prize: WheelResultModalProps["prize"]): boolean {
+  return !!(prize && prize.type === "free_service" && prize.establishment_id);
 }
 
 // ---------------------------------------------------------------------------
@@ -94,6 +102,8 @@ export default function WheelResultModal({
   prize,
   giftDistributionId,
   nextSpinAt,
+  deviceId,
+  onReserve,
 }: WheelResultModalProps) {
   const [copied, setCopied] = useState(false);
   const countdown = useCountdown(result === "lost" ? nextSpinAt : null);
@@ -130,53 +140,183 @@ export default function WheelResultModal({
 
   return (
     <>
-      {/* ---------- keyframes (injected once via style tag) ---------- */}
+      {/* ---------- keyframes ---------- */}
       <style>{`
-        @keyframes wrm-slide-up {
-          from { opacity: 0; transform: translateY(40px) scale(0.97); }
-          to   { opacity: 1; transform: translateY(0) scale(1); }
+        @keyframes wrm-fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
         }
-        @keyframes wrm-confetti {
-          0%   { opacity: 1; transform: translateY(0) rotate(0deg); }
-          100% { opacity: 0; transform: translateY(420px) rotate(720deg); }
+        @keyframes wrm-modalPop {
+          from { transform: scale(0.75); opacity: 0; }
+          to { transform: scale(1); opacity: 1; }
+        }
+        @keyframes wrm-iconPulse {
+          0%, 100% { box-shadow: 0 0 30px rgba(251,191,36,0.35); }
+          50% { box-shadow: 0 0 50px rgba(251,191,36,0.55); }
         }
       `}</style>
 
       {/* ---------- Overlay ---------- */}
       <div
-        className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4"
+        className="fixed inset-0 flex items-center justify-center px-4"
+        style={{
+          zIndex: 200,
+          background: won
+            ? "radial-gradient(ellipse at center, rgba(251,191,36,0.15) 0%, rgba(0,0,0,0.88) 70%)"
+            : "rgba(0,0,0,0.82)",
+          animation: "wrm-fadeIn 0.3s ease",
+        }}
         onClick={onClose}
       >
         {/* ---------- Card ---------- */}
         <div
-          className="relative w-full max-w-sm rounded-2xl bg-white shadow-2xl overflow-hidden"
-          style={{ animation: "wrm-slide-up 0.35s ease-out forwards" }}
           onClick={(e) => e.stopPropagation()}
+          style={{
+            background: won
+              ? "linear-gradient(155deg, #1a1a1a 0%, #2a1800 40%, #1a1a1a 100%)"
+              : "linear-gradient(155deg, #1a1a1a, #222)",
+            border: won ? "2px solid #fbbf24" : "1px solid #444",
+            borderRadius: 24,
+            padding: "44px 36px 36px",
+            textAlign: "center",
+            maxWidth: 380,
+            width: "100%",
+            boxShadow: won
+              ? "0 0 80px rgba(251,191,36,0.2), 0 0 30px rgba(251,191,36,0.15), 0 24px 60px rgba(0,0,0,0.6)"
+              : "0 24px 60px rgba(0,0,0,0.5)",
+            animation:
+              "wrm-modalPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
+            position: "relative",
+          }}
         >
-          {/* Confetti layer (won only) */}
-          {won && <ConfettiLayer />}
-
-          {/* Close button */}
-          <button
-            onClick={onClose}
-            className="absolute top-3 end-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/80 text-gray-500 hover:text-gray-800 transition-colors"
-            aria-label="Fermer"
-          >
-            <X size={18} />
-          </button>
+          {/* Top gold line (won only) */}
+          {won && (
+            <div
+              style={{
+                position: "absolute",
+                top: -1,
+                left: "50%",
+                transform: "translateX(-50%)",
+                width: "60%",
+                height: 2,
+                background:
+                  "linear-gradient(90deg, transparent, #fbbf24, transparent)",
+                borderRadius: 2,
+              }}
+            />
+          )}
 
           {/* Body */}
-          <div className="px-6 pt-10 pb-6 text-center">
-            {won ? (
-              <WonContent
-                prize={prize}
-                giftDistributionId={giftDistributionId}
-                onCopy={handleCopy}
-                copied={copied}
-              />
-            ) : (
-              <LostContent countdown={countdown} nextSpinAt={nextSpinAt} />
-            )}
+          {won ? (
+            <WonContent
+              prize={prize}
+              giftDistributionId={giftDistributionId}
+              onCopy={handleCopy}
+              copied={copied}
+              deviceId={deviceId}
+            />
+          ) : (
+            <LostContent countdown={countdown} nextSpinAt={nextSpinAt} />
+          )}
+
+          {/* Close / CTA button */}
+          {won && isFtourPrize(prize) && onReserve ? (
+            <button
+              onClick={onReserve}
+              style={{
+                marginTop: 28,
+                padding: "14px 32px",
+                borderRadius: 50,
+                border: "none",
+                background: "linear-gradient(135deg, #16a34a, #15803d)",
+                color: "#fff",
+                fontWeight: 700,
+                fontSize: 14,
+                fontFamily: "'Poppins', sans-serif",
+                cursor: "pointer",
+                letterSpacing: 1,
+                textTransform: "uppercase",
+                transition: "transform 0.15s ease, box-shadow 0.15s ease",
+                boxShadow: "0 4px 20px rgba(22,163,74,0.3)",
+              }}
+              onMouseEnter={(e) => {
+                (e.target as HTMLElement).style.transform = "scale(1.04)";
+              }}
+              onMouseLeave={(e) => {
+                (e.target as HTMLElement).style.transform = "scale(1)";
+              }}
+            >
+              {`Réserver chez ${prize?.establishment_name || "le restaurant"}`}
+            </button>
+          ) : (
+            <button
+              onClick={onClose}
+              style={{
+                marginTop: 28,
+                padding: "14px 44px",
+                borderRadius: 50,
+                border: "none",
+                background: won
+                  ? "linear-gradient(135deg, #fbbf24, #f59e0b)"
+                  : "linear-gradient(135deg, #444, #555)",
+                color: won ? "#1a1a1a" : "#ddd",
+                fontWeight: 700,
+                fontSize: 15,
+                fontFamily: "'Poppins', sans-serif",
+                cursor: "pointer",
+                letterSpacing: 1.5,
+                textTransform: "uppercase",
+                transition: "transform 0.15s ease, box-shadow 0.15s ease",
+                boxShadow: won
+                  ? "0 4px 20px rgba(251,191,36,0.3)"
+                  : "none",
+              }}
+              onMouseEnter={(e) => {
+                (e.target as HTMLElement).style.transform = "scale(1.04)";
+              }}
+              onMouseLeave={(e) => {
+                (e.target as HTMLElement).style.transform = "scale(1)";
+              }}
+            >
+              {won ? "Voir mes cadeaux" : "Fermer"}
+            </button>
+          )}
+
+          {/* Sam.ma branding */}
+          <div
+            style={{
+              marginTop: 20,
+              opacity: 0.4,
+              display: "flex",
+              justifyContent: "center",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
+              <span
+                style={{
+                  fontFamily: "'Poppins', sans-serif",
+                  fontWeight: 800,
+                  fontSize: 14,
+                  color: "#a3001d",
+                  letterSpacing: -0.5,
+                  lineHeight: 1,
+                }}
+              >
+                Sam
+              </span>
+              <span
+                style={{
+                  fontFamily: "'Poppins', sans-serif",
+                  fontWeight: 800,
+                  fontSize: 14,
+                  color: "#fbbf24",
+                  letterSpacing: -0.5,
+                  lineHeight: 1,
+                }}
+              >
+                .ma
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -193,40 +333,153 @@ function WonContent({
   giftDistributionId,
   onCopy,
   copied,
+  deviceId,
 }: {
   prize: WheelResultModalProps["prize"];
   giftDistributionId?: string | null;
   onCopy: () => void;
   copied: boolean;
+  deviceId?: string;
 }) {
   return (
     <>
-      <p className="text-4xl mb-2">{"🎉"}</p>
-      <h2 className="text-xl font-bold text-gray-900">Félicitations !</h2>
+      {/* Gold star icon */}
+      <div
+        style={{
+          width: 72,
+          height: 72,
+          margin: "0 auto 20px",
+          borderRadius: "50%",
+          background:
+            "radial-gradient(circle at 40% 35%, #ffd700, #f59e0b, #b8860b)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          boxShadow: "0 0 30px rgba(251,191,36,0.35)",
+          animation: "wrm-iconPulse 1.5s ease-in-out infinite",
+        }}
+      >
+        <svg
+          width="36"
+          height="36"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#1a1a1a"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" />
+        </svg>
+      </div>
+
+      {/* Title */}
+      <h2
+        style={{
+          fontFamily: "'Poppins', sans-serif",
+          fontSize: 30,
+          fontWeight: 800,
+          background:
+            "linear-gradient(to right, #fbbf24, #ffd700, #f59e0b)",
+          WebkitBackgroundClip: "text",
+          WebkitTextFillColor: "transparent",
+          marginBottom: 6,
+          letterSpacing: 1,
+        }}
+      >
+        FÉLICITATIONS
+      </h2>
 
       {prize && (
-        <div className="mt-4 space-y-3">
-          <p className="text-lg font-semibold text-[hsl(354,100%,32%)]">
+        <div style={{ marginTop: 16 }}>
+          <p
+            style={{
+              color: "#fbbf24",
+              fontSize: 22,
+              fontWeight: 700,
+              fontFamily: "'Poppins', sans-serif",
+              marginBottom: 6,
+            }}
+          >
             {prize.name}
           </p>
 
           {prize.description && (
-            <p className="text-sm text-gray-600">{prize.description}</p>
+            <p style={{ color: "#999", fontSize: 14, marginBottom: 8 }}>
+              {prize.description}
+            </p>
           )}
 
-          {prize.establishment_name && (
-            <p className="text-sm text-gray-500">
+          {prize.establishment_name && !isFtourPrize(prize) && (
+            <p style={{ color: "#777", fontSize: 13, marginBottom: 8 }}>
               Chez{" "}
-              <span className="font-medium text-gray-700">
+              <span style={{ color: "#bbb", fontWeight: 500 }}>
                 {prize.establishment_name}
               </span>
             </p>
           )}
 
+          {/* Ftour reassurance block */}
+          {isFtourPrize(prize) && (
+            <div
+              style={{
+                marginTop: 14,
+                marginBottom: 14,
+                borderRadius: 14,
+                background: "rgba(22,163,74,0.1)",
+                border: "1px solid rgba(22,163,74,0.3)",
+                padding: "16px 18px",
+                textAlign: "left",
+              }}
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <span style={{ fontSize: 16, lineHeight: 1.4, flexShrink: 0 }}>🍽️</span>
+                  <p style={{ color: "#ccc", fontSize: 13, margin: 0, lineHeight: 1.5 }}>
+                    Ce repas est offert pour{" "}
+                    <span style={{ color: "#4ade80", fontWeight: 700 }}>1 personne</span>{" "}
+                    dans le cadre d'un partenariat SAM.ma
+                  </p>
+                </div>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <span style={{ fontSize: 16, lineHeight: 1.4, flexShrink: 0 }}>📅</span>
+                  <p style={{ color: "#ccc", fontSize: 13, margin: 0, lineHeight: 1.5 }}>
+                    Valable jusqu'à{" "}
+                    <span style={{ color: "#fbbf24", fontWeight: 600 }}>
+                      fin Ramadan{prize.expires_at ? ` (${formatDate(prize.expires_at)})` : ""}
+                    </span>
+                  </p>
+                </div>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <span style={{ fontSize: 16, lineHeight: 1.4, flexShrink: 0 }}>📍</span>
+                  <p style={{ color: "#ccc", fontSize: 13, margin: 0, lineHeight: 1.5 }}>
+                    Réservez votre place chez{" "}
+                    <span style={{ color: "#fbbf24", fontWeight: 600 }}>
+                      {prize.establishment_name}
+                    </span>
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Discount / free service value */}
           {isDiscountLike(prize.type) && prize.value != null && (
-            <div className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-4 py-1.5 text-green-700 font-semibold text-sm">
-              <Gift size={16} />
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                borderRadius: 50,
+                background: "rgba(251,191,36,0.15)",
+                border: "1px solid rgba(251,191,36,0.3)",
+                padding: "8px 20px",
+                color: "#fbbf24",
+                fontWeight: 700,
+                fontSize: 15,
+                marginBottom: 8,
+              }}
+            >
               {prize.type === "percentage_discount"
                 ? `${prize.value}%`
                 : formatMAD(prize.value)}
@@ -235,39 +488,72 @@ function WonContent({
 
           {/* External code */}
           {prize.type === "external_code" && prize.external_code && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-3">
-                <span className="font-mono text-base font-semibold tracking-wider text-gray-800">
+            <div style={{ marginTop: 12 }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 10,
+                  border: "1px dashed rgba(251,191,36,0.4)",
+                  borderRadius: 12,
+                  background: "rgba(0,0,0,0.3)",
+                  padding: "14px 20px",
+                }}
+              >
+                <span
+                  style={{
+                    fontFamily: "monospace",
+                    fontSize: 18,
+                    fontWeight: 700,
+                    letterSpacing: 2,
+                    color: "#fff",
+                  }}
+                >
                   {prize.external_code}
                 </span>
                 <button
                   onClick={onCopy}
-                  className="flex-shrink-0 rounded p-1 text-gray-400 hover:text-gray-700 transition-colors"
+                  style={{
+                    flexShrink: 0,
+                    borderRadius: 6,
+                    padding: 6,
+                    color: copied ? "#4ade80" : "#999",
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    transition: "color 0.2s",
+                  }}
                   aria-label="Copier le code"
                 >
-                  {copied ? (
-                    <Check size={16} className="text-green-500" />
-                  ) : (
-                    <Copy size={16} />
-                  )}
+                  {copied ? <Check size={16} /> : <Copy size={16} />}
                 </button>
               </div>
 
               {prize.partner_name && (
-                <p className="text-xs text-gray-500">
+                <p style={{ fontSize: 12, color: "#666", marginTop: 8 }}>
                   Offert par{" "}
                   {prize.partner_url ? (
                     <a
                       href={prize.partner_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-0.5 font-medium text-[hsl(354,100%,32%)] hover:underline"
+                      style={{
+                        color: "#fbbf24",
+                        fontWeight: 500,
+                        textDecoration: "none",
+                      }}
                     >
-                      {prize.partner_name}
-                      <ExternalLink size={12} />
+                      {prize.partner_name}{" "}
+                      <ExternalLink
+                        size={10}
+                        style={{ display: "inline", verticalAlign: "middle" }}
+                      />
                     </a>
                   ) : (
-                    <span className="font-medium">{prize.partner_name}</span>
+                    <span style={{ fontWeight: 500, color: "#999" }}>
+                      {prize.partner_name}
+                    </span>
                   )}
                 </p>
               )}
@@ -276,19 +562,51 @@ function WonContent({
 
           {/* Physical gift — QR prompt */}
           {prize.type === "physical_gift" && giftDistributionId && (
-            <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
-              <p className="font-medium mb-1">
+            <div
+              style={{
+                borderRadius: 12,
+                background: "rgba(251,191,36,0.08)",
+                border: "1px solid rgba(251,191,36,0.25)",
+                padding: "14px 16px",
+                marginTop: 12,
+              }}
+            >
+              <p
+                style={{
+                  fontWeight: 600,
+                  marginBottom: 6,
+                  color: "#fbbf24",
+                  fontSize: 13,
+                }}
+              >
                 Présentez ce QR à l'établissement
               </p>
-              <p className="font-mono text-xs text-amber-600 break-all">
+              <p
+                style={{
+                  fontFamily: "monospace",
+                  fontSize: 11,
+                  color: "#b8860b",
+                  wordBreak: "break-all",
+                }}
+              >
                 {giftDistributionId}
               </p>
             </div>
           )}
 
-          {/* Expiry */}
-          {prize.expires_at && (
-            <p className="flex items-center justify-center gap-1 text-xs text-gray-400">
+          {/* Expiry (not shown for ftour — already in reassurance block) */}
+          {prize.expires_at && !isFtourPrize(prize) && (
+            <p
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 4,
+                fontSize: 12,
+                color: "#555",
+                marginTop: 12,
+              }}
+            >
               <Clock size={12} />
               Valable jusqu'au {formatDate(prize.expires_at)}
             </p>
@@ -296,14 +614,31 @@ function WonContent({
         </div>
       )}
 
-      {/* CTA */}
-      <a
-        href="/profile?tab=gifts"
-        className="mt-6 inline-flex items-center justify-center gap-2 rounded-full bg-[hsl(354,100%,32%)] px-6 py-2.5 text-sm font-semibold text-white shadow hover:opacity-90 transition-opacity"
+      {/* Subtitle */}
+      <p
+        style={{
+          color: "#888",
+          fontSize: 13,
+          fontFamily: "'Poppins', sans-serif",
+          marginTop: 8,
+        }}
       >
-        <Gift size={16} />
-        Voir mes cadeaux
-      </a>
+        {isFtourPrize(prize) ? "Réservez pour profiter de votre ftour" : "Votre cadeau vous attend"}
+      </p>
+
+      {/* Device reference */}
+      {deviceId && (
+        <p
+          style={{
+            color: "#444",
+            fontSize: 10,
+            fontFamily: "monospace",
+            marginTop: 8,
+          }}
+        >
+          Réf: {deviceId}-{Date.now().toString(36).toUpperCase()}
+        </p>
+      )}
     </>
   );
 }
@@ -321,66 +656,81 @@ function LostContent({
 }) {
   return (
     <>
-      <p className="text-4xl mb-2">{"🍀"}</p>
-      <h2 className="text-xl font-bold text-gray-900">
-        Pas de chance cette fois !
+      {/* Sad face icon */}
+      <div
+        style={{
+          width: 64,
+          height: 64,
+          margin: "0 auto 20px",
+          borderRadius: "50%",
+          background: "linear-gradient(135deg, #333, #444)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <svg
+          width="28"
+          height="28"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#888"
+          strokeWidth="2"
+          strokeLinecap="round"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <path d="M8 15s1.5-2 4-2 4 2 4 2" />
+          <line x1="9" y1="9" x2="9.01" y2="9" strokeWidth="3" />
+          <line x1="15" y1="9" x2="15.01" y2="9" strokeWidth="3" />
+        </svg>
+      </div>
+
+      <h2
+        style={{
+          fontFamily: "'Poppins', sans-serif",
+          fontSize: 24,
+          fontWeight: 700,
+          color: "#bbb",
+          marginBottom: 8,
+        }}
+      >
+        Pas cette fois
       </h2>
-      <p className="mt-2 text-sm text-gray-500">
-        Retentez votre chance demain
+      <p
+        style={{
+          color: "#666",
+          fontSize: 14,
+          fontFamily: "'Poppins', sans-serif",
+        }}
+      >
+        La chance vous sourira bientôt !
       </p>
 
       {nextSpinAt && countdown && (
-        <div className="mt-5 flex items-center justify-center gap-2 text-sm text-gray-600">
-          <Clock size={16} className="text-gray-400" />
+        <div
+          style={{
+            marginTop: 20,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            fontSize: 14,
+            color: "#888",
+          }}
+        >
+          <Clock size={16} style={{ color: "#666" }} />
           <span>Prochain essai dans</span>
-          <span className="font-mono font-semibold text-[hsl(354,100%,32%)]">
+          <span
+            style={{
+              fontFamily: "monospace",
+              fontWeight: 700,
+              color: "#fbbf24",
+            }}
+          >
             {countdown}
           </span>
         </div>
       )}
     </>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Confetti (pure CSS)
-// ---------------------------------------------------------------------------
-
-const CONFETTI_COLORS = [
-  "#a3001d",
-  "#f59e0b",
-  "#10b981",
-  "#3b82f6",
-  "#8b5cf6",
-  "#ec4899",
-  "#f97316",
-];
-
-function ConfettiLayer() {
-  return (
-    <div className="pointer-events-none absolute inset-x-0 top-0 h-full overflow-hidden">
-      {Array.from({ length: 28 }).map((_, i) => {
-        const color = CONFETTI_COLORS[i % CONFETTI_COLORS.length];
-        const left = `${(i / 28) * 100 + Math.random() * 3}%`;
-        const delay = `${(Math.random() * 1.2).toFixed(2)}s`;
-        const duration = `${(1.8 + Math.random() * 1.2).toFixed(2)}s`;
-        const size = 6 + Math.round(Math.random() * 4);
-
-        return (
-          <span
-            key={i}
-            className="absolute top-0 rounded-sm"
-            style={{
-              left,
-              width: size,
-              height: size,
-              backgroundColor: color,
-              animation: `wrm-confetti ${duration} ${delay} ease-in forwards`,
-              opacity: 0.9,
-            }}
-          />
-        );
-      })}
-    </div>
   );
 }

@@ -1021,3 +1021,90 @@ export async function getEstablishmentMenu(
 
   return { categories: menuCategories, items: menuItems };
 }
+
+// ---------------------------------------------------------------------------
+// Offres Ramadan (ftour, s'hour, traiteur, etc.)
+// ---------------------------------------------------------------------------
+
+export interface SamRamadanOffer {
+  id: string;
+  title: string;
+  type: string;
+  price: number | null;
+  original_price: number | null;
+  description: string | null;
+  time_slots: unknown;
+  capacity_per_slot: number | null;
+  valid_from: string | null;
+  valid_to: string | null;
+  cover_url: string | null;
+  establishment_id: string | null;
+  establishment_name: string | null;
+  establishment_slug: string | null;
+  establishment_city: string | null;
+}
+
+export async function searchRamadanOffers(params: {
+  type?: string;
+  city?: string;
+  limit?: number;
+}): Promise<{ offers: SamRamadanOffer[]; total: number }> {
+  const supabase = getAdminSupabase();
+  const limit = Math.min(params.limit ?? 5, 10);
+
+  let query = supabase
+    .from("ramadan_offers")
+    .select(
+      "id, title, type, price, original_price, description_fr, time_slots, capacity_per_slot, valid_from, valid_to, cover_url, establishments(id, name, slug, city, cover_url, universe)",
+    )
+    .eq("moderation_status", "active");
+
+  if (params.type) query = query.eq("type", params.type);
+
+  const { data, error } = await query;
+  if (error) {
+    log.error({ error }, "searchRamadanOffers query error");
+    return { offers: [], total: 0 };
+  }
+
+  let offers = (data ?? []) as any[];
+
+  // Filtre ville en mémoire (même logique que ramadanPublic.ts)
+  if (params.city) {
+    const lc = params.city.toLowerCase();
+    offers = offers.filter((o) => {
+      const estCity = o.establishments?.city;
+      return typeof estCity === "string" && estCity.toLowerCase().includes(lc);
+    });
+  }
+
+  // Shuffle Fisher-Yates
+  for (let i = offers.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [offers[i], offers[j]] = [offers[j], offers[i]];
+  }
+
+  const total = offers.length;
+  offers = offers.slice(0, limit);
+
+  return {
+    offers: offers.map((o: any) => ({
+      id: o.id,
+      title: o.title ?? "",
+      type: o.type ?? "",
+      price: typeof o.price === "number" ? o.price : null,
+      original_price: typeof o.original_price === "number" ? o.original_price : null,
+      description: o.description_fr ?? null,
+      time_slots: o.time_slots ?? null,
+      capacity_per_slot: typeof o.capacity_per_slot === "number" ? o.capacity_per_slot : null,
+      valid_from: o.valid_from ?? null,
+      valid_to: o.valid_to ?? null,
+      cover_url: o.cover_url ?? null,
+      establishment_id: o.establishments?.id ?? null,
+      establishment_name: o.establishments?.name ?? null,
+      establishment_slug: o.establishments?.slug ?? null,
+      establishment_city: o.establishments?.city ?? null,
+    })),
+    total,
+  };
+}

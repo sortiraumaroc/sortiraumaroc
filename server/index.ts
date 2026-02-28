@@ -8,7 +8,7 @@ import { getAdminSupabase } from "./supabaseAdmin";
 import { initSentry, captureException, sentryRequestHandler, sentryErrorHandler } from "./lib/sentry";
 import { httpLogger } from "./lib/requestLogger";
 import { logger } from "./lib/logger";
-import { uploadAdminCategoryImage } from "./routes/admin";
+import { uploadAdminCategoryImage, adminUploadSlotImage } from "./routes/admin";
 import { getPlatformSettingsSnapshot } from "./platformSettings";
 import { cleanupExpiredDevices } from "./trustedDeviceLogic";
 
@@ -41,6 +41,7 @@ import { registerAdminCollaboratorRoutes } from "./routes/adminCollaborators";
 import { registerAdminContactFormRoutes } from "./routes/adminContactForms";
 import { registerAdminSearchBoostRoutes } from "./routes/adminSearchBoost";
 import { registerAdminAdsRoutes } from "./routes/adminAds";
+import { registerAdminSuspiciousActivityRoutes } from "./routes/adminSuspiciousActivity";
 
 // Reviews (all layers)
 import { registerReviewRoutes } from "./routes/reviews";
@@ -72,6 +73,7 @@ import { registerLoyaltyV2PublicRoutes } from "./routes/loyaltyV2Public";
 import { registerLoyaltyV2ProRoutes } from "./routes/loyaltyV2Pro";
 import { registerLoyaltyV2AdminRoutes } from "./routes/loyaltyV2Admin";
 import { registerLoyaltyV2CronRoutes } from "./routes/loyaltyV2Cron";
+import { registerSuspiciousActivityCronRoutes } from "./routes/suspiciousActivityCron";
 
 // Loyalty V1
 import { registerLoyaltyRoutes } from "./routes/loyalty";
@@ -133,6 +135,7 @@ import { registerReferralRoutes } from "./routes/referral";
 import { registerMenuDigitalRoutes } from "./routes/menuDigitalSync";
 import { registerPrestatairesRoutes } from "./routes/prestataires";
 import { registerPreferenceCronRoutes } from "./routes/preferenceCron";
+import { registerPublicAnalyticsRoutes } from "./routes/publicAnalytics";
 import { registerLeadsRoutes } from "./routes/leads";
 import { registerPaymentsRoutes } from "./routes/payments";
 import { registerLacaissePayRoutes } from "./routes/lacaissepay";
@@ -246,6 +249,14 @@ export function createServer() {
     }),
     uploadAdminCategoryImage,
   );
+  app.post(
+    "/api/admin/slot-images/upload",
+    express.raw({
+      type: ["image/jpeg", "image/png", "image/webp"],
+      limit: "5mb",
+    }),
+    adminUploadSlotImage,
+  );
 
   // SQL Import routes — need higher body limit (50 MB)
   registerAdminImportSqlRoutes(app);
@@ -347,6 +358,7 @@ export function createServer() {
 
   // Public & Consumer routes
   registerPublicRoutes(app);
+  registerPublicAnalyticsRoutes(app);
   registerPublicAdsRoutes(app);
   registerEmailTrackingRoutes(app);
   registerPublicContactFormRoutes(app);
@@ -414,6 +426,7 @@ export function createServer() {
   registerAdminReviewsV2Routes(app);
   registerMysqlContentRoutes(app);
   registerGoogleRatingSyncRoutes(app);
+  registerAdminSuspiciousActivityRoutes(app);
 
   // Pro core + sub-modules
   registerProCoreRoutes(app);
@@ -452,6 +465,7 @@ export function createServer() {
   registerLoyaltyV2ProRoutes(app);
   registerLoyaltyV2AdminRoutes(app);
   registerLoyaltyV2CronRoutes(app);
+  registerSuspiciousActivityCronRoutes(app);
 
   // Rental vehicles
   registerRentalPublicRoutes(app);

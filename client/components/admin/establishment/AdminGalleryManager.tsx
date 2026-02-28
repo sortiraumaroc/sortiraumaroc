@@ -444,6 +444,9 @@ export function AdminGalleryManager({
 
     const filesToUpload = files.slice(0, availableSlots);
 
+    // Local accumulator to avoid stale closure on galleryPhotos
+    let currentGallery = [...galleryPhotos];
+
     for (const file of filesToUpload) {
       if (!ALLOWED_TYPES.includes(file.type)) {
         toast({ title: "Format non accepté", description: `${file.name}: Utilisez JPG, PNG, WebP, HEIC ou AVIF`, variant: "destructive" });
@@ -490,20 +493,20 @@ export function AdminGalleryManager({
         }
 
         const newPhoto: GalleryPhoto = { url: result.url, meta: defaultMeta };
-        const updatedGallery = [...galleryPhotos, newPhoto];
+        currentGallery = [...currentGallery, newPhoto];
 
         await adminApiFetch(
           `/api/admin/establishments/${encodeURIComponent(establishmentId)}/gallery`,
           {
             method: "PATCH",
             body: JSON.stringify({
-              gallery_urls: updatedGallery.map((p) => p.url),
-              gallery_meta: updatedGallery.map((p) => p.meta),
+              gallery_urls: currentGallery.map((p) => p.url),
+              gallery_meta: currentGallery.map((p) => p.meta),
             }),
           }
         );
 
-        setGalleryPhotos(updatedGallery);
+        setGalleryPhotos(currentGallery);
 
         // Track compression savings
         if (result.compression) {

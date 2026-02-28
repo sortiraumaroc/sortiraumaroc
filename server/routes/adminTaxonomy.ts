@@ -221,7 +221,7 @@ export const uploadAdminCategoryImage: RequestHandler = async (req, res) => {
   if (!signatureOk)
     return res.status(400).json({ error: "invalid_image_signature" });
 
-  const fileNameHeader = req.header("x-file-name") ?? "";
+  const fileNameHeader = (() => { try { return decodeURIComponent(req.header("x-file-name") ?? ""); } catch { return req.header("x-file-name") ?? ""; } })();
   const fileName = sanitizeImageFileName(fileNameHeader, ext);
 
   const now = new Date();
@@ -664,7 +664,7 @@ export const uploadAdminUniverseImage: RequestHandler = async (req, res) => {
     return res.status(400).json({ error: "invalid_image_signature" });
 
   const actor = getAuditActorInfo(req);
-  const fileNameHeader = req.header("x-file-name") ?? "";
+  const fileNameHeader = (() => { try { return decodeURIComponent(req.header("x-file-name") ?? ""); } catch { return req.header("x-file-name") ?? ""; } })();
   const fileName = sanitizeImageFileName(fileNameHeader, ext);
 
   const now = new Date();

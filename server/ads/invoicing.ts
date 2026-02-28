@@ -20,7 +20,8 @@ export type AdInvoiceType =
   | "featured_pack"
   | "home_takeover"
   | "push_notification"
-  | "email_campaign";
+  | "email_campaign"
+  | "display_banner";
 
 // Descriptions par type
 const INVOICE_DESCRIPTIONS: Record<AdInvoiceType, string> = {
@@ -30,6 +31,7 @@ const INVOICE_DESCRIPTIONS: Record<AdInvoiceType, string> = {
   home_takeover: "Habillage Homepage",
   push_notification: "Campagne Push Notifications",
   email_campaign: "Campagne Emailing",
+  display_banner: "Campagne Bannière Display IAB",
 };
 
 export interface CreateAdInvoiceParams {

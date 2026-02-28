@@ -12,6 +12,7 @@ import type { RequestHandler, Request } from "express";
 import { createHash } from "node:crypto";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { createModuleLogger } from "../lib/logger";
+import { resolveEstablishmentId } from "./publicHelpers";
 
 const log = createModuleLogger("ramadanPublic");
 
@@ -28,6 +29,15 @@ function computeVisitorId(req: Request): string {
   const ip = req.headers["x-forwarded-for"] ?? req.socket.remoteAddress ?? "unknown";
   const ua = req.headers["user-agent"] ?? "unknown";
   return createHash("sha256").update(`${ip}|${ua}`).digest("hex").slice(0, 16);
+}
+
+/** Shuffle Fisher-Yates (in-place) */
+function shuffleArray<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
 }
 
 function asString(v: unknown): string | undefined {
@@ -74,45 +84,53 @@ router.get("/", (async (req, res) => {
   if (minPrice !== undefined) query = query.gte("price", minPrice);
   if (maxPrice !== undefined) query = query.lte("price", maxPrice);
 
-  // Tri
-  switch (sort) {
-    case "price_asc":
-      query = query.order("price", { ascending: true });
-      break;
-    case "price_desc":
-      query = query.order("price", { ascending: false });
-      break;
-    case "newest":
-      query = query.order("created_at", { ascending: false });
-      break;
-    case "featured":
-    default:
-      query = query
-        .order("is_featured", { ascending: false })
-        .order("created_at", { ascending: false });
-      break;
+  // Tri — pour "featured" (défaut), on shuffle pour varier l'ordre à chaque visite
+  const isRandomSort = sort === "featured" || !["price_asc", "price_desc", "newest"].includes(sort);
+
+  if (!isRandomSort) {
+    switch (sort) {
+      case "price_asc":
+        query = query.order("price", { ascending: true });
+        break;
+      case "price_desc":
+        query = query.order("price", { ascending: false });
+        break;
+      case "newest":
+        query = query.order("created_at", { ascending: false });
+        break;
+    }
   }
 
-  // Quand city est actif, on fait le filtrage post-fetch (jointure Supabase)
-  // car on ne peut pas filtrer sur establishments.city directement.
-  // Le volume d'offres Ramadan actives est faible (<200) donc OK en mémoire.
-  if (city) {
+  // Pour le tri aléatoire ou le filtre ville, on récupère tout en mémoire
+  // Le volume d'offres Ramadan actives est faible (<200) donc OK.
+  if (isRandomSort || city) {
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
 
     let allOffers = (data ?? []) as any[];
-    const lowerCity = city.toLowerCase();
-    allOffers = allOffers.filter((o: any) => {
-      const estCity = o.establishments?.city;
-      return typeof estCity === "string" && estCity.toLowerCase().includes(lowerCity);
-    });
+
+    // Filtre ville en mémoire
+    if (city) {
+      const lowerCity = city.toLowerCase();
+      allOffers = allOffers.filter((o: any) => {
+        const estCity = o.establishments?.city;
+        return typeof estCity === "string" && estCity.toLowerCase().includes(lowerCity);
+      });
+    }
+
+    // Shuffle aléatoire : featured en premier (mélangés), puis le reste (mélangé)
+    if (isRandomSort) {
+      const featuredOffers = allOffers.filter((o: any) => o.is_featured);
+      const regularOffers = allOffers.filter((o: any) => !o.is_featured);
+      allOffers = [...shuffleArray(featuredOffers), ...shuffleArray(regularOffers)];
+    }
 
     const total = allOffers.length;
     const offers = allOffers.slice(offset, offset + perPage);
     return res.json({ offers, total, page, per_page: perPage });
   }
 
-  // Sans filtre ville : pagination côté DB
+  // Sans tri aléatoire et sans filtre ville : pagination côté DB
   query = query.range(offset, offset + perPage - 1);
   const { data, count, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
@@ -184,10 +202,11 @@ router.post("/:id/track", (async (req, res) => {
 // GET /api/public/establishments/:id/ramadan-offers — Offres d'un établissement
 // ---------------------------------------------------------------------------
 router.get("/establishment/:id", (async (req, res) => {
-  const establishmentId = req.params.id;
-  if (!establishmentId || !isValidUUID(establishmentId)) {
-    return res.status(400).json({ error: "ID invalide." });
-  }
+  const ref = req.params.id;
+  if (!ref) return res.status(400).json({ error: "ID invalide." });
+
+  const establishmentId = await resolveEstablishmentId({ ref });
+  if (!establishmentId) return res.status(404).json({ error: "Établissement introuvable." });
 
   const supabase = getAdminSupabase();
 

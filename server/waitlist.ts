@@ -2,6 +2,9 @@
 
 import { emitAdminNotification } from "./adminNotifications";
 import { sendTemplateEmail } from "./emailService";
+import { sendTransactionalSms, isSmsConfigured } from "./smsService";
+import { sendWhatsAppMessage, isWhatsAppConfigured } from "./whatsappService";
+import { getAdminSupabase } from "./supabaseAdmin";
 import { NotificationEventType } from "../shared/notifications";
 import { formatLeJjMmAaAHeure } from "../shared/datetime";
 import { createModuleLogger } from "./lib/logger";
@@ -236,6 +239,38 @@ export async function triggerWaitlistPromotionForSlot(args: {
       });
     } catch (err) {
       log.warn({ err }, "Best-effort: waitlist offer email to consumer failed");
+    }
+  })();
+
+  // SMS + WhatsApp consumer (best-effort, shared phone lookup)
+  void (async () => {
+    try {
+      const consumerUserId = asString(payload.user_id).trim();
+      if (!consumerUserId) return;
+      if (!isSmsConfigured() && !isWhatsAppConfigured()) return;
+
+      const adminSb = getAdminSupabase();
+      const { data: authUser } = await adminSb.auth.admin.getUserById(consumerUserId);
+      const phone = authUser?.user?.phone;
+      if (!phone) return;
+
+      const estName = asString(payload.establishment_name) || "";
+
+      if (isSmsConfigured()) {
+        await sendTransactionalSms(
+          phone,
+          `SAM.ma — Une place s'est libérée${estName ? ` chez ${estName}` : ""} ! Confirmez vite dans l'appli (expire dans 15 min).`,
+        );
+      }
+
+      if (isWhatsAppConfigured()) {
+        await sendWhatsAppMessage(
+          phone,
+          `SAM.ma — Une place s'est libérée${estName ? ` chez ${estName}` : ""} ! Confirmez votre réservation dans l'application (expire dans 15 min).`,
+        );
+      }
+    } catch (err) {
+      log.warn({ err }, "Best-effort: waitlist offer SMS/WhatsApp to consumer failed");
     }
   })();
 

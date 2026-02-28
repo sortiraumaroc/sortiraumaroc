@@ -30,7 +30,7 @@ export interface SamMessage {
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useSam(universe?: string | null, establishmentId?: string | null) {
+export function useSam(universe?: string | null, establishmentId?: string | null, mode?: "pro" | "consumer") {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<SamMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -121,6 +121,7 @@ export function useSam(universe?: string | null, establishmentId?: string | null
         sessionId,
         universe: universeRef.current ?? undefined,
         establishment_id: establishmentIdRef.current ?? undefined,
+        mode,
 
         onTextDelta: (delta) => {
           setMessages((prev) =>

@@ -1141,6 +1141,7 @@ const ar: Partial<Record<TranslationKey, string>> = {
     "reset_password.error.token_used": "تم استخدام هذا الرابط مسبقاً. اطلبوا رابطاً جديداً إذا لزم الأمر.",
     "reset_password.error.too_short": "يجب أن تحتوي كلمة المرور على 8 أحرف على الأقل.",
     "reset_password.error.mismatch": "كلمتا المرور غير متطابقتين.",
+    "reset_password.error.weak_password": "كلمة المرور هذه شائعة جداً وسهلة التخمين. يرجى اختيار كلمة مرور أكثر أماناً.",
     "reset_password.error.generic": "حدث خطأ. يرجى إعادة المحاولة.",
     "reset_password.success.title": "تم تغيير كلمة المرور",
     "reset_password.success.description": "تم تغيير كلمة المرور بنجاح. يمكنكم الآن تسجيل الدخول.",

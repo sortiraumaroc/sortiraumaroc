@@ -121,6 +121,7 @@ export type ProSlot = {
   active: boolean;
   created_at: string;
   updated_at: string;
+  cover_url: string | null;
 };
 
 export type Pack = {

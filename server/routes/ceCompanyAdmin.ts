@@ -13,10 +13,12 @@ import {
   reactivateEmployee,
   softDeleteEmployee,
   formatEmployeeName,
+  getEmployeeAdvantages,
 } from "../ceLogic";
 import {
   ceListQuerySchema,
   ceScansQuerySchema,
+  ceAdvantagesQuerySchema,
   updateCompanySettingsSchema,
 } from "../schemas/ce";
 import { createModuleLogger } from "../lib/logger";
@@ -289,6 +291,68 @@ export function registerCeCompanyAdminRoutes(app: Express): void {
     );
 
     res.json({ ok: true, data: enriched, total: count ?? 0, page, limit });
+  });
+
+  // --------------------------------------------------
+  // Advantages (Partenaires)
+  // --------------------------------------------------
+
+  app.get("/api/ce/company/advantages", async (req, res) => {
+    const auth = await ensureCeAdmin(req);
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    const parsed = ceAdvantagesQuerySchema.safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid query" });
+
+    // Reuse getEmployeeAdvantages — it filters by companyId via target_companies
+    // We pass a dummy employeeId since company admin just browses
+    const result = await getEmployeeAdvantages("__company_admin__", auth.companyId, parsed.data);
+
+    // Enrich with per-advantage scan counts this month
+    const sb = supabase();
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    const monthStartStr = monthStart.toISOString();
+
+    const { data: scansRaw } = await sb
+      .from("b2b_scans")
+      .select("advantage_id")
+      .eq("company_id", auth.companyId)
+      .eq("scan_type", "ce")
+      .eq("status", "validated")
+      .gte("scan_datetime", monthStartStr);
+
+    const scansByAdvantage: Record<string, number> = {};
+    for (const s of scansRaw ?? []) {
+      scansByAdvantage[s.advantage_id] = (scansByAdvantage[s.advantage_id] ?? 0) + 1;
+    }
+
+    const enriched = result.data.map((adv: any) => ({
+      ...adv,
+      scans_this_month: scansByAdvantage[adv.id] ?? 0,
+    }));
+
+    // Compute stats
+    const estIds = new Set(enriched.map((a: any) => a.establishment_id));
+    const totalScans = Object.values(scansByAdvantage).reduce((s: number, c) => s + (c as number), 0);
+    const typeCounts: Record<string, number> = {};
+    for (const a of enriched) {
+      typeCounts[a.advantage_type] = (typeCounts[a.advantage_type] ?? 0) + 1;
+    }
+    const topType = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
+    res.json({
+      ok: true,
+      data: enriched,
+      total: result.total,
+      stats: {
+        total_advantages: result.total,
+        total_establishments: estIds.size,
+        scans_this_month: totalScans,
+        top_type: topType,
+      },
+    });
   });
 
   // --------------------------------------------------

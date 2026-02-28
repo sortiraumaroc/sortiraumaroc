@@ -78,7 +78,7 @@ export default function RamadanOffers() {
 
   // Filters from URL
   const [activeType, setActiveType] = useState<RamadanOfferType | "all">(
-    (searchParams.get("type") as RamadanOfferType) || "all",
+    "ftour",
   );
   const [city, setCity] = useState(searchParams.get("city") ?? "");
   const [minPrice, setMinPrice] = useState(searchParams.get("min_price") ?? "");
@@ -209,32 +209,7 @@ export default function RamadanOffers() {
           Content
           ===================================================================== */}
       <main className="container mx-auto px-4 pt-6 pb-12 max-w-7xl">
-        {/* -----------------------------------------------------------------
-            Type filter chips
-            ----------------------------------------------------------------- */}
-        <div
-          className="flex gap-2 overflow-x-auto pb-2 mb-4"
-          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-        >
-          {TYPE_FILTERS.map((tf) => (
-            <button
-              key={tf.id}
-              type="button"
-              onClick={() => {
-                setActiveType(tf.id as RamadanOfferType | "all");
-                setPage(1);
-              }}
-              className={cn(
-                "shrink-0 h-9 rounded-full px-4 text-sm font-semibold border transition whitespace-nowrap",
-                activeType === tf.id
-                  ? "bg-ramadan-gold text-ramadan-night border-ramadan-gold"
-                  : "bg-ramadan-deep/50 text-ramadan-gold-light border-ramadan-gold/30 hover:bg-ramadan-deep",
-              )}
-            >
-              {tf.label}
-            </button>
-          ))}
-        </div>
+        {/* Type filter removed — only Ftour offers displayed */}
 
         {/* -----------------------------------------------------------------
             Sort pills + Filter toggle
@@ -386,7 +361,7 @@ export default function RamadanOffers() {
             Content: loading / error / empty / grid
             ----------------------------------------------------------------- */}
         {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
             {Array.from({ length: 8 }).map((_, i) => (
               <div
                 key={i}
@@ -431,7 +406,7 @@ export default function RamadanOffers() {
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
               {cardOffers.map((offer) => (
                 <RamadanOfferCard key={offer.id} offer={offer} />
               ))}

@@ -8,6 +8,7 @@
  */
 
 import type { RequestHandler } from "express";
+import { randomBytes } from "crypto";
 import {
   requireAdminKey,
   isRecord,
@@ -1465,7 +1466,9 @@ export const adminUpsertSlots: RequestHandler = async (req, res) => {
       promo_value: r.promo_value == null ? null : Math.max(0, Math.round(Number(r.promo_value) || 0)),
       promo_label: r.promo_label == null ? null : String(r.promo_label),
       service_label: r.service_label == null ? null : String(r.service_label),
-      active: r.active === false ? false : true,
+      active: false,
+      moderation_status: "pending_moderation",
+      cover_url: r.cover_url == null ? null : String(r.cover_url),
     });
   }
 
@@ -1581,7 +1584,7 @@ export const listAdminFtourSlots: RequestHandler = async (req, res) => {
       .from("pro_slots")
       .select("*, establishments!inner(id, name, city)")
       .eq("service_label", "Ftour")
-      .eq("active", true)
+      .in("moderation_status", ["pending_moderation", "active", "suspended"])
       .order("starts_at", { ascending: true })
       .limit(2000);
 
@@ -1933,4 +1936,85 @@ export const listAdminEstablishmentOffers: RequestHandler = async (
   if (packsErr) return res.status(500).json({ error: packsErr.message });
 
   res.json({ ok: true, slots: slots ?? [], packs: packs ?? [] });
+};
+
+// =============================================================================
+// Slot Image Upload (admin — requireAdminKey, NOT superadmin)
+// =============================================================================
+
+const SLOT_IMAGES_BUCKET = "pro-inventory-images";
+const MAX_SLOT_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
+
+function slotImageExtFromMime(mime: string): "jpg" | "png" | "webp" | null {
+  const m = mime.toLowerCase();
+  if (m.includes("image/jpeg")) return "jpg";
+  if (m.includes("image/png")) return "png";
+  if (m.includes("image/webp")) return "webp";
+  return null;
+}
+
+/**
+ * POST /api/admin/slot-images/upload
+ * Upload an image for a slot cover (admin panel).
+ * Uses requireAdminKey so all admin users can upload, not just superadmins.
+ */
+export const adminUploadSlotImage: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const contentType = (req.header("content-type") ?? "").toLowerCase();
+  const ext = slotImageExtFromMime(contentType);
+  if (!ext) return res.status(400).json({ error: "unsupported_image_type" });
+
+  const body = req.body as unknown;
+  if (!Buffer.isBuffer(body) || body.length === 0)
+    return res.status(400).json({ error: "missing_image_body" });
+  if (body.length > MAX_SLOT_IMAGE_BYTES)
+    return res.status(413).json({ error: "image_too_large" });
+
+  const now = new Date();
+  const y = String(now.getUTCFullYear());
+  const m = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const id = randomBytes(12).toString("hex");
+  const storagePath = `slots/${y}/${m}/${id}.${ext}`;
+
+  const supabase = getAdminSupabase();
+
+  // Ensure the bucket exists (create if missing)
+  try {
+    const exists = await supabase.storage.getBucket(SLOT_IMAGES_BUCKET);
+    if (exists.error) {
+      const msg = String(exists.error.message ?? "").toLowerCase();
+      const status = (exists.error as any)?.statusCode ?? (exists.error as any)?.status ?? null;
+      if (status === 404 || msg.includes("not found") || msg.includes("does not exist")) {
+        const created = await supabase.storage.createBucket(SLOT_IMAGES_BUCKET, { public: true });
+        const cmsg = String(created.error?.message ?? "").toLowerCase();
+        if (created.error && !cmsg.includes("exists") && !cmsg.includes("duplicate")) {
+          return res.status(500).json({ error: `bucket_creation_failed: ${created.error.message}` });
+        }
+      }
+    }
+  } catch (err) {
+    log.warn({ err }, "Best-effort: storage bucket check failed");
+  }
+
+  const up = await supabase.storage
+    .from(SLOT_IMAGES_BUCKET)
+    .upload(storagePath, body, { contentType, upsert: false });
+
+  if (up.error) return res.status(500).json({ error: up.error.message });
+
+  const publicUrl =
+    supabase.storage.from(SLOT_IMAGES_BUCKET).getPublicUrl(storagePath)
+      ?.data?.publicUrl ?? "";
+
+  res.json({
+    ok: true,
+    item: {
+      bucket: SLOT_IMAGES_BUCKET,
+      path: storagePath,
+      public_url: publicUrl,
+      mime_type: contentType,
+      size_bytes: (body as Buffer).length,
+    },
+  });
 };

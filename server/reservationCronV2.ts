@@ -63,7 +63,7 @@ export async function expireUnprocessedReservations(): Promise<CronResult> {
   let errors = 0;
 
   // Find reservations past pro processing deadline
-  const { data: expired, error } = await supabase
+  const { data: expiredByDeadline, error } = await supabase
     .from("reservations")
     .select("id, user_id, establishment_id, status, starts_at, party_size, booking_reference")
     .in("status", ["pending_pro_validation", "on_hold"])
@@ -71,11 +71,28 @@ export async function expireUnprocessedReservations(): Promise<CronResult> {
     .not("pro_processing_deadline", "is", null);
 
   if (error) {
-    log.error({ err: error }, "fetch error in expireUnprocessedReservations");
+    log.error({ err: error }, "fetch error in expireUnprocessedReservations (deadline)");
+  }
+
+  // Also expire pending reservations whose starts_at has passed (no deadline set)
+  const { data: expiredByDate, error: error2 } = await supabase
+    .from("reservations")
+    .select("id, user_id, establishment_id, status, starts_at, party_size, booking_reference")
+    .in("status", ["pending_pro_validation", "on_hold"])
+    .lt("starts_at", nowIso)
+    .is("pro_processing_deadline", null);
+
+  if (error2) {
+    log.error({ err: error2 }, "fetch error in expireUnprocessedReservations (starts_at)");
+  }
+
+  if (error && error2) {
     return { job: "expire_unprocessed", processed: 0, errors: 1 };
   }
 
-  if (!expired || expired.length === 0) {
+  const expired = [...(expiredByDeadline ?? []), ...(expiredByDate ?? [])];
+
+  if (expired.length === 0) {
     return { job: "expire_unprocessed", processed: 0, errors: 0 };
   }
 

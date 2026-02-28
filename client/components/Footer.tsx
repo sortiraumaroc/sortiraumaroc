@@ -229,9 +229,9 @@ export function Footer() {
         <div className="border-t border-white/10 py-6 flex flex-col items-center gap-4">
           <Link to={href("/")} className="shrink-0">
             <img
-              src="/logo-white.png"
+              src="/logo_sam.svg"
               alt={t("footer.brand")}
-              className="h-8 w-auto"
+              className="h-12 w-auto"
             />
           </Link>
           <p className="text-sm text-white/50">

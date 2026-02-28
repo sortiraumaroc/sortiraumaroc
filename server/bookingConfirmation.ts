@@ -9,6 +9,7 @@
 
 import { getAdminSupabase } from "./supabaseAdmin";
 import { sendTemplateEmail } from "./emailService";
+import { notifyProMembers } from "./proNotifications";
 import { formatDateLongFr } from "../shared/datetime";
 import { createModuleLogger } from "./lib/logger";
 
@@ -451,6 +452,241 @@ export async function getConfirmationRequestInfo(token: string): Promise<{
   };
 }
 
+// ============================================================================
+// Unconfirmed Recap — grouped notification to establishments
+// ============================================================================
+
+/**
+ * Sends a grouped recap of unconfirmed reservations to each affected establishment.
+ *
+ * Timing: runs ~30 min after H-3 emails, ~30 min BEFORE auto-cancel.
+ *   T-3h00 → sendH3ConfirmationEmails()
+ *   T-2h30 → sendUnconfirmedRecapToEstablishments()  ← this
+ *   T-2h00 → autoCancelUnconfirmedReservations()
+ *
+ * This gives the establishment time to call clients who haven't confirmed yet.
+ */
+export async function sendUnconfirmedRecapToEstablishments(): Promise<{
+  sent: number;
+  errors: number;
+  details: Array<{ establishment_id: string; count: number; success: boolean; error?: string }>;
+}> {
+  const supabase = getAdminSupabase();
+  const results: Array<{ establishment_id: string; count: number; success: boolean; error?: string }> = [];
+
+  // -----------------------------------------------------------------------
+  // 1. Find pending BCRs sent 25-55 min ago (not yet expired, user hasn't confirmed)
+  //    Also exclude reservations where we already sent a recap (meta.recap_sent)
+  // -----------------------------------------------------------------------
+  const { data: rows, error: fetchError } = await supabase
+    .from("booking_confirmation_requests")
+    .select(`
+      id,
+      reservation_id,
+      sent_at,
+      expires_at,
+      reservations!inner(
+        id,
+        starts_at,
+        party_size,
+        meta,
+        establishment_id,
+        consumer_id,
+        establishments!inner(id, name),
+        consumer_users!inner(id, full_name, phone)
+      )
+    `)
+    .eq("status", "pending")
+    .lt("sent_at", new Date(Date.now() - 25 * 60_000).toISOString()) // sent > 25 min ago
+    .gt("expires_at", new Date().toISOString()); // not yet expired
+
+  if (fetchError) {
+    log.error({ err: fetchError }, "error fetching pending BCRs for recap");
+    return { sent: 0, errors: 1, details: [] };
+  }
+
+  if (!rows || rows.length === 0) {
+    log.info("no pending BCRs eligible for unconfirmed recap");
+    return { sent: 0, errors: 0, details: [] };
+  }
+
+  // Filter out reservations where recap was already sent
+  const eligible = rows.filter((r) => {
+    const reservation = (r as any).reservations;
+    const meta = reservation?.meta;
+    return !meta?.recap_sent;
+  });
+
+  if (eligible.length === 0) {
+    log.info("all eligible BCRs already had recap sent");
+    return { sent: 0, errors: 0, details: [] };
+  }
+
+  log.info({ count: eligible.length }, "BCRs eligible for unconfirmed recap");
+
+  // -----------------------------------------------------------------------
+  // 2. Group by establishment
+  // -----------------------------------------------------------------------
+  type RecapEntry = {
+    reservation_id: string;
+    full_name: string;
+    party_size: number;
+    phone: string;
+    time: string; // formatted "20h30"
+    starts_at: string; // raw ISO for sorting
+  };
+
+  const byEstablishment = new Map<
+    string,
+    { name: string; entries: RecapEntry[]; reservationIds: string[] }
+  >();
+
+  for (const row of eligible) {
+    const reservation = (row as any).reservations;
+    const establishment = reservation.establishments;
+    const consumer = reservation.consumer_users;
+    const estId: string = establishment.id;
+
+    if (!byEstablishment.has(estId)) {
+      byEstablishment.set(estId, {
+        name: establishment.name,
+        entries: [],
+        reservationIds: [],
+      });
+    }
+
+    const startsAt = new Date(reservation.starts_at);
+    const timeStr = startsAt
+      .toLocaleTimeString("fr-FR", {
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: "Africa/Casablanca",
+      })
+      .replace(":", "h");
+
+    const group = byEstablishment.get(estId)!;
+    group.entries.push({
+      reservation_id: reservation.id,
+      full_name: consumer.full_name || "Client",
+      party_size: reservation.party_size || 1,
+      phone: consumer.phone || "Non renseigné",
+      time: timeStr,
+      starts_at: reservation.starts_at,
+    });
+    group.reservationIds.push(reservation.id);
+  }
+
+  // -----------------------------------------------------------------------
+  // 3. For each establishment: send email + in-app notification, then mark
+  // -----------------------------------------------------------------------
+  for (const [estId, group] of byEstablishment) {
+    try {
+      const count = group.entries.length;
+
+      // Sort entries by time
+      group.entries.sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+
+      // Build HTML table for email template variable {{ recap_html }}
+      const recapRows = group.entries
+        .map(
+          (e) =>
+            `<tr>
+              <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0">${e.full_name}</td>
+              <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;text-align:center">${e.party_size}</td>
+              <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0">${e.phone}</td>
+              <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;text-align:center">${e.time}</td>
+            </tr>`
+        )
+        .join("\n");
+
+      const recapHtml = `<table style="width:100%;border-collapse:collapse;font-size:14px">
+        <thead>
+          <tr style="background:#f8fafc">
+            <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #e2e8f0">Nom</th>
+            <th style="padding:8px 12px;text-align:center;border-bottom:2px solid #e2e8f0">Pers.</th>
+            <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #e2e8f0">Téléphone</th>
+            <th style="padding:8px 12px;text-align:center;border-bottom:2px solid #e2e8f0">Heure</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${recapRows}
+        </tbody>
+      </table>`;
+
+      // --- Send email to pro ---
+      // Get pro email (establishment owner)
+      const { data: estData } = await supabase
+        .from("establishments")
+        .select("pro_users!inner(email)")
+        .eq("id", estId)
+        .single();
+
+      const proEmail = (estData as any)?.pro_users?.email;
+
+      if (proEmail) {
+        await sendTemplateEmail({
+          templateKey: "pro_unconfirmed_recap",
+          fromKey: "noreply",
+          to: [proEmail],
+          lang: "fr",
+          variables: {
+            establishment_name: group.name,
+            count: String(count),
+            recap_html: recapHtml,
+            planning_url: `${BASE_URL}/pro/reservations`,
+          },
+        });
+      }
+
+      // --- In-app notification to all pro members ---
+      void notifyProMembers({
+        supabase,
+        establishmentId: estId,
+        category: "reservation",
+        title: `⚠️ ${count} réservation(s) non confirmée(s)`,
+        body: `${count} client(s) n'ont pas encore confirmé leur venue. Consultez leurs coordonnées pour les contacter avant l'annulation automatique.`,
+        data: {
+          action: "unconfirmed_recap",
+          count,
+          reservations: group.entries.map((e) => ({
+            name: e.full_name,
+            party_size: e.party_size,
+            phone: e.phone,
+            time: e.time,
+          })),
+        },
+      });
+
+      // --- Mark reservations as recap_sent to avoid duplicates ---
+      for (const resId of group.reservationIds) {
+        const { data: resRow } = await supabase
+          .from("reservations")
+          .select("meta")
+          .eq("id", resId)
+          .single();
+        const existingMeta = (resRow?.meta as Record<string, unknown>) ?? {};
+        await supabase
+          .from("reservations")
+          .update({ meta: { ...existingMeta, recap_sent: true } })
+          .eq("id", resId);
+      }
+
+      log.info({ establishmentId: estId, count }, "unconfirmed recap sent");
+      results.push({ establishment_id: estId, count, success: true });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Unknown error";
+      log.error({ err, establishmentId: estId }, "error sending unconfirmed recap");
+      results.push({ establishment_id: estId, count: group.entries.length, success: false, error: errorMsg });
+    }
+  }
+
+  const sent = results.filter((r) => r.success).length;
+  const errors = results.filter((r) => !r.success).length;
+
+  log.info({ sent, errors, totalReservations: eligible.length }, "unconfirmed recap completed");
+  return { sent, errors, details: results };
+}
+
 // ---------------------------------------------------------------------------
 // Route registration (called from index.ts)
 // ---------------------------------------------------------------------------
@@ -507,6 +743,21 @@ export function registerBookingConfirmationRoutes(app: Express) {
       res.json(result);
     } catch (err) {
       log.error({ err }, "auto-cancel unconfirmed cron failed");
+      res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // Admin/Cron: Send unconfirmed recap to establishments (before auto-cancel)
+  app.post("/api/admin/cron/unconfirmed-recap", async (req: Request, res: Response) => {
+    const adminKey = req.headers["x-admin-key"];
+    if (adminKey !== process.env.ADMIN_API_KEY) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    try {
+      const result = await sendUnconfirmedRecapToEstablishments();
+      res.json(result);
+    } catch (err) {
+      log.error({ err }, "unconfirmed recap cron failed");
       res.status(500).json({ error: "Erreur serveur" });
     }
   });

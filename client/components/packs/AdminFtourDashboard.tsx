@@ -20,6 +20,7 @@ import {
   ChevronDown,
   ChevronUp,
   Eye,
+  ImagePlus,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -54,13 +55,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { AdminPacksNav } from "@/pages/admin/packs/AdminPacksNav";
+import { AdminReservationsNav } from "@/pages/admin/reservations/AdminReservationsNav";
 import {
   listAdminFtourSlots,
   adminUpsertSlots,
   adminDeleteSlot,
   adminBulkDeleteSlots,
   searchEstablishmentsByName,
+  uploadAdminSlotImage,
   AdminApiError,
 } from "@/lib/adminApi";
 import type { FtourSlotWithEstablishment } from "@/lib/adminApi";
@@ -265,6 +267,8 @@ export function AdminFtourDashboard() {
   const [createBufferPercent, setCreateBufferPercent] = useState(6);
   const [createRepeatEnabled, setCreateRepeatEnabled] = useState(false);
   const [createRepeatDays, setCreateRepeatDays] = useState<number[]>([1, 2, 3, 4, 5, 6, 0]);
+  const [createCoverUrl, setCreateCoverUrl] = useState("");
+  const [createCoverUploading, setCreateCoverUploading] = useState(false);
   const [creating, setCreating] = useState(false);
 
   // ── Edit dialog ──
@@ -275,6 +279,8 @@ export function AdminFtourDashboard() {
   const [editPromoLabel, setEditPromoLabel] = useState("");
   const [editPromoType, setEditPromoType] = useState<"percent" | "amount">("percent");
   const [editPromoValue, setEditPromoValue] = useState("");
+  const [editCoverUrl, setEditCoverUrl] = useState("");
+  const [editCoverUploading, setEditCoverUploading] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
 
   // ── Delete confirmation ──
@@ -437,6 +443,7 @@ export function AdminFtourDashboard() {
         promo_type?: string | null;
         promo_value?: number | null;
         promo_label?: string | null;
+        cover_url?: string | null;
       }> = [];
 
       const current = new Date(startDate);
@@ -461,6 +468,7 @@ export function AdminFtourDashboard() {
           promo_type: promoValue ? createPromoType : null,
           promo_value: promoValue,
           promo_label: promoValue ? (createPromoLabel.trim() || null) : null,
+          cover_url: createCoverUrl.trim() || null,
         });
 
         current.setDate(current.getDate() + 1);
@@ -511,6 +519,7 @@ export function AdminFtourDashboard() {
     setCreateBufferPercent(6);
     setCreateRepeatEnabled(false);
     setCreateRepeatDays([1, 2, 3, 4, 5, 6, 0]);
+    setCreateCoverUrl("");
   };
 
   // ── Edit handler ──
@@ -521,6 +530,7 @@ export function AdminFtourDashboard() {
     setEditPromoLabel(slot.promo_label ?? "");
     setEditPromoType((slot.promo_type as "percent" | "amount") ?? "percent");
     setEditPromoValue(slot.promo_value !== null ? String(slot.promo_value) : "");
+    setEditCoverUrl((slot as any).cover_url ?? "");
     setEditOpen(true);
   };
 
@@ -542,6 +552,7 @@ export function AdminFtourDashboard() {
           promo_type: promoValue ? editPromoType : null,
           promo_value: promoValue,
           promo_label: promoValue ? (editPromoLabel.trim() || null) : null,
+          cover_url: editCoverUrl.trim() || null,
         },
       ]);
 
@@ -656,7 +667,7 @@ export function AdminFtourDashboard() {
   return (
     <div className="space-y-6 p-4 md:p-6">
       {/* Navigation */}
-      <AdminPacksNav />
+      <AdminReservationsNav />
 
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -767,6 +778,9 @@ export function AdminFtourDashboard() {
                   <th className="text-left px-3 py-2.5 font-medium text-slate-600">
                     Promo
                   </th>
+                  <th className="text-center px-3 py-2.5 font-medium text-slate-600">
+                    Statut
+                  </th>
                   <th className="text-right px-3 py-2.5 font-medium text-slate-600">
                     Détail
                   </th>
@@ -822,6 +836,25 @@ export function AdminFtourDashboard() {
                             <span className="text-slate-300">—</span>
                           )}
                         </td>
+                        <td className="px-3 py-2.5 text-center">
+                          {(() => {
+                            const statuses = [...new Set(group.slots.map((s: any) => s.moderation_status ?? "active"))];
+                            if (statuses.length === 1) {
+                              const st = statuses[0];
+                              return (
+                                <Badge className={cn("text-[10px]",
+                                  st === "pending_moderation" ? "bg-amber-100 text-amber-700" :
+                                  st === "active" ? "bg-emerald-100 text-emerald-700" :
+                                  st === "suspended" ? "bg-slate-200 text-slate-600" :
+                                  st === "rejected" ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-700"
+                                )}>
+                                  {st === "pending_moderation" ? "En attente" : st === "active" ? "Actif" : st === "suspended" ? "Suspendu" : st === "rejected" ? "Rejeté" : st}
+                                </Badge>
+                              );
+                            }
+                            return <span className="text-[10px] text-slate-400">Mixte</span>;
+                          })()}
+                        </td>
                         <td className="px-3 py-2.5 text-right">
                           <Button
                             size="sm"
@@ -873,6 +906,21 @@ export function AdminFtourDashboard() {
                               ) : (
                                 <span className="text-slate-300">—</span>
                               )}
+                            </td>
+                            <td className="px-3 py-1.5 text-center">
+                              {(() => {
+                                const st = (slot as any).moderation_status ?? "active";
+                                return (
+                                  <Badge className={cn("text-[10px]",
+                                    st === "pending_moderation" ? "bg-amber-100 text-amber-700" :
+                                    st === "active" ? "bg-emerald-100 text-emerald-700" :
+                                    st === "suspended" ? "bg-slate-200 text-slate-600" :
+                                    st === "rejected" ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-700"
+                                  )}>
+                                    {st === "pending_moderation" ? "En attente" : st === "active" ? "Actif" : st === "suspended" ? "Suspendu" : st === "rejected" ? "Rejeté" : st}
+                                  </Badge>
+                                );
+                              })()}
                             </td>
                             <td className="px-3 py-1.5 text-right">
                               <div className="flex items-center justify-end gap-1">
@@ -1178,6 +1226,72 @@ export function AdminFtourDashboard() {
               </div>
             </div>
 
+            {/* ── Photo de l'offre (optionnel) ── */}
+            <div className="space-y-2 rounded-lg border p-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-medium flex items-center gap-1.5">
+                  <ImagePlus className="h-3.5 w-3.5" />
+                  Photo de l'offre
+                </Label>
+                <span className="text-[10px] text-slate-400">Optionnel — affichée en page d'accueil</span>
+              </div>
+
+              {createCoverUrl ? (
+                <div className="relative w-full aspect-[16/9] rounded-lg overflow-hidden bg-slate-100 border">
+                  <img src={createCoverUrl} alt="Photo de l'offre" className="w-full h-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => setCreateCoverUrl("")}
+                    className="absolute top-1.5 end-1.5 p-1 rounded-full bg-black/60 text-white hover:bg-black/80 transition"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <label
+                  className={cn(
+                    "relative block border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors",
+                    createCoverUploading ? "border-primary/50 bg-primary/5" : "border-slate-200 bg-slate-50 hover:border-primary/50",
+                  )}
+                >
+                  <input
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.webp,.gif"
+                    disabled={createCoverUploading}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      e.target.value = "";
+                      if (file.size > 5 * 1024 * 1024) {
+                        toast({ title: "Erreur", description: "Fichier trop volumineux (max 5 MB).", variant: "destructive" });
+                        return;
+                      }
+                      setCreateCoverUploading(true);
+                      try {
+                        const res = await uploadAdminSlotImage(undefined, { file, fileName: file.name });
+                        setCreateCoverUrl(res.item.public_url);
+                      } catch (err) {
+                        toast({ title: "Erreur", description: err instanceof Error ? err.message : "Erreur upload.", variant: "destructive" });
+                      } finally {
+                        setCreateCoverUploading(false);
+                      }
+                    }}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  />
+                  <div className="flex flex-col items-center gap-1">
+                    {createCoverUploading ? (
+                      <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                    ) : (
+                      <>
+                        <ImagePlus className="w-5 h-5 text-slate-400" />
+                        <span className="text-xs text-slate-500">Ajouter une photo</span>
+                      </>
+                    )}
+                  </div>
+                </label>
+              )}
+            </div>
+
             {/* ── Répéter sur plusieurs jours ── */}
             <div className="space-y-3 rounded-lg border p-3">
               <label className="flex items-center gap-2 cursor-pointer">
@@ -1364,6 +1478,69 @@ export function AdminFtourDashboard() {
                   />
                 </div>
               </div>
+            </div>
+
+            {/* ── Photo de l'offre ── */}
+            <div className="space-y-2 rounded-lg border p-3">
+              <Label className="text-xs font-medium flex items-center gap-1.5">
+                <ImagePlus className="h-3.5 w-3.5" />
+                Photo de l'offre
+              </Label>
+
+              {editCoverUrl ? (
+                <div className="relative w-full aspect-[16/9] rounded-lg overflow-hidden bg-slate-100 border">
+                  <img src={editCoverUrl} alt="Photo de l'offre" className="w-full h-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => setEditCoverUrl("")}
+                    className="absolute top-1.5 end-1.5 p-1 rounded-full bg-black/60 text-white hover:bg-black/80 transition"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <label
+                  className={cn(
+                    "relative block border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors",
+                    editCoverUploading ? "border-primary/50 bg-primary/5" : "border-slate-200 bg-slate-50 hover:border-primary/50",
+                  )}
+                >
+                  <input
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.webp,.gif"
+                    disabled={editCoverUploading}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      e.target.value = "";
+                      if (file.size > 5 * 1024 * 1024) {
+                        toast({ title: "Erreur", description: "Fichier trop volumineux (max 5 MB).", variant: "destructive" });
+                        return;
+                      }
+                      setEditCoverUploading(true);
+                      try {
+                        const res = await uploadAdminSlotImage(undefined, { file, fileName: file.name });
+                        setEditCoverUrl(res.item.public_url);
+                      } catch (err) {
+                        toast({ title: "Erreur", description: err instanceof Error ? err.message : "Erreur upload.", variant: "destructive" });
+                      } finally {
+                        setEditCoverUploading(false);
+                      }
+                    }}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  />
+                  <div className="flex flex-col items-center gap-1">
+                    {editCoverUploading ? (
+                      <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                    ) : (
+                      <>
+                        <ImagePlus className="w-5 h-5 text-slate-400" />
+                        <span className="text-xs text-slate-500">Ajouter une photo</span>
+                      </>
+                    )}
+                  </div>
+                </label>
+              )}
             </div>
           </div>
 

@@ -9,10 +9,9 @@ import {
   CalendarCheck,
   CalendarRange,
   CalendarX,
+  Clock,
   CreditCard,
-  Eye,
   FileText,
-  Globe,
   Link,
   Loader2,
   MapPin,
@@ -21,6 +20,7 @@ import {
   QrCode,
   RefreshCw,
   Settings,
+  Smartphone,
   TrendingUp,
   Users,
   Video,
@@ -68,9 +68,12 @@ type DashboardStats = {
   videosSold: { value: number; delta: string };
   complementaryServicesSold: { value: number; delta: string };
   pendingPayouts: { value: number; delta: string };
-  visitors: { value: number; delta: string };
+  currentVisitors: { value: number };
+  uniqueVisitors: { value: number; delta: string };
   pageViews: { value: number; delta: string };
-  conversionRate: { value: string; delta: string };
+  avgTimeOnPage: { value: string; delta: string };
+  engagementRate: { value: string; delta: string };
+  mobileBounceRate: { value: string; delta: string };
   reservationsChart: Array<{ date: string; label: string; value: number }>;
   revenueChart: Array<{ date: string; label: string; value: number }>;
   topCities: Array<{ name: string; reservations: number; revenue: number }>;
@@ -223,6 +226,7 @@ export function AdminDashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [liveVisitors, setLiveVisitors] = useState<number | null>(null);
 
   const range = useMemo<DateRange>(() => {
     if (preset !== "custom") return getPresetRange(preset);
@@ -267,6 +271,23 @@ export function AdminDashboardPage() {
   useEffect(() => {
     void fetchStats();
   }, [fetchStats]);
+
+  // Poll real-time visitor count every 30s
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await fetch("/api/admin/dashboard/realtime", { credentials: "include" });
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          setLiveVisitors(data.currentVisitors ?? 0);
+        }
+      } catch { /* silently ignore */ }
+    };
+    void poll();
+    const interval = setInterval(poll, 30_000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
 
   const chartTitle = useMemo(() => {
     if (preset === "custom") {
@@ -573,20 +594,47 @@ export function AdminDashboardPage() {
         </div>
       </div>
 
-      {/* Row 6: Traffic */}
+      {/* Row 6: Traffic & Audience */}
       <div>
-        <SectionTitle className="mb-3">Trafic & Conversion</SectionTitle>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 lg:gap-4">
+        <SectionTitle className="mb-3">Trafic & Audience</SectionTitle>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 lg:gap-4">
+          {/* Visiteurs actuels — live */}
+          <Card className="border-slate-200 flex flex-col">
+            <CardHeader className="p-4 pb-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <Activity className="h-4 w-4 text-primary shrink-0" />
+                <div className="text-xs sm:text-sm font-semibold leading-tight text-slate-600 truncate">
+                  Visiteurs actuels
+                </div>
+                <span className="ml-auto flex items-center gap-1 shrink-0">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                  </span>
+                  <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Live</span>
+                </span>
+              </div>
+            </CardHeader>
+            <CardContent className="p-4 pt-0 flex flex-1 flex-col">
+              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-slate-900 tabular-nums whitespace-nowrap leading-none tracking-tight">
+                {liveVisitors !== null ? formatNumberFR(liveVisitors) : (stats?.currentVisitors.value != null ? formatNumberFR(stats.currentVisitors.value) : "—")}
+              </div>
+              <Badge className="mt-auto w-fit bg-emerald-50 text-emerald-700 border-emerald-200">
+                Temps réel
+              </Badge>
+            </CardContent>
+          </Card>
+
           <KpiCard
-            label="Visiteurs"
-            value={stats?.visitors.value ?? 0}
-            delta={stats?.visitors.delta ?? "0%"}
-            icon={Globe}
+            label="Visiteurs uniques"
+            value={stats?.uniqueVisitors.value ?? 0}
+            delta={stats?.uniqueVisitors.delta ?? "0%"}
+            icon={Users}
             period={period}
             loading={loading}
           />
           <KpiCard
-            label="Pages vues"
+            label="Pages consultées"
             value={stats?.pageViews.value ?? 0}
             delta={stats?.pageViews.delta ?? "0%"}
             icon={FileText}
@@ -594,23 +642,31 @@ export function AdminDashboardPage() {
             loading={loading}
           />
           <KpiCard
-            label="Taux de conversion"
-            value={stats?.conversionRate.value ?? "0%"}
-            delta={stats?.conversionRate.delta ?? "0%"}
+            label="Temps moyen"
+            value={stats?.avgTimeOnPage.value ?? "0s"}
+            delta={stats?.avgTimeOnPage.delta ?? "0%"}
+            icon={Clock}
+            period={period}
+            loading={loading}
+            format="raw"
+          />
+          <KpiCard
+            label="Taux d'engagement"
+            value={stats?.engagementRate.value ?? "0%"}
+            delta={stats?.engagementRate.delta ?? "0%"}
             icon={TrendingUp}
             period={period}
             loading={loading}
             format="raw"
           />
           <KpiCard
-            label="Visiteurs / Réservation"
-            value={stats?.visitors.value && stats?.reservations.value
-              ? Math.round(stats.visitors.value / stats.reservations.value)
-              : 0}
-            delta="N/A"
-            icon={Eye}
+            label="Rebond mobile"
+            value={stats?.mobileBounceRate.value ?? "0%"}
+            delta={stats?.mobileBounceRate.delta ?? "0%"}
+            icon={Smartphone}
             period={period}
             loading={loading}
+            format="raw"
           />
         </div>
       </div>
@@ -791,9 +847,12 @@ function getMockStats(): DashboardStats {
     complementaryServicesSold: { value: 45, delta: "+12.0%" },
     pendingPayouts: { value: 234500, delta: "N/A" },
 
-    visitors: { value: 375760, delta: "+5.8%" },
+    currentVisitors: { value: 42 },
+    uniqueVisitors: { value: 375760, delta: "+5.8%" },
     pageViews: { value: 1690920, delta: "+6.2%" },
-    conversionRate: { value: "2.5%", delta: "+0.3%" },
+    avgTimeOnPage: { value: "2m 34s", delta: "+8.1%" },
+    engagementRate: { value: "65.2%", delta: "+3.4%" },
+    mobileBounceRate: { value: "42.1%", delta: "-2.8%" },
 
     reservationsChart: mockChartData,
     revenueChart: [],

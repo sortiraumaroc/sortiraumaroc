@@ -4,10 +4,9 @@
 
 import { z } from "zod";
 
-/** POST send */
+/** POST send — code is now generated server-side */
 export const emailSendCodeSchema = z.object({
   email: z.string().min(1),
-  code: z.string().min(1),
   recaptchaToken: z.string().optional(),
 });
 

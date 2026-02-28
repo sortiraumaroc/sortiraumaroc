@@ -27,11 +27,13 @@ import {
   recordCancellation,
   recordFreeToPaidUpgrade,
   isClientSuspended,
+  runAntiFraudChecks,
 } from "./clientScoringV2";
 import { declareNoShow } from "./noShowDisputeLogic";
 import { emitAdminNotification } from "./adminNotifications";
 import { notifyProMembers } from "./proNotifications";
 import { sendTemplateEmail } from "./emailService";
+import { consumeFtourGiftDistribution } from "./wheelOfFortuneLogic";
 import { createModuleLogger } from "./lib/logger";
 
 const log = createModuleLogger("reservationV2");
@@ -141,6 +143,18 @@ export async function createReservationV2(args: {
       ok: false,
       error: "Vous avez déjà une réservation active pour ce créneau dans cet établissement.",
       errorCode: "double_booking",
+    };
+  }
+
+  // 4b. Anti-fraud checks (concurrent slots, cancel/rebook abuse, excessive no-shows)
+  const antifraud = await runAntiFraudChecks({
+    supabase, userId, establishmentId, startsAt,
+  });
+  if (!antifraud.allowed) {
+    return {
+      ok: false,
+      error: antifraud.reason ?? "Comportement suspect détecté.",
+      errorCode: antifraud.code ?? "antifraud_blocked",
     };
   }
 
@@ -399,10 +413,10 @@ export async function proConfirmVenue(args: {
   const { supabase, reservationId, establishmentId } = args;
   const nowIso = new Date().toISOString();
 
-  // Fetch reservation
+  // Fetch reservation (include meta for ftour gift tracking)
   const { data: reservation, error } = await supabase
     .from("reservations")
-    .select("id, user_id, status")
+    .select("id, user_id, status, meta")
     .eq("id", reservationId)
     .eq("establishment_id", establishmentId)
     .single();
@@ -435,6 +449,14 @@ export async function proConfirmVenue(args: {
   const userId = String(r.user_id ?? "");
   if (userId) {
     void recordHonoredReservation({ supabase, userId });
+  }
+
+  // Consume ftour gift distribution if this is a ftour reservation
+  const meta = r.meta && typeof r.meta === "object" && !Array.isArray(r.meta)
+    ? r.meta as Record<string, unknown>
+    : {};
+  if (meta.ftour_offert === true && typeof meta.gift_distribution_id === "string") {
+    void consumeFtourGiftDistribution(meta.gift_distribution_id);
   }
 
   return { ok: true, newStatus: "consumed" };
@@ -626,9 +648,10 @@ export async function processQrCheckIn(args: {
   const { supabase, reservationId, establishmentId } = args;
   const nowIso = new Date().toISOString();
 
+  // Include meta for ftour gift tracking
   const { data: reservation, error } = await supabase
     .from("reservations")
-    .select("id, user_id, status, checked_in_at")
+    .select("id, user_id, status, checked_in_at, meta")
     .eq("id", reservationId)
     .eq("establishment_id", establishmentId)
     .single();
@@ -665,6 +688,14 @@ export async function processQrCheckIn(args: {
   const userId = String(r.user_id ?? "");
   if (userId) {
     void recordHonoredReservation({ supabase, userId });
+  }
+
+  // Consume ftour gift distribution if this is a ftour reservation
+  const meta = r.meta && typeof r.meta === "object" && !Array.isArray(r.meta)
+    ? r.meta as Record<string, unknown>
+    : {};
+  if (meta.ftour_offert === true && typeof meta.gift_distribution_id === "string") {
+    void consumeFtourGiftDistribution(meta.gift_distribution_id);
   }
 
   return { ok: true, newStatus: "consumed" };
@@ -823,6 +854,9 @@ async function dispatchReservationCreatedNotifications(args: {
       ? resMeta.establishment_no_shows as Array<{ date: string; time: string; party_size: number }>
       : [];
 
+    // Check if this is a ftour gift reservation
+    const isFtourReservation = resMeta.ftour_offert === true;
+
     // Build warning-enhanced title and body
     let notifTitle = autoAccepted
       ? "Nouvelle réservation (acceptée auto)"
@@ -830,7 +864,11 @@ async function dispatchReservationCreatedNotifications(args: {
 
     let notifBody = `${reservation.party_size} personne(s) — ${String(reservation.starts_at ?? "").slice(0, 16)}`;
 
-    if (hasEstNoShow && estNoShows.length > 0) {
+    // Ftour gift reservation — override notification with SAM partnership message
+    if (isFtourReservation) {
+      notifTitle = "🎁 Réservation Ftour offert — Accords SAM";
+      notifBody = `1 personne — ${String(reservation.starts_at ?? "").slice(0, 16)} | Ftour offert dans le cadre des accords négociés avec SAM.ma. Ce repas est pris en charge.`;
+    } else if (hasEstNoShow && estNoShows.length > 0) {
       const lastNs = estNoShows[0];
       notifTitle = autoAccepted
         ? "⚠️ Réservation auto — Client avec no-show chez vous"
@@ -850,6 +888,7 @@ async function dispatchReservationCreatedNotifications(args: {
         reservationId: String(reservation.id ?? ""),
         targetTab: "reservations",
         hasEstablishmentNoShow: hasEstNoShow,
+        ftour_offert: isFtourReservation || undefined,
       },
     });
 

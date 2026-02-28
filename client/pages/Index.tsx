@@ -1103,7 +1103,22 @@ export default function Home() {
     })
       .then((payload) => {
         if (cancelled) return;
-        setLists(payload.lists);
+
+        // Shuffle les sections service pour un ordre aléatoire à chaque chargement
+        const lists = { ...payload.lists };
+        const shuffle = <T,>(arr: T[]): T[] => {
+          const a = [...arr];
+          for (let i = a.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [a[i], a[j]] = [a[j], a[i]];
+          }
+          return a;
+        };
+        lists.by_service_buffet = shuffle(lists.by_service_buffet);
+        lists.by_service_table = shuffle(lists.by_service_table);
+        lists.by_service_carte = shuffle(lists.by_service_carte);
+
+        setLists(lists);
         const theme = payload.meta.theme ?? null;
         setHomeTheme(theme);
         setCachedHomeTheme(theme);

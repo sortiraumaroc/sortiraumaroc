@@ -216,6 +216,14 @@ export default function Step4Confirmation() {
               phone: phone ?? undefined,
             },
             message: message ?? undefined,
+            // Ftour gift from Wheel of Fortune — propagated via URL search params
+            ...(searchParams.get("ftour_offert") === "true"
+              ? {
+                  ftour_offert: true,
+                  gift_distribution_id: searchParams.get("gift_distribution_id") ?? undefined,
+                  ftour_prize_name: searchParams.get("ftour_prize_name") ?? undefined,
+                }
+              : {}),
           },
         };
 

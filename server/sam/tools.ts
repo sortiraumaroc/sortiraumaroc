@@ -18,6 +18,7 @@ import {
   getPopularSearches,
   getEstablishmentReviews,
   getEstablishmentPacks,
+  searchRamadanOffers,
 } from "../lib/samDataAccess";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { createModuleLogger } from "../lib/logger";
@@ -372,6 +373,35 @@ export const SAM_TOOLS: ChatCompletionTool[] = [
       },
     },
   },
+  // --- Ramadan ---
+  {
+    type: "function",
+    function: {
+      name: "search_ramadan_offers",
+      description:
+        "Chercher les offres Ramadan (ftour, s'hour, traiteur, pack famille, spécial). Utilise cette fonction dès que l'utilisateur cherche un ftour, s'hour, repas Ramadan, iftar, ou formule Ramadan.",
+      parameters: {
+        type: "object",
+        properties: {
+          type: {
+            type: "string",
+            enum: ["ftour", "shour", "traiteur", "pack_famille", "special"],
+            description: "Type d'offre Ramadan",
+          },
+          city: {
+            type: "string",
+            description:
+              "Ville (ex: Casablanca, Marrakech, Rabat, Agadir, Tanger, Fès...)",
+          },
+          limit: {
+            type: "number",
+            description: "Nombre max de résultats (1-10, défaut 5)",
+          },
+        },
+        required: [],
+      },
+    },
+  },
   // --- Intelligence tools ---
   {
     type: "function",
@@ -614,6 +644,38 @@ export async function executeTool(
       if (!estId) return { data: { error: "missing_establishment_id" } };
       const result = await getEstablishmentPacks(estId);
       return { data: result };
+    }
+
+    case "search_ramadan_offers": {
+      const result = await searchRamadanOffers({
+        type: args.type as string | undefined,
+        city: args.city as string | undefined,
+        limit: args.limit as number | undefined,
+      });
+
+      // Mapper les offres vers des items "establishment" pour l'affichage des cartes côté client.
+      // chatEndpoint.ts cherche result.data.establishments pour envoyer l'event SSE.
+      const seen = new Set<string>();
+      const establishments = result.offers
+        .filter((o) => {
+          if (!o.establishment_id || seen.has(o.establishment_id)) return false;
+          seen.add(o.establishment_id);
+          return true;
+        })
+        .map((o) => ({
+          id: o.establishment_id,
+          slug: o.establishment_slug,
+          name: o.establishment_name ?? o.title,
+          city: o.establishment_city,
+          cover_url: o.cover_url,
+          universe: "restaurants",
+          booking_enabled: true,
+        }));
+
+      return {
+        data: { ...result, establishments },
+        hasEstablishments: establishments.length > 0,
+      };
     }
 
     // --- Intelligence tools ---

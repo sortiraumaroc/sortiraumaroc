@@ -38,6 +38,27 @@ export function SamChatWindow({
   // Universe-specific config
   const universeConfig = useMemo(() => getSamUniverseConfig(universe), [universe]);
 
+  // Voice mode toggle — auto-speak assistant responses (must be before useSamVoice)
+  const [voiceMode, setVoiceMode] = useState(false);
+  const lastSpokenIdRef = useRef<string | null>(null);
+
+  // Wrapper: auto-enable voice mode when mic transcription arrives
+  const handleVoiceTranscription = useCallback((text: string) => {
+    setVoiceMode((prev) => {
+      if (!prev) {
+        // Mark last assistant message as already spoken to avoid replaying it
+        const lastAssistant = [...messages].reverse().find(
+          (m) => m.role === "assistant" && !m.isLoading && !m.isError && m.content,
+        );
+        if (lastAssistant) {
+          lastSpokenIdRef.current = lastAssistant.id;
+        }
+      }
+      return true;
+    });
+    onSend(text);
+  }, [messages, onSend]);
+
   // Voice integration
   const {
     voiceState,
@@ -46,14 +67,10 @@ export function SamChatWindow({
     stopRecording,
     speak,
     stopSpeaking,
-  } = useSamVoice(onSend);
+  } = useSamVoice(handleVoiceTranscription);
 
   // Track which message is being spoken
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
-
-  // Voice mode toggle — auto-speak assistant responses
-  const [voiceMode, setVoiceMode] = useState(false);
-  const lastSpokenIdRef = useRef<string | null>(null);
 
   // Reset speakingMessageId when voice stops
   useEffect(() => {

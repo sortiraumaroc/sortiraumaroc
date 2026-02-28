@@ -128,7 +128,7 @@ export interface ReservationV2Row {
   establishments?: {
     name: string | null;
     slug: string | null;
-    cover_image_url: string | null;
+    cover_url: string | null;
     city: string | null;
   } | null;
 }
@@ -386,7 +386,7 @@ export async function submitQuoteRequestV2(
 
 export async function getMyQuotesV2(): Promise<{
   ok: true;
-  quotes: (QuoteRequestRow & { establishments?: { name: string | null; slug: string | null; cover_image_url: string | null; city: string | null } })[];
+  quotes: (QuoteRequestRow & { establishments?: { name: string | null; slug: string | null; cover_url: string | null; city: string | null } })[];
 }> {
   return authedJson("/api/me/quotes");
 }

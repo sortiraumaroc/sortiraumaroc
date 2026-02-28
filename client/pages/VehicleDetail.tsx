@@ -385,7 +385,7 @@ export default function VehicleDetail() {
                     )}
                   </div>
                   <a
-                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(establishment.name + " " + establishment.city)}`}
+                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(establishment.name + " " + establishment.city)}&region=MA`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-sm text-primary font-medium hover:underline flex-shrink-0"

@@ -178,6 +178,153 @@ export async function detectUserCountry(req: Request, res: Response) {
 }
 
 // ---------------------------------------------------------------------------
+// DETECT USER CITY (via IP geolocation — fallback when browser GPS is denied)
+// ---------------------------------------------------------------------------
+
+// In-memory cache: IP → { city, lat, lng, ts }
+const _ipCityCache = new Map<string, { city: string | null; lat: number | null; lng: number | null; ts: number }>();
+const IP_CITY_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+// Same 22-city list as client/hooks/useDetectedCity.ts
+const KNOWN_CITIES: Array<{ name: string; lat: number; lng: number }> = [
+  { name: "Casablanca", lat: 33.5731, lng: -7.5898 },
+  { name: "Marrakech", lat: 31.6295, lng: -7.9811 },
+  { name: "Rabat", lat: 34.0209, lng: -6.8416 },
+  { name: "Fès", lat: 34.0331, lng: -5.0003 },
+  { name: "Tanger", lat: 35.7673, lng: -5.7998 },
+  { name: "Agadir", lat: 30.4278, lng: -9.5981 },
+  { name: "Meknès", lat: 33.8935, lng: -5.5547 },
+  { name: "Oujda", lat: 34.6814, lng: -1.9086 },
+  { name: "Kénitra", lat: 34.261, lng: -6.5802 },
+  { name: "Tétouan", lat: 35.5889, lng: -5.3626 },
+  { name: "Essaouira", lat: 31.5085, lng: -9.7595 },
+  { name: "Mohammedia", lat: 33.6861, lng: -7.3828 },
+  { name: "El Jadida", lat: 33.2316, lng: -8.5007 },
+  { name: "Salé", lat: 34.0531, lng: -6.7985 },
+  { name: "Nador", lat: 35.1681, lng: -2.9287 },
+  { name: "Beni Mellal", lat: 32.3373, lng: -6.3498 },
+  { name: "Taza", lat: 34.2133, lng: -4.0103 },
+  { name: "Settat", lat: 33.0017, lng: -7.6164 },
+  { name: "Safi", lat: 32.2994, lng: -9.2372 },
+  { name: "Khouribga", lat: 32.8811, lng: -6.9063 },
+  { name: "Dakhla", lat: 23.7147, lng: -15.9328 },
+  { name: "Laâyoune", lat: 27.1253, lng: -13.1625 },
+];
+
+/** Normalize city name for matching (remove accents, lowercase) */
+function normalizeCity(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+/** Haversine distance in km */
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/** Match ip-api city name to our known cities, or use coordinates (80km radius for IP precision) */
+function resolveKnownCity(
+  ipCity: string | null,
+  lat: number | null,
+  lng: number | null
+): { city: string; lat: number; lng: number } | null {
+  // 1. Try direct name match
+  if (ipCity) {
+    const norm = normalizeCity(ipCity);
+    const match = KNOWN_CITIES.find((c) => normalizeCity(c.name) === norm);
+    if (match) return match;
+  }
+
+  // 2. Try Haversine with coordinates (IP is less precise → 80km radius)
+  if (lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng)) {
+    let closest: (typeof KNOWN_CITIES)[number] | null = null;
+    let minDist = Infinity;
+    for (const c of KNOWN_CITIES) {
+      const d = haversineKm(lat, lng, c.lat, c.lng);
+      if (d < minDist) {
+        minDist = d;
+        closest = c;
+      }
+    }
+    if (closest && minDist <= 80) return closest;
+  }
+
+  return null;
+}
+
+export async function detectUserCity(req: Request, res: Response) {
+  const ip =
+    req.headers["x-forwarded-for"]?.toString().split(",")[0].trim() ||
+    req.headers["x-real-ip"]?.toString() ||
+    req.socket.remoteAddress ||
+    "127.0.0.1";
+
+  // Local dev → no detection possible
+  if (ip === "127.0.0.1" || ip === "::1" || ip.startsWith("192.168.") || ip.startsWith("10.")) {
+    return res.json({ ok: true, city: null, source: "ip" });
+  }
+
+  // Check cache
+  const now = Date.now();
+  const cached = _ipCityCache.get(ip);
+  if (cached && now - cached.ts < IP_CITY_CACHE_TTL) {
+    return res.json({
+      ok: true,
+      city: cached.city,
+      source: "ip",
+      ...(cached.city && cached.lat != null ? { coordinates: { lat: cached.lat, lng: cached.lng } } : {}),
+    });
+  }
+
+  try {
+    const response = await fetch(`http://ip-api.com/json/${ip}?fields=status,city,lat,lon`);
+    if (response.ok) {
+      const data = (await response.json()) as { status?: string; city?: string; lat?: number; lon?: number };
+      if (data.status === "success") {
+        const resolved = resolveKnownCity(data.city ?? null, data.lat ?? null, data.lon ?? null);
+
+        // Cache result
+        _ipCityCache.set(ip, {
+          city: resolved?.city ?? null,
+          lat: resolved?.lat ?? null,
+          lng: resolved?.lng ?? null,
+          ts: now,
+        });
+
+        // Evict old entries (keep cache small)
+        if (_ipCityCache.size > 500) {
+          const oldest = [..._ipCityCache.entries()].sort((a, b) => a[1].ts - b[1].ts).slice(0, 100);
+          for (const [k] of oldest) _ipCityCache.delete(k);
+        }
+
+        return res.json({
+          ok: true,
+          city: resolved?.city ?? null,
+          source: "ip",
+          ...(resolved ? { coordinates: { lat: resolved.lat, lng: resolved.lng } } : {}),
+        });
+      }
+    }
+  } catch (err) {
+    log.warn({ err }, "IP city detection failed");
+  }
+
+  // Cache failure too (avoid retrying on every request)
+  _ipCityCache.set(ip, { city: null, lat: null, lng: null, ts: now });
+
+  res.json({ ok: true, city: null, source: "ip" });
+}
+
+// ---------------------------------------------------------------------------
 // PUBLIC HOME VIDEOS
 // ---------------------------------------------------------------------------
 

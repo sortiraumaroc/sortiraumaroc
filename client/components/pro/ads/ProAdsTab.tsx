@@ -119,6 +119,13 @@ const CAMPAIGN_TYPES = [
     billing: "CPM",
     icon: TrendingUp,
   },
+  {
+    value: "display_banner",
+    label: "Bannière Display",
+    description: "Bannières IAB sur les pages détails d'établissements",
+    billing: "CPC / CPM",
+    icon: Eye,
+  },
 ];
 
 const STATUS_LABELS: Record<string, { label: string; color: string; icon: any }> = {

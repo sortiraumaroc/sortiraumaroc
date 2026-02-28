@@ -392,7 +392,7 @@ const SUBCATEGORIES: Record<string, string[]> = {
     "Argentin", "Basque", "Brésilien", "Cambodgien", "Chinois", "Colombien", "Coréen",
     "Créole", "Crêperie", "Cubain", "Cuisine des îles", "Cuisine du monde", "Cuisine traditionnelle",
     "Égyptien", "Espagnol", "Éthiopien", "Fruits de mer", "Fusion", "Grec", "Hawaïen",
-    "Indien", "Iranien", "Israélien", "Latino", "Libanais", "Méditerranéen", "Mexicain",
+    "Indien", "Iranien", "Latino", "Libanais", "Méditerranéen", "Mexicain",
     "Pakistanais", "Péruvien", "Portugais", "Provençal", "Russe", "Scandinave", "Syrien",
     "Thaïlandais", "Tunisien", "Turc", "Vegan", "Végétarien", "Vietnamien"
   ],

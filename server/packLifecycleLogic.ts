@@ -661,6 +661,127 @@ export async function deletePack(
 }
 
 // =============================================================================
+// 9c. Admin Update pack (no ownership check, no re-moderation)
+// =============================================================================
+
+export async function adminUpdatePack(
+  packId: string,
+  input: UpdatePackV2Input,
+): Promise<OpResult> {
+  const supabase = getAdminSupabase();
+
+  const { data: pack, error } = await supabase
+    .from("packs")
+    .select("id, moderation_status, price, original_price")
+    .eq("id", packId)
+    .maybeSingle();
+
+  if (error) return { ok: false, error: error.message };
+  if (!pack) return { ok: false, error: "Pack introuvable.", errorCode: "not_found" };
+
+  // Build update payload (same field mapping as updatePackV2)
+  const payload: Record<string, unknown> = {};
+  const now = new Date().toISOString();
+  payload.updated_at = now;
+
+  if (input.title !== undefined) payload.title = input.title;
+  if (input.shortDescription !== undefined) payload.short_description = input.shortDescription;
+  if (input.detailedDescription !== undefined) {
+    payload.detailed_description = input.detailedDescription;
+    payload.description = input.detailedDescription;
+  }
+  if (input.coverUrl !== undefined) payload.cover_url = input.coverUrl;
+  if (input.additionalPhotos !== undefined) payload.additional_photos = input.additionalPhotos;
+  if (input.category !== undefined) payload.category = input.category;
+  if (input.price !== undefined) payload.price = input.price;
+  if (input.originalPrice !== undefined) payload.original_price = input.originalPrice;
+  if (input.partySize !== undefined) payload.party_size = input.partySize;
+  if (input.items !== undefined) payload.items = input.items;
+  if (input.inclusions !== undefined) payload.inclusions = input.inclusions;
+  if (input.exclusions !== undefined) payload.exclusions = input.exclusions;
+  if (input.conditions !== undefined) payload.conditions = input.conditions;
+  if (input.validDays !== undefined) payload.valid_days = input.validDays;
+  if (input.validTimeStart !== undefined) payload.valid_time_start = input.validTimeStart;
+  if (input.validTimeEnd !== undefined) payload.valid_time_end = input.validTimeEnd;
+  if (input.saleStartDate !== undefined) payload.sale_start_date = input.saleStartDate;
+  if (input.saleEndDate !== undefined) payload.sale_end_date = input.saleEndDate;
+  if (input.validityStartDate !== undefined) payload.validity_start_date = input.validityStartDate;
+  if (input.validityEndDate !== undefined) payload.validity_end_date = input.validityEndDate;
+  if (input.stock !== undefined) {
+    payload.stock = input.stock;
+    payload.is_limited = input.stock != null && input.stock > 0;
+  }
+  if (input.limitPerClient !== undefined) payload.limit_per_client = input.limitPerClient;
+  if (input.isMultiUse !== undefined) payload.is_multi_use = input.isMultiUse;
+  if (input.totalUses !== undefined) payload.total_uses = input.totalUses;
+
+  // Recalculate discount percentage
+  const newPrice = input.price ?? (pack as any).price;
+  const newOriginal = input.originalPrice !== undefined ? input.originalPrice : (pack as any).original_price;
+  if (newOriginal && newOriginal > 0 && newPrice < newOriginal) {
+    payload.discount_percentage = calculateDiscountPercentage(newOriginal, newPrice);
+  } else {
+    payload.discount_percentage = null;
+  }
+
+  // Admin edits do NOT trigger re-moderation — admin IS the moderator.
+
+  const { error: updateErr } = await supabase
+    .from("packs")
+    .update(payload)
+    .eq("id", packId);
+
+  if (updateErr) return { ok: false, error: updateErr.message };
+
+  return { ok: true, data: undefined };
+}
+
+// =============================================================================
+// 9d. Admin Delete pack (with active-purchase safety check)
+// =============================================================================
+
+export async function adminDeletePack(
+  packId: string,
+): Promise<OpResult> {
+  const supabase = getAdminSupabase();
+
+  const { data: pack, error } = await supabase
+    .from("packs")
+    .select("id, title")
+    .eq("id", packId)
+    .maybeSingle();
+
+  if (error) return { ok: false, error: error.message };
+  if (!pack) return { ok: false, error: "Pack introuvable.", errorCode: "not_found" };
+
+  // Safety: check for active (unredeemed) purchases
+  const { count, error: countErr } = await supabase
+    .from("pack_purchases")
+    .select("id", { count: "exact", head: true })
+    .eq("pack_id", packId)
+    .in("status", ["purchased", "partially_consumed"]);
+
+  if (countErr) return { ok: false, error: countErr.message };
+
+  if (count && count > 0) {
+    return {
+      ok: false,
+      error: `Impossible de supprimer : ${count} achat(s) actif(s) lié(s) à ce pack.`,
+      errorCode: "has_active_purchases",
+    };
+  }
+
+  const { error: delError } = await supabase
+    .from("packs")
+    .delete()
+    .eq("id", packId);
+
+  if (delError) return { ok: false, error: delError.message };
+
+  return { ok: true, data: undefined };
+}
+
+// =============================================================================
 // 10. Duplicate (pro)
 // =============================================================================
 

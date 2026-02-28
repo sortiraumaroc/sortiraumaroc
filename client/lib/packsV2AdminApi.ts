@@ -119,6 +119,33 @@ export async function unfeaturePack(packId: string): Promise<{ ok: true }> {
 }
 
 // =============================================================================
+// Admin Pack CRUD (get detail, update, delete)
+// =============================================================================
+
+/** GET /api/admin/packs/:id */
+export async function getAdminPack(
+  packId: string,
+): Promise<{ pack: PackV2 }> {
+  return adminJson(`/api/admin/packs/${packId}`);
+}
+
+/** PUT /api/admin/packs/:id */
+export async function updateAdminPack(
+  packId: string,
+  input: Record<string, unknown>,
+): Promise<{ ok: true }> {
+  return adminJson(`/api/admin/packs/${packId}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+/** DELETE /api/admin/packs/:id */
+export async function deleteAdminPack(packId: string): Promise<{ ok: true }> {
+  return adminJson(`/api/admin/packs/${packId}`, { method: "DELETE" });
+}
+
+// =============================================================================
 // Modules (3 endpoints)
 // =============================================================================
 

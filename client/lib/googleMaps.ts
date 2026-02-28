@@ -1,6 +1,9 @@
 // Google Maps configuration
 export const GOOGLE_MAPS_API_KEY = "AIzaSyA3pLo5Uu8jYZCHJz3s2VqwyzFZtLd9QE0";
 
+// Region bias — displays unified Morocco (Sahara included)
+export const GOOGLE_MAPS_REGION = "MA";
+
 // Default map options for consistent styling across the app
 export const defaultMapOptions: google.maps.MapOptions = {
   disableDefaultUI: false,

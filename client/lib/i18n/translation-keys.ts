@@ -1126,6 +1126,7 @@ const _frKeys = [
   "reset_password.error.token_used",
   "reset_password.error.too_short",
   "reset_password.error.mismatch",
+  "reset_password.error.weak_password",
   "reset_password.error.generic",
   "reset_password.success.title",
   "reset_password.success.description",

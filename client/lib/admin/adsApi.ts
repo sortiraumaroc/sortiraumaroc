@@ -270,3 +270,46 @@ export async function getAdOverview(): Promise<{ ok: true; overview: AdOverview 
   });
   return handleResponse(res);
 }
+
+// =============================================================================
+// CREATE CAMPAIGN (Admin — skip modération)
+// =============================================================================
+
+export interface CreateAdminCampaignRequest {
+  establishment_id: string;
+  type: string;
+  title: string;
+  budget_cents: number;
+  bid_amount_cents?: number;
+  daily_budget_cents?: number;
+  billing_model?: string;
+  starts_at?: string;
+  ends_at?: string;
+  targeting?: {
+    keywords?: string[];
+    categories?: string[];
+    cities?: string[];
+    countries?: string[];
+    radius_km?: number;
+    device_types?: ("mobile" | "desktop" | "tablet")[];
+    days_of_week?: number[];
+    hours_of_day?: number[];
+    gender?: "homme" | "femme" | "tous";
+    age_range?: { min?: number; max?: number };
+    placements?: string[];
+  };
+  promoted_entity_type?: string;
+  promoted_entity_id?: string;
+}
+
+export async function createAdminAdCampaign(
+  data: CreateAdminCampaignRequest
+): Promise<{ ok: true; campaign: AdCampaignDetail }> {
+  const res = await fetch(apiUrl("/api/admin/ads/campaigns"), {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return handleResponse(res);
+}

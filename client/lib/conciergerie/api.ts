@@ -123,6 +123,8 @@ export type EstablishmentSearchResult = {
   universe: string | null;
   category: string | null;
   rating: number | null;
+  is_partner: boolean;
+  partner_commission: number | null;
 };
 
 export function searchEstablishments(params: {
@@ -131,7 +133,7 @@ export function searchEstablishments(params: {
   universe?: string;
   category?: string;
   limit?: number;
-}): Promise<{ results: EstablishmentSearchResult[] }> {
+}): Promise<{ results: EstablishmentSearchResult[]; allowed_cities?: string[] }> {
   const q = new URLSearchParams();
   if (params.q) q.set("q", params.q);
   if (params.city) q.set("city", params.city);
@@ -225,4 +227,23 @@ export function getScanQrData(
   stepRequestId: string,
 ): Promise<{ payload: string; expiresIn: number }> {
   return apiFetch(`/scan-qr/${stepRequestId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Partners — Portefeuille partenaires avec stats & scoring
+// ---------------------------------------------------------------------------
+
+import type {
+  ConciergePartnerStats,
+  PartnerActivity,
+} from "../../../shared/conciergerieTypes";
+
+export function listPartners(): Promise<{
+  partners: ConciergePartnerStats[];
+  activity: PartnerActivity[];
+}> {
+  return apiFetch<{
+    partners: ConciergePartnerStats[];
+    activity: PartnerActivity[];
+  }>("/partners");
 }

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams, useLocation } from "react-router-dom";
 
 import {
   ChevronLeft,
@@ -63,6 +63,7 @@ import { ReportEstablishmentDialog } from "@/components/ReportEstablishmentDialo
 import { ClaimEstablishmentDialog } from "@/components/ClaimEstablishmentDialog";
 import { CeAdvantageSection } from "@/components/ce/CeAdvantageSection";
 import { EstablishmentRamadanTab, useHasRamadanOffers } from "@/components/establishment/EstablishmentRamadanTab";
+import DisplayBannerAd from "@/components/ads/DisplayBannerAd";
 import { Moon } from "lucide-react";
 
 interface RestaurantReview {
@@ -913,7 +914,13 @@ export default function Restaurant() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const title = searchParams.get("title");
+
+  // Ftour gift context — passed from WheelResultModal via navigation state
+  const ftourGift = (location.state as any)?.ftourGift as
+    | { giftDistributionId: string; prizeName: string }
+    | undefined;
 
   const [canonicalEstablishmentId, setCanonicalEstablishmentId] = React.useState<string | null>(null);
   const [publicPayload, setPublicPayload] = React.useState<Awaited<ReturnType<typeof getPublicEstablishment>> | null>(null);
@@ -1784,16 +1791,44 @@ export default function Restaurant() {
               ) : null}
             </div>
 
+            {/* Ftour gift banner — shown when user navigates from Wheel of Fortune */}
+            {ftourGift && (
+              <div className="mt-2 rounded-xl border-2 border-emerald-400 bg-gradient-to-r from-emerald-50 to-green-50 p-4 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl shrink-0">🎁</span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-emerald-800 mb-1">
+                      Ftour offert par SAM.ma
+                    </p>
+                    <p className="text-xs text-emerald-700 leading-relaxed">
+                      Vous avez gagn&eacute; un <strong>{ftourGift.prizeName}</strong> !
+                      R&eacute;servez ci-dessous pour <strong>1 personne</strong>.
+                      Ce repas est offert dans le cadre d'un partenariat SAM.ma.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <ReservationBanner
               className="mt-2 md:mt-0"
               establishmentId={bookingEstablishmentId}
               universe={isRentacar ? "rentacar" : "restaurants"}
               availableSlots={normalizedAvailableSlots}
               avgPriceLabel={restaurant.avgPrice || undefined}
-              open={bookingOpen}
+              open={bookingOpen || !!ftourGift}
               onOpenChange={setBookingOpen}
               onViewMoreDates={() => setBookingOpen(true)}
-              extraBookingQuery={{ title: restaurant.name }}
+              extraBookingQuery={{
+                title: restaurant.name,
+                ...(ftourGift
+                  ? {
+                      ftour_offert: "true",
+                      gift_distribution_id: ftourGift.giftDistributionId,
+                      ftour_prize_name: ftourGift.prizeName,
+                    }
+                  : {}),
+              }}
               bookingEnabled={hasEstablishmentEmail}
             />
           </div>
@@ -1872,6 +1907,12 @@ export default function Restaurant() {
                 ))}
             </div>
           </section>
+
+          {/* Slot publicitaire IAB #1 */}
+          <DisplayBannerAd
+            placement="establishment_detail_slot_1"
+            city={restaurant.city ?? undefined}
+          />
 
           <section>
             <h3 className="text-lg font-extrabold text-foreground mb-3">Informations pratiques</h3>
@@ -2042,23 +2083,31 @@ export default function Restaurant() {
             </div>
           </section>
 
-          {/* Claim Establishment Section */}
-          <section className="mt-8 p-4 bg-slate-50 rounded-xl border border-slate-200">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div>
-                <p className="font-semibold text-primary uppercase tracking-wide">C'EST VOTRE ENTREPRISE ?</p>
-                <p className="text-sm text-slate-600">Revendiquez cette fiche pour gérer vos informations et accéder à votre espace professionnel.</p>
+          {/* Claim Establishment Section — masqué si la fiche est déjà revendiquée */}
+          {!publicPayload?.establishment?.is_claimed && (
+            <section className="mt-8 p-4 bg-slate-50 rounded-xl border border-slate-200">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-primary uppercase tracking-wide">C'EST VOTRE ENTREPRISE ?</p>
+                  <p className="text-sm text-slate-600">Revendiquez cette fiche pour gérer vos informations et accéder à votre espace professionnel.</p>
+                </div>
+                <Button
+                  variant="outline"
+                  className="border-primary text-primary hover:bg-primary/10 whitespace-nowrap rounded-lg"
+                  onClick={() => setShowClaimDialog(true)}
+                >
+                  Revendiquer cette fiche
+                </Button>
               </div>
-              <Button
-                variant="outline"
-                className="border-primary text-primary hover:bg-primary/10 whitespace-nowrap rounded-lg"
-                onClick={() => setShowClaimDialog(true)}
-              >
-                Revendiquer cette fiche
-              </Button>
-            </div>
-          </section>
+            </section>
+          )}
         </section>
+
+        {/* Slot publicitaire IAB #2 */}
+        <DisplayBannerAd
+          placement="establishment_detail_slot_2"
+          city={restaurant.city ?? undefined}
+        />
 
         <section id="section-horaires" data-tab="horaires" className="scroll-mt-28 space-y-6">
           <EstablishmentSectionHeading title="Horaires" />

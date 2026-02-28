@@ -118,6 +118,81 @@ export type StepRequest = {
   updated_at: string;
 };
 
+// --- Partner Enums ---
+
+export const PARTNER_STATUSES = ["active", "suspended"] as const;
+export type PartnerStatus = (typeof PARTNER_STATUSES)[number];
+
+export const PARTNER_BADGES = ["gold", "silver", "bronze", "none"] as const;
+export type PartnerBadge = (typeof PARTNER_BADGES)[number];
+
+// --- Partner DB Row ---
+
+export type ConciergePartner = {
+  id: string;
+  concierge_id: string;
+  establishment_id: string;
+  commission_rate: number;
+  admin_share: number;
+  concierge_share: number;
+  status: PartnerStatus;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+};
+
+// --- Partner Stats (enrichi côté serveur) ---
+
+export type ConciergePartnerStats = ConciergePartner & {
+  establishment_name: string;
+  establishment_city: string | null;
+  establishment_cover_url: string | null;
+  establishment_universe: string | null;
+  // Métriques
+  total_requests: number;
+  accepted_requests: number;
+  acceptance_rate: number; // 0-100
+  avg_response_time_hours: number | null;
+  total_confirmed_bookings: number;
+  total_revenue: number; // centimes MAD
+  // Score & classement
+  score: number; // 0-100
+  rank: number;
+  badge: PartnerBadge;
+};
+
+// --- Partner Activity (feed) ---
+
+export type PartnerActivity = {
+  type: "partner_added" | "request_accepted" | "request_refused";
+  establishment_name: string;
+  date: string;
+  details?: string; // ex: "150 DH" pour une acceptation
+};
+
+// --- Usage & Tiers ---
+
+export const CONCIERGE_TIERS = ["free", "standard", "premium"] as const;
+export type ConciergeTier = (typeof CONCIERGE_TIERS)[number];
+
+export type ConciergeUsage = {
+  month_reservations: number;
+  tier: ConciergeTier;
+  tier_label: string;
+  tier_price: number; // 0, 350, 900
+  limit: number; // 10, 25, Infinity
+};
+
+export const TIER_CONFIG: Record<
+  ConciergeTier,
+  { label: string; price: number; maxReservations: number }
+> = {
+  free: { label: "Gratuit", price: 0, maxReservations: 10 },
+  standard: { label: "Standard", price: 350, maxReservations: 25 },
+  premium: { label: "Premium", price: 900, maxReservations: Infinity },
+};
+
 // --- API Payloads ---
 
 export type CreateJourneyPayload = {

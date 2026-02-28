@@ -9,6 +9,7 @@
 
 import { getAdminSupabase } from "./supabaseAdmin";
 import { emitAdminNotification } from "./adminNotifications";
+import { reportSuspiciousActivity } from "./suspiciousActivity";
 import { createModuleLogger } from "./lib/logger";
 
 const log = createModuleLogger("wheelFraudDetection");
@@ -139,6 +140,23 @@ export function alertAdminFraudSuspicion(details: FraudCheckResult["details"]): 
       ip_address: details.ip_address ?? null,
       accounts: details.winning_accounts,
     },
+  });
+
+  // Alerte unifiée (persistance DB + email admin)
+  void reportSuspiciousActivity({
+    actorType: "consumer",
+    actorId: details.winning_accounts[0] || "unknown",
+    alertType: "wheel_multi_account_fraud",
+    severity: "critical",
+    title: "Roue — Suspicion multi-comptes",
+    details: `${details.accounts_count} comptes gagnants (${typeLabel}) en 24h`,
+    context: {
+      type: details.type,
+      device_id: details.device_id ?? null,
+      ip_address: details.ip_address ?? null,
+      accounts: details.winning_accounts,
+    },
+    deduplicationKey: `wheel_fraud_${details.device_id || details.ip_address || "unknown"}`,
   });
 }
 

@@ -120,6 +120,7 @@ export function RestaurantMap({
 
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: GOOGLE_MAPS_API_KEY,
+    region: "MA",
   });
 
   const onMapLoad = useCallback((map: google.maps.Map) => {

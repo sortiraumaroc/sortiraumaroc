@@ -317,6 +317,7 @@ export async function getPublicEstablishment(req: Request, res: Response) {
     { data: bookingPolicy, error: bookingPolicyError },
     { data: inventoryCategories, error: inventoryCategoriesError },
     { data: inventoryItems, error: inventoryItemsError },
+    { data: claimRow },
   ] = await Promise.all([
     supabase
       .from("pro_slots")
@@ -358,7 +359,16 @@ export async function getPublicEstablishment(req: Request, res: Response) {
       .eq("is_active", true)
       .order("sort_order", { ascending: true })
       .limit(500),
+    // Vérifier si la fiche est revendiquée par un pro
+    supabase
+      .from("pro_establishment_memberships")
+      .select("id")
+      .eq("establishment_id", establishmentId)
+      .limit(1)
+      .maybeSingle(),
   ]);
+
+  const isClaimed = !!claimRow;
 
   if (slotsError) return res.status(500).json({ error: slotsError.message });
   if (packsError) return res.status(500).json({ error: packsError.message });
@@ -544,6 +554,7 @@ export async function getPublicEstablishment(req: Request, res: Response) {
     slug: estSlug,
     menu_digital_enabled: menuDigitalEnabled,
     menu_digital_url: menuDigitalUrl,
+    is_claimed: isClaimed,
   };
 
   // Transform inventory into MenuCategory format for the frontend
@@ -945,7 +956,7 @@ export async function listPublicEstablishments(req: Request, res: Response) {
         ids.length
           ? supabase
               .from("pro_slots")
-              .select("establishment_id,starts_at,promo_type,promo_value,active")
+              .select("establishment_id,starts_at,promo_type,promo_value,active,cover_url")
               .in("establishment_id", ids)
               .eq("active", true)
               .gte("starts_at", nowIso)
@@ -1332,7 +1343,7 @@ export async function listPublicEstablishments(req: Request, res: Response) {
     ids.length
       ? supabase
           .from("pro_slots")
-          .select("establishment_id,starts_at,promo_type,promo_value,active")
+          .select("establishment_id,starts_at,promo_type,promo_value,active,cover_url")
           .in("establishment_id", ids)
           .eq("active", true)
           .gte("starts_at", nowIso)
@@ -1536,6 +1547,12 @@ export async function listPublicEstablishments(req: Request, res: Response) {
     }
   } catch (err) {
     log.warn({ err }, "contextual boosting failed for fallback results");
+  }
+
+  // Shuffle : ordre aléatoire à chaque requête
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
   }
 
   // Build cursor info for next page (fallback path uses updated_at + id)
@@ -2635,7 +2652,7 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
     ids.length
       ? supabase
           .from("pro_slots")
-          .select("establishment_id,starts_at,promo_type,promo_value,active")
+          .select("establishment_id,starts_at,promo_type,promo_value,active,cover_url")
           .in("establishment_id", ids)
           .eq("active", true)
           .gte("starts_at", nowIso)
@@ -2655,6 +2672,7 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
 
   const nextSlotByEst = new Map<string, string>();
   const promoByEst = new Map<string, number>();
+  const slotCoverByEst = new Map<string, string>();
 
   for (const s of (slots ?? []) as Array<Record<string, unknown>>) {
     const establishmentId =
@@ -2668,10 +2686,15 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
 
     const promo = maxPromoPercent(s.promo_type, s.promo_value);
     if (promo != null) {
-      promoByEst.set(
-        establishmentId,
-        Math.max(promoByEst.get(establishmentId) ?? 0, promo),
-      );
+      const existing = promoByEst.get(establishmentId) ?? 0;
+      if (promo >= existing) {
+        promoByEst.set(establishmentId, promo);
+        // Keep the cover from the slot with the best promo for homepage cards
+        const slotCover = typeof s.cover_url === "string" && s.cover_url.trim() ? s.cover_url.trim() : null;
+        if (slotCover) {
+          slotCoverByEst.set(establishmentId, slotCover);
+        }
+      }
     }
   }
 
@@ -2715,7 +2738,7 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
         country: typeof e.country === "string" ? e.country : null,
         lat: latVal,
         lng: lngVal,
-        cover_url: typeof e.cover_url === "string" ? e.cover_url : null,
+        cover_url: slotCoverByEst.get(id) ?? (typeof e.cover_url === "string" ? e.cover_url : null),
         booking_enabled:
           typeof e.booking_enabled === "boolean" ? e.booking_enabled : null,
         promo_percent: promo,
@@ -2904,7 +2927,7 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
     }
     const missingIds = [...allCuratedIds].filter((id) => !candidateById.has(id));
     if (missingIds.length > 0) {
-      const { data: extras } = await supabase
+      let extrasQuery = supabase
         .from("establishments")
         .select(
           "id,slug,name,universe,subcategory,city,address,neighborhood,region,country,lat,lng,cover_url,booking_enabled,google_rating,google_review_count,service_types",
@@ -2914,6 +2937,12 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
         .eq("is_online", true)
         .not("cover_url", "is", null)
         .neq("cover_url", "");
+
+      if (city && !isNearMe) {
+        extrasQuery = extrasQuery.ilike("city", city);
+      }
+
+      const { data: extras } = await extrasQuery;
       for (const e of (extras ?? []) as Array<Record<string, unknown>>) {
         const id = typeof e.id === "string" ? e.id : "";
         if (!id) continue;
@@ -2929,7 +2958,7 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
           country: typeof e.country === "string" ? e.country : null,
           lat: typeof e.lat === "number" ? e.lat : null,
           lng: typeof e.lng === "number" ? e.lng : null,
-          cover_url: typeof e.cover_url === "string" ? e.cover_url : null,
+          cover_url: slotCoverByEst.get(id) ?? (typeof e.cover_url === "string" ? e.cover_url : null),
           booking_enabled: typeof e.booking_enabled === "boolean" ? e.booking_enabled : null,
           promo_percent: promoByEst.get(id) ?? null,
           next_slot_at: nextSlotByEst.get(id) ?? null,
@@ -3089,20 +3118,26 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
     : [];
 
   // ── Service type sections ──
-  const buffetBase = [...candidateItems].filter((i) => {
-    const meta = estMeta.get(i.id);
-    return meta?.service_types.some((t) => t.toLowerCase().includes("buffet"));
-  }).sort(bestScoreSort);
+  const buffetBase = [...candidateItems]
+    .filter((i) => {
+      const meta = estMeta.get(i.id);
+      return meta?.service_types.some((t) => t.toLowerCase().includes("buffet"));
+    })
+    .sort(bestScoreSort);
 
-  const serviTableBase = [...candidateItems].filter((i) => {
-    const meta = estMeta.get(i.id);
-    return meta?.service_types.some((t) => t.toLowerCase().includes("servi"));
-  }).sort(bestScoreSort);
+  const serviTableBase = [...candidateItems]
+    .filter((i) => {
+      const meta = estMeta.get(i.id);
+      return meta?.service_types.some((t) => t.toLowerCase().includes("servi"));
+    })
+    .sort(bestScoreSort);
 
-  const aLaCarteBase = [...candidateItems].filter((i) => {
-    const meta = estMeta.get(i.id);
-    return meta?.service_types.some((t) => t.toLowerCase().includes("carte"));
-  }).sort(bestScoreSort);
+  const aLaCarteBase = [...candidateItems]
+    .filter((i) => {
+      const meta = estMeta.get(i.id);
+      return meta?.service_types.some((t) => t.toLowerCase().includes("carte"));
+    })
+    .sort(bestScoreSort);
 
   // ── Dedup helpers ──
   const used = new Set<string>();

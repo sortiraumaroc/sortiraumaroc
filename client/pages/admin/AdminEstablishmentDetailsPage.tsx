@@ -11,10 +11,8 @@ import {
   Pencil,
   QrCode,
   RefreshCcw,
-  Repeat,
   Save,
   Loader2,
-  Moon,
   Plus,
   Store,
   Ticket,
@@ -408,25 +406,6 @@ export function AdminEstablishmentDetailsPage() {
 
   const [packPurchaseConsumptionFilter, setPackPurchaseConsumptionFilter] = useState<"not_consumed" | "fully_consumed" | "all">("not_consumed");
   const [qrLogs, setQrLogs] = useState<QrRow[]>([]);
-
-  // Ftour slots dialog
-  const [ftourDialogOpen, setFtourDialogOpen] = useState(false);
-  const [ftourDateStart, setFtourDateStart] = useState("");
-  const [ftourDateEnd, setFtourDateEnd] = useState("");
-  const [ftourTimeStart, setFtourTimeStart] = useState("19:15");
-  const [ftourDurationMin, setFtourDurationMin] = useState(180);
-  const [ftourCapacity, setFtourCapacity] = useState(30);
-  const [ftourBasePrice, setFtourBasePrice] = useState("");
-  const [ftourServiceLabel, setFtourServiceLabel] = useState("Ftour");
-  const [ftourPromoLabel, setFtourPromoLabel] = useState("");
-  const [ftourPromoType, setFtourPromoType] = useState<"percent" | "amount">("percent");
-  const [ftourPromoValue, setFtourPromoValue] = useState("");
-  const [ftourPaidPercent, setFtourPaidPercent] = useState(88);
-  const [ftourFreePercent, setFtourFreePercent] = useState(6);
-  const [ftourBufferPercent, setFtourBufferPercent] = useState(6);
-  const [ftourRepeatEnabled, setFtourRepeatEnabled] = useState(false);
-  const [ftourRepeatDays, setFtourRepeatDays] = useState<number[]>([1, 2, 3, 4, 5, 6, 0]);
-  const [ftourCreating, setFtourCreating] = useState(false);
 
   // Slot edit/delete dialogs
   const [editSlotDialogOpen, setEditSlotDialogOpen] = useState(false);
@@ -1200,113 +1179,6 @@ export function AdminEstablishmentDetailsPage() {
     });
   }, [packPurchases, packPurchaseConsumptionFilter]);
 
-  // Create Ftour slots in batch
-  const handleCreateFtourSlots = async () => {
-    if (!establishmentId || !ftourDateStart || !ftourTimeStart) return;
-    if (ftourRepeatEnabled && !ftourDateEnd) return;
-
-    // Validate capacity distribution
-    if (ftourPaidPercent + ftourFreePercent + ftourBufferPercent !== 100) {
-      toast({ title: "Erreur", description: "La répartition des places doit totaliser 100%.", variant: "destructive" });
-      return;
-    }
-
-    setFtourCreating(true);
-    try {
-      const startDate = new Date(ftourDateStart);
-      if (isNaN(startDate.getTime())) {
-        toast({ title: "Erreur", description: "Date de début invalide", variant: "destructive" });
-        return;
-      }
-
-      // Si la répétition est activée, utiliser ftourDateEnd comme date de fin
-      // Sinon, créer un seul créneau pour la date de début
-      const endDate = ftourRepeatEnabled && ftourDateEnd ? new Date(ftourDateEnd) : new Date(startDate);
-      if (isNaN(endDate.getTime()) || endDate < startDate) {
-        toast({ title: "Erreur", description: "Dates invalides", variant: "destructive" });
-        return;
-      }
-
-      const [hours, minutes] = ftourTimeStart.split(":").map(Number);
-      const basePrice = ftourBasePrice.trim() ? Math.round(Number(ftourBasePrice) * 100) : null;
-      const promoValueNum = ftourPromoValue.trim() ? Math.round(Number(ftourPromoValue)) : null;
-      const promoValue = promoValueNum && promoValueNum > 0 ? promoValueNum : null;
-
-      const slots: Array<{
-        starts_at: string;
-        ends_at: string;
-        capacity: number;
-        base_price?: number | null;
-        service_label: string;
-        promo_type?: string | null;
-        promo_value?: number | null;
-        promo_label?: string | null;
-      }> = [];
-
-      const current = new Date(startDate);
-      while (current <= endDate) {
-        // Skip days not in the repeat selection (when enabled)
-        if (ftourRepeatEnabled && ftourRepeatDays.length > 0 && !ftourRepeatDays.includes(current.getDay())) {
-          current.setDate(current.getDate() + 1);
-          continue;
-        }
-
-        const slotStart = new Date(current);
-        slotStart.setHours(hours, minutes, 0, 0);
-
-        const slotEnd = new Date(slotStart);
-        slotEnd.setMinutes(slotEnd.getMinutes() + ftourDurationMin);
-
-        slots.push({
-          starts_at: slotStart.toISOString(),
-          ends_at: slotEnd.toISOString(),
-          capacity: ftourCapacity,
-          base_price: basePrice,
-          service_label: ftourServiceLabel || "Ftour",
-          promo_type: promoValue ? ftourPromoType : null,
-          promo_value: promoValue,
-          promo_label: promoValue ? (ftourPromoLabel.trim() || null) : null,
-        });
-
-        current.setDate(current.getDate() + 1);
-      }
-
-      const res = await adminUpsertSlots(undefined, establishmentId, slots);
-      toast({
-        title: "Créneaux créés",
-        description: `${res.upserted} créneau(x) créé(s) avec succès`,
-      });
-
-      // Refresh offers list
-      const offersRes = await listAdminEstablishmentOffers(undefined, establishmentId);
-      const refreshedSlots: SlotRow[] = (offersRes.slots ?? []).map((s: any) => ({
-        id: String(s?.id ?? ""),
-        startsAt: formatLocal(s?.starts_at),
-        startsAtIso: s?.starts_at ?? "",
-        endsAtIso: s?.ends_at ?? null,
-        date: formatSlotDate(s?.starts_at),
-        time: formatSlotTime(s?.starts_at),
-        capacity: String(s?.capacity ?? "—"),
-        capacityNum: typeof s?.capacity === "number" ? s.capacity : 0,
-        basePriceCents: typeof s?.base_price === "number" ? s.base_price : null,
-        basePrice: formatMoneyCents(typeof s?.base_price === "number" ? s.base_price : null, s?.currency ?? null),
-        serviceLabel: String(s?.service_label ?? "—"),
-        promo: s?.promo_label ? `${s.promo_label}` : s?.promo_value ? `${s.promo_type === "percent" ? `${s.promo_value}%` : `${s.promo_value} MAD`}` : "—",
-        promoType: s?.promo_type ?? null,
-        promoValue: typeof s?.promo_value === "number" ? s.promo_value : null,
-        promoLabel: s?.promo_label ?? null,
-        status: String(s?.status ?? "—"),
-      }));
-      setOffersSlots(refreshedSlots);
-      setFtourDialogOpen(false);
-    } catch (e) {
-      const msg = e instanceof AdminApiError ? e.message : "Erreur inattendue";
-      toast({ title: "Erreur", description: msg, variant: "destructive" });
-    } finally {
-      setFtourCreating(false);
-    }
-  };
-
   // Helper to refresh the slots list
   const refreshSlotsOnly = async () => {
     try {
@@ -1881,37 +1753,26 @@ export function AdminEstablishmentDetailsPage() {
         </div>
       </div>
 
-      <div className="space-y-4">
-        <div className="space-y-2 min-w-0 overflow-hidden">
-          <div className="flex items-center justify-between">
-            <div className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <Store className="h-4 w-4 text-primary" />
-              Offres (slots)
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs gap-1"
-                onClick={() => setFtourDialogOpen(true)}
-              >
-                <Moon className="h-3 w-3" />
-                Créer créneaux Ftour
-              </Button>
-              <div className="text-xs text-slate-500">{offersSlots.length}</div>
-            </div>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-bold text-slate-900 flex items-center gap-2">
+            <Store className="h-4 w-4 text-primary" />
+            Offres (slots)
           </div>
-          <AdminDataTable data={slotGroups} columns={slotGroupColumns} searchPlaceholder="Rechercher…" />
+          <div className="text-xs text-slate-500">{offersSlots.length}</div>
         </div>
+        <AdminDataTable data={slotGroups} columns={slotGroupColumns} searchPlaceholder="Rechercher…" />
+      </div>
 
-        <div className="space-y-2 min-w-0 overflow-hidden">
-          <div className="flex items-center justify-between">
-            <div className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <Store className="h-4 w-4 text-primary" />
-              Offres (packs)
-            </div>
-            <div className="text-xs text-slate-500">{offersPacksRaw.length}</div>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-bold text-slate-900 flex items-center gap-2">
+            <Store className="h-4 w-4 text-primary" />
+            Offres (packs)
           </div>
+          <div className="text-xs text-slate-500">{offersPacksRaw.length}</div>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white p-4">
           <PacksListView
             packs={offersPacksRaw}
             role="admin"
@@ -1931,40 +1792,38 @@ export function AdminEstablishmentDetailsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="space-y-2 min-w-0 overflow-hidden">
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <CreditCard className="h-4 w-4 text-primary" />
-              Packs achetés
-            </div>
-            <div className="flex items-center gap-2">
-              <Select value={packPurchaseConsumptionFilter} onValueChange={(v) => setPackPurchaseConsumptionFilter((v as any) ?? "not_consumed")}>
-                <SelectTrigger className="h-9 w-[200px]">
-                  <SelectValue placeholder="Consommation" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="not_consumed">Non consommés</SelectItem>
-                  <SelectItem value="fully_consumed">Consommés</SelectItem>
-                  <SelectItem value="all">Tous</SelectItem>
-                </SelectContent>
-              </Select>
-              <div className="text-xs text-slate-500">{filteredPackPurchases.length}</div>
-            </div>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-sm font-bold text-slate-900 flex items-center gap-2">
+            <CreditCard className="h-4 w-4 text-primary" />
+            Packs achetés
           </div>
-          <AdminDataTable data={filteredPackPurchases} columns={purchasesColumns} searchPlaceholder="Rechercher…" />
+          <div className="flex items-center gap-2">
+            <Select value={packPurchaseConsumptionFilter} onValueChange={(v) => setPackPurchaseConsumptionFilter((v as any) ?? "not_consumed")}>
+              <SelectTrigger className="h-9 w-[200px]">
+                <SelectValue placeholder="Consommation" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="not_consumed">Non consommés</SelectItem>
+                <SelectItem value="fully_consumed">Consommés</SelectItem>
+                <SelectItem value="all">Tous</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="text-xs text-slate-500">{filteredPackPurchases.length}</div>
+          </div>
         </div>
+        <AdminDataTable data={filteredPackPurchases} columns={purchasesColumns} searchPlaceholder="Rechercher…" />
+      </div>
 
-        <div className="space-y-2 min-w-0 overflow-hidden">
-          <div className="flex items-center justify-between">
-            <div className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <CreditCard className="h-4 w-4 text-primary" />
-              Packs consommés
-            </div>
-            <div className="text-xs text-slate-500">{packRedemptions.length}</div>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-bold text-slate-900 flex items-center gap-2">
+            <CreditCard className="h-4 w-4 text-primary" />
+            Packs consommés
           </div>
-          <AdminDataTable data={packRedemptions} columns={redemptionsColumns} searchPlaceholder="Rechercher…" />
+          <div className="text-xs text-slate-500">{packRedemptions.length}</div>
         </div>
+        <AdminDataTable data={packRedemptions} columns={redemptionsColumns} searchPlaceholder="Rechercher…" />
       </div>
 
       <div className="space-y-2">
@@ -2571,384 +2430,6 @@ export function AdminEstablishmentDetailsPage() {
                 <>
                   <Save className="h-4 w-4 mr-1" />
                   Enregistrer
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Ftour Slots Creation Dialog */}
-      <Dialog open={ftourDialogOpen} onOpenChange={setFtourDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Moon className="h-5 w-5" />
-              Créer créneaux
-            </DialogTitle>
-            <DialogDescription>
-              Génère un créneau par jour sur la période sélectionnée.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-5">
-            {/* ── Date de début ── */}
-            <div className="space-y-1">
-              <Label className="text-xs font-medium">Date de début</Label>
-              <Input
-                type="date"
-                value={ftourDateStart}
-                onChange={(e) => setFtourDateStart(e.target.value)}
-              />
-            </div>
-
-            {/* ── Heure & Service ── */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs font-medium">Heure début</Label>
-                <Input
-                  type="time"
-                  value={ftourTimeStart}
-                  onChange={(e) => setFtourTimeStart(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs font-medium">Service</Label>
-                <Select value={ftourServiceLabel} onValueChange={setFtourServiceLabel}>
-                  <SelectTrigger className="h-9 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Petit-déjeuner">Petit-déjeuner</SelectItem>
-                    <SelectItem value="Déjeuner">Déjeuner</SelectItem>
-                    <SelectItem value="Tea Time">Tea Time</SelectItem>
-                    <SelectItem value="Happy Hour">Happy Hour</SelectItem>
-                    <SelectItem value="Dîner">Dîner</SelectItem>
-                    <SelectItem value="Ftour">Ftour (Ramadan)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            {/* ── Durée (boutons) ── */}
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Durée</Label>
-              <div className="flex flex-wrap gap-1.5">
-                {[
-                  { value: 15, label: "15 min" },
-                  { value: 30, label: "30 min" },
-                  { value: 45, label: "45 min" },
-                  { value: 60, label: "1h" },
-                  { value: 90, label: "1h30" },
-                  { value: 120, label: "2h" },
-                  { value: 180, label: "3h" },
-                ].map((opt) => (
-                  <Button
-                    key={opt.value}
-                    type="button"
-                    size="sm"
-                    variant={ftourDurationMin === opt.value ? "default" : "outline"}
-                    className="text-xs h-7 px-2.5"
-                    onClick={() => setFtourDurationMin(opt.value)}
-                  >
-                    {opt.label}
-                  </Button>
-                ))}
-              </div>
-            </div>
-
-            {/* ── Capacité & Prix ── */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs font-medium">Capacité par créneau</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={1000}
-                  value={ftourCapacity}
-                  onChange={(e) => setFtourCapacity(Number(e.target.value) || 30)}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs font-medium">Prix (MAD)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  step={1}
-                  placeholder="Gratuit"
-                  value={ftourBasePrice}
-                  onChange={(e) => setFtourBasePrice(e.target.value)}
-                />
-              </div>
-            </div>
-
-            {/* ── Répartition des places ── */}
-            <div className="space-y-2 rounded-lg border p-3">
-              <Label className="text-xs font-medium">Répartition des places</Label>
-              <div className="flex gap-1.5 mb-2">
-                {[
-                  { label: "Priorité payante", paid: 88, free: 6, buffer: 6 },
-                  { label: "Équilibré", paid: 50, free: 30, buffer: 20 },
-                  { label: "Gratuit généreux", paid: 30, free: 60, buffer: 10 },
-                ].map((profile) => (
-                  <Button
-                    key={profile.label}
-                    type="button"
-                    size="sm"
-                    variant={
-                      ftourPaidPercent === profile.paid &&
-                      ftourFreePercent === profile.free &&
-                      ftourBufferPercent === profile.buffer
-                        ? "default"
-                        : "outline"
-                    }
-                    className="text-xs h-7 px-2"
-                    onClick={() => {
-                      setFtourPaidPercent(profile.paid);
-                      setFtourFreePercent(profile.free);
-                      setFtourBufferPercent(profile.buffer);
-                    }}
-                  >
-                    {profile.label}
-                  </Button>
-                ))}
-                {/* Personnalisé — actif quand les % ne correspondent à aucun profil */}
-                {(() => {
-                  const profiles = [
-                    { paid: 88, free: 6, buffer: 6 },
-                    { paid: 50, free: 30, buffer: 20 },
-                    { paid: 30, free: 60, buffer: 10 },
-                  ];
-                  const matchesAny = profiles.some(
-                    (p) => ftourPaidPercent === p.paid && ftourFreePercent === p.free && ftourBufferPercent === p.buffer,
-                  );
-                  return (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={!matchesAny ? "default" : "outline"}
-                      className="text-xs h-7 px-2"
-                      onClick={() => {
-                        if (matchesAny) {
-                          setFtourPaidPercent(0);
-                          setFtourFreePercent(0);
-                          setFtourBufferPercent(0);
-                        }
-                      }}
-                    >
-                      Personnalisé
-                    </Button>
-                  );
-                })()}
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <div className="space-y-0.5">
-                  <Label className="text-[11px] text-slate-500">Payant %</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={ftourPaidPercent}
-                    onChange={(e) => setFtourPaidPercent(Number(e.target.value) || 0)}
-                    className="h-8 text-sm"
-                  />
-                </div>
-                <div className="space-y-0.5">
-                  <Label className="text-[11px] text-slate-500">Gratuit %</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={ftourFreePercent}
-                    onChange={(e) => setFtourFreePercent(Number(e.target.value) || 0)}
-                    className="h-8 text-sm"
-                  />
-                </div>
-                <div className="space-y-0.5">
-                  <Label className="text-[11px] text-slate-500">Buffer %</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={ftourBufferPercent}
-                    onChange={(e) => setFtourBufferPercent(Number(e.target.value) || 0)}
-                    className="h-8 text-sm"
-                  />
-                </div>
-              </div>
-              {ftourPaidPercent + ftourFreePercent + ftourBufferPercent !== 100 && (
-                <p className="text-xs text-red-500 mt-1">
-                  Total : {ftourPaidPercent + ftourFreePercent + ftourBufferPercent}% — doit être 100%
-                </p>
-              )}
-              {/* Visual bar */}
-              <div className="flex h-2 rounded-full overflow-hidden mt-1">
-                <div className="bg-blue-500" style={{ width: `${ftourPaidPercent}%` }} />
-                <div className="bg-green-500" style={{ width: `${ftourFreePercent}%` }} />
-                <div className="bg-slate-300" style={{ width: `${ftourBufferPercent}%` }} />
-              </div>
-              <div className="flex justify-between text-[10px] text-slate-400">
-                <span>Payant {ftourPaidPercent}%</span>
-                <span>Gratuit {ftourFreePercent}%</span>
-                <span>Buffer {ftourBufferPercent}%</span>
-              </div>
-            </div>
-
-            {/* ── Promotion (optionnel) ── */}
-            <div className="space-y-2 rounded-lg border p-3">
-              <Label className="text-xs font-medium">Promotion (optionnel)</Label>
-              <div className="grid grid-cols-3 gap-2">
-                <div className="space-y-0.5">
-                  <Label className="text-[11px] text-slate-500">Label affiché</Label>
-                  <Input
-                    type="text"
-                    placeholder="-15%"
-                    value={ftourPromoLabel}
-                    onChange={(e) => setFtourPromoLabel(e.target.value)}
-                    className="h-8 text-sm"
-                  />
-                </div>
-                <div className="space-y-0.5">
-                  <Label className="text-[11px] text-slate-500">Type</Label>
-                  <Select value={ftourPromoType} onValueChange={(v) => setFtourPromoType(v as "percent" | "amount")}>
-                    <SelectTrigger className="h-8 text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="percent">Pourcentage</SelectItem>
-                      <SelectItem value="amount">Montant (MAD)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-0.5">
-                  <Label className="text-[11px] text-slate-500">Valeur</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    placeholder="0"
-                    value={ftourPromoValue}
-                    onChange={(e) => setFtourPromoValue(e.target.value)}
-                    className="h-8 text-sm"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* ── Répéter sur plusieurs jours ── */}
-            <div className="space-y-3 rounded-lg border p-3">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <Checkbox
-                  checked={ftourRepeatEnabled}
-                  onCheckedChange={(checked) => setFtourRepeatEnabled(!!checked)}
-                />
-                <div className="flex items-center gap-1.5 text-xs font-medium">
-                  <Repeat className="h-3.5 w-3.5" />
-                  Répéter sur plusieurs jours
-                </div>
-              </label>
-
-              {ftourRepeatEnabled && (
-                <div className="space-y-3 pt-1">
-                  {/* Répéter jusqu'au */}
-                  <div className="space-y-1">
-                    <Label className="text-xs font-medium">Répéter jusqu'au</Label>
-                    <Input
-                      type="date"
-                      value={ftourDateEnd}
-                      min={ftourDateStart || undefined}
-                      onChange={(e) => setFtourDateEnd(e.target.value)}
-                    />
-                  </div>
-
-                  {/* Jours de la semaine */}
-                  <div className="space-y-1.5">
-                    <Label className="text-[11px] text-slate-500">Jours de la semaine</Label>
-                    <div className="flex flex-wrap gap-1.5">
-                      {([
-                        { value: 1, label: "Lun" },
-                        { value: 2, label: "Mar" },
-                        { value: 3, label: "Mer" },
-                        { value: 4, label: "Jeu" },
-                        { value: 5, label: "Ven" },
-                        { value: 6, label: "Sam" },
-                        { value: 0, label: "Dim" },
-                      ] as const).map((day) => {
-                        const isActive = ftourRepeatDays.includes(day.value);
-                        return (
-                          <button
-                            key={day.value}
-                            type="button"
-                            onClick={() => {
-                              setFtourRepeatDays((prev) =>
-                                isActive
-                                  ? prev.filter((d) => d !== day.value)
-                                  : [...prev, day.value],
-                              );
-                            }}
-                            className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border transition ${
-                              isActive
-                                ? "bg-primary text-white border-primary"
-                                : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
-                            }`}
-                          >
-                            {day.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* ── Résumé ── */}
-            {ftourDateStart && (
-              <div className="text-xs text-slate-500 bg-slate-50 rounded p-2">
-                {(() => {
-                  const start = new Date(ftourDateStart);
-                  if (isNaN(start.getTime())) return "Date invalide";
-
-                  let days = 1;
-                  if (ftourRepeatEnabled && ftourDateEnd) {
-                    const end = new Date(ftourDateEnd);
-                    if (isNaN(end.getTime()) || end < start) return "Dates invalides";
-
-                    days = 0;
-                    if (ftourRepeatDays.length > 0) {
-                      const cursor = new Date(start);
-                      while (cursor <= end) {
-                        if (ftourRepeatDays.includes(cursor.getDay())) days++;
-                        cursor.setDate(cursor.getDate() + 1);
-                      }
-                    } else {
-                      days = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-                    }
-                  }
-
-                  const priceStr = ftourBasePrice.trim() ? ` — ${ftourBasePrice} MAD` : " — Gratuit";
-                  return `${days} créneau(x) ${ftourServiceLabel} seront créés (${ftourTimeStart} — ${ftourCapacity} places/jour${priceStr})`;
-                })()}
-              </div>
-            )}
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setFtourDialogOpen(false)}>
-              Annuler
-            </Button>
-            <Button
-              onClick={() => void handleCreateFtourSlots()}
-              disabled={ftourCreating || !ftourDateStart || (ftourRepeatEnabled && !ftourDateEnd)}
-            >
-              {ftourCreating ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                  Création...
-                </>
-              ) : (
-                <>
-                  <Plus className="h-4 w-4 mr-1" />
-                  Créer les créneaux
                 </>
               )}
             </Button>

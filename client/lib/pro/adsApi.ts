@@ -34,7 +34,14 @@ export interface AdCampaignTargeting {
   keywords?: string[];
   categories?: string[];
   cities?: string[];
+  countries?: string[];
   radius_km?: number;
+  device_types?: ("mobile" | "desktop" | "tablet")[];
+  days_of_week?: number[];
+  hours_of_day?: number[];
+  gender?: "homme" | "femme" | "tous";
+  age_range?: { min?: number; max?: number };
+  placements?: string[];
 }
 
 export interface AdCampaign {

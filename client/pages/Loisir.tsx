@@ -80,11 +80,11 @@ type LoisirData = {
 };
 
 function buildMapsUrl(query: string): string {
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}&region=MA`;
 }
 
 function buildMapsEmbedUrl(query: string): string {
-  return `https://www.google.com/maps?q=${encodeURIComponent(query)}&output=embed`;
+  return `https://www.google.com/maps?q=${encodeURIComponent(query)}&output=embed&region=MA`;
 }
 
 function buildWazeUrl(query: string): string {

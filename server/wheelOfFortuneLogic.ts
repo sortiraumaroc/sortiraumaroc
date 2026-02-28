@@ -20,6 +20,8 @@ import crypto, { randomUUID } from "crypto";
 import { fireNotification } from "./notificationEngine";
 import { emitAdminNotification } from "./adminNotifications";
 import { emitConsumerUserEvent } from "./consumerNotifications";
+import { notifyProMembers } from "./proNotifications";
+import { getRamadanConfig } from "./platformSettings";
 import type {
   WheelEvent,
   WheelPrize,
@@ -228,6 +230,10 @@ export async function spinWheel(
         selectedPrize,
         wheelId,
       );
+
+      // NOTE: free_service prizes linked to an establishment (e.g. ftour)
+      // are NOT auto-consumed. They stay "distributed" until the user makes
+      // a reservation and checks in — consumption happens at check-in time.
     }
   }
 
@@ -252,7 +258,18 @@ export async function spinWheel(
   // 8. Update wheel stats
   void updateWheelStats(wheelId, result);
 
-  // 9. Notifications
+  // 9. Resolve establishment name for linked prizes
+  let establishmentName: string | undefined;
+  if (selectedPrize?.establishment_id) {
+    const { data: est } = await supabase
+      .from("establishments")
+      .select("name")
+      .eq("id", selectedPrize.establishment_id)
+      .single();
+    establishmentName = (est as { name: string } | null)?.name ?? undefined;
+  }
+
+  // 10. Notifications
   if (result === "won" && selectedPrize) {
     // Notify user
     void fireNotification({
@@ -267,6 +284,22 @@ export async function spinWheel(
       },
       is_critical: true,
     });
+
+    // Notify restaurant when ftour (free_service linked to establishment) is won
+    if (selectedPrize.type === "free_service" && selectedPrize.establishment_id) {
+      const estName = establishmentName ?? "votre établissement";
+      void notifyProMembers({
+        supabase,
+        establishmentId: selectedPrize.establishment_id,
+        category: "booking",
+        title: "🎁 Ftour offert SAM — Nouveau gagnant",
+        body: `Un internaute a gagné un ftour offert chez ${estName} via la Roue de la Chance SAM. Il effectuera sa réservation prochainement.`,
+        data: {
+          action: "wheel_ftour_won",
+          prizeName: selectedPrize.name,
+        },
+      });
+    }
   }
 
   // Calculate next spin time
@@ -274,7 +307,24 @@ export async function spinWheel(
   tomorrow.setUTCHours(0, 0, 0, 0);
   tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
 
-  // 10. Build response (NO probabilities exposed)
+  // 11. Compute expires_at (Ramadan end date for ftour, gift_validity_days otherwise)
+  let prizeExpiresAt: string | undefined;
+  if (giftDistributionId) {
+    prizeExpiresAt = new Date(Date.now() + selectedPrize!.gift_validity_days * 24 * 60 * 60 * 1000).toISOString();
+    // For ftour prizes, override with Ramadan end date if available
+    if (selectedPrize?.type === "free_service" && selectedPrize.establishment_id) {
+      try {
+        const ramadanConfig = await getRamadanConfig();
+        if (ramadanConfig.enabled && ramadanConfig.end_date) {
+          prizeExpiresAt = ramadanConfig.end_date + "T23:59:59.000Z";
+        }
+      } catch {
+        // fallback to gift_validity_days — already set
+      }
+    }
+  }
+
+  // 12. Build response (NO probabilities exposed)
   return {
     ok: true,
     result,
@@ -283,11 +333,10 @@ export async function spinWheel(
       name: selectedPrize.name,
       type: selectedPrize.type,
       description: selectedPrize.description,
-      establishment_name: undefined, // Would need a join
+      establishment_id: selectedPrize.establishment_id ?? undefined,
+      establishment_name: establishmentName,
       value: selectedPrize.value ?? undefined,
-      expires_at: giftDistributionId
-        ? new Date(Date.now() + selectedPrize.gift_validity_days * 24 * 60 * 60 * 1000).toISOString()
-        : undefined,
+      expires_at: prizeExpiresAt,
       external_code: externalCode ?? undefined,
       partner_name: partnerName ?? undefined,
       partner_url: partnerUrl ?? undefined,
@@ -472,7 +521,18 @@ async function createWheelGiftDistribution(
 ): Promise<string | null> {
   const supabase = getAdminSupabase();
 
-  const expiresAt = new Date(Date.now() + prize.gift_validity_days * 24 * 60 * 60 * 1000).toISOString();
+  // For ftour prizes (free_service + establishment), use Ramadan end date if active
+  let expiresAt = new Date(Date.now() + prize.gift_validity_days * 24 * 60 * 60 * 1000).toISOString();
+  if (prize.type === "free_service" && prize.establishment_id) {
+    try {
+      const ramadanConfig = await getRamadanConfig();
+      if (ramadanConfig.enabled && ramadanConfig.end_date) {
+        expiresAt = ramadanConfig.end_date + "T23:59:59.000Z";
+      }
+    } catch {
+      // fallback to gift_validity_days
+    }
+  }
   const qrToken = randomUUID();
 
   const { data, error } = await supabase
@@ -496,6 +556,40 @@ async function createWheelGiftDistribution(
   }
 
   return (data as { id: string }).id;
+}
+
+/**
+ * Consume a ftour gift distribution when the reservation is checked in.
+ * Called from reservationV2Logic when a ftour reservation is confirmed.
+ */
+export async function consumeFtourGiftDistribution(
+  distributionId: string,
+): Promise<void> {
+  const supabase = getAdminSupabase();
+  const now = new Date().toISOString();
+
+  const { error } = await supabase
+    .from("platform_gift_distributions")
+    .update({
+      status: "consumed",
+      consumed_at: now,
+      consumed_scanned_by: "reservation_checkin",
+      notes: `Consommé via réservation ftour`,
+    })
+    .eq("id", distributionId)
+    .eq("status", "distributed"); // Only consume if still "distributed"
+
+  if (error) {
+    log.error(
+      { distributionId, err: error.message },
+      "Failed to consume ftour gift distribution",
+    );
+  } else {
+    log.info(
+      { distributionId },
+      "Consumed ftour gift distribution via reservation check-in",
+    );
+  }
 }
 
 // =============================================================================

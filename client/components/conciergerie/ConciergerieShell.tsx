@@ -9,6 +9,7 @@ import {
   LogOut,
   Loader2,
   Building2,
+  Handshake,
 } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
@@ -29,6 +30,9 @@ const ConciergerieJourneyBuilder = lazy(
 const ConciergerieSettingsTab = lazy(
   () => import("./tabs/ConciergerieSettingsTab"),
 );
+const ConciergeriePartnersTab = lazy(
+  () => import("./tabs/ConciergeriePartnersTab"),
+);
 
 type Props = {
   user: User;
@@ -39,7 +43,7 @@ type Props = {
 const TAB_TRIGGER_CLASS =
   "w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none";
 
-const VALID_TABS = ["dashboard", "journeys", "new-journey", "settings"] as const;
+const VALID_TABS = ["dashboard", "journeys", "new-journey", "partners", "settings"] as const;
 type TabValue = (typeof VALID_TABS)[number];
 
 export default function ConciergerieShell({ user, concierge, onSignOut }: Props) {
@@ -137,6 +141,10 @@ export default function ConciergerieShell({ user, concierge, onSignOut }: Props)
                       <PlusCircle className="w-4 h-4" />
                       Nouveau parcours
                     </TabsTrigger>
+                    <TabsTrigger value="partners" className={TAB_TRIGGER_CLASS}>
+                      <Handshake className="w-4 h-4" />
+                      Partenaires
+                    </TabsTrigger>
                     <TabsTrigger value="settings" className={TAB_TRIGGER_CLASS}>
                       <Settings className="w-4 h-4" />
                       Paramètres
@@ -186,6 +194,10 @@ export default function ConciergerieShell({ user, concierge, onSignOut }: Props)
                       });
                     }}
                   />
+                </TabsContent>
+
+                <TabsContent value="partners" className="mt-0">
+                  <ConciergeriePartnersTab concierge={concierge} />
                 </TabsContent>
 
                 <TabsContent value="settings" className="mt-0">

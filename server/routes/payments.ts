@@ -228,9 +228,7 @@ function appendTransactionIdToMeta(meta: unknown, transactionId: string): Record
   return { ...base, payment_transaction_id: transactionId };
 }
 
-function getPublicBaseUrl(): string {
-  return asString(process.env.PUBLIC_BASE_URL) || "https://sam.ma";
-}
+import { getPublicBaseUrl } from "../lib/publicBaseUrl";
 
 function listInternalVisibilityOrderEmails(): string[] {
   const raw = typeof process.env.VISIBILITY_ORDERS_EMAILS === "string" ? process.env.VISIBILITY_ORDERS_EMAILS.trim() : "";

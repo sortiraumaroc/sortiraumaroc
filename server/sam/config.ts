@@ -4,10 +4,10 @@
 
 export const SAM_CONFIG = {
   /** Modèle OpenAI à utiliser */
-  model: "gpt-4o-mini" as const,
+  model: "gpt-4o" as const,
 
   /** Tokens max par réponse */
-  maxTokens: 500,
+  maxTokens: 800,
 
   /** Température (créativité) */
   temperature: 0.7,

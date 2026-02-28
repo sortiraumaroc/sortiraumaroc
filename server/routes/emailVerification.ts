@@ -2,18 +2,20 @@
  * Email Verification Routes
  *
  * Handles email verification for user signup.
- * Sends a 6-digit code to the user's email address.
+ * Sends a server-generated 6-digit code to the user's email address.
+ * Codes and rate-limiting are stored in the database (not in-memory).
  * Supports reCAPTCHA v2 verification.
  */
 
 import type { Request, Response } from "express";
 import type { Express } from "express";
+import crypto from "crypto";
 import { sendLoggedEmail } from "../emailService";
 import { verifyRecaptchaToken, isRecaptchaConfigured } from "./recaptcha";
 import { getAdminSupabase } from "../supabaseAdmin";
-import crypto from "crypto";
 import { issueTrustedDevice } from "../trustedDeviceLogic";
 import { createModuleLogger } from "../lib/logger";
+import { getPublicBaseUrl } from "../lib/publicBaseUrl";
 import { zBody } from "../lib/validate";
 import {
   emailSendCodeSchema,
@@ -21,52 +23,177 @@ import {
   emailSignupSchema,
   setEmailPasswordSchema,
 } from "../schemas/emailVerification";
+
 const log = createModuleLogger("emailVerification");
 
-// In-memory store for verification codes (in production, use Redis or similar)
-const verificationCodes = new Map<string, { code: string; expiresAt: number }>();
-
-// Store for recently verified emails (valid for 5 minutes after verification)
-const verifiedEmails = new Map<string, { verifiedAt: number; expiresAt: number }>();
+const MAX_ATTEMPTS_PER_HOUR = 5;
+const CODE_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
 const VERIFIED_EMAIL_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
 
-// Rate limiting for email verification
-const emailAttempts = new Map<string, { count: number; resetAt: number }>();
-const MAX_ATTEMPTS_PER_HOUR = 5;
+/** Generate a cryptographically secure 6-digit code */
+function generateCode(): string {
+  return String(crypto.randomInt(100000, 999999));
+}
 
-// Clean up expired codes every 5 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [email, data] of verificationCodes.entries()) {
-    if (data.expiresAt < now) {
-      verificationCodes.delete(email);
+// ---------------------------------------------------------------------------
+// DB helpers
+// ---------------------------------------------------------------------------
+
+async function checkRateLimit(email: string): Promise<boolean> {
+  const supabase = getAdminSupabase();
+  const now = new Date();
+  const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+
+  const { data } = await supabase
+    .from("consumer_email_verification_attempts")
+    .select("attempt_count, window_start")
+    .eq("email", email)
+    .maybeSingle();
+
+  if (!data) return false; // No attempts yet
+
+  const windowStart = new Date(data.window_start);
+  if (windowStart < oneHourAgo) return false; // Window expired
+
+  return data.attempt_count >= MAX_ATTEMPTS_PER_HOUR;
+}
+
+async function incrementRateLimit(email: string): Promise<void> {
+  const supabase = getAdminSupabase();
+  const now = new Date();
+  const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+
+  const { data: existing } = await supabase
+    .from("consumer_email_verification_attempts")
+    .select("id, attempt_count, window_start")
+    .eq("email", email)
+    .maybeSingle();
+
+  if (!existing) {
+    // First attempt
+    await supabase
+      .from("consumer_email_verification_attempts")
+      .insert({ email, attempt_count: 1, window_start: now.toISOString() });
+  } else {
+    const windowStart = new Date(existing.window_start);
+    if (windowStart < oneHourAgo) {
+      // Reset window
+      await supabase
+        .from("consumer_email_verification_attempts")
+        .update({ attempt_count: 1, window_start: now.toISOString() })
+        .eq("id", existing.id);
+    } else {
+      // Increment
+      await supabase
+        .from("consumer_email_verification_attempts")
+        .update({ attempt_count: existing.attempt_count + 1 })
+        .eq("id", existing.id);
     }
   }
-  // Clean up rate limit entries
-  for (const [email, data] of emailAttempts.entries()) {
-    if (data.resetAt < now) {
-      emailAttempts.delete(email);
-    }
+}
+
+async function storeVerificationCode(email: string, code: string, req: Request): Promise<void> {
+  const supabase = getAdminSupabase();
+
+  // Invalidate any previous active codes for this email
+  await supabase
+    .from("consumer_email_verification_codes")
+    .delete()
+    .eq("email", email)
+    .is("verified_at", null);
+
+  // Insert new code
+  const expiresAt = new Date(Date.now() + CODE_EXPIRY_MS);
+  await supabase
+    .from("consumer_email_verification_codes")
+    .insert({
+      email,
+      code,
+      expires_at: expiresAt.toISOString(),
+      ip_address: req.ip || req.socket.remoteAddress || null,
+      user_agent: req.headers["user-agent"] || null,
+    });
+}
+
+async function verifyStoredCode(email: string, code: string): Promise<{ valid: boolean; error?: string }> {
+  const supabase = getAdminSupabase();
+
+  // Find the most recent active code for this email
+  const { data, error } = await supabase
+    .from("consumer_email_verification_codes")
+    .select("id, code, expires_at")
+    .eq("email", email)
+    .is("verified_at", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) {
+    return { valid: false, error: "Code expiré ou invalide" };
   }
-  // Clean up expired verified emails
-  for (const [email, data] of verifiedEmails.entries()) {
-    if (data.expiresAt < now) {
-      verifiedEmails.delete(email);
-    }
+
+  if (new Date(data.expires_at) < new Date()) {
+    // Expired — clean up
+    await supabase
+      .from("consumer_email_verification_codes")
+      .delete()
+      .eq("id", data.id);
+    return { valid: false, error: "Code expiré" };
   }
-}, 5 * 60 * 1000);
+
+  if (data.code !== code) {
+    return { valid: false, error: "Code incorrect" };
+  }
+
+  // Mark as verified
+  await supabase
+    .from("consumer_email_verification_codes")
+    .update({ verified_at: new Date().toISOString() })
+    .eq("id", data.id);
+
+  return { valid: true };
+}
+
+async function isEmailRecentlyVerified(email: string): Promise<boolean> {
+  const supabase = getAdminSupabase();
+  const fiveMinAgo = new Date(Date.now() - VERIFIED_EMAIL_EXPIRY_MS);
+
+  const { data } = await supabase
+    .from("consumer_email_verification_codes")
+    .select("id")
+    .eq("email", email)
+    .not("verified_at", "is", null)
+    .gte("verified_at", fiveMinAgo.toISOString())
+    .limit(1)
+    .maybeSingle();
+
+  return !!data;
+}
+
+async function consumeEmailVerification(email: string): Promise<void> {
+  const supabase = getAdminSupabase();
+  const fiveMinAgo = new Date(Date.now() - VERIFIED_EMAIL_EXPIRY_MS);
+
+  // Delete all verified codes for this email (consume one-time)
+  await supabase
+    .from("consumer_email_verification_codes")
+    .delete()
+    .eq("email", email)
+    .not("verified_at", "is", null)
+    .gte("verified_at", fiveMinAgo.toISOString());
+}
+
+// ---------------------------------------------------------------------------
+// Endpoint 1: Send verification code
+// POST /api/consumer/verify-email/send
+// ---------------------------------------------------------------------------
 
 export async function sendEmailVerificationCode(req: Request, res: Response) {
   try {
-    const { email, code, recaptchaToken } = req.body;
+    const { email, recaptchaToken } = req.body;
 
     if (!email || typeof email !== "string" || !/.+@.+\..+/.test(email.trim())) {
       return res.status(400).json({ error: "Email invalide" });
-    }
-
-    // Accept both 6-digit and 8-digit codes for backwards compatibility
-    if (!code || typeof code !== "string" || !/^\d{6,8}$/.test(code)) {
-      return res.status(400).json({ error: "Code invalide" });
     }
 
     const normalizedEmail = email.trim().toLowerCase();
@@ -90,10 +217,9 @@ export async function sendEmailVerificationCode(req: Request, res: Response) {
       });
     }
 
-    // Rate limiting check
-    const now = Date.now();
-    const attempts = emailAttempts.get(normalizedEmail);
-    if (attempts && attempts.resetAt > now && attempts.count >= MAX_ATTEMPTS_PER_HOUR) {
+    // Rate limiting check (DB-based)
+    const rateLimited = await checkRateLimit(normalizedEmail);
+    if (rateLimited) {
       log.warn({ email: normalizedEmail }, "rate limit exceeded");
       return res.status(429).json({ error: "Trop de tentatives. Réessayez dans une heure." });
     }
@@ -130,21 +256,12 @@ export async function sendEmailVerificationCode(req: Request, res: Response) {
       }
     }
 
-    // Update rate limiting
-    if (attempts && attempts.resetAt > now) {
-      attempts.count++;
-    } else {
-      emailAttempts.set(normalizedEmail, {
-        count: 1,
-        resetAt: now + 60 * 60 * 1000, // 1 hour
-      });
-    }
+    // Update rate limiting (DB-based)
+    await incrementRateLimit(normalizedEmail);
 
-    // Store the code with 2-minute expiration
-    verificationCodes.set(normalizedEmail, {
-      code,
-      expiresAt: Date.now() + 2 * 60 * 1000,
-    });
+    // Generate code server-side and store in DB
+    const code = generateCode();
+    await storeVerificationCode(normalizedEmail, code, req);
 
     // Send the verification email
     const result = await sendLoggedEmail({
@@ -152,7 +269,7 @@ export async function sendEmailVerificationCode(req: Request, res: Response) {
       fromKey: "noreply",
       to: [normalizedEmail],
       subject: "Votre code de vérification Sortir Au Maroc",
-      bodyText: `Vérification de votre email\n\nVotre code de vérification est : ${code}\n\nCe code est valide pendant 2 minutes.\n\nSi vous n'avez pas demandé ce code, ignorez cet email.`,
+      bodyText: `Vérification de votre email\n\nVotre code de vérification est : ${code}\n\nCe code est valide pendant 10 minutes.\n\nSi vous n'avez pas demandé ce code, ignorez cet email.`,
       meta: {
         type: "email_verification",
         recipient_email: normalizedEmail,
@@ -187,6 +304,11 @@ export async function sendEmailVerificationCode(req: Request, res: Response) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Endpoint 2: Verify code
+// POST /api/consumer/verify-email/verify
+// ---------------------------------------------------------------------------
+
 export async function verifyEmailCode(req: Request, res: Response) {
   try {
     const { email, code } = req.body;
@@ -200,27 +322,11 @@ export async function verifyEmailCode(req: Request, res: Response) {
     }
 
     const normalizedEmail = email.trim().toLowerCase();
-    const stored = verificationCodes.get(normalizedEmail);
+    const result = await verifyStoredCode(normalizedEmail, code);
 
-    if (!stored) {
-      return res.status(400).json({ error: "Code expiré ou invalide" });
+    if (!result.valid) {
+      return res.status(400).json({ error: result.error });
     }
-
-    if (stored.expiresAt < Date.now()) {
-      verificationCodes.delete(normalizedEmail);
-      return res.status(400).json({ error: "Code expiré" });
-    }
-
-    if (stored.code !== code) {
-      return res.status(400).json({ error: "Code incorrect" });
-    }
-
-    // Code is valid, remove it and mark email as verified
-    verificationCodes.delete(normalizedEmail);
-    verifiedEmails.set(normalizedEmail, {
-      verifiedAt: Date.now(),
-      expiresAt: Date.now() + VERIFIED_EMAIL_EXPIRY_MS,
-    });
 
     log.info({ email: normalizedEmail }, "email verified");
     return res.json({ ok: true, verified: true });
@@ -249,15 +355,14 @@ export async function signupWithEmail(req: Request, res: Response) {
 
     const normalizedEmail = email.trim().toLowerCase();
 
-    // Check that this email was recently verified
-    const verified = verifiedEmails.get(normalizedEmail);
-    if (!verified || verified.expiresAt < Date.now()) {
-      verifiedEmails.delete(normalizedEmail);
+    // Check that this email was recently verified (DB-based)
+    const verified = await isEmailRecentlyVerified(normalizedEmail);
+    if (!verified) {
       return res.status(403).json({ error: "Email non vérifié. Veuillez d'abord vérifier votre email." });
     }
 
     // Consume the verification (one-time use)
-    verifiedEmails.delete(normalizedEmail);
+    await consumeEmailVerification(normalizedEmail);
 
     const supabase = getAdminSupabase();
 
@@ -324,7 +429,7 @@ export async function signupWithEmail(req: Request, res: Response) {
       .insert({ user_id: userId });
 
     if (statsError) {
-      console.error("[EmailSignup] Error creating consumer_user_stats:", statsError);
+      log.error({ err: statsError, userId }, "error creating consumer_user_stats");
     }
 
     // Handle referral code if provided
@@ -363,7 +468,7 @@ export async function signupWithEmail(req: Request, res: Response) {
         type: "magiclink",
         email: normalizedEmail,
         options: {
-          redirectTo: process.env.PUBLIC_BASE_URL || process.env.VITE_APP_URL || "https://sam.ma",
+          redirectTo: getPublicBaseUrl(),
         },
       });
 
@@ -463,10 +568,9 @@ export async function setPhoneUserEmailPassword(req: Request, res: Response) {
       });
     }
 
-    // 5. Check that the email was recently verified via 6-digit code
-    const verified = verifiedEmails.get(normalizedEmail);
-    if (!verified || verified.expiresAt < Date.now()) {
-      verifiedEmails.delete(normalizedEmail);
+    // 5. Check that the email was recently verified via 6-digit code (DB-based)
+    const verified = await isEmailRecentlyVerified(normalizedEmail);
+    if (!verified) {
       return res.status(403).json({
         error: "Email non vérifié ou vérification expirée. Veuillez re-vérifier votre email.",
         code: "EMAIL_NOT_VERIFIED",
@@ -474,7 +578,7 @@ export async function setPhoneUserEmailPassword(req: Request, res: Response) {
     }
 
     // 6. Consume the verification (one-time use)
-    verifiedEmails.delete(normalizedEmail);
+    await consumeEmailVerification(normalizedEmail);
 
     // 7. Re-check that the email is not taken by another account
     const { data: authUsersList } = await supabase.auth.admin.listUsers({

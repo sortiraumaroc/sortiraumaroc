@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 
 import { createHash, randomBytes } from "crypto";
 import { createModuleLogger } from "../lib/logger";
+import { getPublicBaseUrl } from "../lib/publicBaseUrl";
 
 const log = createModuleLogger("publicConsumerAccount");
 
@@ -902,7 +903,7 @@ export async function requestConsumerPasswordResetLink(req: Request, res: Respon
   })();
 
   // Build reset URL
-  const baseUrl = process.env.PUBLIC_BASE_URL || process.env.FRONTEND_URL || "https://sam.ma";
+  const baseUrl = getPublicBaseUrl();
   const resetUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(resetToken)}`;
 
   // Send email with reset link
@@ -1009,6 +1010,14 @@ export async function completePasswordReset(req: Request, res: Response) {
   );
 
   if (updateErr) {
+    // Supabase returns 422 with "weak_password" when the password is in the HaveIBeenPwned database
+    const isWeakPassword =
+      updateErr.status === 422 ||
+      (updateErr.message ?? "").toLowerCase().includes("weak");
+    if (isWeakPassword) {
+      log.info({ err: updateErr }, "completePasswordReset weak password rejected");
+      return res.status(422).json({ error: "weak_password" });
+    }
     log.error({ err: updateErr }, "completePasswordReset updateUserById failed");
     return res.status(500).json({ error: "password_update_failed" });
   }
@@ -1128,7 +1137,7 @@ export async function requestPublicPasswordResetLink(req: Request, res: Response
     })();
 
     // Build reset URL
-    const baseUrl = process.env.PUBLIC_BASE_URL || process.env.FRONTEND_URL || "https://sam.ma";
+    const baseUrl = getPublicBaseUrl();
     const resetUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(resetToken)}`;
 
     // Send email with reset link (awaited so errors are caught)

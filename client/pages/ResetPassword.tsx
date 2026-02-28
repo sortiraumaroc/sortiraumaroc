@@ -71,7 +71,9 @@ export default function ResetPassword() {
       setPageState("success");
     } catch (err: unknown) {
       if (err instanceof ConsumerAccountApiError) {
-        if (err.message === "token_expired") {
+        if (err.message === "weak_password") {
+          setFormError(t("reset_password.error.weak_password"));
+        } else if (err.message === "token_expired") {
           setFormError(t("reset_password.error.token_expired"));
         } else if (err.message === "token_already_used") {
           setFormError(t("reset_password.error.token_used"));

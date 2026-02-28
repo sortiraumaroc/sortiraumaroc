@@ -7,6 +7,7 @@ import { renderSambookingEmail, sendSambookingEmail, type SambookingSenderKey } 
 import { getAdminSupabase } from "../supabaseAdmin";
 import { requireSuperadmin } from "./admin";
 import { createModuleLogger } from "../lib/logger";
+import { getPublicBaseUrl } from "../lib/publicBaseUrl";
 import { zBody, zParams, zIdParam } from "../lib/validate";
 import {
   UpsertEmailTemplateSchema,
@@ -40,10 +41,6 @@ function isEmailAddress(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-function getPublicBaseUrl(): string {
-  const env = asString(process.env.PUBLIC_BASE_URL);
-  return env || "https://sam.ma";
-}
 
 function signUnsubToken(args: { email: string; campaignId: string }): string {
   const secret = asString(process.env.EMAIL_UNSUB_SECRET) || asString(process.env.ADMIN_API_KEY) || "dev";

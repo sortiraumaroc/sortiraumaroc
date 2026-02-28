@@ -1494,6 +1494,7 @@ const it: Partial<Record<TranslationKey, string>> = {
     "reset_password.error.token_used": "Questo link è già stato utilizzato. Richiedi un nuovo link se necessario.",
     "reset_password.error.too_short": "La password deve contenere almeno 8 caratteri.",
     "reset_password.error.mismatch": "Le password non corrispondono.",
+    "reset_password.error.weak_password": "Questa password è troppo comune e facile da indovinare. Scegline una più sicura.",
     "reset_password.error.generic": "Si è verificato un errore. Riprova.",
     "reset_password.success.title": "Password modificata",
     "reset_password.success.description": "La tua password è stata modificata con successo. Puoi ora accedere.",

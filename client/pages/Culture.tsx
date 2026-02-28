@@ -801,7 +801,7 @@ export default function Culture() {
                 <img src={WAZE_LOGO_URL} alt="Waze" className="h-8 w-auto" />
               </a>
               <a
-                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${data.name} ${data.address}`)}`}
+                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${data.name} ${data.address}`)}&region=MA`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex-1 min-w-32 px-4 py-3 bg-white border-2 border-slate-300 rounded-lg font-semibold hover:bg-slate-50 transition text-center flex items-center justify-center gap-2"

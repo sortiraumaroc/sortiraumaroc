@@ -258,10 +258,99 @@ export const syncGoogleRatings: RequestHandler = async (
   });
 };
 
+/**
+ * Sync Google rating for a SINGLE establishment.
+ * POST /api/admin/google-rating-sync/:establishmentId
+ */
+export const syncSingleGoogleRating: RequestHandler = async (
+  req: Request,
+  res: Response,
+) => {
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    return res.status(500).json({ error: "GOOGLE_PLACES_API_KEY not configured" });
+  }
+
+  const { establishmentId } = req.params;
+  if (!establishmentId) {
+    return res.status(400).json({ error: "establishmentId is required" });
+  }
+
+  const supabase = getAdminSupabase();
+
+  const { data: est, error: fetchErr } = await supabase
+    .from("establishments")
+    .select("id,name,city,google_maps_url,google_place_id")
+    .eq("id", establishmentId)
+    .single();
+
+  if (fetchErr || !est) {
+    return res.status(404).json({ error: "Establishment not found" });
+  }
+
+  const name = String(est.name ?? "");
+  const city = String(est.city ?? "");
+  const googleMapsUrl = String(est.google_maps_url ?? "");
+  let placeId = est.google_place_id ? String(est.google_place_id) : null;
+
+  if (!googleMapsUrl && !placeId) {
+    return res.status(400).json({
+      error: "Cet établissement n'a pas de lien Google Maps. Ajoutez-en un d'abord.",
+    });
+  }
+
+  // Resolve place ID
+  if (!placeId) {
+    placeId = await extractPlaceId(googleMapsUrl, name, city, apiKey);
+    if (placeId) {
+      await supabase
+        .from("establishments")
+        .update({ google_place_id: placeId })
+        .eq("id", establishmentId);
+    }
+  }
+
+  if (!placeId) {
+    return res.status(422).json({
+      error: "Impossible de trouver le Place ID Google pour cet établissement.",
+    });
+  }
+
+  // Fetch rating
+  const ratingData = await getGoogleRating(placeId, apiKey);
+
+  if (!ratingData) {
+    return res.status(502).json({ error: "Erreur lors de la récupération de la note Google." });
+  }
+
+  // Update DB
+  const { error: updateErr } = await supabase
+    .from("establishments")
+    .update({
+      google_rating: ratingData.rating,
+      google_review_count: ratingData.reviewCount,
+      google_place_id: placeId,
+      google_rating_updated_at: new Date().toISOString(),
+    })
+    .eq("id", establishmentId);
+
+  if (updateErr) {
+    return res.status(500).json({ error: updateErr.message });
+  }
+
+  return res.json({
+    ok: true,
+    rating: ratingData.rating,
+    reviewCount: ratingData.reviewCount,
+    updatedAt: new Date().toISOString(),
+  });
+};
+
 // ---------------------------------------------------------------------------
 // Register routes
 // ---------------------------------------------------------------------------
 
 export function registerGoogleRatingSyncRoutes(app: Express) {
   app.post("/api/admin/google-rating-sync", syncGoogleRatings);
+  app.post("/api/admin/google-rating-sync/:establishmentId", syncSingleGoogleRating);
 }

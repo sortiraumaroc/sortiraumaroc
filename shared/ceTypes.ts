@@ -262,3 +262,12 @@ export type RegistrationInfo = {
   valid: boolean;
   reason?: string;
 };
+
+// --- Company Admin Advantages Stats ---
+
+export type CompanyAdvantageStats = {
+  total_advantages: number;
+  total_establishments: number;
+  scans_this_month: number;
+  top_type: AdvantageType | null;
+};

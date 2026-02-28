@@ -269,6 +269,7 @@ export const upsertProSlots: RequestHandler = async (req, res) => {
     const promo_label = raw.promo_label === null ? null : asString(raw.promo_label);
     const service_label = raw.service_label === null ? null : asString(raw.service_label);
     const active = asBoolean(raw.active);
+    const cover_url = raw.cover_url === null ? null : asString(raw.cover_url);
 
     rows.push({
       establishment_id: establishmentId,
@@ -281,6 +282,7 @@ export const upsertProSlots: RequestHandler = async (req, res) => {
       promo_label: promo_label == null ? null : promo_label,
       service_label: service_label == null ? null : service_label,
       active: active === undefined ? true : active,
+      cover_url: cover_url ?? null,
     });
   }
 
@@ -942,8 +944,12 @@ export const uploadProInventoryImage: RequestHandler = async (req, res) => {
   const userResult = await getUserFromBearerToken(token);
   if (userResult.ok === false) return res.status(userResult.status).json({ error: userResult.error });
 
-  const permission = await ensureCanManageInventory({ establishmentId, userId: userResult.user.id });
-  if (permission.ok === false) return res.status(permission.status).json({ error: permission.error });
+  // Allow upload if user can manage inventory OR manage offers (for slot cover images)
+  const inventoryPerm = await ensureCanManageInventory({ establishmentId, userId: userResult.user.id });
+  if (inventoryPerm.ok === false) {
+    const offersPerm = await ensureCanManageOffers({ establishmentId, userId: userResult.user.id });
+    if (offersPerm.ok === false) return res.status(inventoryPerm.status).json({ error: inventoryPerm.error });
+  }
 
   const contentType = req.header("content-type") ?? "";
   if (!contentType.includes("multipart/form-data")) {

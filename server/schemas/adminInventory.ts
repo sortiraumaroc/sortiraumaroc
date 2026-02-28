@@ -74,15 +74,16 @@ export const UpdateGallerySchema = z.object({
 
 // PATCH /api/admin/establishments/:establishmentId/contact-info
 export const UpdateContactInfoSchema = z.object({
-  lat: z.number().optional(),
-  lng: z.number().optional(),
-  phone: z.string().optional(),
-  whatsapp: z.string().optional(),
-  website: z.string().optional(),
-  email: z.string().optional(),
-  mobile: z.string().optional(),
+  lat: z.number().nullable().optional(),
+  lng: z.number().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  whatsapp: z.string().nullable().optional(),
+  website: z.string().nullable().optional(),
+  email: z.string().nullable().optional(),
+  mobile: z.string().nullable().optional(),
   social_links: z.any().optional(),
   hours: z.any().optional(),
+  hide_google_reviews: z.boolean().optional(),
 });
 
 // POST /api/admin/ai/extract-menu-file (multipart — establishmentId is in body)
@@ -105,6 +106,7 @@ export const UpdateProfileSchema = z.object({
   name: z.string().optional(),
   city: z.string().optional(),
   universe: z.string().optional(),
+  category: z.string().optional(),
   subcategory: z.string().optional(),
 });
 

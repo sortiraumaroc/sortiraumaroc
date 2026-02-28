@@ -19,6 +19,7 @@ import {
   AdCampaignParams,
   AuctionConfigParams,
   HomeTakeoverDateParams,
+  CreateAdminAdCampaignSchema,
 } from "../schemas/adminAds";
 
 const log = createModuleLogger("adminAds");
@@ -1147,6 +1148,92 @@ export const rejectHomeTakeoverReservation: RequestHandler = async (req, res) =>
 };
 
 // =============================================================================
+// CREATE CAMPAIGN (Admin — skip moderation)
+// =============================================================================
+
+/**
+ * POST /api/admin/ads/campaigns
+ * Crée une campagne directement en tant qu'admin (skip modération → approved + active).
+ */
+export const createAdminCampaign: RequestHandler = async (req, res) => {
+  const supabase = getAdminSupabase();
+
+  const parsed = CreateAdminAdCampaignSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Données invalides", details: parsed.error.flatten() });
+  }
+
+  const body = parsed.data;
+  const adminId = (req as any).auth?.userId ?? null;
+  const now = new Date().toISOString();
+
+  try {
+    // Déterminer le billing_model par défaut selon le type
+    const billingModel = body.billing_model ?? (body.type === "display_banner" ? "cpm" : "cpc");
+
+    const { data: campaign, error } = await supabase
+      .from("pro_campaigns")
+      .insert({
+        establishment_id: body.establishment_id,
+        type: body.type,
+        title: body.title,
+        budget: body.budget_cents,
+        bid_amount_cents: body.bid_amount_cents ?? null,
+        daily_budget_cents: body.daily_budget_cents ?? null,
+        billing_model: billingModel,
+        cpc_cents: billingModel === "cpc" ? (body.bid_amount_cents ?? null) : null,
+        cpm_cents: billingModel === "cpm" ? (body.bid_amount_cents ?? null) : null,
+        starts_at: body.starts_at ?? null,
+        ends_at: body.ends_at ?? null,
+        targeting: body.targeting ?? {},
+        promoted_entity_type: body.promoted_entity_type ?? null,
+        promoted_entity_id: body.promoted_entity_id ?? null,
+        // Admin skip modération
+        status: "active",
+        moderation_status: "approved",
+        submitted_at: now,
+        reviewed_at: now,
+        reviewed_by: adminId,
+        spent_cents: 0,
+        daily_spent_cents: 0,
+        remaining_cents: body.budget_cents,
+        quality_score: 1.0,
+        ctr: 0,
+        impressions: 0,
+        clicks: 0,
+        reservations_count: 0,
+        packs_count: 0,
+        metrics: {},
+      })
+      .select("*")
+      .single();
+
+    if (error) {
+      log.error({ err: error }, "Error creating admin campaign");
+      return res.status(500).json({ error: "Erreur création campagne" });
+    }
+
+    // Log modération
+    await supabase.from("ad_moderation_logs").insert({
+      campaign_id: campaign.id,
+      admin_user_id: adminId,
+      action: "approved",
+      previous_status: null,
+      new_status: "approved",
+      notes: "Campagne créée par admin — modération automatique",
+      created_at: now,
+    });
+
+    log.info({ campaignId: campaign.id, type: body.type }, "Admin created campaign");
+
+    return res.json({ ok: true, campaign });
+  } catch (error) {
+    log.error({ err: error }, "createAdminCampaign error");
+    return res.status(500).json({ error: "Erreur serveur" });
+  }
+};
+
+// =============================================================================
 // REGISTER ROUTES
 // =============================================================================
 
@@ -1157,6 +1244,7 @@ export function registerAdminAdsRoutes(app: Router) {
   app.post("/api/admin/ads/campaigns/:campaignId/moderate", zParams(AdCampaignParams), moderateCampaign);
 
   // Gestion campagnes
+  app.post("/api/admin/ads/campaigns", createAdminCampaign);
   app.get("/api/admin/ads/campaigns", zQuery(ListAdminAdsCampaignsQuery), listAllCampaigns);
   app.post("/api/admin/ads/campaigns/:campaignId/pause", zParams(AdCampaignParams), pauseCampaign);
   app.post("/api/admin/ads/campaigns/:campaignId/resume", zParams(AdCampaignParams), resumeCampaign);

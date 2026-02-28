@@ -1586,6 +1586,7 @@ const fr: Record<TranslationKey, string> = {
     "reset_password.error.token_used": "Ce lien a déjà été utilisé. Demandez un nouveau lien si nécessaire.",
     "reset_password.error.too_short": "Le mot de passe doit contenir au moins 8 caractères.",
     "reset_password.error.mismatch": "Les mots de passe ne correspondent pas.",
+    "reset_password.error.weak_password": "Ce mot de passe est trop courant et facile à deviner. Veuillez en choisir un autre, plus sécurisé.",
     "reset_password.error.generic": "Une erreur est survenue. Veuillez réessayer.",
     "reset_password.success.title": "Mot de passe modifié",
     "reset_password.success.description": "Votre mot de passe a été modifié avec succès. Vous pouvez maintenant vous connecter.",

@@ -1558,7 +1558,7 @@ export const uploadPartnerDeliverableFile: RequestHandler = async (
     String(req.header("content-type") ?? "application/octet-stream").trim() ||
     "application/octet-stream";
   const fileName =
-    String(req.header("x-file-name") ?? "file.bin").trim() || "file.bin";
+    (() => { try { return decodeURIComponent(String(req.header("x-file-name") ?? "file.bin")).trim() || "file.bin"; } catch { return String(req.header("x-file-name") ?? "file.bin").trim() || "file.bin"; } })();
 
   const body = req.body as Buffer;
   if (!body || !(body instanceof Buffer) || body.length === 0)

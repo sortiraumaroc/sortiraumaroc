@@ -14,7 +14,7 @@ import { createModuleLogger } from "../lib/logger";
 import { SAM_CONFIG } from "./config";
 
 const log = createModuleLogger("samChat");
-import { buildSystemPrompt } from "./systemPrompt";
+import { buildSystemPrompt, buildProSystemPrompt } from "./systemPrompt";
 import { SAM_TOOLS, executeTool, getToolsForMode, type ToolContext } from "./tools";
 import {
   getUserProfile,
@@ -325,6 +325,8 @@ async function handleSamChat(req: Request, res: Response): Promise<void> {
     typeof body.establishment_id === "string"
       ? body.establishment_id.trim()
       : undefined;
+  const mode =
+    typeof body.mode === "string" && body.mode === "pro" ? "pro" : "consumer";
 
   if (!message) {
     res.status(400).json({ error: "empty_message" });
@@ -369,16 +371,18 @@ async function handleSamChat(req: Request, res: Response): Promise<void> {
       establishmentContext = await loadFullEstablishmentContext(establishmentId);
     }
 
-    // Construire le system prompt
-    const systemPrompt = buildSystemPrompt({
-      user: userProfile,
-      isAuthenticated,
-      universe,
-      establishment: establishmentContext,
-    });
+    // Construire le system prompt (pro = pas de tools, juste le guide)
+    const systemPrompt = mode === "pro"
+      ? buildProSystemPrompt()
+      : buildSystemPrompt({
+          user: userProfile,
+          isAuthenticated,
+          universe,
+          establishment: establishmentContext,
+        });
 
-    // Sélectionner les tools selon le mode (général ou scoped)
-    const tools = getToolsForMode(establishmentId);
+    // Sélectionner les tools selon le mode (pro = aucun tool, général ou scoped)
+    const tools = mode === "pro" ? undefined : getToolsForMode(establishmentId);
 
     // Sauvegarder le message utilisateur
     saveMessage(conversation.id, { role: "user", content: message });
@@ -404,8 +408,7 @@ async function handleSamChat(req: Request, res: Response): Promise<void> {
       const stream = await openai.chat.completions.create({
         model: SAM_CONFIG.model,
         messages: gptMessages,
-        tools,
-        tool_choice: "auto",
+        ...(tools ? { tools, tool_choice: "auto" as const } : {}),
         stream: true,
         temperature: SAM_CONFIG.temperature,
         max_tokens: SAM_CONFIG.maxTokens,

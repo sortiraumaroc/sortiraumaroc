@@ -30,6 +30,15 @@ import {
   TrendingUp,
   Eye,
   AlertTriangle,
+  Gift,
+  Percent,
+  Tag,
+  BadgePercent,
+  Package,
+  MapPin,
+  Star,
+  SlidersHorizontal,
+  Handshake,
 } from "lucide-react";
 import { isAuthed, getConsumerAccessToken } from "@/lib/auth";
 import { consumerSupabase } from "@/lib/supabase";
@@ -90,6 +99,9 @@ import type {
   EmployeeWithUser,
   ScanWithDetails,
   EmployeeStatus,
+  AdvantageType,
+  AdvantageWithEstablishment,
+  CompanyAdvantageStats,
 } from "../../shared/ceTypes";
 
 // ============================================================
@@ -467,6 +479,217 @@ function ScansTab() {
 }
 
 // ============================================================
+// Advantages Tab
+// ============================================================
+
+const ADVANTAGE_LABELS: Record<AdvantageType, { label: string; icon: React.ReactNode; color: string }> = {
+  percentage: { label: "Réduction", icon: <Percent className="h-3.5 w-3.5" />, color: "bg-green-100 text-green-700" },
+  fixed: { label: "Remise fixe", icon: <Tag className="h-3.5 w-3.5" />, color: "bg-blue-100 text-blue-700" },
+  special_offer: { label: "Offre spéciale", icon: <BadgePercent className="h-3.5 w-3.5" />, color: "bg-purple-100 text-purple-700" },
+  gift: { label: "Cadeau", icon: <Gift className="h-3.5 w-3.5" />, color: "bg-pink-100 text-pink-700" },
+  pack: { label: "Pack", icon: <Package className="h-3.5 w-3.5" />, color: "bg-orange-100 text-orange-700" },
+};
+
+const UNIVERSE_OPTIONS = [
+  { value: "all", label: "Tous les univers" },
+  { value: "restaurant", label: "Restaurants" },
+  { value: "hotel", label: "Hôtels" },
+  { value: "wellness", label: "Bien-être" },
+  { value: "loisir", label: "Loisirs" },
+  { value: "shopping", label: "Shopping" },
+  { value: "culture", label: "Culture" },
+];
+
+function AdvantageTypeBadge({ type, value }: { type: AdvantageType; value: number | null }) {
+  const cfg = ADVANTAGE_LABELS[type] ?? ADVANTAGE_LABELS.special_offer;
+  let displayValue = cfg.label;
+  if (type === "percentage" && value) displayValue = `-${value}%`;
+  else if (type === "fixed" && value) displayValue = `-${value} DH`;
+
+  return (
+    <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium", cfg.color)}>
+      {cfg.icon} {displayValue}
+    </span>
+  );
+}
+
+type AdvantageWithScans = AdvantageWithEstablishment & { scans_this_month: number };
+
+function AdvantagesTab() {
+  const [advantages, setAdvantages] = useState<AdvantageWithScans[]>([]);
+  const [stats, setStats] = useState<CompanyAdvantageStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [universe, setUniverse] = useState("all");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const limit = 20;
+
+  const fetch_ = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+      if (search) params.set("search", search);
+      if (universe !== "all") params.set("universe", universe);
+      const data: any = await ceJson(`/api/ce/company/advantages?${params}`);
+      setAdvantages(data.data ?? []);
+      setTotal(data.total ?? 0);
+      setStats(data.stats ?? null);
+    } catch (e: any) {
+      toast({ title: "Erreur", description: e.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }, [page, search, universe]);
+
+  useEffect(() => { fetch_(); }, [fetch_]);
+
+  const totalPages = Math.ceil(total / limit);
+
+  const statCards = stats ? [
+    { label: "Avantages actifs", value: stats.total_advantages, icon: Gift, color: "text-green-600" },
+    { label: "Établissements", value: stats.total_establishments, icon: Building2, color: "text-blue-600" },
+    { label: "Scans ce mois", value: stats.scans_this_month, icon: ScanLine, color: "text-purple-600" },
+    { label: "Type dominant", value: stats.top_type ? (ADVANTAGE_LABELS[stats.top_type]?.label ?? stats.top_type) : "—", icon: TrendingUp, color: "text-teal-600" },
+  ] : [];
+
+  return (
+    <div className="space-y-6">
+      {/* Stats */}
+      {stats && (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          {statCards.map((k) => (
+            <Card key={k.label}>
+              <CardContent className="flex items-center gap-3 p-4">
+                <k.icon className={cn("h-8 w-8 shrink-0", k.color)} />
+                <div>
+                  <p className="text-2xl font-bold">{k.value}</p>
+                  <p className="text-xs text-muted-foreground">{k.label}</p>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Filters */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-1 gap-2">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Rechercher un établissement..."
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              className="pl-8"
+            />
+          </div>
+          <Select value={universe} onValueChange={(v) => { setUniverse(v); setPage(1); }}>
+            <SelectTrigger className="w-48">
+              <SlidersHorizontal className="mr-1.5 h-3.5 w-3.5" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {UNIVERSE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button variant="outline" size="sm" onClick={fetch_}>
+          <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Actualiser
+        </Button>
+      </div>
+
+      {/* Results */}
+      {loading ? (
+        <div className="flex justify-center py-12"><RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+      ) : advantages.length === 0 ? (
+        <div className="flex flex-col items-center gap-4 py-16">
+          <Handshake className="h-12 w-12 text-muted-foreground/40" />
+          <p className="text-muted-foreground text-center">
+            {search || universe !== "all"
+              ? "Aucun avantage ne correspond à votre recherche."
+              : "Aucun avantage partenaire disponible pour le moment."}
+          </p>
+        </div>
+      ) : (
+        <>
+          <p className="text-sm text-muted-foreground">{total} avantage{total > 1 ? "s" : ""} partenaire{total > 1 ? "s" : ""}</p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {advantages.map((adv) => {
+              const est = (adv as any).establishments ?? {};
+              const estName = adv.establishment_name ?? est.name ?? "Établissement";
+              const estCity = adv.establishment_city ?? est.city ?? null;
+              const estUniverse = adv.establishment_universe ?? est.universe ?? null;
+              const estCategory = adv.establishment_category ?? est.category ?? null;
+              const estCover = adv.establishment_cover_url ?? est.cover_url ?? null;
+              const estRating = adv.establishment_rating ?? est.rating_average ?? null;
+
+              return (
+                <Card key={adv.id} className="group overflow-hidden transition-shadow hover:shadow-md">
+                  <div className="relative aspect-[16/10] bg-muted">
+                    {estCover ? (
+                      <img src={estCover} alt={estName} className="h-full w-full object-cover" loading="lazy" />
+                    ) : (
+                      <div className="flex h-full items-center justify-center">
+                        <Building2 className="h-10 w-10 text-muted-foreground/40" />
+                      </div>
+                    )}
+                    <div className="absolute top-2 left-2">
+                      <AdvantageTypeBadge type={adv.advantage_type} value={adv.advantage_value} />
+                    </div>
+                    {adv.scans_this_month > 0 && (
+                      <div className="absolute top-2 right-2 rounded-full bg-white/90 px-2 py-0.5 text-xs font-medium text-slate-700 shadow-sm">
+                        {adv.scans_this_month} scan{adv.scans_this_month > 1 ? "s" : ""}
+                      </div>
+                    )}
+                  </div>
+
+                  <CardContent className="p-3 space-y-1.5">
+                    <h3 className="font-semibold text-sm leading-tight line-clamp-1">{estName}</h3>
+
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      {estCity && (
+                        <span className="flex items-center gap-0.5"><MapPin className="h-3 w-3" /> {estCity}</span>
+                      )}
+                      {estUniverse && (
+                        <span className="capitalize">{estUniverse}</span>
+                      )}
+                      {estRating != null && estRating > 0 && (
+                        <span className="flex items-center gap-0.5 text-yellow-600">
+                          <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" /> {Number(estRating).toFixed(1)}
+                        </span>
+                      )}
+                    </div>
+
+                    {adv.description && (
+                      <p className="text-xs text-muted-foreground line-clamp-2">{adv.description}</p>
+                    )}
+
+                    {adv.conditions && (
+                      <p className="text-[10px] text-muted-foreground italic truncate">{adv.conditions}</p>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Précédent</Button>
+              <span className="text-sm text-muted-foreground">{page} / {totalPages}</span>
+              <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>Suivant</Button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // Settings Tab
 // ============================================================
 
@@ -656,6 +879,7 @@ export default function CeAdmin() {
             <TabsTrigger value="dashboard" className="gap-1.5"><LayoutDashboard className="h-4 w-4" /> Dashboard</TabsTrigger>
             <TabsTrigger value="employees" className="gap-1.5"><Users className="h-4 w-4" /> Salariés</TabsTrigger>
             <TabsTrigger value="scans" className="gap-1.5"><ScanLine className="h-4 w-4" /> Scans</TabsTrigger>
+            <TabsTrigger value="advantages" className="gap-1.5"><Handshake className="h-4 w-4" /> Avantages</TabsTrigger>
             <TabsTrigger value="settings" className="gap-1.5"><Settings className="h-4 w-4" /> Paramètres</TabsTrigger>
           </TabsList>
 
@@ -669,6 +893,10 @@ export default function CeAdmin() {
 
           <TabsContent value="scans">
             <ScansTab />
+          </TabsContent>
+
+          <TabsContent value="advantages">
+            <AdvantagesTab />
           </TabsContent>
 
           <TabsContent value="settings">

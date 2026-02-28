@@ -30,6 +30,7 @@ import {
   type CancellationType,
 } from "../shared/reservationTypesV2";
 import { scoreToReliabilityLevel, type ConsumerReliabilityLevel } from "./consumerReliability";
+import { reportSuspiciousActivity } from "./suspiciousActivity";
 import { createModuleLogger } from "./lib/logger";
 
 const log = createModuleLogger("clientScoringV2");
@@ -281,6 +282,20 @@ export async function recordNoShow(args: {
     })
     .eq("user_id", userId);
 
+  // Alerte unifiée si suspension déclenchée
+  if (shouldSuspend) {
+    void reportSuspiciousActivity({
+      actorType: "consumer",
+      actorId: userId,
+      alertType: "consumer_suspension_triggered",
+      severity: "warning",
+      title: "Consumer auto-suspendu",
+      details: suspensionReason || `${newConsecutive} no-shows consécutifs`,
+      context: { consecutive_no_shows: newConsecutive, total_no_shows: newTotal, suspension_days: suspensionDays },
+      deduplicationKey: `suspension_${userId}`,
+    });
+  }
+
   const result = await recomputeClientScoreV2(args);
   return { ...result, newlySuspended: shouldSuspend };
 }
@@ -492,6 +507,188 @@ export async function autoLiftExpiredSuspensions(args: {
   }
 
   return (data ?? []).length;
+}
+
+// =============================================================================
+// Anti-fraud: reservation pattern detection
+// =============================================================================
+
+/** Thresholds for anti-fraud checks */
+const ANTIFRAUD = {
+  /** Max active reservations at the same time slot across all establishments */
+  MAX_CONCURRENT_SAME_SLOT: 2,
+  /** Max cancellations at the same establishment within N days */
+  CANCEL_REBOOK_WINDOW_DAYS: 7,
+  MAX_CANCEL_REBOOK_CYCLES: 3,
+  /** Max no-shows within a rolling window of N days */
+  NO_SHOW_WINDOW_DAYS: 30,
+  MAX_NO_SHOWS_IN_WINDOW: 3,
+} as const;
+
+export interface AntiFraudResult {
+  allowed: boolean;
+  reason?: string;
+  code?: "concurrent_slot_abuse" | "cancel_rebook_abuse" | "excessive_no_shows";
+}
+
+/**
+ * Check for multiple bookings at the same time slot across different establishments.
+ * A user booking 3+ restaurants at the same hour is suspicious.
+ */
+export async function checkConcurrentSlotAbuse(args: {
+  supabase: SupabaseClient;
+  userId: string;
+  startsAt: string;
+}): Promise<AntiFraudResult> {
+  const { supabase, userId, startsAt } = args;
+
+  const { count, error } = await supabase
+    .from("reservations")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("starts_at", startsAt)
+    .in("status", [
+      "requested", "pending_pro_validation", "confirmed",
+      "deposit_paid", "on_hold",
+    ]);
+
+  if (error) {
+    log.warn({ err: error }, "checkConcurrentSlotAbuse query error");
+    return { allowed: true }; // fail-open
+  }
+
+  if ((count ?? 0) >= ANTIFRAUD.MAX_CONCURRENT_SAME_SLOT) {
+    return {
+      allowed: false,
+      reason: `Vous avez déjà ${count} réservation(s) active(s) sur ce créneau. Limite : ${ANTIFRAUD.MAX_CONCURRENT_SAME_SLOT}.`,
+      code: "concurrent_slot_abuse",
+    };
+  }
+
+  return { allowed: true };
+}
+
+/**
+ * Detect rapid cancel/rebook cycles at the same establishment.
+ * If a user cancelled N+ times at the same restaurant in the last 7 days,
+ * block new bookings there.
+ */
+export async function checkCancelRebookAbuse(args: {
+  supabase: SupabaseClient;
+  userId: string;
+  establishmentId: string;
+}): Promise<AntiFraudResult> {
+  const { supabase, userId, establishmentId } = args;
+
+  const windowStart = new Date(
+    Date.now() - ANTIFRAUD.CANCEL_REBOOK_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  const { count, error } = await supabase
+    .from("reservations")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("establishment_id", establishmentId)
+    .in("status", [
+      "cancelled_by_client", "cancelled_late", "cancelled_very_late",
+    ])
+    .gte("cancelled_at", windowStart);
+
+  if (error) {
+    log.warn({ err: error }, "checkCancelRebookAbuse query error");
+    return { allowed: true };
+  }
+
+  if ((count ?? 0) >= ANTIFRAUD.MAX_CANCEL_REBOOK_CYCLES) {
+    return {
+      allowed: false,
+      reason: `Trop d'annulations récentes dans cet établissement (${count} en ${ANTIFRAUD.CANCEL_REBOOK_WINDOW_DAYS}j). Veuillez réessayer plus tard.`,
+      code: "cancel_rebook_abuse",
+    };
+  }
+
+  return { allowed: true };
+}
+
+/**
+ * Detect excessive no-shows in a rolling time window.
+ * Different from consecutive_no_shows (which resets on honored).
+ * This checks raw count within the last N days.
+ */
+export async function checkExcessiveNoShows(args: {
+  supabase: SupabaseClient;
+  userId: string;
+}): Promise<AntiFraudResult> {
+  const { supabase, userId } = args;
+
+  const windowStart = new Date(
+    Date.now() - ANTIFRAUD.NO_SHOW_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  const { count, error } = await supabase
+    .from("reservations")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("status", "no_show")
+    .gte("updated_at", windowStart);
+
+  if (error) {
+    log.warn({ err: error }, "checkExcessiveNoShows query error");
+    return { allowed: true };
+  }
+
+  if ((count ?? 0) >= ANTIFRAUD.MAX_NO_SHOWS_IN_WINDOW) {
+    return {
+      allowed: false,
+      reason: `Trop de no-shows récents (${count} en ${ANTIFRAUD.NO_SHOW_WINDOW_DAYS} jours). Votre compte a été restreint.`,
+      code: "excessive_no_shows",
+    };
+  }
+
+  return { allowed: true };
+}
+
+/**
+ * Run all anti-fraud checks for a reservation creation attempt.
+ * Returns the first failed check, or { allowed: true } if all pass.
+ */
+export async function runAntiFraudChecks(args: {
+  supabase: SupabaseClient;
+  userId: string;
+  establishmentId: string;
+  startsAt: string;
+}): Promise<AntiFraudResult> {
+  const [concurrent, cancelRebook, noShows] = await Promise.all([
+    checkConcurrentSlotAbuse(args),
+    checkCancelRebookAbuse(args),
+    checkExcessiveNoShows(args),
+  ]);
+
+  const blocked = !concurrent.allowed ? concurrent
+    : !cancelRebook.allowed ? cancelRebook
+    : !noShows.allowed ? noShows
+    : null;
+
+  if (blocked) {
+    const alertTypeMap: Record<string, "consumer_concurrent_slot_abuse" | "consumer_cancel_rebook_abuse" | "consumer_excessive_no_shows"> = {
+      concurrent_slot_abuse: "consumer_concurrent_slot_abuse",
+      cancel_rebook_abuse: "consumer_cancel_rebook_abuse",
+      excessive_no_shows: "consumer_excessive_no_shows",
+    };
+    void reportSuspiciousActivity({
+      actorType: "consumer",
+      actorId: args.userId,
+      alertType: alertTypeMap[blocked.code ?? ""] ?? "consumer_excessive_no_shows",
+      severity: "warning",
+      title: `Anti-fraude : ${blocked.code ?? "unknown"}`,
+      details: blocked.reason ?? "Réservation bloquée par anti-fraude",
+      establishmentId: args.establishmentId,
+      deduplicationKey: `antifraud_${blocked.code}_${args.userId}`,
+    });
+    return blocked;
+  }
+
+  return { allowed: true };
 }
 
 // =============================================================================

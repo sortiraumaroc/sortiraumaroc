@@ -945,7 +945,7 @@ export const uploadAdminEstablishmentBankDocument: RequestHandler = async (
 
   const bankId = String((bankRow as any).id ?? "");
 
-  const fileNameHeader = req.header("x-file-name") ?? "";
+  const fileNameHeader = (() => { try { return decodeURIComponent(req.header("x-file-name") ?? ""); } catch { return req.header("x-file-name") ?? ""; } })();
   const fileName = sanitizeFileName(fileNameHeader);
 
   const docId = randomBytes(12).toString("hex");
@@ -1115,7 +1115,7 @@ export const uploadAdminEstablishmentContract: RequestHandler = async (
   const supabase = getAdminSupabase();
 
   // Parse optional metadata from headers
-  const fileNameHeader = req.header("x-file-name") ?? "";
+  const fileNameHeader = (() => { try { return decodeURIComponent(req.header("x-file-name") ?? ""); } catch { return req.header("x-file-name") ?? ""; } })();
   const fileName = sanitizeFileName(fileNameHeader);
   const contractType = req.header("x-contract-type") || "partnership";
   const contractReference = req.header("x-contract-reference") || null;

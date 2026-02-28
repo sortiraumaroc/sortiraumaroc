@@ -272,6 +272,7 @@ import {
   listAdminEstablishmentConversations,
   listAdminEstablishmentConversationMessages,
   listAdminEstablishmentOffers,
+  listAdminFtourSlots,
 } from "./adminEstablishments";
 export {
   searchEstablishmentsByName,
@@ -296,8 +297,10 @@ export {
   listAdminEstablishmentConversations,
   listAdminEstablishmentConversationMessages,
   listAdminEstablishmentOffers,
+  listAdminFtourSlots,
   computeCompletenessScore,
   normalizeEstName,
+  adminUploadSlotImage,
 } from "./adminEstablishments";
 
 // ── Homepage curation ─────────────────────────────────────────────────────
@@ -424,8 +427,10 @@ import {
   listAdminClaimRequests,
   getAdminClaimRequest,
   updateAdminClaimRequest,
+  deleteAdminClaimRequest,
   listAdminEstablishmentLeads,
   updateAdminEstablishmentLead,
+  deleteAdminEstablishmentLead,
   listAdminFinanceDiscrepancies,
   updateAdminFinanceDiscrepancy,
   runAdminFinanceReconciliation,
@@ -700,6 +705,42 @@ export {
   resetAdminEstablishmentBookingPolicy,
 };
 
+// ── Conciergerie ─────────────────────────────────────────────────────────
+import {
+  listAdminConciergeries,
+  getAdminConciergerie,
+  createAdminConciergerie,
+  updateAdminConciergerie,
+  updateAdminConciergerieCities,
+  deleteAdminConciergerie,
+  addAdminConciergerieUser,
+  removeAdminConciergerieUser,
+} from "./adminConciergerie";
+export {
+  listAdminConciergeries,
+  getAdminConciergerie,
+  createAdminConciergerie,
+  updateAdminConciergerie,
+  updateAdminConciergerieCities,
+  deleteAdminConciergerie,
+  addAdminConciergerieUser,
+  removeAdminConciergerieUser,
+};
+
+// ── Conciergerie Partners ────────────────────────────────────────────────
+import {
+  listAdminConciergeriePartners,
+  createAdminConciergeriePartner,
+  updateAdminConciergeriePartner,
+  deleteAdminConciergeriePartner,
+} from "./adminConciergeriePartners";
+export {
+  listAdminConciergeriePartners,
+  createAdminConciergeriePartner,
+  updateAdminConciergeriePartner,
+  deleteAdminConciergeriePartner,
+};
+
 // ---------------------------------------------------------------------------
 // Register ALL admin-core routes (handlers exported from this file).
 // Call this from server/index.ts to centralise route wiring.
@@ -783,10 +824,12 @@ export function registerAdminCoreRoutes(app: Express) {
   app.get("/api/admin/claim-requests", zQuery(ListClaimRequestsQuery), listAdminClaimRequests);
   app.get("/api/admin/claim-requests/:id", zParams(zIdParam), getAdminClaimRequest);
   app.post("/api/admin/claim-requests/:id", zParams(zIdParam), zBody(UpdateClaimRequestSchema), updateAdminClaimRequest);
+  app.delete("/api/admin/claim-requests/:id", zParams(zIdParam), deleteAdminClaimRequest);
 
   // ── Establishment leads (demandes d'ajout d'établissement) ────────────
   app.get("/api/admin/establishment-leads", zQuery(ListEstablishmentLeadsQuery), listAdminEstablishmentLeads);
   app.post("/api/admin/establishment-leads/:id", zParams(zIdParam), zBody(UpdateEstablishmentLeadSchema), updateAdminEstablishmentLead);
+  app.delete("/api/admin/establishment-leads/:id", zParams(zIdParam), deleteAdminEstablishmentLead);
 
   // ── Homepage curation ─────────────────────────────────────────────────
   app.get("/api/admin/home-curation", listAdminHomeCurationItems);
@@ -1103,6 +1146,7 @@ export function registerAdminCoreRoutes(app: Express) {
     updateAdminEstablishmentReservation,
   );
   app.get("/api/admin/establishments/:id/offers", zParams(zIdParam), listAdminEstablishmentOffers);
+  app.get("/api/admin/ftour-slots", listAdminFtourSlots);
   app.put("/api/admin/establishments/:id/slots/upsert", zParams(zIdParam), zBody(AdminUpsertSlotsSchema), adminUpsertSlots);
   app.delete("/api/admin/establishments/:id/slots/bulk", zParams(zIdParam), adminBulkDeleteSlots);
   app.delete("/api/admin/establishments/:id/slots/:slotId", zParams(EstablishmentSlotParams), adminDeleteSlot);
@@ -1293,4 +1337,20 @@ export function registerAdminCoreRoutes(app: Express) {
 
   // ── Cron: Audit log cleanup ───────────────────────────────────────────
   app.post("/api/admin/cron/audit-log-cleanup", cronAuditLogCleanup);
+
+  // ── Conciergerie management ─────────────────────────────────────────
+  app.get("/api/admin/conciergeries", listAdminConciergeries);
+  app.get("/api/admin/conciergeries/:id", getAdminConciergerie);
+  app.post("/api/admin/conciergeries", createAdminConciergerie);
+  app.put("/api/admin/conciergeries/:id", updateAdminConciergerie);
+  app.delete("/api/admin/conciergeries/:id", deleteAdminConciergerie);
+  app.put("/api/admin/conciergeries/:id/cities", updateAdminConciergerieCities);
+  app.post("/api/admin/conciergeries/:id/users", addAdminConciergerieUser);
+  app.delete("/api/admin/conciergeries/:id/users/:userId", removeAdminConciergerieUser);
+
+  // ── Conciergerie partners management ──────────────────────────────────
+  app.get("/api/admin/conciergeries/:id/partners", listAdminConciergeriePartners);
+  app.post("/api/admin/conciergeries/:id/partners", createAdminConciergeriePartner);
+  app.put("/api/admin/conciergeries/:id/partners/:partnerId", updateAdminConciergeriePartner);
+  app.delete("/api/admin/conciergeries/:id/partners/:partnerId", deleteAdminConciergeriePartner);
 }

@@ -212,17 +212,31 @@ export const SCORING_WEIGHTS = {
   SENIORITY_20: 10, // +10 pts after 20 reservations (= +0.5 stars)
 } as const;
 
-/** Suspension thresholds */
+/**
+ * Suspension thresholds
+ *
+ * Trigger: 3 consecutive no-shows (NOT score-based).
+ * - 1st suspension: 7 days (total no-shows < 5)
+ * - 2nd+ suspension: 30 days (total no-shows >= 5)
+ * - 3rd+ suspension: permanent ban (admin can lift)
+ *
+ * Rehabilitation: after 5 consecutive HONORED reservations, the
+ * consecutive_no_shows counter resets to 0. There is NO automatic
+ * score reset — score is always recomputed from full history.
+ *
+ * Suspension expiration: auto-lifted when suspended_until < now()
+ * (checked on next login + daily cron at 04:00).
+ */
 export const SUSPENSION_RULES = {
   /** Auto-suspend after N consecutive no-shows */
   CONSECUTIVE_NO_SHOWS_THRESHOLD: 3,
-  /** First suspension duration in days */
+  /** First suspension duration in days (total no-shows < 5) */
   FIRST_SUSPENSION_DAYS: 7,
-  /** Second suspension duration in days */
+  /** Second+ suspension duration in days (total no-shows >= 5) */
   SECOND_SUSPENSION_DAYS: 30,
   /** Third = permanent */
   PERMANENT_THRESHOLD: 3,
-  /** Rehabilitation: consecutive honored to reset no-show streak */
+  /** Rehabilitation: N consecutive honored to reset no-show streak */
   REHABILITATION_CONSECUTIVE: 5,
 } as const;
 

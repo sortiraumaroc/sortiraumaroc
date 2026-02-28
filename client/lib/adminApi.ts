@@ -621,7 +621,7 @@ export function getAdminHeaders(): Record<string, string> {
 
   if (adminKey) headers["x-admin-key"] = adminKey;
   if (sessionToken) headers["x-admin-session"] = sessionToken;
-  if (session?.role) headers["x-admin-role"] = session.role;
+  if (session?.role) headers["x-admin-role"] = encodeURIComponent(session.role);
 
   return headers;
 }
@@ -2726,7 +2726,7 @@ export async function uploadAdminCmsBlogImage(
 ): Promise<{ ok: true; item: CmsUploadedImageAdmin }> {
   const headers: Record<string, string> = {
     "content-type": args.file.type || "application/octet-stream",
-    "x-file-name": args.fileName,
+    "x-file-name": encodeURIComponent(args.fileName),
   };
 
   if (adminKey) headers["x-admin-key"] = adminKey;
@@ -2764,7 +2764,7 @@ export async function uploadAdminCmsBlogDocument(
 ): Promise<{ ok: true; item: CmsUploadedDocumentAdmin }> {
   const headers: Record<string, string> = {
     "content-type": args.file.type || "application/pdf",
-    "x-file-name": args.fileName,
+    "x-file-name": encodeURIComponent(args.fileName),
   };
 
   if (adminKey) headers["x-admin-key"] = adminKey;
@@ -2939,6 +2939,7 @@ export async function adminUpsertSlots(
     promo_value?: number | null;
     promo_label?: string | null;
     active?: boolean;
+    cover_url?: string | null;
   }>,
 ): Promise<{ ok: true; upserted: number }> {
   return requestJson<{ ok: true; upserted: number }>(
@@ -2991,6 +2992,8 @@ export type FtourSlotWithEstablishment = {
   promo_value: number | null;
   promo_label: string | null;
   active: boolean;
+  moderation_status: string | null;
+  cover_url: string | null;
   created_at: string;
   updated_at: string;
   establishments: {
@@ -3648,7 +3651,7 @@ export async function uploadAdminEstablishmentBankDocument(
           ...(adminKey ? { "x-admin-key": adminKey } : {}),
           ...(sessionToken ? { "x-admin-session": sessionToken } : {}),
           "content-type": "application/pdf",
-          "x-file-name": file.name,
+          "x-file-name": encodeURIComponent(file.name),
         },
         body: await file.arrayBuffer(),
       },
@@ -3723,7 +3726,7 @@ export async function uploadAdminEstablishmentContract(
     ...(adminKey ? { "x-admin-key": adminKey } : {}),
     ...(sessionToken ? { "x-admin-session": sessionToken } : {}),
     "content-type": "application/pdf",
-    "x-file-name": file.name,
+    "x-file-name": encodeURIComponent(file.name),
   };
 
   if (metadata?.contractType) headers["x-contract-type"] = metadata.contractType;
@@ -6383,13 +6386,45 @@ export async function uploadAdminCategoryImage(
 
   const headers: Record<string, string> = {
     "content-type": args.file.type || "application/octet-stream",
-    "x-file-name": args.fileName,
+    "x-file-name": encodeURIComponent(args.fileName),
   };
 
   if (adminKey) headers["x-admin-key"] = adminKey;
   if (sessionToken) headers["x-admin-session"] = sessionToken;
 
   const res = await fetch("/api/admin/category-images/upload", {
+    method: "POST",
+    headers,
+    body: args.file,
+  });
+
+  const json = (await res.json().catch(() => null)) as any;
+  if (!res.ok) {
+    const message =
+      json && typeof json.error === "string"
+        ? json.error
+        : `HTTP_${res.status}`;
+    throw new AdminApiError(message, res.status, json);
+  }
+
+  return json as { ok: true; item: CategoryImageUploadResult };
+}
+
+export async function uploadAdminSlotImage(
+  adminKey: string | undefined,
+  args: { file: Blob; fileName: string },
+): Promise<{ ok: true; item: CategoryImageUploadResult }> {
+  const sessionToken = loadAdminSessionToken();
+
+  const headers: Record<string, string> = {
+    "content-type": args.file.type || "application/octet-stream",
+    "x-file-name": encodeURIComponent(args.fileName),
+  };
+
+  if (adminKey) headers["x-admin-key"] = adminKey;
+  if (sessionToken) headers["x-admin-session"] = sessionToken;
+
+  const res = await fetch("/api/admin/slot-images/upload", {
     method: "POST",
     headers,
     body: args.file,
@@ -6613,7 +6648,7 @@ export async function uploadAdminUniverseImage(
 
   const headers: Record<string, string> = {
     "content-type": args.file.type || "application/octet-stream",
-    "x-file-name": args.fileName,
+    "x-file-name": encodeURIComponent(args.fileName),
   };
 
   if (adminKey) headers["x-admin-key"] = adminKey;
@@ -6950,7 +6985,7 @@ export async function uploadAdminVideoThumbnail(
 
   const headers: Record<string, string> = {
     "content-type": args.file.type || "application/octet-stream",
-    "x-file-name": args.fileName,
+    "x-file-name": encodeURIComponent(args.fileName),
   };
 
   if (adminKey) headers["x-admin-key"] = adminKey;

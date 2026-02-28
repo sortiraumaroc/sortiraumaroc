@@ -2011,7 +2011,7 @@ export const uploadAdminCmsBlogImage: RequestHandler = async (req, res) => {
   if (!signatureOk)
     return res.status(400).json({ error: "invalid_image_signature" });
 
-  const fileNameHeader = req.header("x-file-name") ?? "";
+  const fileNameHeader = (() => { try { return decodeURIComponent(req.header("x-file-name") ?? ""); } catch { return req.header("x-file-name") ?? ""; } })();
   const fileName = sanitizeImageFileName(fileNameHeader, ext);
 
   const now = new Date();
@@ -2140,7 +2140,7 @@ export const uploadAdminCmsBlogDocument: RequestHandler = async (req, res) => {
     return res.status(400).json({ error: "invalid_pdf_signature" });
   }
 
-  const fileNameHeader = req.header("x-file-name") ?? "";
+  const fileNameHeader = (() => { try { return decodeURIComponent(req.header("x-file-name") ?? ""); } catch { return req.header("x-file-name") ?? ""; } })();
   const fileName = sanitizeFileName(fileNameHeader);
 
   const now = new Date();

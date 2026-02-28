@@ -469,7 +469,7 @@ async function getMyReservations(req: Request, res: Response) {
         id, establishment_id, starts_at, party_size, status, type, payment_type,
         stock_type, booking_reference, qr_code_token, created_at, updated_at,
         cancellation_reason, cancelled_at, pro_custom_message, consumed_at,
-        establishments!inner(name, slug, cover_image_url, city)
+        establishments!inner(name, slug, cover_url, city)
       `)
       .eq("user_id", auth.userId)
       .order("starts_at", { ascending: false })
@@ -701,7 +701,7 @@ async function getMyQuotes(req: Request, res: Response) {
         id, establishment_id, party_size, preferred_date, preferred_time_slot,
         is_date_flexible, event_type, status, created_at, updated_at,
         acknowledged_at, acknowledge_deadline, quote_deadline,
-        establishments!inner(name, slug, cover_image_url, city)
+        establishments!inner(name, slug, cover_url, city)
       `)
       .eq("user_id", auth.userId)
       .order("created_at", { ascending: false });
@@ -809,7 +809,34 @@ async function acceptQuoteRoute(req: Request, res: Response) {
 }
 
 // =============================================================================
-// 18. POST /api/no-show-disputes/:id/respond
+// 18. POST /api/quotes/:id/decline
+// =============================================================================
+
+async function declineQuoteRoute(req: Request, res: Response) {
+  try {
+    const auth = await getConsumerUserId(req);
+    if (!requireAuth(auth, res)) return;
+
+    const supabase = getAdminSupabase();
+    const result = await declineQuote({
+      supabase,
+      quoteId: req.params.id,
+      userId: auth.userId,
+    });
+
+    if (!result.ok) {
+      return res.status(409).json({ error: result.error });
+    }
+
+    res.json({ ok: true, quoteId: result.quoteId, newStatus: result.newStatus });
+  } catch (err) {
+    log.error({ err }, "declineQuoteRoute failed");
+    res.status(500).json({ error: "internal_error" });
+  }
+}
+
+// =============================================================================
+// 19. POST /api/no-show-disputes/:id/respond
 // =============================================================================
 
 async function respondToNoShowDispute(req: Request, res: Response) {
@@ -882,6 +909,7 @@ export function registerReservationV2PublicRoutes(app: Router): void {
   app.get("/api/quotes/:id", zParams(ReservationIdParams), getQuoteDetail);
   app.post("/api/quotes/:id/messages", zParams(ReservationIdParams), quoteRequestRateLimiter, zBody(PostQuoteMessageSchema), postQuoteMessage);
   app.post("/api/quotes/:id/accept", zParams(ReservationIdParams), reservationCreateRateLimiter, acceptQuoteRoute);
+  app.post("/api/quotes/:id/decline", zParams(ReservationIdParams), declineQuoteRoute);
 
   // No-show dispute response (strict)
   app.post("/api/no-show-disputes/:id/respond", zParams(ReservationIdParams), disputeResponseRateLimiter, zBody(RespondToNoShowDisputeSchema), respondToNoShowDispute);

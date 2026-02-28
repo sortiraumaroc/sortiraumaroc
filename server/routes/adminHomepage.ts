@@ -171,7 +171,7 @@ export const createAdminHomeCurationItem: RequestHandler = async (req, res) => {
     },
   });
 
-  res.json({ ok: true, id: (data as any)?.id ?? null });
+  res.json({ ok: true, item: { id: (data as any)?.id ?? null } });
 };
 
 export const updateAdminHomeCurationItem: RequestHandler = async (req, res) => {
@@ -1125,7 +1125,8 @@ export const deleteAdminHomeVideo: RequestHandler = async (req, res) => {
 export const uploadAdminVideoThumbnail: RequestHandler = async (req, res) => {
   if (!requireAdminKey(req, res)) return;
 
-  const fileName = req.headers["x-file-name"];
+  const rawFileName = req.headers["x-file-name"];
+  const fileName = (() => { try { return typeof rawFileName === "string" ? decodeURIComponent(rawFileName) : rawFileName; } catch { return rawFileName; } })();
   if (typeof fileName !== "string" || !fileName.trim()) {
     return res.status(400).json({ error: "Nom de fichier requis" });
   }

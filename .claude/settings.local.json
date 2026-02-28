@@ -268,7 +268,15 @@
       "mcp__Claude_Preview__preview_start",
       "Bash(cut:*)",
       "Bash(ln:*)",
-      "Bash(git merge:*)"
+      "Bash(git merge:*)",
+      "WebFetch(domain:u59723805.ct.sendgrid.net)",
+      "Bash(SUPABASE_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9namdoemd6a3h4b2dnb2NhZGxuIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTc4Mjk3NiwiZXhwIjoyMDg3MTQyOTc2fQ.L41oSdpJQFvspuFuRzDcIGv54sAKtyoRluxn57RzW7Q\")",
+      "Bash(__NEW_LINE_b7bb601ea7324f05__ echo \"=== concierge_users \\(base table\\) ===\")",
+      "Bash(__NEW_LINE_b7bb601ea7324f05__ echo \"\")",
+      "Bash(__NEW_LINE_7f1a24113141df25__ echo \"=== concierges ===\")",
+      "Bash(__NEW_LINE_7f1a24113141df25__ echo \"\")",
+      "Bash(# The pg package is available. We need the connection string. # For Supabase hosted projects, the connection string format is: # postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres # Let''s check if there''s a password anywhere # Check if there''s .env in root project grep -i \"\"postgres\\\\|DATABASE\\\\|DB_\\\\|SUPABASE_DB\"\" \"\"/Users/salaheddineaitnasser/Downloads/sam.ma - Official/.env\"\" || echo \"\"No DB vars in root .env\"\" # Check supabase config cat \"\"/Users/salaheddineaitnasser/Downloads/sam.ma - Official/.claude/worktrees/musing-shamir/supabase/config.toml\"\")",
+      "Bash(git revert:*)"
     ]
   }
 }

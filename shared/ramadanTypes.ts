@@ -228,3 +228,21 @@ export function calculateRamadanDiscount(originalPrice: number, price: number): 
   if (originalPrice <= 0 || price >= originalPrice) return 0;
   return Math.round(((originalPrice - price) / originalPrice) * 100);
 }
+
+// =============================================================================
+// 9. Modération des créneaux Ftour (pro_slots)
+// =============================================================================
+
+/** Statuts de modération simplifiés pour pro_slots */
+export type ProSlotModerationStatus =
+  | "pending_moderation"
+  | "active"
+  | "rejected"
+  | "suspended";
+
+export const PRO_SLOT_MODERATION_LABELS: Record<ProSlotModerationStatus, string> = {
+  pending_moderation: "En attente",
+  active: "Actif",
+  rejected: "Rejeté",
+  suspended: "Suspendu",
+};

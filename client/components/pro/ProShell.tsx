@@ -140,6 +140,7 @@ const ProLoyaltyV2Dashboard = lazy(() => import("@/components/loyaltyV2/ProLoyal
 const ProPacksDashboard = lazy(() => import("@/components/packs/ProPacksDashboard").then(m => ({ default: m.ProPacksDashboard })));
 const ProFinancesDashboard = lazy(() => import("@/components/packs/ProFinancesDashboard").then(m => ({ default: m.ProFinancesDashboard })));
 const ProOnboardingWizard = lazy(() => import("@/components/pro/wizard/ProOnboardingWizard").then(m => ({ default: m.ProOnboardingWizard })));
+const ProSamWidget = lazy(() => import("@/components/pro/ProSamWidget").then(m => ({ default: m.ProSamWidget })));
 
 const TabFallback = () => (
   <div className="flex items-center justify-center py-12">
@@ -1421,6 +1422,11 @@ export function ProShell({ user, onSignOut }: Props) {
           />
         </Suspense>
       )}
+
+      {/* Sam AI Assistant for pros */}
+      <Suspense fallback={null}>
+        <ProSamWidget />
+      </Suspense>
     </main>
   );
 }

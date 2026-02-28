@@ -47,6 +47,9 @@ export type PublicEstablishment = {
   // Menu Digital (QR Code)
   menu_digital_enabled: boolean | null;
   menu_digital_url: string | null;
+
+  // Revendication
+  is_claimed?: boolean;
 };
 
 export type PublicOfferSlot = {
@@ -158,7 +161,11 @@ function extractErrorMessage(payload: unknown): string | null {
   return msg && msg.trim() ? msg : null;
 }
 
-async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+async function requestJson<T>(
+  path: string,
+  init?: RequestInit,
+  _retryCount = 0,
+): Promise<T> {
   let res: Response;
   try {
     res = await fetch(path, {
@@ -198,6 +205,20 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     const msg = extractErrorMessage(payload) || `HTTP ${res.status}`;
     throw new PublicApiError(msg, res.status, payload);
+  }
+
+  // Guard: Vite dev server may return HTML (index.html fallback) before Express
+  // is fully mounted. Auto-retry once after a short delay (dev-only race condition).
+  if (!contentType.includes("application/json")) {
+    if (_retryCount < 2) {
+      await new Promise((r) => setTimeout(r, 1000 * (_retryCount + 1)));
+      return requestJson<T>(path, init, _retryCount + 1);
+    }
+    throw new PublicApiError(
+      "Le serveur n'est pas encore prêt, veuillez réessayer.",
+      0,
+      payload,
+    );
   }
 
   return payload as T;

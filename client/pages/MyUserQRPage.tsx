@@ -22,13 +22,14 @@ import { AuthModalV2 } from "@/components/AuthModalV2";
 
 /** CE QR section — rendered only if user is an active CE employee */
 function CeQrSection() {
-  const { isCeActive, profileComplete, loading } = useCeStatus();
+  const { isCeActive, profileComplete, company, loading } = useCeStatus();
   if (loading || !isCeActive || !profileComplete) return null;
   return (
     <CeQrCode
       size={280}
       showTimer
       allowFullscreen
+      companyName={company?.name ?? null}
       className="shadow-lg"
     />
   );

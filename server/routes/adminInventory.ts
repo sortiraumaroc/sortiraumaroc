@@ -1114,7 +1114,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
       // First try with email column
       const result1 = await supabase
         .from("establishments")
-        .select("lat, lng, phone, whatsapp, website, email, social_links, hours, extra")
+        .select("lat, lng, phone, whatsapp, website, email, social_links, hours, extra, google_rating, google_review_count, google_rating_updated_at, hide_google_reviews")
         .eq("id", establishmentId)
         .single();
 
@@ -1173,6 +1173,11 @@ export function registerAdminInventoryRoutes(router: Router): void {
         hours: data.hours && typeof data.hours === "object"
           ? openingHoursToWizardFormat(data.hours as Record<string, unknown>)
           : {},
+        // Google rating metadata
+        google_rating: data.google_rating ?? null,
+        google_review_count: data.google_review_count ?? null,
+        google_rating_updated_at: data.google_rating_updated_at ?? null,
+        hide_google_reviews: data.hide_google_reviews ?? false,
       });
     } catch (error) {
       log.error({ err: error }, "Contact info get error");
@@ -1221,6 +1226,9 @@ export function registerAdminInventoryRoutes(router: Router): void {
             ? transformWizardHoursToOpeningHours(body.hours as Record<string, unknown>)
             : body.hours;
       }
+
+      // hide_google_reviews toggle
+      if (body.hide_google_reviews !== undefined) updateData.hide_google_reviews = body.hide_google_reviews;
 
       // Store mobile in extra field
       // For email: try direct column first, fallback to extra field if column doesn't exist
@@ -2085,6 +2093,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         name?: string;
         city?: string;
         universe?: string;
+        category?: string;
         subcategory?: string;
       };
 
@@ -2114,6 +2123,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
       if (body.universe !== undefined) {
         updateData.universe = UNIVERSE_TO_DB[body.universe.toLowerCase()] ?? body.universe;
       }
+      if (body.category !== undefined) updateData.category = body.category;
       if (body.subcategory !== undefined) updateData.subcategory = body.subcategory;
 
       if (Object.keys(updateData).length === 0) {

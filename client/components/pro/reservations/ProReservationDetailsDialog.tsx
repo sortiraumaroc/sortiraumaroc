@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronUp, Copy, History } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronUp, Copy, Gift, History } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -181,6 +181,9 @@ export function ProReservationDetailsDialog(props: {
                   {r.is_from_waitlist ? (
                     <Badge className="bg-blue-50 text-blue-700 border-blue-200 whitespace-nowrap">Depuis liste d'attente</Badge>
                   ) : null}
+                  {isRecord(r.meta) && r.meta.ftour_offert === true ? (
+                    <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 whitespace-nowrap">🎁 Ftour SAM</Badge>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -206,6 +209,20 @@ export function ProReservationDetailsDialog(props: {
                     + {getNoShowCount(r) - getEstablishmentNoShows(r).length} no-show(s) dans d'autres établissements
                   </div>
                 ) : null}
+              </div>
+            ) : null}
+
+            {isRecord(r.meta) && r.meta.ftour_offert === true ? (
+              <div className="rounded-lg border-2 border-emerald-300 bg-emerald-50 p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Gift className="w-5 h-5 text-emerald-600" />
+                  <div className="text-sm font-bold text-emerald-800">
+                    Ftour offert par SAM.ma
+                  </div>
+                </div>
+                <p className="text-sm text-emerald-700 leading-relaxed">
+                  Ce repas est offert dans le cadre des accords négociés avec la plateforme SAM.ma. Valable pour 1 personne.
+                </p>
               </div>
             ) : null}
 

@@ -714,9 +714,6 @@ export function AdminEstablishmentEditDialog({ open, onOpenChange, establishment
 
     setSaving(true);
     try {
-      // Build subcategory string (category / subcategory)
-      const subcategoryValue = subcategory ? `${category} / ${subcategory}` : category;
-
       await adminApiFetch(
         `/api/admin/establishments/${encodeURIComponent(establishment.id)}/profile`,
         {
@@ -725,7 +722,8 @@ export function AdminEstablishmentEditDialog({ open, onOpenChange, establishment
             name,
             city,
             universe,
-            subcategory: subcategoryValue,
+            category: category || undefined,
+            subcategory: subcategory || undefined,
           }),
         }
       );

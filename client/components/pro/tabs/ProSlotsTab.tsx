@@ -11,6 +11,8 @@ import {
   Copy,
   Eye,
   Filter,
+  ImagePlus,
+  Loader2,
   Pencil,
   Plus,
   Repeat,
@@ -69,6 +71,7 @@ import {
   deleteProSlot,
   listProOffers,
   listProReservations,
+  uploadProInventoryImage,
   upsertProSlots,
 } from "@/lib/pro/api";
 import { proUpdateCapacity, proGetCapacity } from "@/lib/reservationV2ProApi";
@@ -229,10 +232,12 @@ export function ProSlotsTab({ establishment, role }: Props) {
     repeatEnabled: false as boolean,
     repeatUntilDate: "",
     repeatDays: [1, 2, 3, 4, 5, 6, 0] as number[], // 0=Dim, 1=Lun..6=Sam — tous par défaut
+    coverUrl: "" as string,
   };
   const [formData, setFormData] = useState(emptyForm);
   const [formErrors, setFormErrors] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
+  const [coverUploading, setCoverUploading] = useState(false);
 
   // Track which picker is currently open so only one shows at a time
   type PickerId = "startDate" | "startTime" | "endDate" | "endTime" | "repeatUntilDate" | null;
@@ -443,6 +448,7 @@ export function ProSlotsTab({ establishment, role }: Props) {
       repeatEnabled: false,
       repeatUntilDate: "",
       repeatDays: [1, 2, 3, 4, 5, 6, 0],
+      coverUrl: slot.cover_url || "",
     });
     setFormErrors({});
     setEditSlot(slot);
@@ -473,6 +479,7 @@ export function ProSlotsTab({ establishment, role }: Props) {
       repeatEnabled: false,
       repeatUntilDate: "",
       repeatDays: [1, 2, 3, 4, 5, 6, 0],
+      coverUrl: slot.cover_url || "",
     });
     setFormErrors({});
     setShowCreateDialog(true);
@@ -570,6 +577,7 @@ export function ProSlotsTab({ establishment, role }: Props) {
         promo_label: promoValue ? (formData.promoLabel.trim() || null) : null,
         service_label: serviceLabel,
         active: true,
+        cover_url: formData.coverUrl.trim() || null,
       });
     } else {
       // Create new slot(s)
@@ -642,6 +650,7 @@ export function ProSlotsTab({ establishment, role }: Props) {
             promo_label: promoValue ? (formData.promoLabel.trim() || null) : null,
             service_label: serviceLabel,
             active: true,
+            cover_url: formData.coverUrl.trim() || null,
           });
         } else {
           // Multiple slots for this day: from startTime to endTime
@@ -667,6 +676,7 @@ export function ProSlotsTab({ establishment, role }: Props) {
               promo_label: promoValue ? (formData.promoLabel.trim() || null) : null,
               service_label: serviceLabel,
               active: true,
+              cover_url: formData.coverUrl.trim() || null,
             });
 
             cursor = e;
@@ -1339,6 +1349,93 @@ export function ProSlotsTab({ establishment, role }: Props) {
                   </div>
                 </div>
               </div>
+            </div>
+
+            {/* Section Photo du créneau */}
+            <div className="space-y-3 pt-2 border-t">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  <ImagePlus className="h-4 w-4" />
+                  Photo de l'offre
+                </div>
+                <span className="text-[11px] text-slate-400">Optionnel — affichée en page d'accueil</span>
+              </div>
+
+              {formData.coverUrl ? (
+                <div className="relative w-full aspect-[16/9] rounded-lg overflow-hidden bg-slate-100 border">
+                  <img
+                    src={formData.coverUrl}
+                    alt="Photo de l'offre"
+                    className="w-full h-full object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setFormData((p) => ({ ...p, coverUrl: "" }))}
+                    className="absolute top-2 end-2 p-1.5 rounded-full bg-black/60 text-white hover:bg-black/80 transition"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <label
+                  className={`relative block border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
+                    coverUploading
+                      ? "border-primary/50 bg-primary/5"
+                      : "border-slate-200 bg-slate-50 hover:border-primary/50"
+                  }`}
+                >
+                  <input
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.webp,.gif"
+                    disabled={coverUploading}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      e.target.value = "";
+
+                      if (file.size > 5 * 1024 * 1024) {
+                        toast({ title: "Erreur", description: "Fichier trop volumineux (max 5 MB)." });
+                        return;
+                      }
+                      if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) {
+                        toast({ title: "Erreur", description: "Format non accepté. Formats autorisés : JPG, PNG, WebP, GIF." });
+                        return;
+                      }
+
+                      setCoverUploading(true);
+                      try {
+                        const result = await uploadProInventoryImage({
+                          establishmentId: establishment.id,
+                          file,
+                        });
+                        setFormData((prev) => ({ ...prev, coverUrl: result.url }));
+                      } catch (err) {
+                        toast({
+                          title: "Erreur",
+                          description: err instanceof Error ? err.message : "Erreur lors de l'upload.",
+                        });
+                      } finally {
+                        setCoverUploading(false);
+                      }
+                    }}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  />
+                  <div className="flex flex-col items-center gap-2">
+                    {coverUploading ? (
+                      <>
+                        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                        <span className="text-sm text-slate-600">Upload en cours…</span>
+                      </>
+                    ) : (
+                      <>
+                        <ImagePlus className="w-6 h-6 text-slate-400" />
+                        <span className="text-sm text-slate-600">Ajouter une photo</span>
+                        <span className="text-xs text-slate-400">JPG, PNG, WebP, GIF — Max 5 MB</span>
+                      </>
+                    )}
+                  </div>
+                </label>
+              )}
             </div>
           </div>
 

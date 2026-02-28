@@ -409,11 +409,12 @@ export async function cronAdsGenerateInvoices(req: Request, res: Response) {
       if (existingCount && existingCount > 0) continue;
 
       // Map campaign type to invoice type
-      let invoiceType: "sponsored_result" | "featured_pack" | "home_takeover" | "push_notification" | "email_campaign" = "sponsored_result";
+      let invoiceType: "sponsored_result" | "featured_pack" | "home_takeover" | "push_notification" | "email_campaign" | "display_banner" = "sponsored_result";
       if (campaignType === "featured_pack") invoiceType = "featured_pack";
       else if (campaignType === "home_takeover") invoiceType = "home_takeover";
       else if (campaignType === "push_notification") invoiceType = "push_notification";
       else if (campaignType === "email_campaign") invoiceType = "email_campaign";
+      else if (campaignType === "display_banner") invoiceType = "display_banner";
 
       try {
         const invoice = await createCampaignInvoice({

@@ -43,6 +43,7 @@ const SlotInputSchema = z.object({
   promo_label: z.string().optional().nullable(),
   service_label: z.string().optional().nullable(),
   active: z.boolean().optional(),
+  cover_url: z.string().max(2000).optional().nullable(),
 });
 
 // =============================================================================

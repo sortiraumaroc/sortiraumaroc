@@ -134,6 +134,7 @@ function getCampaignTypeLabel(type: string): string {
     home_takeover: "Home takeover",
     push_notification: "Push notification",
     email_campaign: "Campagne email",
+    display_banner: "Bannière Display IAB",
   };
   return labels[type] || type;
 }
@@ -779,6 +780,7 @@ function CampaignsTab() {
             <SelectItem value="sponsored_result">Résultat sponsorisé</SelectItem>
             <SelectItem value="featured_pack">Pack mise en avant</SelectItem>
             <SelectItem value="home_takeover">Home takeover</SelectItem>
+            <SelectItem value="display_banner">Bannière Display</SelectItem>
           </SelectContent>
         </Select>
         <Button variant="outline" size="sm" onClick={() => void refresh()} disabled={loading}>

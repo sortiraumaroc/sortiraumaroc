@@ -63,10 +63,8 @@ type EmailBrandingSettings = {
 
 let brandingCache: { at: number; value: EmailBrandingSettings } | null = null;
 
-function getPublicBaseUrl(): string {
-  const v = asString(process.env.PUBLIC_BASE_URL);
-  return v || "https://sam.ma";
-}
+import { getPublicBaseUrl } from "./lib/publicBaseUrl";
+export { getPublicBaseUrl };
 
 async function getEmailBrandingSettings(): Promise<EmailBrandingSettings> {
   const now = Date.now();

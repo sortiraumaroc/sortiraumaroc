@@ -54,6 +54,7 @@ import {
   checkVoteBurst,
 } from "../middleware/reviewSecurity";
 import { getClientIp } from "../middleware/rateLimiter";
+import { reportSuspiciousActivity } from "../suspiciousActivity";
 import { createModuleLogger } from "../lib/logger";
 
 const log = createModuleLogger("reviewsV2");
@@ -241,7 +242,17 @@ export const submitReviewV2: RequestHandler = async (req, res) => {
     if (spamCheck.isSpam) {
       log.warn({ userId: invitation.user_id, score: spamCheck.score, reasons: spamCheck.reasons }, "spam detected");
       // Don't block, but flag for priority moderation (admin will see it)
-      // We still allow submission but log it
+      void reportSuspiciousActivity({
+        actorType: "consumer",
+        actorId: invitation.user_id,
+        alertType: "consumer_review_spam",
+        severity: "warning",
+        title: "Avis suspect (spam détecté)",
+        details: `Score spam : ${spamCheck.score}. Raisons : ${spamCheck.reasons.join(", ")}`,
+        context: { spam_score: spamCheck.score, reasons: spamCheck.reasons },
+        establishmentId: invitation.establishment_id,
+        deduplicationKey: `review_spam_${invitation.user_id}_${invitation.establishment_id}`,
+      });
     }
 
     // Create the review
@@ -396,6 +407,17 @@ export const voteReviewV2: RequestHandler = async (req, res) => {
     const ip = getClientIp(req);
     const burstErr = checkVoteBurst(ip, review_id, review.establishment_id);
     if (burstErr) {
+      void reportSuspiciousActivity({
+        actorType: "consumer",
+        actorId: userId || ip,
+        alertType: "consumer_vote_bombing",
+        severity: "warning",
+        title: "Vote bombing détecté",
+        details: `Burst de votes depuis IP ${ip} sur l'avis ${review_id}`,
+        context: { ip, review_id },
+        establishmentId: review.establishment_id,
+        deduplicationKey: `vote_burst_${ip}_${review.establishment_id}`,
+      });
       return res.status(429).json({ ok: false, error: burstErr });
     }
 

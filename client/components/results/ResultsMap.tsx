@@ -292,6 +292,7 @@ export function ResultsMap({
 
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: GOOGLE_MAPS_API_KEY,
+    region: "MA",
   });
 
   // Filter items with valid coordinates

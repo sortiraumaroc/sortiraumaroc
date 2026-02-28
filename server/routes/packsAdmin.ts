@@ -75,7 +75,10 @@ import {
   rejectPack,
   requestPackModification,
   featurePack,
+  adminUpdatePack,
+  adminDeletePack,
 } from "../packLifecycleLogic";
+import { UpdatePackSchema } from "../schemas/packsPro";
 import { processRefund } from "../packRefundLogic";
 import { validateInvoice, executePayment, respondToDispute } from "../billingPeriodLogic";
 import {
@@ -1197,12 +1200,136 @@ const rejectRefund: RequestHandler = async (req, res) => {
 };
 
 // =============================================================================
+// ADMIN PACK CRUD (get detail, update, delete)
+// =============================================================================
+
+// GET /api/admin/packs/:id
+const getAdminPackDetail: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  try {
+    const packId = req.params.id;
+    if (!isValidUUID(packId)) {
+      res.status(400).json({ error: "invalid_pack_id" });
+      return;
+    }
+
+    const supabase = getAdminSupabase();
+    const { data, error } = await supabase
+      .from("packs")
+      .select("*, establishments (id, name, slug, city)")
+      .eq("id", packId)
+      .maybeSingle();
+
+    if (error) {
+      res.status(500).json({ error: error.message });
+      return;
+    }
+    if (!data) {
+      res.status(404).json({ error: "Pack introuvable." });
+      return;
+    }
+
+    res.json({ pack: data });
+  } catch (err) {
+    log.error({ err }, "getAdminPackDetail error");
+    res.status(500).json({ error: "internal_error" });
+  }
+};
+
+// PUT /api/admin/packs/:id
+const updateAdminPackRoute: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  try {
+    const packId = req.params.id;
+
+    // Map snake_case body to camelCase input expected by adminUpdatePack
+    const b = req.body ?? {};
+    const input: Record<string, unknown> = {};
+    if (b.title !== undefined) input.title = b.title;
+    if (b.short_description !== undefined) input.shortDescription = b.short_description;
+    if (b.detailed_description !== undefined) input.detailedDescription = b.detailed_description;
+    if (b.cover_url !== undefined) input.coverUrl = b.cover_url;
+    if (b.additional_photos !== undefined) input.additionalPhotos = b.additional_photos;
+    if (b.category !== undefined) input.category = b.category;
+    if (b.price !== undefined) input.price = b.price;
+    if (b.original_price !== undefined) input.originalPrice = b.original_price;
+    if (b.party_size !== undefined) input.partySize = b.party_size;
+    if (b.items !== undefined) input.items = b.items;
+    if (b.inclusions !== undefined) input.inclusions = b.inclusions;
+    if (b.exclusions !== undefined) input.exclusions = b.exclusions;
+    if (b.conditions !== undefined) input.conditions = b.conditions;
+    if (b.valid_days !== undefined) input.validDays = b.valid_days;
+    if (b.valid_time_start !== undefined) input.validTimeStart = b.valid_time_start;
+    if (b.valid_time_end !== undefined) input.validTimeEnd = b.valid_time_end;
+    if (b.sale_start_date !== undefined) input.saleStartDate = b.sale_start_date;
+    if (b.sale_end_date !== undefined) input.saleEndDate = b.sale_end_date;
+    if (b.validity_start_date !== undefined) input.validityStartDate = b.validity_start_date;
+    if (b.validity_end_date !== undefined) input.validityEndDate = b.validity_end_date;
+    if (b.stock !== undefined) input.stock = b.stock;
+    if (b.limit_per_client !== undefined) input.limitPerClient = b.limit_per_client;
+    if (b.is_multi_use !== undefined) input.isMultiUse = b.is_multi_use;
+    if (b.total_uses !== undefined) input.totalUses = b.total_uses;
+
+    const result = await adminUpdatePack(packId, input as any);
+
+    if (!result.ok) {
+      const err = result as { ok: false; error: string; errorCode?: string };
+      res.status(400).json({ error: err.error, errorCode: err.errorCode });
+      return;
+    }
+
+    res.json({ ok: true });
+    void auditAdminAction("admin.pack.update", {
+      targetType: "pack",
+      targetId: packId,
+      ip: getClientIp(req),
+    });
+  } catch (err) {
+    log.error({ err }, "updateAdminPack error");
+    res.status(500).json({ error: "internal_error" });
+  }
+};
+
+// DELETE /api/admin/packs/:id
+const deleteAdminPackRoute: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  try {
+    const packId = req.params.id;
+    const result = await adminDeletePack(packId);
+
+    if (!result.ok) {
+      const err = result as { ok: false; error: string; errorCode?: string };
+      const status = err.errorCode === "has_active_purchases" ? 409 : 400;
+      res.status(status).json({ error: err.error, errorCode: err.errorCode });
+      return;
+    }
+
+    res.json({ ok: true });
+    void auditAdminAction("admin.pack.delete", {
+      targetType: "pack",
+      targetId: packId,
+      ip: getClientIp(req),
+    });
+  } catch (err) {
+    log.error({ err }, "deleteAdminPack error");
+    res.status(500).json({ error: "internal_error" });
+  }
+};
+
+// =============================================================================
 // Route registration
 // =============================================================================
 
 export function registerPacksAdminRoutes(app: Router): void {
   // Pack moderation
   app.get("/api/admin/packs/moderation", getModerationQueue);
+  app.get("/api/admin/packs/stats", getPacksStats);
+  app.get("/api/admin/packs/:id", zParams(zIdParam), getAdminPackDetail);
+  app.put("/api/admin/packs/:id", zParams(zIdParam), zBody(UpdatePackSchema), updateAdminPackRoute);
+  app.delete("/api/admin/packs/:id", zParams(zIdParam), deleteAdminPackRoute);
   app.post("/api/admin/packs/:id/approve", zParams(zIdParam), approvePackRoute);
   app.post("/api/admin/packs/:id/reject", zParams(zIdParam), zBody(RejectPackSchema), rejectPackRoute);
   app.post("/api/admin/packs/:id/request-modification", zParams(zIdParam), zBody(RequestPackModificationSchema), requestModificationRoute);
@@ -1238,8 +1365,7 @@ export function registerPacksAdminRoutes(app: Router): void {
   app.put("/api/admin/pack-promos/:id", zParams(zIdParam), zBody(UpdatePlatformPromoSchema), updatePlatformPromo);
   app.delete("/api/admin/pack-promos/:id", zParams(zIdParam), deletePlatformPromo);
 
-  // Stats
-  app.get("/api/admin/packs/stats", getPacksStats);
+  // Stats (packs/stats registered above to avoid :id conflict)
   app.get("/api/admin/billing/stats", getBillingStats);
   app.get("/api/admin/billing/revenue", getRevenueBySource);
 

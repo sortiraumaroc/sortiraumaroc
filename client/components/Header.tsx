@@ -227,19 +227,14 @@ export function Header({ isRamadan }: { isRamadan?: boolean } = {}) {
           <div className="flex items-center justify-between h-16">
             {/* Logo - changes to megaphone + text when scrolled */}
             <Link to={addLocalePrefix("/", locale)} className="flex items-center gap-2 flex-shrink-0">
-              {showScrolledHeader ? (
-                <img
-                  src="/logo-white.png"
-                  alt={t("header.logo_alt")}
-                  className="h-16 sm:h-20 w-auto transition-all duration-300"
-                />
-              ) : (
-                <img
-                  src="/Logo_SAM_N.png"
-                  alt={t("header.logo_alt")}
-                  className="h-16 sm:h-20 w-auto transition-all duration-300"
-                />
-              )}
+              <img
+                src={showScrolledHeader ? "/logo_sam.svg" : "/Logo_SAM_N.png"}
+                alt={t("header.logo_alt")}
+                className={cn(
+                  "w-auto transition-all duration-300",
+                  showScrolledHeader ? "h-10 sm:h-12" : "h-16 sm:h-20"
+                )}
+              />
               {isRamadan && (
                 <CrescentMoonSvg className="w-5 h-5 text-ramadan-gold shrink-0" aria-hidden="true" />
               )}

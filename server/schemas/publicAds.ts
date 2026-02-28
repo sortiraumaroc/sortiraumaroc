@@ -23,6 +23,14 @@ export const FeaturedPackQuery = z.object({
   exclude: z.string().optional(),
 });
 
+/** GET /api/public/ads/display-banner */
+export const DisplayBannerQuery = z.object({
+  placement: z.string().min(1),
+  city: z.string().optional(),
+  country: z.string().optional(),
+  device_type: z.enum(["mobile", "desktop", "tablet"]).optional(),
+});
+
 // =============================================================================
 // Body Schemas
 // =============================================================================

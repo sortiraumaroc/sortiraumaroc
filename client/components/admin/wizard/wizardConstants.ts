@@ -90,7 +90,7 @@ const CUISINE_TYPES = [
   "Colombien", "Coréen", "Corse", "Créole", "Crêperie", "Cubain",
   "Égyptien", "Espagnol", "Éthiopien", "Français", "Franco-belge",
   "Fruits de mer", "Fusion", "Grec", "Hawaïen", "Indien", "Iranien",
-  "Israélien", "Italien", "Japonais", "Latino", "Libanais", "Marocain",
+  "Italien", "Japonais", "Latino", "Libanais", "Marocain",
   "Méditerranéen", "Mexicain", "Oriental", "Pakistanais", "Péruvien",
   "Portugais", "Provençal", "Russe", "Savoyard", "Scandinave", "Steakhouse",
   "Sud-Ouest", "Syrien", "Thaïlandais", "Tunisien", "Turc", "Vegan",

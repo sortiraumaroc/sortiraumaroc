@@ -13,6 +13,8 @@ import { getAdminSupabase } from "../supabaseAdmin";
 import { emitAdminNotification } from "../adminNotifications";
 import { sendTemplateEmail } from "../emailService";
 import { sendPushNotification, sendPushToConsumerUser } from "../pushNotifications";
+import { sendTransactionalSms, isSmsConfigured } from "../smsService";
+import { sendWhatsAppMessage, isWhatsAppConfigured } from "../whatsappService";
 import { createModuleLogger } from "../lib/logger";
 
 const log = createModuleLogger("waitlistCron");
@@ -147,6 +149,28 @@ export async function cronWaitlistExpireAndPromote(req: Request, res: Response) 
             reservationId: entry.reservation_id,
           },
         });
+
+        // SMS (best-effort)
+        if (isSmsConfigured()) {
+          try {
+            const { data: authUser } = await supabase.auth.admin.getUserById(entry.user_id);
+            const phone = authUser?.user?.phone;
+            if (phone) {
+              await sendTransactionalSms(phone, `SAM.ma — Votre offre pour ${establishmentName} a expiré. Vous pouvez tenter une nouvelle réservation.`);
+            }
+          } catch {}
+        }
+
+        // WhatsApp (best-effort)
+        if (isWhatsAppConfigured()) {
+          try {
+            const { data: authUser } = await supabase.auth.admin.getUserById(entry.user_id);
+            const phone = authUser?.user?.phone;
+            if (phone) {
+              await sendWhatsAppMessage(phone, `SAM.ma — Votre offre pour ${establishmentName} a expiré. Vous pouvez tenter une nouvelle réservation.`);
+            }
+          } catch {}
+        }
       } catch (err) {
         log.warn({ err }, "Best-effort: waitlist expired offer notification failed");
       }
@@ -238,6 +262,36 @@ export async function cronWaitlistExpireAndPromote(req: Request, res: Response) 
           });
 
           notifications.push({ type: "push", userId: nextInQueue.user_id, success: pushResult.ok });
+
+          // SMS (best-effort)
+          if (isSmsConfigured()) {
+            try {
+              const { data: authUser } = await supabase.auth.admin.getUserById(nextInQueue.user_id);
+              const phone = authUser?.user?.phone;
+              if (phone) {
+                const smsResult = await sendTransactionalSms(
+                  phone,
+                  `SAM.ma — Une place s'est libérée chez ${establishmentName} ! Confirmez vite dans l'appli (expire dans 15 min).`,
+                );
+                notifications.push({ type: "sms", userId: nextInQueue.user_id, success: smsResult.ok });
+              }
+            } catch {}
+          }
+
+          // WhatsApp (best-effort)
+          if (isWhatsAppConfigured()) {
+            try {
+              const { data: authUser } = await supabase.auth.admin.getUserById(nextInQueue.user_id);
+              const phone = authUser?.user?.phone;
+              if (phone) {
+                const waResult = await sendWhatsAppMessage(
+                  phone,
+                  `SAM.ma — Une place s'est libérée chez ${establishmentName} ! Confirmez votre réservation dans l'application (expire dans 15 min).`,
+                );
+                notifications.push({ type: "whatsapp", userId: nextInQueue.user_id, success: waResult.ok });
+              }
+            } catch {}
+          }
         } catch (err) {
           log.warn({ err }, "Best-effort: waitlist promotion push notification failed");
         }

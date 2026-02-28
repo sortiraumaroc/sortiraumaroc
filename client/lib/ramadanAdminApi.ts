@@ -144,7 +144,140 @@ export async function resumeRamadanOffer(offerId: string): Promise<{ ok: true }>
   return adminJson(`/api/admin/ramadan/${offerId}/resume`, { method: "POST" });
 }
 
+/** POST /api/admin/ramadan/:id/activate — Publier immédiatement */
+export async function activateRamadanOffer(offerId: string): Promise<{ ok: true }> {
+  return adminJson(`/api/admin/ramadan/${offerId}/activate`, { method: "POST" });
+}
+
 /** DELETE /api/admin/ramadan/:id */
 export async function deleteRamadanOffer(offerId: string): Promise<{ ok: true }> {
   return adminJson(`/api/admin/ramadan/${offerId}`, { method: "DELETE" });
+}
+
+/** PATCH /api/admin/ramadan/:id/cover — Mettre à jour la photo de couverture */
+export async function updateRamadanOfferCover(
+  offerId: string,
+  coverUrl: string,
+): Promise<{ ok: true }> {
+  return adminJson(`/api/admin/ramadan/${offerId}/cover`, {
+    method: "PATCH",
+    body: JSON.stringify({ cover_url: coverUrl }),
+  });
+}
+
+// =============================================================================
+// Ftour Slot bulk actions
+// =============================================================================
+
+/** POST /api/admin/ramadan/slots/bulk-action — Action groupée sur slots Ftour */
+export async function bulkFtourSlotAction(
+  slotIds: string[],
+  action: "approve" | "reject" | "suspend" | "resume" | "delete",
+  reason?: string,
+): Promise<{ ok: true }> {
+  return adminJson("/api/admin/ramadan/slots/bulk-action", {
+    method: "POST",
+    body: JSON.stringify({ slot_ids: slotIds, action, reason }),
+  });
+}
+
+// =============================================================================
+// Ftour Slot update (admin correction)
+// =============================================================================
+
+/** PATCH /api/admin/ramadan/slot/:id — Modifier un créneau Ftour */
+export async function updateFtourSlot(
+  slotId: string,
+  data: {
+    base_price?: number;
+    capacity?: number;
+    promo_type?: string | null;
+    promo_value?: number | null;
+    promo_label?: string | null;
+  },
+): Promise<{ ok: true }> {
+  return adminJson(`/api/admin/ramadan/slot/${slotId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+/** POST /api/admin/ramadan/slots/feature — Mettre en avant un groupe ftour */
+export async function featureFtourGroup(
+  slotIds: string[],
+  featured: boolean,
+): Promise<{ ok: true }> {
+  return adminJson("/api/admin/ramadan/slots/feature", {
+    method: "POST",
+    body: JSON.stringify({ slot_ids: slotIds, featured }),
+  });
+}
+
+/** PATCH /api/admin/ramadan/slots/cover — Mettre à jour la cover d'un groupe ftour */
+export async function updateFtourGroupCover(
+  slotIds: string[],
+  coverUrl: string,
+): Promise<{ ok: true }> {
+  return adminJson("/api/admin/ramadan/slots/cover", {
+    method: "PATCH",
+    body: JSON.stringify({ slot_ids: slotIds, cover_url: coverUrl }),
+  });
+}
+
+// =============================================================================
+// Ftour Slot individual actions (backward compat)
+// =============================================================================
+
+/** POST /api/admin/ramadan/slot/:id/approve */
+export async function approveFtourSlot(slotId: string): Promise<{ ok: true }> {
+  return adminJson(`/api/admin/ramadan/slot/${slotId}/approve`, { method: "POST" });
+}
+
+/** POST /api/admin/ramadan/slot/:id/reject */
+export async function rejectFtourSlot(slotId: string, reason?: string): Promise<{ ok: true }> {
+  return adminJson(`/api/admin/ramadan/slot/${slotId}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+/** POST /api/admin/ramadan/slot/:id/suspend */
+export async function suspendFtourSlot(slotId: string): Promise<{ ok: true }> {
+  return adminJson(`/api/admin/ramadan/slot/${slotId}/suspend`, { method: "POST" });
+}
+
+/** POST /api/admin/ramadan/slot/:id/resume */
+export async function resumeFtourSlot(slotId: string): Promise<{ ok: true }> {
+  return adminJson(`/api/admin/ramadan/slot/${slotId}/resume`, { method: "POST" });
+}
+
+/** DELETE /api/admin/ramadan/slot/:id */
+export async function deleteFtourSlot(slotId: string): Promise<{ ok: true }> {
+  return adminJson(`/api/admin/ramadan/slot/${slotId}`, { method: "DELETE" });
+}
+
+/** Upload image via l'endpoint gallery admin (réutilisé) */
+export async function uploadRamadanOfferImage(args: {
+  establishmentId: string;
+  file: File;
+}): Promise<{ url: string }> {
+  const formData = new FormData();
+  formData.append("image", args.file);
+  formData.append("type", "gallery");
+
+  const res = await fetch(
+    `/api/admin/establishments/${encodeURIComponent(args.establishmentId)}/gallery/upload`,
+    {
+      method: "POST",
+      headers: getAdminHeaders(),
+      body: formData,
+    },
+  );
+
+  if (!res.ok) {
+    const payload = await res.json().catch(() => null);
+    throw new Error((payload as any)?.error ?? `HTTP ${res.status}`);
+  }
+
+  return res.json();
 }
