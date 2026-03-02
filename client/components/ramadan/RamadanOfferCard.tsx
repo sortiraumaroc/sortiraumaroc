@@ -18,6 +18,7 @@ import {
   calculateRamadanDiscount,
 } from "../../../shared/ramadanTypes";
 import type { RamadanOfferType, RamadanOfferTimeSlot } from "../../../shared/ramadanTypes";
+import { formatPriceByType } from "../../../shared/priceTypes";
 
 // =============================================================================
 // Types
@@ -28,6 +29,7 @@ export type RamadanOfferCardData = {
   title: string;
   type: RamadanOfferType;
   price: number; // centimes
+  price_type?: string | null;
   original_price?: number | null;
   cover_url?: string | null;
   time_slots: RamadanOfferTimeSlot[];
@@ -74,7 +76,8 @@ function typeBadgeColor(type: RamadanOfferType): string {
   }
 }
 
-function formatPrice(centimes: number): string {
+function formatPrice(centimes: number, priceType?: string | null): string {
+  if (priceType && priceType !== "fixed") return formatPriceByType(priceType, centimes);
   return `${(centimes / 100).toFixed(0)} MAD`;
 }
 
@@ -251,8 +254,8 @@ function RamadanOfferDetailDialog({
           <div className="flex items-center justify-between pt-3 border-t border-slate-200 pb-safe">
             <div>
               <div className="flex items-baseline gap-1.5 sm:gap-2">
-                <span className="text-xl sm:text-2xl font-extrabold text-ramadan-gold">{formatPrice(offer.price)}</span>
-                <span className="text-xs sm:text-sm text-slate-500">/pers.</span>
+                <span className="text-xl sm:text-2xl font-extrabold text-ramadan-gold">{formatPrice(offer.price, offer.price_type)}</span>
+                {offer.price_type === "fixed" || !offer.price_type ? <span className="text-xs sm:text-sm text-slate-500">/pers.</span> : null}
               </div>
               {offer.original_price && offer.original_price > offer.price ? (
                 <div className="flex items-baseline gap-1.5 sm:gap-2 mt-0.5">
@@ -359,8 +362,8 @@ export function RamadanOfferCard({ offer, onReserve, className }: Props) {
 
           <div className="flex items-center justify-between pt-1.5 border-t border-slate-100">
             <div className="flex items-baseline gap-1.5">
-              <span className="text-sm font-extrabold text-ramadan-gold">{formatPrice(offer.price)}</span>
-              <span className="text-[10px] text-slate-400">/pers.</span>
+              <span className="text-sm font-extrabold text-ramadan-gold">{formatPrice(offer.price, offer.price_type)}</span>
+              {offer.price_type === "fixed" || !offer.price_type ? <span className="text-[10px] text-slate-400">/pers.</span> : null}
               {offer.original_price && offer.original_price > offer.price ? (
                 <span className="text-[10px] text-slate-400 line-through">{formatPrice(offer.original_price)}</span>
               ) : null}

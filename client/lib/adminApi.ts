@@ -2934,6 +2934,7 @@ export async function adminUpsertSlots(
     ends_at: string;
     capacity: number;
     base_price?: number | null;
+    price_type?: string | null;
     service_label?: string | null;
     promo_type?: string | null;
     promo_value?: number | null;
@@ -2987,6 +2988,7 @@ export type FtourSlotWithEstablishment = {
   ends_at: string | null;
   capacity: number;
   base_price: number | null;
+  price_type: string | null;
   service_label: string | null;
   promo_type: string | null;
   promo_value: number | null;

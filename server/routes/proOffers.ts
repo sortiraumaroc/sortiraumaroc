@@ -283,6 +283,7 @@ export const upsertProSlots: RequestHandler = async (req, res) => {
       service_label: service_label == null ? null : service_label,
       active: active === undefined ? true : active,
       cover_url: cover_url ?? null,
+      price_type: raw.price_type ?? (base_price != null && base_price > 0 ? "fixed" : "free"),
     });
   }
 

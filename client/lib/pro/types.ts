@@ -114,6 +114,7 @@ export type ProSlot = {
   ends_at: string | null;
   capacity: number;
   base_price: number | null;
+  price_type: string | null;
   promo_type: SlotPromoType | null;
   promo_value: number | null;
   promo_label: string | null;
@@ -132,6 +133,7 @@ export type Pack = {
   label: string | null;
   items: unknown;
   price: number;
+  price_type: string | null;
   original_price: number | null;
   is_limited: boolean;
   stock: number | null;

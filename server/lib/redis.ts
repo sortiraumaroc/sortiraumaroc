@@ -2,34 +2,35 @@
  * Redis Client Singleton — SAM.ma
  *
  * Provides a shared Redis connection for rate limiting, caching, and session management
- * across all cluster workers. Falls back gracefully when REDIS_URL is not set.
+ * across all cluster workers. Falls back gracefully when REDIS_URL is not set
+ * or when ioredis is not installed.
  *
  * Usage:
  *   import { redis, isRedisAvailable } from "./lib/redis";
  *   if (isRedisAvailable()) { await redis!.get("key"); }
  */
 
-import Redis from "ioredis";
 import { createModuleLogger } from "./logger";
 
 const log = createModuleLogger("redis");
 
-let redis: Redis | null = null;
+let redis: any | null = null;
 let connected = false;
 
 const REDIS_URL = process.env.REDIS_URL;
 
 if (REDIS_URL) {
   try {
+    // Dynamic import: ne crash pas si ioredis n'est pas installé
+    const { default: Redis } = await import("ioredis");
+
     redis = new Redis(REDIS_URL, {
-      // Reconnect with exponential backoff (max 5s)
-      retryStrategy(times) {
+      retryStrategy(times: number) {
         const delay = Math.min(times * 200, 5000);
         return delay;
       },
       maxRetriesPerRequest: 3,
       lazyConnect: false,
-      // Don't block the server if Redis is slow
       connectTimeout: 5000,
       commandTimeout: 2000,
     });
@@ -39,7 +40,7 @@ if (REDIS_URL) {
       log.info("Redis connected");
     });
 
-    redis.on("error", (err) => {
+    redis.on("error", (err: Error) => {
       connected = false;
       log.error({ err: err.message }, "Redis error");
     });
@@ -49,7 +50,7 @@ if (REDIS_URL) {
       log.warn("Redis connection closed");
     });
   } catch (err) {
-    log.error({ err }, "Failed to create Redis client");
+    log.warn({ err }, "Redis unavailable (ioredis not installed or connection failed) — using in-memory fallback");
     redis = null;
   }
 } else {

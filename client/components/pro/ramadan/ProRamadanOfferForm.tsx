@@ -27,6 +27,9 @@ import {
 import { uploadProInventoryImage } from "@/lib/pro/api";
 import type { RamadanOfferRow, RamadanOfferType, RamadanOfferTimeSlot } from "../../../../shared/ramadanTypes";
 import { RAMADAN_OFFER_TYPE_LABELS } from "../../../../shared/ramadanTypes";
+import { PriceTypeField } from "@/components/ui/PriceTypeField";
+import { inferPriceType } from "../../../../shared/priceTypes";
+import type { PriceType } from "../../../../shared/priceTypes";
 
 // =============================================================================
 // Constants
@@ -85,6 +88,9 @@ export function ProRamadanOfferForm({
   const [descriptionAr, setDescriptionAr] = useState(existingOffer?.description_ar ?? "");
   const [type, setType] = useState<RamadanOfferType>(existingOffer?.type ?? "ftour");
   const [price, setPrice] = useState(existingOffer ? String(existingOffer.price / 100) : "");
+  const [priceType, setPriceType] = useState<PriceType>(
+    existingOffer?.price_type ? (existingOffer.price_type as PriceType) : (existingOffer ? inferPriceType(existingOffer.price) : "fixed"),
+  );
   const [originalPrice, setOriginalPrice] = useState(
     existingOffer?.original_price ? String(existingOffer.original_price / 100) : "",
   );
@@ -231,14 +237,14 @@ export function ProRamadanOfferForm({
       toast({ title: "Titre requis", variant: "destructive" });
       return;
     }
-    if (!price || parseFloat(price) <= 0) {
-      toast({ title: "Prix invalide", variant: "destructive" });
+    if (priceType === "fixed" && (!price || parseFloat(price) <= 0)) {
+      toast({ title: "Prix invalide pour le type 'Prix fixe'", variant: "destructive" });
       return;
     }
 
     setSubmitting(true);
     try {
-      const priceCentimes = Math.round(parseFloat(price) * 100);
+      const priceCentimes = priceType === "fixed" ? Math.round(parseFloat(price) * 100) : 0;
       const originalPriceCentimes = originalPrice
         ? Math.round(parseFloat(originalPrice) * 100)
         : undefined;
@@ -251,6 +257,7 @@ export function ProRamadanOfferForm({
           description_ar: descriptionAr.trim() || undefined,
           type,
           price: priceCentimes,
+          price_type: priceType,
           original_price: originalPriceCentimes,
           capacity_per_slot: parseInt(capacityPerSlot, 10) || 20,
           time_slots: timeSlots,
@@ -269,6 +276,7 @@ export function ProRamadanOfferForm({
           description_ar: descriptionAr.trim() || undefined,
           type,
           price: priceCentimes,
+          price_type: priceType,
           original_price: originalPriceCentimes,
           capacity_per_slot: parseInt(capacityPerSlot, 10) || 20,
           time_slots: timeSlots,
@@ -350,21 +358,13 @@ export function ProRamadanOfferForm({
 
         {/* Prix */}
         <div className="grid grid-cols-2 gap-4">
-          <div>
-            <Label htmlFor="price" className="text-sm font-semibold">
-              Prix (MAD) *
-            </Label>
-            <Input
-              id="price"
-              type="number"
-              min="0"
-              step="1"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              placeholder="150"
-              className="mt-1"
-            />
-          </div>
+          <PriceTypeField
+            priceType={priceType}
+            onPriceTypeChange={setPriceType}
+            price={price}
+            onPriceChange={setPrice}
+            label="Prix (MAD)"
+          />
           <div>
             <Label htmlFor="originalPrice" className="text-sm font-semibold">
               Prix barré (MAD)

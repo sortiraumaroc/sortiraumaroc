@@ -1469,6 +1469,7 @@ export const adminUpsertSlots: RequestHandler = async (req, res) => {
       active: false,
       moderation_status: "pending_moderation",
       cover_url: r.cover_url == null ? null : String(r.cover_url),
+      price_type: r.price_type ?? (r.base_price != null && Number(r.base_price) > 0 ? "fixed" : "free"),
     });
   }
 

@@ -139,7 +139,11 @@ router.post("/", zBody(createRamadanOfferSchema), (async (req, res) => {
   }
 
   const price = typeof body.price === "number" ? body.price : undefined;
-  if (!price || price <= 0) return res.status(400).json({ error: "Prix requis (en centimes, > 0)." });
+  const priceType = typeof body.price_type === "string" ? body.price_type : undefined;
+  // Only require price > 0 when price_type is 'fixed' or not specified (backward compat)
+  if ((!priceType || priceType === "fixed") && (!price || price <= 0)) {
+    return res.status(400).json({ error: "Prix requis (en centimes, > 0)." });
+  }
 
   const validFrom = asString(body.valid_from);
   const validTo = asString(body.valid_to);
@@ -155,7 +159,8 @@ router.post("/", zBody(createRamadanOfferSchema), (async (req, res) => {
     descriptionFr: asString(body.description_fr) ?? null,
     descriptionAr: asString(body.description_ar) ?? null,
     type,
-    price,
+    price: price ?? 0,
+    priceType: priceType ?? (price != null && price > 0 ? "fixed" : "free"),
     originalPrice: typeof body.original_price === "number" ? body.original_price : null,
     capacityPerSlot: typeof body.capacity_per_slot === "number" ? body.capacity_per_slot : 20,
     timeSlots,
@@ -257,6 +262,7 @@ router.put("/:id", zBody(updateRamadanOfferSchema), (async (req, res) => {
     descriptionAr: body.description_ar !== undefined ? (asString(body.description_ar) ?? null) : undefined,
     type: body.type !== undefined ? (asString(body.type) as RamadanOfferType) : undefined,
     price: typeof body.price === "number" ? body.price : undefined,
+    priceType: typeof body.price_type === "string" ? body.price_type : undefined,
     originalPrice: body.original_price !== undefined ? (typeof body.original_price === "number" ? body.original_price : null) : undefined,
     capacityPerSlot: typeof body.capacity_per_slot === "number" ? body.capacity_per_slot : undefined,
     timeSlots: Array.isArray(body.time_slots) ? body.time_slots : undefined,

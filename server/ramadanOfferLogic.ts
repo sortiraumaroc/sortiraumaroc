@@ -76,6 +76,7 @@ export async function createRamadanOffer(
     conditions_ar: input.conditionsAr ?? null,
     valid_from: input.validFrom,
     valid_to: input.validTo,
+    price_type: input.priceType ?? (input.price > 0 ? "fixed" : "free"),
     moderation_status: "draft",
   };
 
@@ -410,6 +411,7 @@ export async function updateRamadanOffer(
   if (input.conditionsAr !== undefined) payload.conditions_ar = input.conditionsAr;
   if (input.validFrom !== undefined) payload.valid_from = input.validFrom;
   if (input.validTo !== undefined) payload.valid_to = input.validTo;
+  if (input.priceType !== undefined) payload.price_type = input.priceType;
 
   // Vérifier si les champs significatifs ont changé → re-modération
   let requiresModeration = false;

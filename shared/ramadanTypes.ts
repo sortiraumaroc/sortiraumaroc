@@ -108,6 +108,7 @@ export interface RamadanOfferRow {
 
   // Tarification (centimes)
   price: number;
+  price_type: string | null;
   original_price: number | null;
   currency: string;
 
@@ -170,6 +171,7 @@ export interface CreateRamadanOfferInput {
   descriptionAr?: string | null;
   type: RamadanOfferType;
   price: number; // centimes
+  priceType?: string;
   originalPrice?: number | null;
   capacityPerSlot?: number;
   slotIntervalMinutes?: number; // 15, 30, 45, 60, 90, 120 — default 30
@@ -188,6 +190,7 @@ export interface UpdateRamadanOfferInput {
   descriptionAr?: string | null;
   type?: RamadanOfferType;
   price?: number;
+  priceType?: string;
   originalPrice?: number | null;
   capacityPerSlot?: number;
   slotIntervalMinutes?: number;

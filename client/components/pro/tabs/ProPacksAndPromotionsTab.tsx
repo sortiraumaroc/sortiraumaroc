@@ -41,6 +41,10 @@ import type { Establishment, Pack, ProRole } from "@/lib/pro/types";
 import { AdminDataTable } from "@/components/admin/table/AdminDataTable";
 import type { ColumnDef } from "@tanstack/react-table";
 
+import { PriceTypeField } from "@/components/ui/PriceTypeField";
+import { formatPriceByType, inferPriceType } from "../../../../shared/priceTypes";
+import type { PriceType } from "../../../../shared/priceTypes";
+
 type Props = {
   establishment: Establishment;
   role: ProRole;
@@ -142,6 +146,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
     description: "",
     label: "",
     price: "",
+    priceType: "fixed" as PriceType,
     originalPrice: "",
     stock: "",
     validFrom: "",
@@ -162,6 +167,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
     description: "",
     label: "",
     price: "",
+    priceType: "fixed" as PriceType,
     originalPrice: "",
     stock: "",
     validFrom: "",
@@ -301,10 +307,18 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
     setPacksError(null);
 
     const title = newPack.title.trim();
-    const price = Math.round(Number(newPack.price) * 100);
-    if (!title || !Number.isFinite(price) || price <= 0) {
-      setPacksError("Titre et prix sont requis.");
+    if (!title) {
+      setPacksError("Le titre est requis.");
       return;
+    }
+
+    let price = 0;
+    if (newPack.priceType === "fixed") {
+      price = Math.round(Number(newPack.price) * 100);
+      if (!Number.isFinite(price) || price <= 0) {
+        setPacksError("Prix requis pour le type 'Prix fixe'.");
+        return;
+      }
     }
 
     // Check for duplicate pack (same title and price)
@@ -328,6 +342,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
           description: newPack.description.trim() || null,
           label: newPack.label.trim() || null,
           price,
+          price_type: newPack.priceType,
           original_price: originalPrice,
           is_limited: stock !== null,
           stock,
@@ -349,6 +364,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
       description: "",
       label: "",
       price: "",
+      priceType: "fixed" as PriceType,
       originalPrice: "",
       stock: "",
       validFrom: "",
@@ -378,6 +394,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
       description: pack.description ?? "",
       label: pack.label ?? "",
       price: pack.price ? String(pack.price / 100) : "",
+      priceType: (pack.price_type as PriceType) ?? inferPriceType(pack.price),
       originalPrice: pack.original_price ? String(pack.original_price / 100) : "",
       stock: pack.stock ? String(pack.stock) : "",
       validFrom: pack.valid_from ?? "",
@@ -393,14 +410,19 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
     if (!editingPack || !canEdit) return;
 
     const title = editPack.title.trim();
-    const priceNum = Number(editPack.price);
     if (!title) {
       setPacksError("Le titre est requis.");
       return;
     }
-    if (!Number.isFinite(priceNum) || priceNum <= 0) {
-      setPacksError("Le prix est requis.");
-      return;
+
+    let priceVal = 0;
+    if (editPack.priceType === "fixed") {
+      const priceNum = Number(editPack.price);
+      if (!Number.isFinite(priceNum) || priceNum <= 0) {
+        setPacksError("Prix requis pour le type 'Prix fixe'.");
+        return;
+      }
+      priceVal = Math.round(priceNum * 100);
     }
 
     setSavingPackId(editingPack.id);
@@ -414,7 +436,8 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
           title,
           description: editPack.description.trim() || null,
           label: editPack.label.trim() || null,
-          price: Math.round(priceNum * 100),
+          price: priceVal,
+          price_type: editPack.priceType,
           original_price: editPack.originalPrice.trim() ? Math.round(Number(editPack.originalPrice) * 100) : null,
           is_limited: !!editPack.stock.trim(),
           stock: editPack.stock.trim() ? Math.round(Number(editPack.stock)) : null,
@@ -936,36 +959,27 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                       Tarification
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4 items-end">
-                      <div className="space-y-2">
-                        <Label className="text-emerald-700">
-                          Prix <span className="text-red-500">*</span>
-                        </Label>
-                        <div className="relative">
-                          <Input
-                            value={newPack.price}
-                            onChange={(e) => setNewPack((p) => ({ ...p, price: e.target.value }))}
-                            placeholder="299"
-                            className="h-11 pe-14 text-lg font-semibold"
-                            inputMode="decimal"
-                          />
-                          <span className="absolute end-3 top-1/2 -translate-y-1/2 text-sm text-slate-500 font-medium">MAD</span>
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label className="text-slate-500 flex items-center gap-1">
-                          Ancien prix
-                        </Label>
-                        <div className="relative">
-                          <Input
-                            value={newPack.originalPrice}
-                            onChange={(e) => setNewPack((p) => ({ ...p, originalPrice: e.target.value }))}
-                            placeholder="399"
-                            className="h-11 pe-14 line-through text-slate-400"
-                            inputMode="decimal"
-                          />
-                          <span className="absolute end-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">MAD</span>
-                        </div>
+                    <PriceTypeField
+                      priceType={newPack.priceType}
+                      onPriceTypeChange={(v) => setNewPack((p) => ({ ...p, priceType: v }))}
+                      price={newPack.price}
+                      onPriceChange={(v) => setNewPack((p) => ({ ...p, price: v }))}
+                      label="Prix"
+                    />
+
+                    <div className="space-y-2">
+                      <Label className="text-slate-500 flex items-center gap-1">
+                        Ancien prix
+                      </Label>
+                      <div className="relative">
+                        <Input
+                          value={newPack.originalPrice}
+                          onChange={(e) => setNewPack((p) => ({ ...p, originalPrice: e.target.value }))}
+                          placeholder="399"
+                          className="h-11 pe-14 line-through text-slate-400"
+                          inputMode="decimal"
+                        />
+                        <span className="absolute end-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">MAD</span>
                       </div>
                     </div>
 
@@ -1130,7 +1144,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
               <div className="mt-6">
                 <Button
                   className="w-full h-12 bg-primary text-white hover:bg-primary/90 font-bold gap-2 text-base shadow-lg shadow-primary/20"
-                  disabled={!canEdit || !newPack.title.trim() || !newPack.price.trim()}
+                  disabled={!canEdit || !newPack.title.trim() || (newPack.priceType === "fixed" && !newPack.price.trim())}
                   onClick={createPack}
                 >
                   <Plus className="w-5 h-5" />
@@ -1198,7 +1212,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                             <div>
                               <div className="text-xs text-slate-500">Prix</div>
                               <div className="flex items-center gap-2">
-                                <span className="font-semibold tabular-nums text-emerald-700">{formatMoney(p.price, "MAD")}</span>
+                                <span className="font-semibold tabular-nums text-emerald-700">{p.price_type && p.price_type !== "fixed" ? formatPriceByType(p.price_type, p.price) : formatMoney(p.price, "MAD")}</span>
                                 {p.original_price && p.original_price > p.price && (
                                   <span className="text-xs text-slate-400 line-through">{formatMoney(p.original_price, "MAD")}</span>
                                 )}
@@ -1258,7 +1272,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                             </TableCell>
                             <TableCell className="whitespace-nowrap">
                               <div className="flex flex-col">
-                                <span className="font-semibold text-emerald-700">{formatMoney(p.price, "MAD")}</span>
+                                <span className="font-semibold text-emerald-700">{p.price_type && p.price_type !== "fixed" ? formatPriceByType(p.price_type, p.price) : formatMoney(p.price, "MAD")}</span>
                                 {p.original_price && p.original_price > p.price && (
                                   <span className="text-xs text-slate-400 line-through">{formatMoney(p.original_price, "MAD")}</span>
                                 )}
@@ -1378,25 +1392,21 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
 
                 {/* Colonne droite */}
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-2">
-                      <Label>Prix (MAD) <span className="text-red-500">*</span></Label>
-                      <Input
-                        value={editPack.price}
-                        onChange={(e) => setEditPack((p) => ({ ...p, price: e.target.value }))}
-                        placeholder="299"
-                        inputMode="decimal"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Prix barré</Label>
-                      <Input
-                        value={editPack.originalPrice}
-                        onChange={(e) => setEditPack((p) => ({ ...p, originalPrice: e.target.value }))}
-                        placeholder="399"
-                        inputMode="decimal"
-                      />
-                    </div>
+                  <PriceTypeField
+                    priceType={editPack.priceType}
+                    onPriceTypeChange={(v) => setEditPack((p) => ({ ...p, priceType: v }))}
+                    price={editPack.price}
+                    onPriceChange={(v) => setEditPack((p) => ({ ...p, price: v }))}
+                    label="Prix"
+                  />
+                  <div className="space-y-2">
+                    <Label>Prix barré</Label>
+                    <Input
+                      value={editPack.originalPrice}
+                      onChange={(e) => setEditPack((p) => ({ ...p, originalPrice: e.target.value }))}
+                      placeholder="399"
+                      inputMode="decimal"
+                    />
                   </div>
 
                   <div className="space-y-2">
@@ -1544,7 +1554,7 @@ export function ProPacksAndPromotionsTab({ establishment, role }: Props) {
                 <Button
                   className="bg-primary text-white hover:bg-primary/90 gap-2"
                   onClick={() => void saveEditPack()}
-                  disabled={savingPackId === editingPack?.id || !editPack.title.trim() || !editPack.price.trim()}
+                  disabled={savingPackId === editingPack?.id || !editPack.title.trim() || (editPack.priceType === "fixed" && !editPack.price.trim())}
                 >
                   {savingPackId === editingPack?.id ? (
                     <>

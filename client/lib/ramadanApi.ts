@@ -81,6 +81,7 @@ export async function getEstablishmentRamadanOffers(
 
 /** POST /api/public/ramadan-offers/:id/track — fire-and-forget */
 export function trackRamadanOfferEvent(offerId: string, eventType: "impression" | "click"): void {
+  if (offerId.startsWith("ftour_")) return;
   void fetch(`/api/public/ramadan-offers/${offerId}/track`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

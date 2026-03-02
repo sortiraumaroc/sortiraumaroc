@@ -66,6 +66,9 @@ import {
   AdminApiError,
 } from "@/lib/adminApi";
 import type { FtourSlotWithEstablishment } from "@/lib/adminApi";
+import { PriceTypeField } from "@/components/ui/PriceTypeField";
+import { formatPriceByType, inferPriceType, PRICE_TYPE_LABELS } from "../../../shared/priceTypes";
+import type { PriceType } from "../../../shared/priceTypes";
 
 // =============================================================================
 // Helpers
@@ -96,9 +99,8 @@ function formatTime(iso: string | null | undefined): string {
   }
 }
 
-function formatPrice(cents: number | null): string {
-  if (cents === null || cents === 0) return "Gratuit";
-  return `${Math.round(cents / 100)} MAD`;
+function formatPrice(cents: number | null, priceType?: string | null): string {
+  return formatPriceByType(priceType, cents);
 }
 
 function formatPromo(slot: FtourSlotWithEstablishment): string {
@@ -258,6 +260,7 @@ export function AdminFtourDashboard() {
   const [createDurationMin, setCreateDurationMin] = useState(180);
   const [createCapacity, setCreateCapacity] = useState(30);
   const [createBasePrice, setCreateBasePrice] = useState("");
+  const [createPriceType, setCreatePriceType] = useState<PriceType>("free");
   const [createServiceLabel, setCreateServiceLabel] = useState("Ftour");
   const [createPromoLabel, setCreatePromoLabel] = useState("");
   const [createPromoType, setCreatePromoType] = useState<"percent" | "amount">("percent");
@@ -276,6 +279,7 @@ export function AdminFtourDashboard() {
   const [editSlot, setEditSlot] = useState<FtourSlotWithEstablishment | null>(null);
   const [editCapacity, setEditCapacity] = useState(30);
   const [editBasePrice, setEditBasePrice] = useState("");
+  const [editPriceType, setEditPriceType] = useState<PriceType>("free");
   const [editPromoLabel, setEditPromoLabel] = useState("");
   const [editPromoType, setEditPromoType] = useState<"percent" | "amount">("percent");
   const [editPromoValue, setEditPromoValue] = useState("");
@@ -355,14 +359,20 @@ export function AdminFtourDashboard() {
       const totalCapacity = estabSlots.reduce((sum, s) => sum + s.capacity, 0);
 
       // Prix : valeur unique ou plage
-      const prices = [...new Set(estabSlots.map((s) => s.base_price ?? 0))];
+      const priceTypes = [...new Set(estabSlots.map((s) => s.price_type ?? inferPriceType(s.base_price)))];
       let priceDisplay: string;
-      if (prices.length === 1) {
-        priceDisplay = formatPrice(prices[0]);
+      if (priceTypes.length === 1 && priceTypes[0] !== "fixed") {
+        priceDisplay = formatPrice(null, priceTypes[0]);
       } else {
-        const min = Math.min(...prices);
-        const max = Math.max(...prices);
-        priceDisplay = `${formatPrice(min)} — ${formatPrice(max)}`;
+        const fixedSlots = estabSlots.filter((s) => (s.price_type ?? inferPriceType(s.base_price)) === "fixed");
+        if (fixedSlots.length === 0) {
+          priceDisplay = formatPrice(null, priceTypes[0]);
+        } else {
+          const prices = fixedSlots.map((s) => s.base_price ?? 0);
+          const min = Math.min(...prices);
+          const max = Math.max(...prices);
+          priceDisplay = min === max ? formatPrice(min, "fixed") : `${formatPrice(min, "fixed")} — ${formatPrice(max, "fixed")}`;
+        }
       }
 
       // Promo : identique ou "Variable"
@@ -439,6 +449,7 @@ export function AdminFtourDashboard() {
         ends_at: string;
         capacity: number;
         base_price?: number | null;
+        price_type?: string;
         service_label: string;
         promo_type?: string | null;
         promo_value?: number | null;
@@ -463,7 +474,8 @@ export function AdminFtourDashboard() {
           starts_at: slotStart.toISOString(),
           ends_at: slotEnd.toISOString(),
           capacity: createCapacity,
-          base_price: basePrice,
+          base_price: createPriceType === "fixed" ? basePrice : null,
+          price_type: createPriceType,
           service_label: createServiceLabel || "Ftour",
           promo_type: promoValue ? createPromoType : null,
           promo_value: promoValue,
@@ -510,6 +522,7 @@ export function AdminFtourDashboard() {
     setCreateDurationMin(180);
     setCreateCapacity(30);
     setCreateBasePrice("");
+    setCreatePriceType("free");
     setCreateServiceLabel("Ftour");
     setCreatePromoLabel("");
     setCreatePromoType("percent");
@@ -531,6 +544,7 @@ export function AdminFtourDashboard() {
     setEditPromoType((slot.promo_type as "percent" | "amount") ?? "percent");
     setEditPromoValue(slot.promo_value !== null ? String(slot.promo_value) : "");
     setEditCoverUrl((slot as any).cover_url ?? "");
+    setEditPriceType((slot.price_type as PriceType) ?? inferPriceType(slot.base_price));
     setEditOpen(true);
   };
 
@@ -547,7 +561,8 @@ export function AdminFtourDashboard() {
           starts_at: editSlot.starts_at,
           ends_at: editSlot.ends_at ?? new Date(new Date(editSlot.starts_at).getTime() + 180 * 60000).toISOString(),
           capacity: editCapacity,
-          base_price: basePrice,
+          base_price: editPriceType === "fixed" ? basePrice : null,
+          price_type: editPriceType,
           service_label: editSlot.service_label || "Ftour",
           promo_type: promoValue ? editPromoType : null,
           promo_value: promoValue,
@@ -656,9 +671,9 @@ export function AdminFtourDashboard() {
     }
 
     const totalSlots = days * createEstablishments.length;
-    const priceStr = createBasePrice.trim() ? `${createBasePrice} MAD` : "Gratuit";
+    const priceStr = createPriceType === "fixed" && createBasePrice.trim() ? `${createBasePrice} MAD` : PRICE_TYPE_LABELS[createPriceType];
     return `${days} créneau(x)/établissement × ${createEstablishments.length} établissement(s) = ${totalSlots} total (${createTimeStart} — ${createCapacity} places — ${priceStr})`;
-  }, [createDateStart, createDateEnd, createRepeatEnabled, createRepeatDays, createEstablishments.length, createTimeStart, createCapacity, createBasePrice]);
+  }, [createDateStart, createDateEnd, createRepeatEnabled, createRepeatDays, createEstablishments.length, createTimeStart, createCapacity, createBasePrice, createPriceType]);
 
   // ============================================================================
   // Render
@@ -896,7 +911,7 @@ export function AdminFtourDashboard() {
                               {slot.capacity}
                             </td>
                             <td className="px-3 py-1.5 text-right text-xs tabular-nums whitespace-nowrap">
-                              {formatPrice(slot.base_price)}
+                              {formatPrice(slot.base_price, slot.price_type)}
                             </td>
                             <td className="px-3 py-1.5 text-xs">
                               {formatPromo(slot) !== "—" ? (
@@ -1055,17 +1070,14 @@ export function AdminFtourDashboard() {
                   onChange={(e) => setCreateCapacity(Number(e.target.value) || 30)}
                 />
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs font-medium">Prix (MAD)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  step={1}
-                  placeholder="Gratuit"
-                  value={createBasePrice}
-                  onChange={(e) => setCreateBasePrice(e.target.value)}
-                />
-              </div>
+              <PriceTypeField
+                priceType={createPriceType}
+                onPriceTypeChange={setCreatePriceType}
+                price={createBasePrice}
+                onPriceChange={setCreateBasePrice}
+                label="Prix (MAD)"
+                compact
+              />
             </div>
 
             {/* ── Répartition des places ── */}
@@ -1424,17 +1436,14 @@ export function AdminFtourDashboard() {
                   onChange={(e) => setEditCapacity(Number(e.target.value) || 1)}
                 />
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs font-medium">Prix (MAD)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  step={1}
-                  placeholder="Gratuit"
-                  value={editBasePrice}
-                  onChange={(e) => setEditBasePrice(e.target.value)}
-                />
-              </div>
+              <PriceTypeField
+                priceType={editPriceType}
+                onPriceTypeChange={setEditPriceType}
+                price={editBasePrice}
+                onPriceChange={setEditBasePrice}
+                label="Prix (MAD)"
+                compact
+              />
             </div>
 
             {/* Promo */}

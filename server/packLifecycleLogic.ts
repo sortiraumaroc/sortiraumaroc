@@ -72,6 +72,7 @@ export interface CreatePackV2Input {
   limitPerClient?: number;
   isMultiUse?: boolean;
   totalUses?: number;
+  priceType?: string;
 }
 
 export interface UpdatePackV2Input {
@@ -99,6 +100,7 @@ export interface UpdatePackV2Input {
   limitPerClient?: number;
   isMultiUse?: boolean;
   totalUses?: number;
+  priceType?: string;
 }
 
 /** Fields that require re-moderation when changed on an active pack */
@@ -158,6 +160,7 @@ export async function createPackV2(
     limit_per_client: input.limitPerClient ?? 1,
     is_multi_use: input.isMultiUse ?? false,
     total_uses: input.isMultiUse ? (input.totalUses ?? 1) : 1,
+    price_type: input.priceType ?? (input.price > 0 ? "fixed" : "free"),
     moderation_status: "draft",
     active: false,
     sold_count: 0,
@@ -496,6 +499,7 @@ export async function updatePackV2(
   if (input.limitPerClient !== undefined) payload.limit_per_client = input.limitPerClient;
   if (input.isMultiUse !== undefined) payload.is_multi_use = input.isMultiUse;
   if (input.totalUses !== undefined) payload.total_uses = input.totalUses;
+  if (input.priceType !== undefined) payload.price_type = input.priceType;
 
   // Recalculate discount percentage
   const newPrice = input.price ?? (pack as any).price;

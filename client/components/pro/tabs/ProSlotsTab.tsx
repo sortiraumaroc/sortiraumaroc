@@ -77,6 +77,9 @@ import {
 import { proUpdateCapacity, proGetCapacity } from "@/lib/reservationV2ProApi";
 import type { Establishment, ProRole, ProSlot, Reservation } from "@/lib/pro/types";
 import { isReservationInPast } from "@/components/pro/reservations/reservationHelpers";
+import { PriceTypeField } from "@/components/ui/PriceTypeField";
+import { formatPriceByType, inferPriceType } from "../../../../shared/priceTypes";
+import type { PriceType } from "../../../../shared/priceTypes";
 
 // Capacity allocation profiles
 const CAPACITY_PROFILES = [
@@ -223,6 +226,7 @@ export function ProSlotsTab({ establishment, role }: Props) {
     serviceLabel: "__auto__",
     capacity: "",
     basePrice: "",
+    priceType: "free" as PriceType,
     promoType: "percent",
     promoValue: "",
     promoLabel: "",
@@ -439,6 +443,7 @@ export function ProSlotsTab({ establishment, role }: Props) {
       serviceLabel: slot.service_label || "__auto__",
       capacity: String(slot.capacity),
       basePrice: slot.base_price ? String(slot.base_price / 100) : "",
+      priceType: (slot.price_type as PriceType) ?? inferPriceType(slot.base_price),
       promoType: slot.promo_type || "percent",
       promoValue: slot.promo_value ? String(slot.promo_value) : "",
       promoLabel: slot.promo_label || "",
@@ -470,6 +475,7 @@ export function ProSlotsTab({ establishment, role }: Props) {
       serviceLabel: slot.service_label || "__auto__",
       capacity: String(slot.capacity),
       basePrice: slot.base_price ? String(slot.base_price / 100) : "",
+      priceType: (slot.price_type as PriceType) ?? inferPriceType(slot.base_price),
       promoType: slot.promo_type || "percent",
       promoValue: slot.promo_value ? String(slot.promo_value) : "",
       promoLabel: slot.promo_label || "",
@@ -551,7 +557,7 @@ export function ProSlotsTab({ establishment, role }: Props) {
       return;
     }
 
-    const basePrice = formData.basePrice.trim() ? Math.round(Number(formData.basePrice) * 100) : null;
+    const basePrice = formData.priceType === "fixed" && formData.basePrice.trim() ? Math.round(Number(formData.basePrice) * 100) : null;
     const promoValueRaw = formData.promoValue.trim() ? Math.round(Number(formData.promoValue)) : null;
     const promoValue = promoValueRaw && promoValueRaw > 0 ? promoValueRaw : null;
     const serviceLabel = formData.serviceLabel === "__auto__" ? null : (formData.serviceLabel.trim() || null);
@@ -572,6 +578,7 @@ export function ProSlotsTab({ establishment, role }: Props) {
         ends_at: newEndDt.toISOString(),
         capacity,
         base_price: basePrice,
+        price_type: formData.priceType,
         promo_type: promoValue ? formData.promoType : null,
         promo_value: promoValue,
         promo_label: promoValue ? (formData.promoLabel.trim() || null) : null,
@@ -645,6 +652,7 @@ export function ProSlotsTab({ establishment, role }: Props) {
             ends_at: slotEnd(dayStartDt).toISOString(),
             capacity,
             base_price: basePrice,
+            price_type: formData.priceType,
             promo_type: promoValue ? formData.promoType : null,
             promo_value: promoValue,
             promo_label: promoValue ? (formData.promoLabel.trim() || null) : null,
@@ -671,6 +679,7 @@ export function ProSlotsTab({ establishment, role }: Props) {
               ends_at: e.toISOString(),
               capacity,
               base_price: basePrice,
+              price_type: formData.priceType,
               promo_type: promoValue ? formData.promoType : null,
               promo_value: promoValue,
               promo_label: promoValue ? (formData.promoLabel.trim() || null) : null,
@@ -1122,26 +1131,17 @@ export function ProSlotsTab({ establishment, role }: Props) {
                   </div>
                 </div>
 
-                <div className="space-y-1.5">
-                  <Label className={`text-xs ${formErrors.basePrice ? "text-red-500" : "text-slate-500"}`}>
-                    Prix
-                  </Label>
-                  <div className="relative">
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={formData.basePrice}
-                      onChange={(e) => {
-                        setFormData((p) => ({ ...p, basePrice: e.target.value }));
-                        setFormErrors((p) => ({ ...p, basePrice: false }));
-                      }}
-                      placeholder="0"
-                      className={`h-11 pe-14 ${formErrors.basePrice ? "border-red-500 focus-visible:ring-red-500" : ""}`}
-                    />
-                    <span className="absolute end-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">MAD</span>
-                  </div>
-                </div>
+                <PriceTypeField
+                  priceType={formData.priceType}
+                  onPriceTypeChange={(v) => setFormData((p) => ({ ...p, priceType: v }))}
+                  price={formData.basePrice}
+                  onPriceChange={(v) => {
+                    setFormData((p) => ({ ...p, basePrice: v }));
+                    setFormErrors((p) => ({ ...p, basePrice: false }));
+                  }}
+                  label="Prix"
+                  error={formErrors.basePrice}
+                />
 
                 <div className="space-y-1.5">
                   <Label className="text-xs text-slate-500">Service</Label>
@@ -1496,7 +1496,7 @@ export function ProSlotsTab({ establishment, role }: Props) {
                   </div>
                   <div>
                     <div className="text-slate-500">Prix</div>
-                    <div className="font-medium">{formatMoney(detailsSlot.base_price, "MAD")}</div>
+                    <div className="font-medium">{formatPriceByType(detailsSlot.price_type, detailsSlot.base_price)}</div>
                   </div>
                 </div>
 
@@ -1772,7 +1772,7 @@ export function ProSlotsTab({ establishment, role }: Props) {
                         </div>
                         <div>
                           <div className="text-slate-500">Prix</div>
-                          <div className="font-semibold">{formatMoney(slot.base_price, "MAD")}</div>
+                          <div className="font-semibold">{formatPriceByType(slot.price_type, slot.base_price)}</div>
                         </div>
                       </div>
 
@@ -1903,7 +1903,7 @@ export function ProSlotsTab({ establishment, role }: Props) {
                           <TableCell className="tabular-nums">
                             {typeof slot.remaining_capacity === "number" ? slot.remaining_capacity : "—"}
                           </TableCell>
-                          <TableCell className="whitespace-nowrap">{formatMoney(slot.base_price, "MAD")}</TableCell>
+                          <TableCell className="whitespace-nowrap">{formatPriceByType(slot.price_type, slot.base_price)}</TableCell>
                           <TableCell>{getSlotStatusBadge(slot)}</TableCell>
                           <TableCell>
                             {slot.promo_type ? (

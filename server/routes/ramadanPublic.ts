@@ -85,6 +85,7 @@ router.get("/", cacheMiddleware(120, (req) =>
   const perPage = Math.min(50, Math.max(1, asNumber(req.query.per_page) || 20));
   const offset = (page - 1) * perPage;
 
+  // 1. Ramadan offers classiques
   let query = supabase
     .from("ramadan_offers")
     .select("*, establishments(id, name, slug, city, cover_url, logo_url, universe)", { count: "exact" })
@@ -94,6 +95,69 @@ router.get("/", cacheMiddleware(120, (req) =>
   if (featured) query = query.eq("is_featured", true);
   if (minPrice !== undefined) query = query.gte("price", minPrice);
   if (maxPrice !== undefined) query = query.lte("price", maxPrice);
+
+  // 2. Ftour slots actifs (groupés par établissement → carte homepage)
+  //    Seulement si pas de filtre type OU type === 'ftour'
+  let ftourOffers: any[] = [];
+  if (!type || type === "ftour") {
+    const { data: slotsData } = await supabase
+      .from("pro_slots")
+      .select("*, establishments!inner(id, name, slug, city, cover_url, logo_url, universe)")
+      .eq("service_label", "Ftour")
+      .eq("moderation_status", "active")
+      .order("starts_at", { ascending: true })
+      .limit(500);
+
+    if (slotsData?.length) {
+      // Grouper par établissement
+      const byEstab = new Map<string, any[]>();
+      for (const s of slotsData as any[]) {
+        const eid = s.establishment_id;
+        if (!byEstab.has(eid)) byEstab.set(eid, []);
+        byEstab.get(eid)!.push(s);
+      }
+
+      for (const [estabId, slots] of byEstab) {
+        const first = slots[0];
+        const last = slots[slots.length - 1];
+        // Construire les time_slots à partir du premier slot
+        const startTime = new Date(first.starts_at);
+        const endTime = first.ends_at ? new Date(first.ends_at) : new Date(startTime.getTime() + 180 * 60000);
+        const timeSlots = [{
+          start: `${String(startTime.getHours()).padStart(2, "0")}:${String(startTime.getMinutes()).padStart(2, "0")}`,
+          end: `${String(endTime.getHours()).padStart(2, "0")}:${String(endTime.getMinutes()).padStart(2, "0")}`,
+          label: "Ftour",
+        }];
+
+        ftourOffers.push({
+          id: `ftour_${estabId}`,
+          establishment_id: estabId,
+          title: `Ftour — ${first.establishments?.name ?? ""}`,
+          type: "ftour",
+          price: first.base_price ?? 0,
+          price_type: first.price_type ?? (first.base_price && first.base_price > 0 ? "fixed" : "free"),
+          original_price: null,
+          currency: "MAD",
+          cover_url: first.cover_url,
+          capacity_per_slot: first.capacity ?? 30,
+          slot_interval_minutes: 30,
+          time_slots: timeSlots,
+          photos: first.cover_url ? [first.cover_url] : [],
+          conditions_fr: null,
+          conditions_ar: null,
+          description_fr: null,
+          description_ar: null,
+          moderation_status: "active",
+          is_featured: !!(first as any).is_featured,
+          valid_from: first.starts_at?.split("T")[0] ?? null,
+          valid_to: last.starts_at?.split("T")[0] ?? null,
+          created_at: first.created_at,
+          updated_at: first.updated_at,
+          establishments: first.establishments,
+        });
+      }
+    }
+  }
 
   // Tri — pour "featured" (défaut), on shuffle pour varier l'ordre à chaque visite
   const isRandomSort = sort === "featured" || !["price_asc", "price_desc", "newest"].includes(sort);
@@ -120,6 +184,11 @@ router.get("/", cacheMiddleware(120, (req) =>
 
     let allOffers = (data ?? []) as any[];
 
+    // Dédupliquer : ne pas inclure de ftour group si un ramadan_offer existe déjà pour cet établissement
+    const existingEstabIds = new Set(allOffers.map((o: any) => o.establishment_id));
+    const uniqueFtour = ftourOffers.filter((f) => !existingEstabIds.has(f.establishment_id));
+    allOffers = [...allOffers, ...uniqueFtour];
+
     // Filtre ville en mémoire
     if (city) {
       const lowerCity = city.toLowerCase();
@@ -128,6 +197,9 @@ router.get("/", cacheMiddleware(120, (req) =>
         return typeof estCity === "string" && estCity.toLowerCase().includes(lowerCity);
       });
     }
+
+    // Filtre type "ftour" (les ftour slots sont déjà ajoutés)
+    // Les filtres min/max price ne s'appliquent pas aux ftour slots ici (déjà filtrés côté DB pour ramadan_offers)
 
     // Shuffle aléatoire : featured en premier (mélangés), puis le reste (mélangé)
     if (isRandomSort) {
@@ -146,7 +218,12 @@ router.get("/", cacheMiddleware(120, (req) =>
   const { data, count, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
 
-  return res.json({ offers: data ?? [], total: count ?? 0, page, per_page: perPage });
+  // Ajouter les ftour groups dédupliqués
+  const existingEstabIds = new Set((data ?? []).map((o: any) => o.establishment_id));
+  const uniqueFtour = ftourOffers.filter((f) => !existingEstabIds.has(f.establishment_id));
+  const combined = [...(data ?? []), ...uniqueFtour];
+
+  return res.json({ offers: combined, total: (count ?? 0) + uniqueFtour.length, page, per_page: perPage });
 }) as RequestHandler);
 
 // ---------------------------------------------------------------------------
