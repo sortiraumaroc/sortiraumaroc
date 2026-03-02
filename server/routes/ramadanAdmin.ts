@@ -40,7 +40,9 @@ import {
 
 /** Extraire l'identifiant admin depuis la session JWT ou fallback null. */
 function getAdminId(req: Parameters<RequestHandler>[0]): string | null {
-  return (req as any).adminSession?.sub ?? null;
+  const sub = (req as any).adminSession?.sub;
+  if (typeof sub === "string" && isValidUUID(sub)) return sub;
+  return null;
 }
 
 function isValidUUID(s: string): boolean {
