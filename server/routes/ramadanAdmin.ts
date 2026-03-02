@@ -79,23 +79,29 @@ router.get("/moderation", (async (req, res) => {
   if (SLOT_STATUSES.includes(effectiveStatus)) {
     const { data, error } = await supabase
       .from("pro_slots")
-      .select("*, establishments!inner(id, name, city)")
+      .select("*, establishments(id, name, city)")
       .eq("service_label", "Ftour")
       .eq("moderation_status", effectiveStatus)
       .order("created_at", { ascending: false })
       .limit(200);
 
-    if (!error && data) slotsData = data;
+    if (!error && data) {
+      // Filter out slots with invalid establishment IDs (e.g. test data like "demo")
+      slotsData = (data as any[]).filter((s: any) => {
+        const eid = s.establishment_id ?? s.establishments?.id;
+        return eid && isValidUUID(eid) && s.establishments;
+      });
+    }
   }
 
   // 3. Tag ramadan offers
   const offers = (offersData ?? []).map((o: any) => ({ ...o, item_type: "ramadan_offer" }));
 
-  // 4. Group ftour slots by establishment
+  // 4. Group ftour slots by establishment (skip slots with invalid establishment IDs)
   const slotsByEstab = new Map<string, any[]>();
   for (const s of slotsData as any[]) {
     const eid = s.establishment_id ?? s.establishments?.id;
-    if (!eid) continue;
+    if (!eid || !isValidUUID(eid)) continue;
     if (!slotsByEstab.has(eid)) slotsByEstab.set(eid, []);
     slotsByEstab.get(eid)!.push(s);
   }
@@ -204,6 +210,7 @@ router.get("/stats", (async (req, res) => {
 
   const ftourEstabsByStatus = new Map<string, Set<string>>();
   for (const s of (allSlots ?? []) as Array<{ moderation_status: string; establishment_id: string }>) {
+    if (!s.establishment_id || !isValidUUID(s.establishment_id)) continue;
     const st = s.moderation_status ?? "active";
     if (!ftourEstabsByStatus.has(st)) ftourEstabsByStatus.set(st, new Set());
     ftourEstabsByStatus.get(st)!.add(s.establishment_id);
