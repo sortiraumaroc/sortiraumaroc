@@ -402,10 +402,12 @@ export async function getEligibleBanner(
   // 2. Platform filter
   query = query.in("platform", [context.platform, "both"]);
 
-  // 3. Trigger filter
-  query = query.eq("trigger", context.trigger);
-  if (context.trigger === "on_page" && context.page) {
-    query = query.eq("trigger_page", context.page);
+  // 3. Trigger filter — check both on_app_open and on_page when a page is provided
+  if (context.page) {
+    // Fetch both on_app_open banners (global) and on_page banners for this specific page
+    query = query.or(`trigger.eq.on_app_open,and(trigger.eq.on_page,trigger_page.eq.${context.page})`);
+  } else {
+    query = query.eq("trigger", context.trigger);
   }
 
   // Sort by priority DESC

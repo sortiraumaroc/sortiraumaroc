@@ -30,6 +30,7 @@ export interface BannerRendererProps {
     title?: string | null;
     subtitle?: string | null;
     media_url?: string | null;
+    media_url_mobile?: string | null;
     media_type?: string | null;
     cta_text?: string;
     cta_url?: string;
@@ -198,6 +199,39 @@ function CtaButtons({
 }
 
 // =============================================================================
+// Responsive image helper
+// =============================================================================
+
+/** Renders a <picture> with mobile/desktop sources when both URLs exist */
+function ResponsiveImage({
+  banner,
+  className,
+}: {
+  banner: BannerRendererProps["banner"];
+  className?: string;
+}) {
+  const desktopUrl = banner.media_url;
+  const mobileUrl = banner.media_url_mobile;
+  const alt = banner.title ?? "Banner";
+
+  if (!desktopUrl && !mobileUrl) return null;
+
+  // If both URLs exist, use <picture> for responsive switching
+  if (desktopUrl && mobileUrl) {
+    return (
+      <picture>
+        <source media="(max-width: 767px)" srcSet={mobileUrl} />
+        <source media="(min-width: 768px)" srcSet={desktopUrl} />
+        <img src={desktopUrl} alt={alt} className={className} />
+      </picture>
+    );
+  }
+
+  // Single image fallback
+  return <img src={desktopUrl || mobileUrl!} alt={alt} className={className} />;
+}
+
+// =============================================================================
 // Banner type renderers
 // =============================================================================
 
@@ -211,13 +245,10 @@ function ImageSimpleBanner({
 }) {
   return (
     <div className="relative w-full">
-      {banner.media_url && (
-        <img
-          src={banner.media_url}
-          alt={banner.title ?? "Banner"}
-          className="w-full h-auto max-h-[70vh] object-cover rounded-lg"
-        />
-      )}
+      <ResponsiveImage
+        banner={banner}
+        className="w-full h-auto max-h-[70vh] object-cover rounded-lg"
+      />
       <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/60 to-transparent">
         <CtaButtons banner={banner} onCtaClick={onCtaClick} />
       </div>
@@ -235,13 +266,10 @@ function ImageTextBanner({
 }) {
   return (
     <div className="relative w-full">
-      {banner.media_url && (
-        <img
-          src={banner.media_url}
-          alt={banner.title ?? "Banner"}
-          className="w-full h-auto max-h-[60vh] object-cover rounded-lg"
-        />
-      )}
+      <ResponsiveImage
+        banner={banner}
+        className="w-full h-auto max-h-[60vh] object-cover rounded-lg"
+      />
       <div className="absolute inset-0 flex flex-col justify-end p-6 bg-gradient-to-t from-black/70 via-black/30 to-transparent rounded-lg">
         {banner.title && (
           <h3 className="text-xl sm:text-2xl font-bold text-white mb-1 drop-shadow-lg">
@@ -471,13 +499,10 @@ function CountdownBanner({
 
   return (
     <div className="p-6 space-y-5 text-center">
-      {banner.media_url && (
-        <img
-          src={banner.media_url}
-          alt={banner.title ?? "Countdown"}
-          className="w-full h-auto max-h-40 object-cover rounded-lg mx-auto"
-        />
-      )}
+      <ResponsiveImage
+        banner={banner}
+        className="w-full h-auto max-h-40 object-cover rounded-lg mx-auto"
+      />
 
       {banner.title && (
         <h3 className="text-xl font-bold text-slate-900">{banner.title}</h3>

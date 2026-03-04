@@ -69,6 +69,7 @@ interface Banner {
   title: string | null;
   subtitle: string | null;
   media_url: string | null;
+  media_url_mobile: string | null;
   cta_text: string | null;
   cta_url: string | null;
   cta_target: "_self" | "_blank";
@@ -212,6 +213,7 @@ function getEmptyBanner(): Omit<Banner, "id" | "impressions" | "clicks" | "close
     title: "",
     subtitle: "",
     media_url: "",
+    media_url_mobile: "",
     cta_text: "",
     cta_url: "",
     cta_target: "_blank",
@@ -487,9 +489,16 @@ function BannerForm({
             <Input value={form.subtitle || ""} onChange={(e) => update("subtitle", e.target.value)} placeholder="Sous-titre" className="h-9 text-sm" />
           </div>
         </div>
-        <div className="space-y-1.5">
-          <Label className="text-xs">URL Media (image / video)</Label>
-          <Input value={form.media_url || ""} onChange={(e) => update("media_url", e.target.value)} placeholder="https://..." className="h-9 text-sm" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Image Desktop <span className="text-slate-400">(1200×625)</span></Label>
+            <Input value={form.media_url || ""} onChange={(e) => update("media_url", e.target.value)} placeholder="https://..." className="h-9 text-sm" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Image Mobile <span className="text-slate-400">(800×800)</span></Label>
+            <Input value={form.media_url_mobile || ""} onChange={(e) => update("media_url_mobile", e.target.value)} placeholder="https://... (optionnel)" className="h-9 text-sm" />
+            <p className="text-[10px] text-slate-400">Si vide, l'image desktop sera utilisée</p>
+          </div>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="space-y-1.5">

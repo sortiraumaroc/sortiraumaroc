@@ -2,7 +2,7 @@
  * BannerProvider — React Context that manages banner display for the consumer app.
  *
  * Responsibilities:
- *   - Fetch the eligible banner on mount (and on auth change)
+ *   - Fetch the eligible banner on mount (and on auth/location change)
  *   - Enforce frequency caps (once / daily / every_session)
  *   - Limit to max 1 banner per session
  *   - Expose tracking helpers (view, click, form submit)
@@ -17,8 +17,10 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
+import { useLocation } from "react-router-dom";
 import { getConsumerAccessToken } from "@/lib/auth";
 import { AUTH_CHANGED_EVENT } from "@/lib/auth";
+import { BannerRenderer } from "./BannerRenderer";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,13 +29,32 @@ import { AUTH_CHANGED_EVENT } from "@/lib/auth";
 export interface Banner {
   id: string;
   title?: string;
+  subtitle?: string;
   body?: string;
   image_url?: string;
+  media_url?: string;
+  media_url_mobile?: string;
+  media_type?: string;
   cta_label?: string;
+  cta_text?: string;
   cta_url?: string;
+  cta_target?: string;
+  secondary_cta_text?: string;
+  secondary_cta_url?: string;
   frequency?: "once" | "daily" | "every_session";
   type?: string;
+  display_format?: string;
+  animation?: string;
+  overlay_color?: string;
+  overlay_opacity?: number;
+  close_behavior?: string;
+  close_delay_seconds?: number;
+  appear_delay_type?: string;
+  appear_delay_value?: number;
+  carousel_slides?: unknown[];
+  countdown_target?: string;
   form_fields?: unknown[];
+  form_confirmation_message?: string;
   [key: string]: unknown;
 }
 
@@ -53,6 +74,9 @@ const BannerContext = createContext<BannerContextValue | null>(null);
 
 const DISMISS_KEY_PREFIX = "banner_dismissed_";
 
+// Default cooldown: 30 minutes — after dismiss, the banner can show again
+const DEFAULT_COOLDOWN_MS = 30 * 60 * 1000;
+
 function isDismissed(bannerId: string, frequency?: string): boolean {
   const key = `${DISMISS_KEY_PREFIX}${bannerId}`;
 
@@ -67,8 +91,16 @@ function isDismissed(bannerId: string, frequency?: string): boolean {
     return stored === today;
   }
 
-  // every_session (default)
-  return sessionStorage.getItem(key) !== null;
+  // Default: time-based cooldown (30 min)
+  // Within the same session: always dismissed (sessionStorage)
+  if (sessionStorage.getItem(key)) return true;
+
+  // Across sessions: check if cooldown has expired (localStorage timestamp)
+  const stored = localStorage.getItem(key);
+  if (!stored) return false;
+  const dismissedAt = parseInt(stored, 10);
+  if (isNaN(dismissedAt)) return false;
+  return Date.now() - dismissedAt < DEFAULT_COOLDOWN_MS;
 }
 
 function markDismissed(bannerId: string, frequency?: string): void {
@@ -85,8 +117,10 @@ function markDismissed(bannerId: string, frequency?: string): void {
     return;
   }
 
-  // every_session (default)
+  // Default: mark in sessionStorage (don't show again this session)
+  // + store timestamp in localStorage (30-min cooldown across sessions)
   sessionStorage.setItem(key, "1");
+  localStorage.setItem(key, String(Date.now()));
 }
 
 // ---------------------------------------------------------------------------
@@ -108,17 +142,24 @@ function getOrCreateSessionId(): string {
 // API helpers
 // ---------------------------------------------------------------------------
 
-async function fetchEligibleBanner(): Promise<Banner | null> {
+async function fetchEligibleBanner(page?: string): Promise<Banner | null> {
   try {
     const token = await getConsumerAccessToken();
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers.authorization = `Bearer ${token}`;
 
-    const res = await fetch("/api/banners/eligible?platform=web&trigger=on_app_open", { headers });
+    const params = new URLSearchParams({ platform: "web" });
+    if (page) {
+      params.set("page", page);
+    } else {
+      params.set("trigger", "on_app_open");
+    }
+
+    const res = await fetch(`/api/banners/eligible?${params.toString()}`, { headers });
     if (!res.ok) return null;
 
     const json = await res.json();
-    return json?.banner ?? json ?? null;
+    return json?.banner ?? null;
   } catch {
     return null;
   }
@@ -172,13 +213,14 @@ const BANNER_SHOWN_KEY = "banner_shown_this_session";
 export function BannerProvider({ children }: { children: ReactNode }) {
   const [currentBanner, setCurrentBanner] = useState<Banner | null>(null);
   const [sessionId] = useState<string>(getOrCreateSessionId);
+  const location = useLocation();
 
   // Load eligible banner
-  const loadBanner = useCallback(async () => {
+  const loadBanner = useCallback(async (page?: string) => {
     // Max 1 banner per session
     if (sessionStorage.getItem(BANNER_SHOWN_KEY)) return;
 
-    const banner = await fetchEligibleBanner();
+    const banner = await fetchEligibleBanner(page);
     if (!banner?.id) return;
 
     // Check frequency cap
@@ -188,17 +230,22 @@ export function BannerProvider({ children }: { children: ReactNode }) {
     sessionStorage.setItem(BANNER_SHOWN_KEY, "1");
   }, []);
 
-  // Fetch on mount
+  // Fetch on mount with current page
   useEffect(() => {
-    void loadBanner();
-  }, [loadBanner]);
+    void loadBanner(location.pathname);
+  }, [loadBanner]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-fetch on location change (for on_page banners)
+  useEffect(() => {
+    void loadBanner(location.pathname);
+  }, [location.pathname, loadBanner]);
 
   // Re-fetch on auth change (login / logout)
   useEffect(() => {
-    const handler = () => void loadBanner();
+    const handler = () => void loadBanner(location.pathname);
     window.addEventListener(AUTH_CHANGED_EVENT, handler);
     return () => window.removeEventListener(AUTH_CHANGED_EVENT, handler);
-  }, [loadBanner]);
+  }, [loadBanner, location.pathname]);
 
   // ------ actions ------
 
@@ -237,6 +284,48 @@ export function BannerProvider({ children }: { children: ReactNode }) {
       value={{ currentBanner, dismissBanner, trackBannerView, trackBannerClick, submitBannerForm }}
     >
       {children}
+
+      {/* Render BannerRenderer when a banner is active */}
+      {currentBanner && currentBanner.type && currentBanner.display_format && (
+        <BannerRenderer
+          banner={{
+            id: currentBanner.id,
+            type: currentBanner.type,
+            title: currentBanner.title ?? null,
+            subtitle: currentBanner.subtitle ?? null,
+            media_url: currentBanner.media_url ?? currentBanner.image_url ?? null,
+            media_url_mobile: currentBanner.media_url_mobile ?? null,
+            media_type: (currentBanner.media_type as "image" | "video" | undefined) ?? null,
+            cta_text: currentBanner.cta_text ?? currentBanner.cta_label,
+            cta_url: currentBanner.cta_url,
+            cta_target: currentBanner.cta_target,
+            secondary_cta_text: currentBanner.secondary_cta_text ?? null,
+            secondary_cta_url: currentBanner.secondary_cta_url ?? null,
+            carousel_slides: (currentBanner.carousel_slides as any) ?? null,
+            countdown_target: currentBanner.countdown_target ?? null,
+            form_fields: (currentBanner.form_fields as any) ?? null,
+            form_confirmation_message: currentBanner.form_confirmation_message ?? null,
+            display_format: currentBanner.display_format,
+            animation: (currentBanner.animation as string) ?? "fade",
+            overlay_color: currentBanner.overlay_color,
+            overlay_opacity: currentBanner.overlay_opacity,
+            close_behavior: currentBanner.close_behavior,
+            close_delay_seconds: currentBanner.close_delay_seconds,
+            appear_delay_type: currentBanner.appear_delay_type,
+            appear_delay_value: currentBanner.appear_delay_value,
+          }}
+          onClose={dismissBanner}
+          onCtaClick={() => trackBannerClick(currentBanner.id)}
+          onFormSubmit={async (data) => {
+            try {
+              await submitBannerForm(currentBanner.id, data);
+            } catch {
+              // best-effort
+            }
+          }}
+          sessionId={sessionId}
+        />
+      )}
     </BannerContext.Provider>
   );
 }
