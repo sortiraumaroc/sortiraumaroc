@@ -71,6 +71,7 @@ router.get("/", cacheMiddleware(120, (req) =>
     max_price: String(req.query.max_price ?? ""),
     limit: String(req.query.limit ?? ""),
     offset: String(req.query.offset ?? ""),
+    search: String(req.query.search ?? ""),
   }),
 ), (async (req, res) => {
   const supabase = getAdminSupabase();
@@ -80,6 +81,7 @@ router.get("/", cacheMiddleware(120, (req) =>
   const featured = req.query.featured === "true";
   const minPrice = asNumber(req.query.min_price);
   const maxPrice = asNumber(req.query.max_price);
+  const searchQuery = asString(req.query.search);
   const sort = asString(req.query.sort) || "featured";
   const page = Math.max(1, asNumber(req.query.page) || 1);
   const perPage = Math.min(50, Math.max(1, asNumber(req.query.per_page) || 20));
@@ -178,7 +180,7 @@ router.get("/", cacheMiddleware(120, (req) =>
 
   // Pour le tri aléatoire ou le filtre ville, on récupère tout en mémoire
   // Le volume d'offres Ramadan actives est faible (<200) donc OK.
-  if (isRandomSort || city) {
+  if (isRandomSort || city || searchQuery) {
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
 
@@ -195,6 +197,17 @@ router.get("/", cacheMiddleware(120, (req) =>
       allOffers = allOffers.filter((o: any) => {
         const estCity = o.establishments?.city;
         return typeof estCity === "string" && estCity.toLowerCase().includes(lowerCity);
+      });
+    }
+
+    // Filtre recherche textuelle (nom établissement ou titre)
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      allOffers = allOffers.filter((o: any) => {
+        const name = (o.establishments?.name ?? "").toLowerCase();
+        const title = (o.title ?? "").toLowerCase();
+        const estCity = (o.establishments?.city ?? "").toLowerCase();
+        return name.includes(q) || title.includes(q) || estCity.includes(q);
       });
     }
 

@@ -7,7 +7,7 @@
  * Thème : "Mille et Une Nuits" (dark navy + gold)
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Moon,
@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  Search,
   Sparkles,
 } from "lucide-react";
 
@@ -86,6 +87,9 @@ export default function RamadanOffers() {
   const [sort, setSort] = useState(searchParams.get("sort") ?? "featured");
   const [page, setPage] = useState(Number(searchParams.get("page")) || 1);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [searchInput, setSearchInput] = useState(searchParams.get("search") ?? "");
+  const [search, setSearch] = useState(searchParams.get("search") ?? "");
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Derived
   const totalPages = Math.ceil(total / PER_PAGE);
@@ -93,7 +97,8 @@ export default function RamadanOffers() {
     (activeType !== "all") ||
     city ||
     minPrice ||
-    maxPrice
+    maxPrice ||
+    search
   );
 
   // ---------------------------------------------------------------------------
@@ -113,6 +118,7 @@ export default function RamadanOffers() {
       if (city) filters.city = city;
       if (minPrice) filters.min_price = Number(minPrice) * 100; // centimes
       if (maxPrice) filters.max_price = Number(maxPrice) * 100;
+      if (search) filters.search = search;
 
       const res = await listPublicRamadanOffers(filters);
       setOffers(res.offers);
@@ -122,7 +128,7 @@ export default function RamadanOffers() {
     } finally {
       setLoading(false);
     }
-  }, [sort, page, activeType, city, minPrice, maxPrice]);
+  }, [sort, page, activeType, city, minPrice, maxPrice, search]);
 
   useEffect(() => {
     fetchOffers();
@@ -140,8 +146,9 @@ export default function RamadanOffers() {
     if (maxPrice) params.set("max_price", maxPrice);
     if (sort && sort !== "featured") params.set("sort", sort);
     if (page > 1) params.set("page", String(page));
+    if (search) params.set("search", search);
     setSearchParams(params, { replace: true });
-  }, [activeType, city, minPrice, maxPrice, sort, page, setSearchParams]);
+  }, [activeType, city, minPrice, maxPrice, sort, page, search, setSearchParams]);
 
   // ---------------------------------------------------------------------------
   // Actions
@@ -152,6 +159,8 @@ export default function RamadanOffers() {
     setCity("");
     setMinPrice("");
     setMaxPrice("");
+    setSearchInput("");
+    setSearch("");
     setPage(1);
   };
 
@@ -237,6 +246,38 @@ export default function RamadanOffers() {
                 {opt.label}
               </button>
             ))}
+          </div>
+
+          {/* Barre de recherche */}
+          <div className="relative shrink-0">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-ramadan-gold/60 pointer-events-none" />
+            <input
+              value={searchInput}
+              onChange={(e) => {
+                const v = e.target.value;
+                setSearchInput(v);
+                if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+                searchTimerRef.current = setTimeout(() => {
+                  setSearch(v.trim());
+                  setPage(1);
+                }, 400);
+              }}
+              placeholder="Rechercher…"
+              className="h-9 w-48 sm:w-56 rounded-full pl-9 pr-3 text-sm border border-ramadan-gold/30 bg-white text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-ramadan-gold/40 shadow-sm transition"
+            />
+            {searchInput && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchInput("");
+                  setSearch("");
+                  setPage(1);
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
 
           <button
