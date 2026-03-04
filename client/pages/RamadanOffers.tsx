@@ -59,7 +59,7 @@ const CITY_OPTIONS = [
   "Meknes",
   "Oujda",
   "Kenitra",
-  "Mohammedia",
+  "Mohammédia",
 ];
 
 const PER_PAGE = 20;

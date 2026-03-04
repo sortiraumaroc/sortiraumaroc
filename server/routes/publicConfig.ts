@@ -198,7 +198,7 @@ const KNOWN_CITIES: Array<{ name: string; lat: number; lng: number }> = [
   { name: "Kénitra", lat: 34.261, lng: -6.5802 },
   { name: "Tétouan", lat: 35.5889, lng: -5.3626 },
   { name: "Essaouira", lat: 31.5085, lng: -9.7595 },
-  { name: "Mohammedia", lat: 33.6861, lng: -7.3828 },
+  { name: "Mohammédia", lat: 33.6861, lng: -7.3828 },
   { name: "El Jadida", lat: 33.2316, lng: -8.5007 },
   { name: "Salé", lat: 34.0531, lng: -6.7985 },
   { name: "Nador", lat: 35.1681, lng: -2.9287 },

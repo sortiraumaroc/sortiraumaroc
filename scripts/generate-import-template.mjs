@@ -200,7 +200,7 @@ const CITIES = [
   'Agadir','Al Hoceima','Béni Mellal','Berkane','Casablanca','Chefchaouen',
   'Dakhla','El Jadida','Errachidia','Essaouira','Fès','Guelmim','Ifrane',
   'Kénitra','Khémisset','Khouribga','Laâyoune','Larache','Marrakech',
-  'Meknès','Mohammedia','Nador','Oujda','Ouarzazate','Rabat','Safi',
+  'Meknès','Mohammédia','Nador','Oujda','Ouarzazate','Rabat','Safi',
   'Salé','Settat','Tanger','Tétouan',
 ];
 
@@ -225,7 +225,7 @@ const CITY_TO_REGION = {
   'Larache': 'Tanger-Tétouan-Al Hoceima',
   'Marrakech': 'Marrakech-Safi',
   'Meknès': 'Fès-Meknès',
-  'Mohammedia': 'Casablanca-Settat',
+  'Mohammédia': 'Casablanca-Settat',
   'Nador': "L'Oriental",
   'Oujda': "L'Oriental",
   'Ouarzazate': 'Drâa-Tafilalet',

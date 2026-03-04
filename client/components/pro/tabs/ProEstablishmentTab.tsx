@@ -629,7 +629,7 @@ const MOROCCO_MAJOR_CITIES = [
   "Tétouan",
   "Safi",
   "El Jadida",
-  "Mohammedia",
+  "Mohammédia",
   "Nador",
   "Béni Mellal",
   "Khouribga",

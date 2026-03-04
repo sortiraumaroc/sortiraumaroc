@@ -481,7 +481,7 @@ const AMENITIES_BY_UNIVERSE: Record<string, string[]> = {
 
 const MOROCCAN_CITIES = [
   "Casablanca", "Rabat", "Marrakech", "Fès", "Tanger", "Agadir", "Meknès", "Oujda",
-  "Kénitra", "Tétouan", "Salé", "Nador", "Mohammedia", "El Jadida", "Béni Mellal",
+  "Kénitra", "Tétouan", "Salé", "Nador", "Mohammédia", "El Jadida", "Béni Mellal",
   "Taza", "Khémisset", "Taourirt", "Khouribga", "Safi", "Settat", "Larache",
   "Guelmim", "Berrechid", "Essaouira", "Ouarzazate", "Al Hoceïma", "Dakhla",
   "Laâyoune", "Ifrane", "Errachidia", "Tinghir", "Chefchaouen", "Asilah", "Oualidia"

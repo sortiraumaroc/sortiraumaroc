@@ -88,7 +88,7 @@ const COUNTRIES = [
 ];
 
 const CITIES: Record<string, string[]> = {
-  MA: ["Casablanca", "Marrakech", "Rabat", "Tanger", "Agadir", "Essaouira", "Fès", "Meknès", "Tétouan", "Oujda", "Al Hoceima", "Ouarzazate", "Dakhla", "Kénitra", "Mohammedia", "Ifrane", "Salé", "El Jadida", "Khouribga", "Béni Mellal"],
+  MA: ["Casablanca", "Marrakech", "Rabat", "Tanger", "Agadir", "Essaouira", "Fès", "Meknès", "Tétouan", "Oujda", "Al Hoceima", "Ouarzazate", "Dakhla", "Kénitra", "Mohammédia", "Ifrane", "Salé", "El Jadida", "Khouribga", "Béni Mellal"],
   FR: ["Paris", "Lyon", "Marseille", "Bordeaux", "Nice", "Toulouse", "Nantes", "Strasbourg", "Lille", "Montpellier"],
   AE: ["Dubai", "Abu Dhabi", "Sharjah", "Ajman"],
   BE: ["Bruxelles", "Anvers", "Gand", "Liège"],

@@ -78,7 +78,7 @@ export const MOROCCAN_CITIES = [
   "kenitra",
   "tetouan",
   "sale",
-  "mohammedia",
+  "mohammédia",
   "el jadida",
   "beni mellal",
   "nador",
