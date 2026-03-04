@@ -62,7 +62,7 @@ const CITY_OPTIONS = [
   "Mohammedia",
 ];
 
-const PER_PAGE = 12;
+const PER_PAGE = 20;
 
 // =============================================================================
 // Page
