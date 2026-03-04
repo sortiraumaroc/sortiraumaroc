@@ -2392,6 +2392,17 @@ export async function updateAdminContentPage(
   );
 }
 
+export async function deleteAdminContentPage(
+  adminKey: string | undefined,
+  id: string,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/content/pages/${encodeURIComponent(id)}`,
+    adminKey,
+    { method: "DELETE" },
+  );
+}
+
 export async function listAdminContentPageBlocks(
   adminKey: string | undefined,
   pageId: string,

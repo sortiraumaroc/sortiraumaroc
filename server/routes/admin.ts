@@ -617,6 +617,7 @@ import {
   listAdminContentPages,
   createAdminContentPage,
   updateAdminContentPage,
+  deleteAdminContentPage,
   listAdminContentPageBlocks,
   replaceAdminContentPageBlocks,
   listAdminFaqArticles,
@@ -640,6 +641,7 @@ export {
   listAdminContentPages,
   createAdminContentPage,
   updateAdminContentPage,
+  deleteAdminContentPage,
   listAdminContentPageBlocks,
   replaceAdminContentPageBlocks,
   listAdminFaqArticles,
@@ -917,6 +919,7 @@ export function registerAdminCoreRoutes(app: Express) {
   app.get("/api/admin/content/pages", listAdminContentPages);
   app.post("/api/admin/content/pages", zBody(CreateAdminContentPageSchema), createAdminContentPage);
   app.post("/api/admin/content/pages/:id/update", zParams(zIdParam), zBody(UpdateAdminContentPageSchema), updateAdminContentPage);
+  app.delete("/api/admin/content/pages/:id", zParams(zIdParam), deleteAdminContentPage);
   app.get("/api/admin/content/pages/:id/blocks", zParams(zIdParam), listAdminContentPageBlocks);
   app.post(
     "/api/admin/content/pages/:id/blocks/replace",

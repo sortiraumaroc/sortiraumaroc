@@ -3,12 +3,12 @@ import { Link, useLocation } from "react-router-dom";
 import {
   ArrowRight,
   BadgeCheck,
+  Briefcase,
   CalendarCheck,
   Crown,
   MessageCircle,
   QrCode,
   ShieldCheck,
-  Sparkles,
   TrendingUp,
   Users,
   Video,
@@ -41,13 +41,13 @@ function SectionTitle(props: { kicker?: string; title: string; subtitle?: string
   return (
     <div className={cn("space-y-3", props.center ? "text-center" : "text-start")}>
       {props.kicker ? (
-        <div className={cn("text-xs font-extrabold tracking-[0.2em] uppercase", props.center ? "justify-center" : "")}
+        <div className={cn("text-sm font-extrabold tracking-[0.2em] uppercase", props.center ? "justify-center" : "")}
           style={{ color: BRAND.gold }}
         >
           {props.kicker}
         </div>
       ) : null}
-      <h2 className={cn("text-2xl md:text-3xl font-extrabold text-slate-950", props.center ? "mx-auto" : "")}>{props.title}</h2>
+      <h2 className={cn("text-3xl md:text-4xl font-extrabold text-slate-950", props.center ? "mx-auto" : "")}>{props.title}</h2>
       {props.subtitle ? <p className={cn("text-sm md:text-base text-slate-600", props.center ? "mx-auto max-w-2xl" : "max-w-2xl")}>{props.subtitle}</p> : null}
     </div>
   );
@@ -141,7 +141,7 @@ export default function AddEstablishment() {
   }, [location.hash]);
 
   return (
-    <div style={{ fontFamily: "Poppins, Circular Std, Inter, system-ui, sans-serif" }}>
+    <div className="bg-white text-slate-950" style={{ fontFamily: "Poppins, Circular Std, Inter, system-ui, sans-serif" }}>
       <Header />
       <FloatingWhatsAppButton />
 
@@ -151,20 +151,17 @@ export default function AddEstablishment() {
         <div className="container mx-auto px-4 py-10 md:py-14 relative">
           <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-8 items-start">
             <div className="space-y-6">
-              <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-700 shadow-sm">
-                <Sparkles className="h-4 w-4" style={{ color: BRAND.gold }} />
-                Visibilité + réservations toute l’année
-              </div>
-
               <h1 className="text-3xl md:text-5xl font-extrabold leading-tight text-slate-950">
                 Comment attirer plus de clients avec Sortir Au Maroc ?
               </h1>
-              <p className="text-sm md:text-lg text-slate-600 max-w-2xl">
+              <p className="text-sm md:text-base text-slate-600 max-w-2xl">
                 Food, loisirs, sports, bien-être, tourisme. Devenez réservable et visible toute l’année.
               </p>
 
               <div className="flex flex-col sm:flex-row gap-3">
-                <CTAInline />
+                <div className="lg:hidden">
+                  <CTAInline />
+                </div>
                 <Button asChild variant="outline" className="h-12 rounded-xl border-slate-300 font-bold hover:bg-slate-50">
                   <a
                     href="#avantages"
@@ -217,26 +214,26 @@ export default function AddEstablishment() {
                 <img
                   src="https://images.pexels.com/photos/3801649/pexels-photo-3801649.jpeg"
                   alt="Réservations et gestion client"
-                  className="w-full max-w-2xl rounded-2xl border border-slate-200 shadow-sm object-cover aspect-[16/9]"
+                  className="w-full rounded-2xl border border-slate-200 shadow-sm object-cover aspect-[16/9]"
                 />
               </div>
             </div>
 
             {/* Form */}
             <div id="form" className="scroll-mt-24 lg:sticky lg:top-24">
-              <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-5 md:p-6">
+              <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-4 md:p-5">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="text-sm font-extrabold text-slate-950">Ajouter mon établissement</div>
                     <div className="text-xs text-slate-600">Réponse rapide · sans engagement</div>
                   </div>
                   <div className="h-9 w-9 rounded-xl flex items-center justify-center border border-slate-200" style={{ background: BRAND.light }}>
-                    <QrCode className="h-5 w-5" style={{ color: BRAND.red }} />
+                    <Briefcase className="h-5 w-5" style={{ color: BRAND.red }} />
                   </div>
                 </div>
 
-                <div className="mt-5">
-                  <AddEstablishmentLeadForm />
+                <div className="mt-3">
+                  <AddEstablishmentLeadForm compact />
                 </div>
               </div>
 
@@ -257,9 +254,9 @@ export default function AddEstablishment() {
       <section className="border-t border-slate-200" style={{ background: BRAND.light }}>
         <div className="container mx-auto px-4 py-12 md:py-14">
           <SectionTitle
-            kicker="Pourquoi Sortir Au Maroc"
+            kicker="Pourquoi SAM.ma"
             title="Tout pour convertir un visiteur en client"
-            subtitle="Une structure simple : visibilité → réservation → confirmation → venue (ou garantie)."
+            subtitle="Visibilité → réservation → confirmation → venue (ou garantie)."
           />
 
           <div className="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

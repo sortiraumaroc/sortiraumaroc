@@ -263,9 +263,9 @@ export async function submitEstablishmentLead(req: Request, res: Response) {
 
     // Envoi asynchrone (ne pas attendre)
     sendLoggedEmail({
-      emailId: `${emailIdBase}-pro`,
-      fromKey: "pro",
-      to: ["pro@sam.ma"],
+      emailId: `${emailIdBase}-hello`,
+      fromKey: "hello",
+      to: ["hello@sam.ma"],
       subject: internalSubject,
       bodyText: internalBody,
       meta: { source: "lead_establishment_requests" },

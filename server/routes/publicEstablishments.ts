@@ -2995,6 +2995,20 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
     return [...curated, ...base.filter((i) => !curatedSet.has(i.id))];
   };
 
+  /** For service-type sections: show ONLY curated items when curations exist */
+  const withCuratedOnly = (
+    kind: HomeCurationKind,
+    base: PublicHomeFeedItem[],
+  ): PublicHomeFeedItem[] => {
+    const curatedIds = curatedByKind.get(kind) ?? [];
+    if (!curatedIds.length) return base;
+
+    return curatedIds
+      .map((id) => candidateById.get(id))
+      .filter(Boolean)
+      .map((item) => ({ ...item, curated: true }));
+  };
+
   // 4) build lists
   const bestDealsBase = [...candidateItems]
     .filter(
@@ -3180,10 +3194,10 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
     top_rated: takeSelfUnique(withCuratedFirst("top_rated", topRatedBase), 10),
     deals: dealsNewBase.length >= 2 ? takeSelfUnique(withCuratedFirst("deals", dealsNewBase), 8) : [],
     themed: takeSelfUnique(withCuratedFirst("themed", themedBase), 8),
-    // Service type sections — with curation support
-    by_service_buffet: takeSelfUnique(withCuratedFirst("by_service_buffet", buffetBase), 10),
-    by_service_table: takeSelfUnique(withCuratedFirst("by_service_table", serviTableBase), 10),
-    by_service_carte: takeSelfUnique(withCuratedFirst("by_service_carte", aLaCarteBase), 10),
+    // Service type sections — only curated items when curations exist, otherwise fallback to service_types
+    by_service_buffet: takeSelfUnique(withCuratedOnly("by_service_buffet", buffetBase), 10),
+    by_service_table: takeSelfUnique(withCuratedOnly("by_service_table", serviTableBase), 10),
+    by_service_carte: takeSelfUnique(withCuratedOnly("by_service_carte", aLaCarteBase), 10),
   };
 
   const payload = {

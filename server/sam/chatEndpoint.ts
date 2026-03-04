@@ -15,7 +15,7 @@ import { SAM_CONFIG } from "./config";
 
 const log = createModuleLogger("samChat");
 import { buildSystemPrompt, buildProSystemPrompt } from "./systemPrompt";
-import { SAM_TOOLS, executeTool, getToolsForMode, type ToolContext } from "./tools";
+import { SAM_TOOLS, executeTool, getToolsForMode, type ToolContext, type ToolResult } from "./tools";
 import {
   getUserProfile,
   getEstablishmentDetails,
@@ -490,31 +490,44 @@ async function handleSamChat(req: Request, res: Response): Promise<void> {
         tool_calls: toolCalls,
       });
 
-      for (const tc of toolCalls) {
+      // Parser les arguments de tous les tool calls
+      const parsedToolCalls = toolCalls.map((tc) => {
         const toolName = tc.function.name;
         let toolArgs: Record<string, unknown> = {};
-
         try {
           toolArgs = JSON.parse(tc.function.arguments || "{}");
         } catch { /* intentional: JSON parsing */
           toolArgs = {};
         }
+        return { tc, toolName, toolArgs };
+      });
 
-        sseEvent(res, {
-          type: "tool_call",
-          name: toolName,
-          args: toolArgs,
-        });
+      // Envoyer les événements tool_call immédiatement (pour l'indicateur de chargement)
+      for (const { toolName, toolArgs } of parsedToolCalls) {
+        sseEvent(res, { type: "tool_call", name: toolName, args: toolArgs });
+      }
 
-        // Exécuter le tool
-        const result = await executeTool(toolName, toolArgs, toolContext);
+      // Exécuter tous les tools EN PARALLÈLE pour accélérer la réponse
+      const toolResults = await Promise.all(
+        parsedToolCalls.map(({ toolName, toolArgs }) =>
+          executeTool(toolName, toolArgs, toolContext).catch((err) => {
+            log.error({ err, toolName }, "Tool execution failed");
+            return { data: { error: "tool_execution_failed" } } as ToolResult;
+          }),
+        ),
+      );
+
+      // Traiter les résultats dans l'ordre (SSE + contexte GPT)
+      const SEARCH_TOOLS = new Set([
+        "search_establishments", "get_trending", "surprise_me", "search_ramadan_offers",
+      ]);
+
+      for (let i = 0; i < parsedToolCalls.length; i++) {
+        const { tc, toolName } = parsedToolCalls[i];
+        const result = toolResults[i];
 
         // Envoyer le résultat au frontend
-        sseEvent(res, {
-          type: "tool_result",
-          name: toolName,
-          data: result.data,
-        });
+        sseEvent(res, { type: "tool_result", name: toolName, data: result.data });
 
         // Si le résultat contient des établissements, envoyer un événement spécial
         if (result.hasEstablishments) {
@@ -525,12 +538,14 @@ async function handleSamChat(req: Request, res: Response): Promise<void> {
             : singleEstablishment
               ? [singleEstablishment]
               : [];
-          log.info({ toolName, itemsCount: items.length }, "Tool has establishments");
+          log.info({ toolName, itemsCount: items.length, itemIds: items.slice(0, 5).map((e: any) => e?.id) }, "SSE establishments event");
           if (items.length) {
             sseEvent(res, { type: "establishments", items });
           } else {
-            log.warn({ toolName }, "Tool claimed hasEstablishments but items array is empty");
+            log.warn({ toolName, rawType: typeof rawEstablishments, singleType: typeof singleEstablishment }, "Tool claimed hasEstablishments but items array is empty");
           }
+        } else if (SEARCH_TOOLS.has(toolName)) {
+          log.info({ toolName }, "Search tool returned 0 establishments");
         }
 
         // Si auth requise
@@ -539,14 +554,24 @@ async function handleSamChat(req: Request, res: Response): Promise<void> {
         }
 
         // Ajouter le résultat tool au contexte GPT
+        // Pour les tools de recherche, préfixer avec un signal clair du nombre de résultats
+        let toolResultContent = JSON.stringify(result.data);
+        if (SEARCH_TOOLS.has(toolName)) {
+          const estArr = (result.data as any)?.establishments;
+          const estCount = Array.isArray(estArr) ? estArr.length : 0;
+          const prefix = estCount > 0
+            ? `[${estCount} établissements trouvés — le carrousel de cartes visuelles sera affiché automatiquement au client]\n`
+            : `[AUCUN RÉSULTAT — 0 établissement trouvé. NE DIS PAS "swipe", "découvrir" ou "carrousel". Informe l'utilisateur qu'aucun résultat n'a été trouvé et propose des alternatives.]\n`;
+          toolResultContent = prefix + toolResultContent;
+        }
         const toolResultMsg: ChatCompletionMessageParam = {
           role: "tool",
-          content: JSON.stringify(result.data),
+          content: toolResultContent,
           tool_call_id: tc.id,
         };
         gptMessages.push(toolResultMsg);
 
-        // Sauvegarder le message tool
+        // Sauvegarder le message tool (async, best-effort)
         saveMessage(conversation.id, {
           role: "tool",
           content: JSON.stringify(result.data),

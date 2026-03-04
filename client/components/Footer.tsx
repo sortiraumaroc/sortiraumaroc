@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 
+import { DemoRequestDialog } from "@/components/DemoRequestDialog";
 import { LanguageSwitcher } from "@/components/i18n/LanguageSwitcher";
 import { NewsletterSignup } from "@/components/NewsletterSignup";
 import { getSocialIcon } from "@/components/ui/SocialIcons";
@@ -20,6 +22,7 @@ const SOCIAL_PLATFORMS = [
 export function Footer() {
   const { t, locale } = useI18n();
   const { settings } = usePlatformSettings();
+  const [demoOpen, setDemoOpen] = useState(false);
   const year = 2026;
 
   const href = (path: string) => addLocalePrefix(path, locale);
@@ -97,16 +100,6 @@ export function Footer() {
                   {t("footer.link.careers")}
                 </Link>
               </li>
-              <li>
-                <Link to={href("/parrainage")} className="hover:text-white transition-colors">
-                  {t("footer.link.become_sponsor")}
-                </Link>
-              </li>
-              <li>
-                <Link to="/partners" className="hover:text-white transition-colors">
-                  {t("footer.link.partner_space")}
-                </Link>
-              </li>
             </ul>
           </div>
 
@@ -117,29 +110,23 @@ export function Footer() {
             </h4>
             <ul className="space-y-2 text-sm text-white/70">
               <li>
-                <Link to={`${href("/pro")}?mode=signup`} className="hover:text-white transition-colors">
-                  {t("footer.link.create_pro_account")}
-                </Link>
-              </li>
-              <li>
                 <Link to={href("/pro")} className="hover:text-white transition-colors">
                   {t("footer.link.pro_space")}
                 </Link>
               </li>
               <li>
-                <Link to={`${href("/pro")}?section=pricing`} className="hover:text-white transition-colors">
-                  {t("footer.link.pricing_offers")}
+                <Link to={href("/partners")} className="hover:text-white transition-colors">
+                  {t("footer.link.partner_space")}
                 </Link>
               </li>
               <li>
-                <Link to={`${href("/pro")}?section=features`} className="hover:text-white transition-colors">
-                  {t("footer.link.features")}
-                </Link>
-              </li>
-              <li>
-                <Link to={`${href("/pro")}?section=demo`} className="hover:text-white transition-colors">
+                <button
+                  type="button"
+                  onClick={() => setDemoOpen(true)}
+                  className="hover:text-white transition-colors text-left"
+                >
                   {t("footer.link.request_demo")}
-                </Link>
+                </button>
               </li>
             </ul>
           </div>
@@ -163,21 +150,6 @@ export function Footer() {
               <li>
                 <Link to={contentHref("mentions-legales", "legal-notice")} className="hover:text-white transition-colors">
                   {t("footer.link.legal_notice")}
-                </Link>
-              </li>
-              <li>
-                <Link to={contentHref("charte-etablissements", "partner-venue-charter")} className="hover:text-white transition-colors">
-                  {t("footer.link.partner_charter")}
-                </Link>
-              </li>
-              <li>
-                <Link to={contentHref("politique-remboursement", "refund-policy")} className="hover:text-white transition-colors">
-                  {t("footer.link.refund_policy")}
-                </Link>
-              </li>
-              <li>
-                <Link to={contentHref("politique-anti-no-show", "anti-no-show-policy")} className="hover:text-white transition-colors">
-                  {t("footer.link.anti_no_show_policy")}
                 </Link>
               </li>
             </ul>
@@ -242,6 +214,7 @@ export function Footer() {
         </div>
       </div>
 
+      <DemoRequestDialog open={demoOpen} onOpenChange={setDemoOpen} />
     </footer>
   );
 }

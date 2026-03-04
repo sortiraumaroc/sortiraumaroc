@@ -125,11 +125,13 @@ export const UpdateAdminContentPageSchema = z.object({
 
 /**
  * replaceAdminContentPageBlocks accepts either a raw array or { blocks: [...] }.
- * We validate the array-of-records form; the handler also accepts the wrapper.
+ * The Zod schema accepts both so the validation middleware doesn't reject the wrapper.
  */
-export const ReplaceAdminContentPageBlocksSchema = z.array(
-  z.record(z.unknown()),
-);
+const blocksArray = z.array(z.record(z.unknown()));
+export const ReplaceAdminContentPageBlocksSchema = z.union([
+  blocksArray,
+  z.object({ blocks: blocksArray }).transform((v) => v.blocks),
+]);
 
 // =============================================================================
 // FAQ Articles
@@ -253,11 +255,13 @@ export const UpdateAdminCmsBlogArticleSchema = z.object({
 
 /**
  * replaceAdminCmsBlogArticleBlocks accepts either a raw array or { blocks: [...] }.
- * We validate the array-of-records form; the handler also accepts the wrapper.
+ * The Zod schema accepts both so the validation middleware doesn't reject the wrapper.
  */
-export const ReplaceAdminCmsBlogArticleBlocksSchema = z.array(
-  z.record(z.unknown()),
-);
+const blogBlocksArray = z.array(z.record(z.unknown()));
+export const ReplaceAdminCmsBlogArticleBlocksSchema = z.union([
+  blogBlocksArray,
+  z.object({ blocks: blogBlocksArray }).transform((v) => v.blocks),
+]);
 
 // =============================================================================
 // CMS Blog Authors

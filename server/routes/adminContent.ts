@@ -393,6 +393,64 @@ export const updateAdminContentPage: RequestHandler = async (req, res) => {
   res.json({ ok: true });
 };
 
+// ── Delete content page ───────────────────────────────────────────────────
+
+export const deleteAdminContentPage: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const id = typeof req.params.id === "string" ? req.params.id : "";
+  if (!id) return res.status(400).json({ error: "Identifiant requis" });
+
+  const supabase = getAdminSupabase();
+
+  // Check existence
+  const { data: existingData, error: existingErr } = await supabase
+    .from("content_pages")
+    .select("id,slug_fr,page_key")
+    .eq("id", id)
+    .limit(1);
+
+  if (existingErr) return res.status(500).json({ error: existingErr.message });
+
+  const existing = Array.isArray(existingData) ? (existingData[0] as any) : null;
+  if (!existing?.id) return res.status(404).json({ error: "Page introuvable" });
+
+  // Delete associated blocks first
+  const { error: blocksErr } = await supabase
+    .from("content_page_blocks")
+    .delete()
+    .eq("page_id", id);
+  if (blocksErr) return res.status(500).json({ error: blocksErr.message });
+
+  // Delete the page
+  const { data: deletedData, error: deletedErr } = await supabase
+    .from("content_pages")
+    .delete()
+    .eq("id", id)
+    .select("id");
+
+  if (deletedErr) return res.status(500).json({ error: deletedErr.message });
+  if (!deletedData || !Array.isArray(deletedData) || !deletedData.length)
+    return res.status(404).json({ error: "Page introuvable" });
+
+  const actor = getAuditActorInfo(req);
+  await supabase.from("admin_audit_log").insert({
+    actor_id: actor.actor_id,
+    action: "content.page.delete",
+    entity_type: "content_pages",
+    entity_id: id,
+    metadata: {
+      page_key: existing.page_key,
+      slug_fr: existing.slug_fr,
+      actor_email: actor.actor_email,
+      actor_name: actor.actor_name,
+      actor_role: actor.actor_role,
+    },
+  });
+
+  res.json({ ok: true });
+};
+
 type ContentPageBlockRow = {
   id: string;
   page_id: string;

@@ -1656,7 +1656,7 @@ export default function Home() {
         {/* Spécial Ramadan — Section dédiée offres Ramadan (Ftour, S'hour, etc.) */}
         {homeTheme === "ftour_shour" && (
           <Suspense fallback={null}>
-            <RamadanHomeFeedSection />
+            <RamadanHomeFeedSection city={selectedCity} />
           </Suspense>
         )}
 

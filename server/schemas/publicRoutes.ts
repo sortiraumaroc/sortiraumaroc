@@ -127,13 +127,17 @@ export const CreateConsumerReservationSchema = z.object({
   slot_id: z.string().optional().nullable(),
   slotId: z.string().optional().nullable(),
   kind: z.string().optional(),
-  status: z.enum(["requested"]).optional(),
+  // Server ignores this field entirely (defense-in-depth: status is always set server-side).
+  // Accept any string to avoid blocking old clients that send "pending_pro_validation" or "waitlist".
+  status: z.string().optional(),
   party_size: z.coerce.number().optional(),
   partySize: z.coerce.number().optional(),
   amount_total: z.coerce.number().optional(),
   amountTotal: z.coerce.number().optional(),
   amount_deposit: z.coerce.number().optional(),
   amountDeposit: z.coerce.number().optional(),
+  // Server ignores this field (payment_status is webhook/admin-managed).
+  payment_status: z.string().optional(),
   meta: z.record(z.unknown()).optional(),
 });
 

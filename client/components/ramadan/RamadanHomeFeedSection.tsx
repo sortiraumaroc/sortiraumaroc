@@ -22,6 +22,7 @@ import { RAMADAN_OFFER_TYPE_LABELS } from "../../../shared/ramadanTypes";
 // =============================================================================
 
 type Props = {
+  city?: string | null;
   onReserve?: (offerId: string) => void;
 };
 
@@ -31,7 +32,7 @@ const TYPE_ORDER: RamadanOfferType[] = ["ftour", "shour", "traiteur", "pack_fami
 // Component
 // =============================================================================
 
-export function RamadanHomeFeedSection({ onReserve }: Props) {
+export function RamadanHomeFeedSection({ city, onReserve }: Props) {
   const [offers, setOffers] = useState<RamadanOfferWithEstablishment[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeType, setActiveType] = useState<RamadanOfferType | "all">("all");
@@ -44,7 +45,7 @@ export function RamadanHomeFeedSection({ onReserve }: Props) {
 
     (async () => {
       try {
-        const res = await listPublicRamadanOffers({ limit: 50 });
+        const res = await listPublicRamadanOffers({ limit: 50, city: city || undefined });
         if (!cancelled) setOffers(res.offers);
       } catch {
         // silent
@@ -54,7 +55,7 @@ export function RamadanHomeFeedSection({ onReserve }: Props) {
     })();
 
     return () => { cancelled = true; };
-  }, []);
+  }, [city]);
 
   // Track impressions (une seule fois par offre par session)
   const trackedRef = useRef(new Set<string>());

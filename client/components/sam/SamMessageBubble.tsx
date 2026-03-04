@@ -199,6 +199,12 @@ export function SamMessageBubble({ message, userLocation, onSpeak, onStopSpeakin
 
   const hasEstablishments = (message.establishments?.length ?? 0) > 0;
 
+  // Détecter si un tool de recherche a été appelé mais aucune carte n'est arrivée
+  const SEARCH_TOOL_NAMES = ["search_establishments", "get_trending", "surprise_me", "search_ramadan_offers"];
+  const expectedEstablishments =
+    !hasEstablishments &&
+    (message.toolsCalled?.some((t) => SEARCH_TOOL_NAMES.includes(t)) ?? false);
+
   // Rendu markdown mémorisé pour les messages assistant
   const renderedContent = useMemo(() => {
     if (isUser || !message.content) return null;
@@ -229,7 +235,14 @@ export function SamMessageBubble({ message, userLocation, onSpeak, onStopSpeakin
       >
         {/* Texte du message */}
         {message.isLoading && !message.content ? (
-          <SamTypingIndicator />
+          message.toolHint ? (
+            <div className="rounded-2xl rounded-bl-md bg-muted px-4 py-2.5 space-y-1">
+              <p className="text-xs text-muted-foreground animate-pulse">{message.toolHint}</p>
+              <SamTypingIndicator />
+            </div>
+          ) : (
+            <SamTypingIndicator />
+          )
         ) : message.isError ? (
           <div className="flex items-start gap-2 rounded-2xl rounded-bl-md bg-destructive/10 px-4 py-2.5 text-destructive">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -271,16 +284,26 @@ export function SamMessageBubble({ message, userLocation, onSpeak, onStopSpeakin
         ) : null}
 
         {/* Carrousel d'établissements */}
-        {message.establishments && message.establishments.length > 0 && (
+        {hasEstablishments ? (
           <div
             className="flex gap-2 overflow-x-auto scroll-smooth snap-x snap-mandatory pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           >
-            {message.establishments
+            {message.establishments!
               .filter((est): est is SamEstablishmentItem => est != null && est.id != null)
               .map((est) => (
                 <SamEstablishmentCard key={est.id} item={est} userLocation={userLocation} />
               ))}
           </div>
+        ) : (
+          /* Fallback : un tool de recherche a été appelé mais aucune carte n'est arrivée */
+          !message.isLoading &&
+          !isUser &&
+          message.content &&
+          expectedEstablishments && (
+            <div className="rounded-xl border border-dashed border-muted-foreground/30 px-3 py-2 text-xs text-muted-foreground">
+              Les résultats n'ont pas pu être chargés. Essaie de reformuler ta recherche.
+            </div>
+          )
         )}
       </div>
     </div>

@@ -1,8 +1,68 @@
 # SAM.ma — Todo
 
-## En cours : Deploiement Hardening Phases 17-20
+## Session 04/03/2026 — Pages legales, footer, admin content, pro, Sam chatbot, AddEstablishment
 
-### Fait (local)
+### Pages legales & Footer
+- [x] Ajouter hero banners aux pages legales (slugs dans `heroSlugs` de ContentPage.tsx)
+- [x] Supprimer 3 liens footer : Charte etablissements, Politique de remboursement, Politique anti no-show
+- [x] Reorganiser les liens footer : "Espace Prestataires" deplace vers colonne "Professionnels"
+
+### Admin Content Editor
+- [x] Fix erreur "Donnees invalides" dans l'editeur de contenu admin (schema Zod — z.union pour les blocks)
+- [x] Ajouter bouton de suppression pour les pages de contenu dans l'admin
+- [x] Migration SQL : vider `related_links` de la page A propos (`20260304_clear_about_related_links.sql`)
+
+### Page Pro (refonte)
+- [x] Rewrite complet de `ProPublicLanding.tsx` : pricing, features, FAQ
+- [x] Modification de la logique auth gate dans `ProAuthGate.tsx`
+- [x] Nouveau composant partage `DemoRequestDialog.tsx`
+
+### Sam chatbot (corrections)
+- [x] Fix bug "Decouvre-les en swipant" sans cartes restaurant affichees
+- [x] Cause racine : GPT hallucine "swipe" quand l'outil retourne 0 resultats + echecs SSE
+- [x] Server fix : Execution parallele des outils avec `Promise.all`, prefixe compteur de resultats pour guider GPT (`"AUCUN RESULTAT"`)
+- [x] Client fix : Ajout champs `toolHint` et `toolsCalled` a SamMessage, hints de chargement contextuels, fallback UI pour cartes manquantes
+- [x] Chatbot plus fluide/reactif grace a l'execution parallele et aux hints contextuels
+
+### Page AddEstablishment (UI)
+- [x] Fix visibilite texte sur dark theme : `bg-white text-slate-950`
+- [x] Retirer `max-w-2xl` de la photo hero pour alignement avec les stat cards
+- [x] Masquer le CTA hero sur desktop (`lg:hidden`), garde sur mobile
+- [x] Reduire taille sous-titre : `md:text-lg` → `md:text-base`
+- [x] Supprimer le badge "Visibilite + reservations toute l'annee" (icone Sparkles)
+- [x] Renommer "Pourquoi Sortir Au Maroc" → "Pourquoi SAM.ma"
+- [x] Raccourcir le sous-titre : retirer le prefixe "Une structure simple :"
+- [x] Augmenter tailles SectionTitle : kicker `text-xs` → `text-sm`, h2 `text-2xl md:text-3xl` → `text-3xl md:text-4xl`
+- [x] Remplacer icone QrCode par Briefcase sur le header du formulaire
+
+### AddEstablishmentLeadForm (compact mode)
+- [x] Ajouter prop `compact` pour hauteur reduite
+- [x] Mode compact : inputs h-10, spacing space-y-3, field gaps space-y-1, button h-10
+- [x] Padding formulaire reduit : `p-5 md:p-6` → `p-4 md:p-5`, `mt-5` → `mt-3`
+
+### Fichiers modifies (non commites)
+- `client/pages/AddEstablishment.tsx`
+- `client/components/marketing/AddEstablishmentLeadForm.tsx`
+- `client/hooks/useSam.ts`
+- `client/components/sam/SamMessageBubble.tsx`
+- `server/sam/chatEndpoint.ts`
+- `client/components/pro/ProPublicLanding.tsx`
+- `client/components/pro/ProAuthGate.tsx`
+- `client/components/DemoRequestDialog.tsx`
+- `client/components/Footer.tsx`
+- `client/pages/ContentPage.tsx`
+- `server/schemas/adminContent.ts`
+- `server/routes/adminContent.ts`
+- `server/routes/admin.ts`
+- `client/lib/adminApi.ts`
+- `client/pages/admin/AdminContentPage.tsx`
+- `server/migrations/20260304_clear_about_related_links.sql`
+
+---
+
+## Historique
+
+### Deploiement Hardening Phases 17-20 (fait)
 - [x] Phase 17 : Retrait `.passthrough()` de tous les schemas Zod
 - [x] Phase 18 : Rate limiting sur routes sensibles
 - [x] Phase 19 : `zQuery()` sur toutes les routes GET + fix `Object.defineProperty`
@@ -11,34 +71,20 @@
 - [x] Fix 5 bugs runtime post-refactoring (imports manquants, noms handlers, req.query getter)
 - [x] Build local OK (`pnpm run build`)
 
-### A faire (production)
+### A faire (production — hardening)
 - [ ] **Deployer `dist/` sur le serveur** : uploader `dist/server/node-build.mjs` + `dist/spa/` vers `/var/www/vhosts/sam.ma/httpdocs/dist/`
 - [ ] **Redemarrer Node.js** dans Plesk : Websites & Domains → sam.ma → Node.js → Restart App
 - [ ] **Verifier Sentry** : confirmer 0 nouvelles erreurs `TypeError` et `ReferenceError`
 - [ ] **Tester Apple Sign-In** : si toujours en echec apres deploiement, investiguer config OAuth dans Supabase dashboard
 
-## Corrections post-verification parcours client (24/02/2026)
-
-### Fait
-- [x] **Fix AuthWeakPasswordError** : Supabase retourne 422 pour mot de passe pwned → géré côté serveur + client avec traduction 5 langues
-- [x] **Fix 1 — PUBLIC_BASE_URL centralisé** : Créé `server/lib/publicBaseUrl.ts`, remplacé 3 fonctions dupliquées + 2 usages inline (6 fichiers modifiés)
-- [x] **Fix 2 — DialogTitle AuthModalV2** : Ajouté `<DialogTitle className="sr-only">` avec texte dynamique par étape → 0 warning Radix
-- [x] **Fix 3 — Ramadan 400 slugs** : Remplacé validation UUID stricte par `resolveEstablishmentId()` dans `ramadanPublic.ts`
-- [x] **Fix 5 — Codes vérification en DB** : Migration SQL appliquée, serveur génère les codes via `crypto.randomInt`, 3 Maps supprimées, rate-limiting en DB
-  - Migration : `20260224_email_verification_codes.sql` (2 tables + RLS)
-  - Serveur : `emailVerification.ts` réécrit (DB-based)
-  - Schema : `code` retiré de `emailSendCodeSchema`
-  - Client : `generateVerificationCode()` supprimé, `expectedCode` retiré du state
-- [x] **Fix 4 — Images catégories** : Déjà géré (fallback onError dans CategorySelector.tsx)
-
-### Vérification parcours client
-- [x] Homepage → Se connecter → AuthModalV2
-- [x] Reset password (token + weak password rejection)
-- [x] Login email/password
-- [x] Onboarding (prénom, nom, DOB 23/09/1980, Maroc, Tanger)
-- [x] Persistance profil après logout/login
-- [x] QR code affiché (TOTP 30s)
-- [x] Booking Steps 1-3 (pré-remplissage OK)
+### Corrections post-verification parcours client (24/02/2026) (fait)
+- [x] Fix AuthWeakPasswordError
+- [x] Fix PUBLIC_BASE_URL centralise
+- [x] Fix DialogTitle AuthModalV2
+- [x] Fix Ramadan 400 slugs
+- [x] Fix Codes verification en DB
+- [x] Fix Images categories (fallback onError)
+- [x] Verification parcours client complete
 
 ## Bugs connus en local (non-bloquants)
 - `/api/public/home` retourne 500 "Invalid API key" en dev → normal (pas de cles Supabase en local)

@@ -24,6 +24,10 @@ export interface SamMessage {
   isError?: boolean;
   mood?: SamMood;
   timestamp: number;
+  /** Indicateur contextuel affiché pendant l'exécution d'un tool (ex: "Sam cherche...") */
+  toolHint?: string;
+  /** Noms des tools appelés pendant ce message — pour diagnostiquer les cartes manquantes */
+  toolsCalled?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -127,7 +131,7 @@ export function useSam(universe?: string | null, establishmentId?: string | null
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantMsgId
-                ? { ...m, content: m.content + delta, isLoading: false }
+                ? { ...m, content: m.content + delta, isLoading: false, toolHint: undefined }
                 : m,
             ),
           );
@@ -149,12 +153,30 @@ export function useSam(universe?: string | null, establishmentId?: string | null
           );
         },
 
-        onToolCall: (_name, _args) => {
-          // Optionnel : montrer un indicateur "Sam cherche..."
+        onToolCall: (name, _args) => {
+          // Indicateur contextuel montrant ce que Sam fait
+          const TOOL_HINTS: Record<string, string> = {
+            search_establishments: "🔍 Sam cherche les meilleures adresses…",
+            get_trending: "🔥 Sam regarde les tendances du moment…",
+            surprise_me: "🎲 Sam prépare une surprise…",
+            check_availability: "📅 Sam vérifie les disponibilités…",
+            create_booking: "📝 Sam prépare la réservation…",
+            get_user_bookings: "📋 Sam consulte tes réservations…",
+            get_establishment_details: "🔎 Sam cherche les détails…",
+            get_establishment_reviews: "⭐ Sam consulte les avis…",
+            get_establishment_packs: "🎁 Sam regarde les offres…",
+            search_ramadan_offers: "🌙 Sam cherche les offres Ramadan…",
+            update_user_preferences: "🧠 Sam mémorise tes préférences…",
+          };
           setMessages((prev) =>
             prev.map((m) =>
-              m.id === assistantMsgId && !m.content
-                ? { ...m, isLoading: true }
+              m.id === assistantMsgId
+                ? {
+                    ...m,
+                    isLoading: true,
+                    toolHint: TOOL_HINTS[name] ?? "Sam réfléchit…",
+                    toolsCalled: [...(m.toolsCalled ?? []), name],
+                  }
                 : m,
             ),
           );
