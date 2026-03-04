@@ -31,7 +31,10 @@ export function formatPriceByType(
   priceType: PriceType | string | null | undefined,
   priceCents: number | null | undefined,
 ): string {
-  const effectiveType = (priceType as PriceType) ?? inferPriceType(priceCents);
+  // Rétrocompatibilité : "free" est un ancien default — inférer depuis le prix
+  const effectiveType = (!priceType || priceType === "free")
+    ? inferPriceType(priceCents)
+    : (priceType as PriceType);
   switch (effectiveType) {
     case "fixed":
       if (priceCents && priceCents > 0) {
@@ -46,9 +49,6 @@ export function formatPriceByType(
     case "a_la_carte":
       return "À la carte";
     case "nc":
-      return "NC";
-    // Rétrocompatibilité : "free" dans d'anciennes données → traiter comme NC
-    case "free" as string:
       return "NC";
     default:
       return "NC";

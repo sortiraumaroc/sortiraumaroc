@@ -1486,7 +1486,7 @@ export const adminUpsertSlots: RequestHandler = async (req, res) => {
 
   // Mettre à jour price_type via RPC (bypass cache PostgREST)
   const priceType = rows[0]?._price_type;
-  if (priceType && priceType !== "fixed") {
+  if (priceType) {
     try {
       const { error: rpcErr } = await supabase.rpc("update_slots_price_type", {
         p_establishment_id: establishmentId,
