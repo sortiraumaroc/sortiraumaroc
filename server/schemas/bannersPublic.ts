@@ -28,6 +28,8 @@ export const EligibleBannerQuery = z.object({
   trigger: z.string().optional(),
   page: z.string().optional(),
   session_id: z.string().optional(),
+  /** User's detected city for geographic targeting */
+  city: z.string().optional(),
   /** Comma-separated banner IDs to exclude (rotation) */
   exclude_ids: z.string().optional(),
 });

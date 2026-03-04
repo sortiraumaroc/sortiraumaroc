@@ -120,6 +120,8 @@ export interface BannerEligibilityContext {
   platform: "web" | "mobile";
   trigger: BannerTrigger;
   page?: string;
+  /** User's detected city (for geographic targeting) */
+  city?: string;
   /** Banner IDs to exclude (rotation: already shown recently) */
   excludeIds?: string[];
 }
@@ -186,6 +188,7 @@ export async function createBanner(input: CreateBannerInput): Promise<{ ok: bool
       end_date: input.end_date,
       priority: Math.max(LIMITS.BANNER_PRIORITY_MIN, Math.min(input.priority ?? 5, LIMITS.BANNER_PRIORITY_MAX)),
       platform: input.platform ?? "both",
+      target_cities: (input as any).target_cities ?? null,
       status: "draft" as BannerStatus,
       created_by: input.created_by ?? null,
     })
@@ -229,7 +232,7 @@ export async function updateBanner(
     "form_notify_email", "display_format", "animation", "overlay_color", "overlay_opacity",
     "close_behavior", "close_delay_seconds", "appear_delay_type", "appear_delay_value",
     "audience_type", "audience_filters", "trigger", "trigger_page", "frequency",
-    "start_date", "end_date", "priority", "platform",
+    "start_date", "end_date", "priority", "platform", "target_cities",
   ];
 
   for (const field of fields) {
@@ -314,6 +317,7 @@ export async function duplicateBanner(bannerId: string): Promise<{ ok: boolean; 
       end_date: orig.end_date,
       priority: orig.priority,
       platform: orig.platform,
+      target_cities: (orig as any).target_cities ?? null,
       status: "draft",
       created_by: orig.created_by,
       stats_impressions: 0,
@@ -444,6 +448,24 @@ export async function getEligibleBanner(
       }
     }
     // Anonymous users only see "all" banners
+  }
+
+  if (eligible.length === 0) return { ok: true };
+
+  // 4b. Geographic filter (target_cities)
+  if (context.city) {
+    const cityNorm = context.city.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    eligible = eligible.filter((banner) => {
+      const tc = (banner as any).target_cities as string[] | null;
+      if (!tc || tc.length === 0) return true; // No city filter → show everywhere
+      return tc.some((c) => c.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") === cityNorm);
+    });
+  } else {
+    // No city detected → only show banners without city targeting
+    eligible = eligible.filter((banner) => {
+      const tc = (banner as any).target_cities as string[] | null;
+      return !tc || tc.length === 0;
+    });
   }
 
   if (eligible.length === 0) return { ok: true };
@@ -651,6 +673,126 @@ export async function expireOldBanners(): Promise<{ expired: number }> {
   }
 
   return { expired: count };
+}
+
+// =============================================================================
+// Stats by city
+// =============================================================================
+
+export interface DailyCityStat {
+  date: string;
+  city: string;
+  views: number;
+  clicks: number;
+}
+
+export interface CitySummary {
+  city: string;
+  total_views: number;
+  total_clicks: number;
+  ctr: number;
+}
+
+/**
+ * Get banner stats broken down by day and city.
+ * Joins banner_views with consumer_users to get city info.
+ */
+export async function getBannerStatsByCity(
+  bannerId: string | null,
+  days: number = 30,
+): Promise<{ ok: boolean; daily?: DailyCityStat[]; summary?: CitySummary[]; error?: string }> {
+  const supabase = getAdminSupabase();
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  // 1. Fetch banner_views for the period
+  let viewsQuery = supabase
+    .from("banner_views")
+    .select("user_id, action, created_at")
+    .gte("created_at", since)
+    .in("action", ["view", "click"])
+    .order("created_at", { ascending: true })
+    .limit(50000);
+
+  if (bannerId) {
+    viewsQuery = viewsQuery.eq("banner_id", bannerId);
+  }
+
+  const { data: views, error: viewsErr } = await viewsQuery;
+  if (viewsErr) {
+    log.error({ err: viewsErr.message }, "getBannerStatsByCity views error");
+    return { ok: false, error: viewsErr.message };
+  }
+
+  if (!views || views.length === 0) {
+    return { ok: true, daily: [], summary: [] };
+  }
+
+  // 2. Get unique user_ids and fetch their cities
+  const userIds = [...new Set(
+    (views as { user_id: string | null }[])
+      .map((v) => v.user_id)
+      .filter(Boolean) as string[]
+  )];
+
+  const userCityMap = new Map<string, string>();
+  if (userIds.length > 0) {
+    // Batch fetch in chunks of 1000
+    for (let i = 0; i < userIds.length; i += 1000) {
+      const batch = userIds.slice(i, i + 1000);
+      const { data: users } = await supabase
+        .from("consumer_users")
+        .select("id, city")
+        .in("id", batch);
+
+      if (users) {
+        for (const u of users as { id: string; city: string | null }[]) {
+          if (u.city) userCityMap.set(u.id, u.city);
+        }
+      }
+    }
+  }
+
+  // 3. Aggregate by date + city
+  const dailyMap = new Map<string, { views: number; clicks: number }>();
+  const summaryMap = new Map<string, { views: number; clicks: number }>();
+
+  for (const v of views as { user_id: string | null; action: string; created_at: string }[]) {
+    const date = v.created_at.slice(0, 10); // "YYYY-MM-DD"
+    const city = v.user_id ? (userCityMap.get(v.user_id) ?? "Inconnu") : "Inconnu";
+    const key = `${date}|${city}`;
+
+    if (!dailyMap.has(key)) dailyMap.set(key, { views: 0, clicks: 0 });
+    const entry = dailyMap.get(key)!;
+
+    if (v.action === "view") entry.views++;
+    else if (v.action === "click") entry.clicks++;
+
+    if (!summaryMap.has(city)) summaryMap.set(city, { views: 0, clicks: 0 });
+    const sum = summaryMap.get(city)!;
+    if (v.action === "view") sum.views++;
+    else if (v.action === "click") sum.clicks++;
+  }
+
+  // 4. Convert to arrays
+  const daily: DailyCityStat[] = [];
+  for (const [key, val] of dailyMap) {
+    const [date, city] = key.split("|");
+    daily.push({ date, city, views: val.views, clicks: val.clicks });
+  }
+  daily.sort((a, b) => a.date.localeCompare(b.date));
+
+  const summary: CitySummary[] = [];
+  for (const [city, val] of summaryMap) {
+    summary.push({
+      city,
+      total_views: val.views,
+      total_clicks: val.clicks,
+      ctr: val.views > 0 ? Math.round((val.clicks / val.views) * 10000) / 100 : 0,
+    });
+  }
+  summary.sort((a, b) => b.total_views - a.total_views);
+
+  return { ok: true, daily, summary };
 }
 
 // =============================================================================

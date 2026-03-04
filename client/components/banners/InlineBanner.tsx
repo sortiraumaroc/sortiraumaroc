@@ -8,6 +8,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { getConsumerAccessToken } from "@/lib/auth";
+import { useDetectedCity } from "@/hooks/useDetectedCity";
 
 interface InlineBannerData {
   id: string;
@@ -27,7 +28,7 @@ interface InlineBannerProps {
   className?: string;
 }
 
-async function fetchInlineBanner(page: string, slot: string): Promise<InlineBannerData | null> {
+async function fetchInlineBanner(page: string, slot: string, city?: string): Promise<InlineBannerData | null> {
   try {
     const token = await getConsumerAccessToken();
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -39,6 +40,7 @@ async function fetchInlineBanner(page: string, slot: string): Promise<InlineBann
       trigger: "on_page",
       slot,
     });
+    if (city) params.set("city", city);
 
     const res = await fetch(`/api/banners/eligible?${params.toString()}`, { headers });
     if (!res.ok) return null;
@@ -69,13 +71,14 @@ async function trackEvent(bannerId: string, event: "view" | "click"): Promise<vo
 export function InlineBanner({ slot, page, className }: InlineBannerProps) {
   const [banner, setBanner] = useState<InlineBannerData | null>(null);
   const [tracked, setTracked] = useState(false);
+  const { city: detectedCity } = useDetectedCity();
 
   useEffect(() => {
     const currentPage = page || window.location.pathname;
-    void fetchInlineBanner(currentPage, slot).then((b) => {
+    void fetchInlineBanner(currentPage, slot, detectedCity ?? undefined).then((b) => {
       if (b?.id) setBanner(b);
     });
-  }, [page, slot]);
+  }, [page, slot, detectedCity]);
 
   // Track view on mount
   useEffect(() => {

@@ -83,6 +83,7 @@ async function getEligibleBannerHandler(req: Request, res: Response) {
     const trigger = asString(req.query.trigger);
     const page = asString(req.query.page);
     const sessionId = asString(req.query.session_id);
+    const cityParam = asString(req.query.city);
     const excludeIdsRaw = asString(req.query.exclude_ids);
 
     // Parse comma-separated exclude IDs for banner rotation
@@ -90,12 +91,27 @@ async function getEligibleBannerHandler(req: Request, res: Response) {
       ? excludeIdsRaw.split(",").map((s) => s.trim()).filter(Boolean)
       : undefined;
 
+    // Resolve user city: from query param, or from authenticated user profile
+    let city = cityParam;
+    if (!city && userId) {
+      const supabase = getAdminSupabase();
+      const { data: userRow } = await supabase
+        .from("consumer_users")
+        .select("city")
+        .eq("id", userId)
+        .single();
+      if (userRow && (userRow as { city: string | null }).city) {
+        city = (userRow as { city: string | null }).city!;
+      }
+    }
+
     const banner = await getEligibleBanner({
-      userId,
+      userId: userId ?? undefined,
       platform: (platform === "mobile" ? "mobile" : "web") as "web" | "mobile",
       trigger: (trigger ?? "on_app_open") as import("../../shared/notificationsBannersWheelTypes").BannerTrigger,
       page: page ?? undefined,
       sessionId: sessionId ?? "anonymous",
+      city: city ?? undefined,
       excludeIds,
     });
 
@@ -172,7 +188,7 @@ async function submitBannerForm(req: Request, res: Response) {
 
     const result = await submitFormResponse(bannerId, userId, body);
 
-    res.json({ ok: true, ...result });
+    res.json({ ...result, ok: true });
   } catch (err) {
     log.error({ err }, "submitBannerForm error");
     res.status(500).json({ error: "internal_error" });

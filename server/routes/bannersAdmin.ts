@@ -26,6 +26,7 @@ import {
   pauseBanner,
   disableBanner,
   getBannerStats,
+  getBannerStatsByCity,
 } from "../bannerLogic";
 import { exportFormResponses } from "../bannerFormLogic";
 import { auditAdminAction } from "../auditLogV2";
@@ -448,11 +449,42 @@ async function listBannerViews(req: Request, res: Response) {
   }
 }
 
+// 13. GET /api/admin/banners/stats/by-city
+async function getStatsByCity(req: Request, res: Response) {
+  try {
+    if (!requireAdminKey(req, res)) return;
+
+    const days = Math.min(90, Math.max(1, parseInt(String(req.query.days ?? "30"))));
+    const bannerId = typeof req.query.banner_id === "string" && req.query.banner_id.trim()
+      ? req.query.banner_id.trim()
+      : null;
+
+    if (bannerId && !isValidUUID(bannerId)) {
+      res.status(400).json({ error: "Invalid banner_id" });
+      return;
+    }
+
+    const result = await getBannerStatsByCity(bannerId, days);
+
+    if (!result.ok) {
+      res.status(500).json({ error: (result as any).error });
+      return;
+    }
+
+    res.json({ ok: true, daily: result.daily, summary: result.summary });
+  } catch (err) {
+    log.error({ err }, "getStatsByCity error");
+    res.status(500).json({ error: "internal_error" });
+  }
+}
+
 // =============================================================================
 // Route registration
 // =============================================================================
 
 export function registerBannerAdminRoutes(app: Router): void {
+  // Stats by city must be before :id routes to avoid path conflict
+  app.get("/api/admin/banners/stats/by-city", bannerAdminRateLimiter, getStatsByCity);
   app.get("/api/admin/banners", bannerAdminRateLimiter, zQuery(ListBannersQuery), listBanners);
   app.get("/api/admin/banners/:id", zParams(zIdParam), bannerAdminRateLimiter, getBanner);
   app.post("/api/admin/banners", bannerAdminRateLimiter, zBody(BannerCreateSchema), createBannerRoute);

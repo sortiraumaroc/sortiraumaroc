@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Image, Play, FormInput, Layers, Timer, Type,
   Plus, Copy, Pause, Power, BarChart3, Edit,
-  RefreshCw, Loader2, Upload,
+  RefreshCw, Loader2, Upload, MapPin,
   X, Download, Monitor, Smartphone, Globe,
   Filter, CheckCircle, XCircle,
 } from "lucide-react";
@@ -31,6 +31,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Legend, Cell,
+} from "recharts";
 
 // =============================================================================
 // Types
@@ -41,7 +44,7 @@ type BannerStatus = "draft" | "active" | "paused" | "expired" | "disabled";
 type DisplayFormat = "top_bar" | "popup_center" | "popup_bottom" | "slide_in" | "fullscreen" | "floating";
 type AnimationType = "none" | "fade" | "slide_up" | "slide_down" | "slide_left" | "slide_right" | "scale" | "bounce";
 type AudienceType = "all" | "segment";
-type TriggerType = "on_load" | "on_scroll" | "on_exit_intent" | "on_page" | "after_delay" | "on_click";
+type TriggerType = "on_load" | "on_scroll" | "on_exit_intent" | "on_page" | "after_delay" | "on_click" | "on_app_open";
 type FrequencyType = "always" | "once_per_session" | "once_per_day" | "once_per_week" | "once_ever";
 type PlatformType = "web" | "mobile" | "both";
 type CloseBehavior = "click_x" | "click_outside" | "auto_close" | "no_close";
@@ -86,6 +89,7 @@ interface Banner {
   countdown_target: string | null;
   form_fields: FormField[] | null;
   audience_type: AudienceType;
+  target_cities: string[] | null;
   trigger: TriggerType;
   trigger_page: string | null;
   frequency: FrequencyType;
@@ -223,6 +227,18 @@ const FREQUENCY_OPTIONS: { value: FrequencyType; label: string }[] = [
   { value: "once_ever", label: "1 seule fois" },
 ];
 
+const CITIES_OPTIONS = [
+  "Casablanca", "Rabat", "Marrakech", "Tanger", "Fès", "Agadir",
+  "Meknès", "Oujda", "Kénitra", "Essaouira", "El Jadida", "Tétouan",
+  "Mohammédia", "Salé", "Nador", "Beni Mellal",
+];
+
+const CITY_COLORS = [
+  "#a3001d", "#2563eb", "#16a34a", "#d97706", "#7c3aed", "#0891b2",
+  "#dc2626", "#4f46e5", "#059669", "#ca8a04", "#9333ea", "#0284c7",
+  "#e11d48", "#6366f1", "#10b981", "#eab308",
+];
+
 function getEmptyBanner(): Omit<Banner, "id" | "impressions" | "clicks" | "closes" | "form_submissions" | "created_at" | "updated_at"> {
   return {
     internal_name: "",
@@ -249,6 +265,7 @@ function getEmptyBanner(): Omit<Banner, "id" | "impressions" | "clicks" | "close
     countdown_target: null,
     form_fields: null,
     audience_type: "all",
+    target_cities: [] as string[],
     trigger: "on_load",
     trigger_page: null,
     frequency: "once_per_session",
@@ -380,6 +397,13 @@ function BannersListTab({
                         {banner.platform === "both" && <Globe className="h-3 w-3" />}
                         {banner.platform === "web" ? "Web" : banner.platform === "mobile" ? "Mobile" : "Web + Mobile"}
                       </span>
+                      {banner.target_cities && banner.target_cities.length > 0 && (
+                        <span className="inline-flex items-center gap-1">
+                          <MapPin className="h-3 w-3" />
+                          {banner.target_cities.slice(0, 3).join(", ")}
+                          {banner.target_cities.length > 3 && ` +${banner.target_cities.length - 3}`}
+                        </span>
+                      )}
                       {banner.start_date && <span>Du {formatDate(banner.start_date)}</span>}
                       {banner.end_date && <span>au {formatDate(banner.end_date)}</span>}
                     </div>
@@ -552,6 +576,7 @@ function BannerForm({
       ...form,
       carousel_slides: form.type === "carousel" ? safeJsonParse(carouselJson) : null,
       form_fields: form.type === "form" ? safeJsonParse(formFieldsJson) : null,
+      target_cities: (form.target_cities ?? []).length > 0 ? form.target_cities : null,
       status,
     };
     onSave(payload, status);
@@ -813,6 +838,49 @@ function BannerForm({
             <Input value={form.trigger_page || ""} onChange={(e) => update("trigger_page", e.target.value)} placeholder="/restaurants" className="h-9 text-sm" />
           </div>
         )}
+        {/* Geographic targeting — city multi-select */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <MapPin className="h-3.5 w-3.5 text-slate-400" />
+            <Label className="text-xs">Villes ciblées</Label>
+            <span className="text-[10px] text-slate-400">(vide = toutes les villes)</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {CITIES_OPTIONS.map((city) => {
+              const selected = (form.target_cities ?? []).includes(city);
+              return (
+                <button
+                  key={city}
+                  type="button"
+                  onClick={() => {
+                    const current = form.target_cities ?? [];
+                    const next = selected
+                      ? current.filter((c) => c !== city)
+                      : [...current, city];
+                    update("target_cities", next);
+                  }}
+                  className={cn(
+                    "h-7 px-2.5 rounded-full text-xs font-medium border transition",
+                    selected
+                      ? "bg-[#a3001d] text-white border-[#a3001d]"
+                      : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100",
+                  )}
+                >
+                  {city}
+                </button>
+              );
+            })}
+          </div>
+          {(form.target_cities ?? []).length > 0 && (
+            <button
+              type="button"
+              onClick={() => update("target_cities", [])}
+              className="text-[10px] text-slate-400 hover:text-slate-600 underline"
+            >
+              Tout deselectionner
+            </button>
+          )}
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
           <div className="space-y-1.5">
             <Label className="text-xs">Date debut</Label>
@@ -867,6 +935,9 @@ function safeJsonParse(str: string): any {
 // Tab 3: Stats & Form responses
 // =============================================================================
 
+interface DailyCityStat { date: string; city: string; views: number; clicks: number }
+interface CitySummary { city: string; total_views: number; total_clicks: number; ctr: number }
+
 function StatsTab({
   banners,
   loading,
@@ -877,6 +948,10 @@ function StatsTab({
   const [selectedBannerId, setSelectedBannerId] = useState<string | null>(null);
   const [responses, setResponses] = useState<FormResponse[]>([]);
   const [responsesLoading, setResponsesLoading] = useState(false);
+  const [cityDays, setCityDays] = useState<number>(30);
+  const [cityDaily, setCityDaily] = useState<DailyCityStat[]>([]);
+  const [citySummary, setCitySummary] = useState<CitySummary[]>([]);
+  const [cityLoading, setCityLoading] = useState(false);
 
   const selectedBanner = useMemo(() => banners.find((b) => b.id === selectedBannerId) || null, [banners, selectedBannerId]);
 
@@ -899,6 +974,29 @@ function StatsTab({
       setResponses([]);
     }
   }, [selectedBannerId, selectedBanner, fetchResponses]);
+
+  // Fetch city stats
+  const fetchCityStats = useCallback(async (days: number) => {
+    setCityLoading(true);
+    try {
+      const params = new URLSearchParams({ days: String(days) });
+      if (selectedBannerId) params.set("banner_id", selectedBannerId);
+      const data = await adminFetch<{ daily: DailyCityStat[]; summary: CitySummary[] }>(
+        `/api/admin/banners/stats/by-city?${params.toString()}`
+      );
+      setCityDaily(data.daily ?? []);
+      setCitySummary(data.summary ?? []);
+    } catch {
+      setCityDaily([]);
+      setCitySummary([]);
+    } finally {
+      setCityLoading(false);
+    }
+  }, [selectedBannerId]);
+
+  useEffect(() => {
+    fetchCityStats(cityDays);
+  }, [cityDays, fetchCityStats]);
 
   const exportCsv = useCallback(() => {
     if (!responses.length || !selectedBanner) return;
@@ -1060,6 +1158,109 @@ function StatsTab({
           </div>
         </div>
       )}
+
+      {/* === City stats section === */}
+      <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <MapPin className="h-4 w-4 text-[#a3001d]" />
+            <h4 className="text-sm font-bold text-slate-900">Statistiques par ville</h4>
+          </div>
+          <div className="flex items-center gap-2">
+            {[7, 14, 30].map((d) => (
+              <button
+                key={d}
+                onClick={() => setCityDays(d)}
+                className={cn(
+                  "h-7 px-2.5 rounded-md text-xs font-medium border transition",
+                  cityDays === d
+                    ? "bg-[#a3001d] text-white border-[#a3001d]"
+                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100",
+                )}
+              >
+                {d}j
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {cityLoading ? (
+          <div className="py-12 flex justify-center"><Loader2 className="h-5 w-5 animate-spin text-slate-400" /></div>
+        ) : citySummary.length === 0 ? (
+          <div className="py-12 text-center text-xs text-slate-400">Aucune donnee pour cette periode</div>
+        ) : (
+          <>
+            {/* Bar chart — daily views by city */}
+            <div className="px-4 pt-4 pb-2">
+              <p className="text-xs font-medium text-slate-500 mb-2">Impressions par jour et par ville</p>
+              <div className="h-[260px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={(() => {
+                    // Pivot daily data: { date, Casablanca: N, Rabat: N, ... }
+                    const dateMap = new Map<string, Record<string, number>>();
+                    for (const d of cityDaily) {
+                      if (!dateMap.has(d.date)) dateMap.set(d.date, {});
+                      dateMap.get(d.date)![d.city] = d.views;
+                    }
+                    return Array.from(dateMap.entries())
+                      .sort(([a], [b]) => a.localeCompare(b))
+                      .map(([date, cities]) => ({ date: date.slice(5), ...cities }));
+                  })()} margin={{ left: 0, right: 10, top: 5, bottom: 5 }}>
+                    <XAxis dataKey="date" stroke="#94a3b8" fontSize={10} tickLine={false} />
+                    <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} />
+                    <Tooltip
+                      contentStyle={{ fontSize: 11, borderRadius: 8 }}
+                      labelFormatter={(label) => `Date: ${label}`}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 10 }} />
+                    {citySummary.slice(0, 10).map((cs, i) => (
+                      <Bar
+                        key={cs.city}
+                        dataKey={cs.city}
+                        stackId="views"
+                        fill={CITY_COLORS[i % CITY_COLORS.length]}
+                        radius={i === citySummary.slice(0, 10).length - 1 ? [2, 2, 0, 0] : undefined}
+                      />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Summary table */}
+            <div className="overflow-x-auto border-t border-slate-100">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-slate-100 text-start">
+                    <th className="px-4 py-2.5 font-semibold text-slate-500">Ville</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-500 text-end">Impressions</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-500 text-end">Clics</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-500 text-end">CTR</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {citySummary.map((cs, i) => (
+                    <tr key={cs.city} className="border-b border-slate-50 hover:bg-slate-50">
+                      <td className="px-4 py-2.5 font-medium text-slate-900">
+                        <span className="inline-flex items-center gap-1.5">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: CITY_COLORS[i % CITY_COLORS.length] }}
+                          />
+                          {cs.city}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-end tabular-nums">{cs.total_views.toLocaleString()}</td>
+                      <td className="px-4 py-2.5 text-end tabular-nums">{cs.total_clicks.toLocaleString()}</td>
+                      <td className="px-4 py-2.5 text-end tabular-nums font-semibold">{cs.ctr.toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

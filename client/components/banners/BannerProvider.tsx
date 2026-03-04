@@ -15,12 +15,14 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
   type ReactNode,
 } from "react";
 import { useLocation } from "react-router-dom";
 import { getConsumerAccessToken } from "@/lib/auth";
 import { AUTH_CHANGED_EVENT } from "@/lib/auth";
 import { BannerRenderer } from "./BannerRenderer";
+import { useDetectedCity } from "@/hooks/useDetectedCity";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -142,7 +144,7 @@ function getOrCreateSessionId(): string {
 // API helpers
 // ---------------------------------------------------------------------------
 
-async function fetchEligibleBanner(page?: string, excludeIds?: string[]): Promise<Banner | null> {
+async function fetchEligibleBanner(page?: string, excludeIds?: string[], city?: string): Promise<Banner | null> {
   try {
     const token = await getConsumerAccessToken();
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -153,6 +155,9 @@ async function fetchEligibleBanner(page?: string, excludeIds?: string[]): Promis
       params.set("page", page);
     } else {
       params.set("trigger", "on_app_open");
+    }
+    if (city) {
+      params.set("city", city);
     }
     if (excludeIds && excludeIds.length > 0) {
       params.set("exclude_ids", excludeIds.join(","));
@@ -260,22 +265,27 @@ export function BannerProvider({ children }: { children: ReactNode }) {
   const [currentBanner, setCurrentBanner] = useState<Banner | null>(null);
   const [sessionId] = useState<string>(getOrCreateSessionId);
   const location = useLocation();
+  const { city: detectedCity } = useDetectedCity();
+  const detectedCityRef = useRef(detectedCity);
+  detectedCityRef.current = detectedCity;
 
   // Load eligible banner with rotation support
   const loadBanner = useCallback(async (page?: string) => {
     // Only 1 banner per page load (prevents re-showing on SPA navigation)
     if (sessionStorage.getItem(BANNER_SHOWN_THIS_LOAD)) return;
 
+    const city = detectedCityRef.current ?? undefined;
+
     // Get previously shown IDs for rotation
     const shownIds = getShownBannerIds();
 
     // Try to get a banner excluding already-shown ones
-    let banner = await fetchEligibleBanner(page, shownIds);
+    let banner = await fetchEligibleBanner(page, shownIds, city);
 
     // If no banner found with exclusions, reset rotation and try again
     if (!banner?.id && shownIds.length > 0) {
       resetRotation();
-      banner = await fetchEligibleBanner(page);
+      banner = await fetchEligibleBanner(page, undefined, city);
     }
 
     if (!banner?.id) return;
@@ -298,6 +308,13 @@ export function BannerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void loadBanner(location.pathname);
   }, [location.pathname, loadBanner]);
+
+  // Re-fetch when city detection completes (to show city-targeted banners)
+  useEffect(() => {
+    if (detectedCity) {
+      void loadBanner(location.pathname);
+    }
+  }, [detectedCity, loadBanner, location.pathname]);
 
   // Re-fetch on auth change (login / logout)
   useEffect(() => {
