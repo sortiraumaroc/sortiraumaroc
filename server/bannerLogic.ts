@@ -120,6 +120,8 @@ export interface BannerEligibilityContext {
   platform: "web" | "mobile";
   trigger: BannerTrigger;
   page?: string;
+  /** Banner IDs to exclude (rotation: already shown recently) */
+  excludeIds?: string[];
 }
 
 export interface BannerStats {
@@ -408,6 +410,11 @@ export async function getEligibleBanner(
     query = query.or(`trigger.eq.on_app_open,and(trigger.eq.on_page,trigger_page.eq.${context.page})`);
   } else {
     query = query.eq("trigger", context.trigger);
+  }
+
+  // 3b. Exclude already-shown banners (rotation)
+  if (context.excludeIds && context.excludeIds.length > 0) {
+    query = query.not("id", "in", `(${context.excludeIds.join(",")})`);
   }
 
   // Sort by priority DESC

@@ -142,7 +142,7 @@ function getOrCreateSessionId(): string {
 // API helpers
 // ---------------------------------------------------------------------------
 
-async function fetchEligibleBanner(page?: string): Promise<Banner | null> {
+async function fetchEligibleBanner(page?: string, excludeIds?: string[]): Promise<Banner | null> {
   try {
     const token = await getConsumerAccessToken();
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -153,6 +153,9 @@ async function fetchEligibleBanner(page?: string): Promise<Banner | null> {
       params.set("page", page);
     } else {
       params.set("trigger", "on_app_open");
+    }
+    if (excludeIds && excludeIds.length > 0) {
+      params.set("exclude_ids", excludeIds.join(","));
     }
 
     const res = await fetch(`/api/banners/eligible?${params.toString()}`, { headers });
@@ -205,29 +208,85 @@ async function postBannerFormSubmission(
 }
 
 // ---------------------------------------------------------------------------
+// Rotation — track which banners have been shown recently
+// ---------------------------------------------------------------------------
+
+const ROTATION_KEY = "banner_rotation_shown";
+const ROTATION_MAX_AGE_MS = 24 * 60 * 60 * 1000; // Reset rotation every 24h
+
+function getShownBannerIds(): string[] {
+  try {
+    const raw = localStorage.getItem(ROTATION_KEY);
+    if (!raw) return [];
+    const data = JSON.parse(raw) as { ids: string[]; ts: number };
+    // Reset rotation if older than 24h
+    if (Date.now() - data.ts > ROTATION_MAX_AGE_MS) {
+      localStorage.removeItem(ROTATION_KEY);
+      return [];
+    }
+    return data.ids;
+  } catch {
+    return [];
+  }
+}
+
+function addShownBannerId(bannerId: string): void {
+  try {
+    const existing = getShownBannerIds();
+    if (!existing.includes(bannerId)) {
+      existing.push(bannerId);
+    }
+    localStorage.setItem(ROTATION_KEY, JSON.stringify({ ids: existing, ts: Date.now() }));
+  } catch {
+    // ignore
+  }
+}
+
+function resetRotation(): void {
+  try {
+    localStorage.removeItem(ROTATION_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Provider
 // ---------------------------------------------------------------------------
 
-const BANNER_SHOWN_KEY = "banner_shown_this_session";
+const BANNER_SHOWN_THIS_LOAD = "banner_shown_this_load";
 
 export function BannerProvider({ children }: { children: ReactNode }) {
   const [currentBanner, setCurrentBanner] = useState<Banner | null>(null);
   const [sessionId] = useState<string>(getOrCreateSessionId);
   const location = useLocation();
 
-  // Load eligible banner
+  // Load eligible banner with rotation support
   const loadBanner = useCallback(async (page?: string) => {
-    // Max 1 banner per session
-    if (sessionStorage.getItem(BANNER_SHOWN_KEY)) return;
+    // Only 1 banner per page load (prevents re-showing on SPA navigation)
+    if (sessionStorage.getItem(BANNER_SHOWN_THIS_LOAD)) return;
 
-    const banner = await fetchEligibleBanner(page);
+    // Get previously shown IDs for rotation
+    const shownIds = getShownBannerIds();
+
+    // Try to get a banner excluding already-shown ones
+    let banner = await fetchEligibleBanner(page, shownIds);
+
+    // If no banner found with exclusions, reset rotation and try again
+    if (!banner?.id && shownIds.length > 0) {
+      resetRotation();
+      banner = await fetchEligibleBanner(page);
+    }
+
     if (!banner?.id) return;
 
-    // Check frequency cap
+    // Check frequency cap (dismiss cooldown)
     if (isDismissed(banner.id, banner.frequency)) return;
 
+    // Track rotation + show
+    addShownBannerId(banner.id);
     setCurrentBanner(banner);
-    sessionStorage.setItem(BANNER_SHOWN_KEY, "1");
+    sessionStorage.setItem(BANNER_SHOWN_THIS_LOAD, "1");
   }, []);
 
   // Fetch on mount with current page

@@ -83,6 +83,12 @@ async function getEligibleBannerHandler(req: Request, res: Response) {
     const trigger = asString(req.query.trigger);
     const page = asString(req.query.page);
     const sessionId = asString(req.query.session_id);
+    const excludeIdsRaw = asString(req.query.exclude_ids);
+
+    // Parse comma-separated exclude IDs for banner rotation
+    const excludeIds = excludeIdsRaw
+      ? excludeIdsRaw.split(",").map((s) => s.trim()).filter(Boolean)
+      : undefined;
 
     const banner = await getEligibleBanner({
       userId,
@@ -90,6 +96,7 @@ async function getEligibleBannerHandler(req: Request, res: Response) {
       trigger: (trigger ?? "on_app_open") as import("../../shared/notificationsBannersWheelTypes").BannerTrigger,
       page: page ?? undefined,
       sessionId: sessionId ?? "anonymous",
+      excludeIds,
     });
 
     res.json({ ok: true, banner });
