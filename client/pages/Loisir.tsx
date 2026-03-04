@@ -32,6 +32,7 @@ import { formatDistanceBetweenCoords } from "@/lib/geo";
 import { getPublicEstablishment } from "@/lib/publicApi";
 import { isAuthed, openAuthModal } from "@/lib/auth";
 import { ReportEstablishmentDialog } from "@/components/ReportEstablishmentDialog";
+import { InlineBanner } from "@/components/banners/InlineBanner";
 import { applySeo, clearJsonLd, setJsonLd, generateLocalBusinessSchema, generateBreadcrumbSchema, hoursToOpeningHoursSpecification, buildI18nSeoFields } from "@/lib/seo";
 import { useI18n } from "@/lib/i18n";
 
@@ -865,6 +866,8 @@ export default function Loisir() {
               </div>
             </section>
 
+            <InlineBanner slot="establishment_slot_1" />
+
             <section>
               <h2 className="text-xl font-bold mb-4">Point de rendez-vous</h2>
               <p className="text-slate-700 leading-relaxed">{data.meetingPoint}</p>
@@ -965,6 +968,9 @@ export default function Loisir() {
           <h2 className="text-xl font-bold">Horaires</h2>
           <OpeningHoursBlock legacyHours={data.hours} />
         </section>
+
+        {/* Bannière interne — entre Horaires et Carte */}
+        <InlineBanner slot="establishment_slot_2" />
 
         <section id="section-carte" data-tab="carte" className="scroll-mt-28 space-y-4">
           <h2 className="text-xl font-bold mb-4">Localisation</h2>

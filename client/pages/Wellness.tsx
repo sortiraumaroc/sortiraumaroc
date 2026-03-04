@@ -33,6 +33,7 @@ import { getPublicEstablishment } from "@/lib/publicApi";
 import { useI18n } from "@/lib/i18n";
 import { isAuthed, openAuthModal } from "@/lib/auth";
 import { ReportEstablishmentDialog } from "@/components/ReportEstablishmentDialog";
+import { InlineBanner } from "@/components/banners/InlineBanner";
 import { applySeo, clearJsonLd, setJsonLd, generateLocalBusinessSchema, generateBreadcrumbSchema, hoursToOpeningHoursSpecification, buildI18nSeoFields } from "@/lib/seo";
 
 type Review = {
@@ -769,6 +770,8 @@ export default function Wellness() {
             </div>
           </section>
 
+          <InlineBanner slot="establishment_slot_1" />
+
           <section>
             <h2 className="text-xl font-bold mb-4">Informations pratiques</h2>
             <div className="space-y-4">
@@ -864,6 +867,9 @@ export default function Wellness() {
         <section id="section-horaires" data-tab="horaires" className="scroll-mt-28 space-y-6">
           <OpeningHoursBlock legacyHours={data.hours} />
         </section>
+
+        {/* Bannière interne — entre Horaires et Carte */}
+        <InlineBanner slot="establishment_slot_2" />
 
         <section id="section-carte" data-tab="carte" className="scroll-mt-28 space-y-4">
           <h2 className="text-xl font-bold mb-4">Localisation</h2>

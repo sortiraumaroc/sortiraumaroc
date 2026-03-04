@@ -32,6 +32,7 @@ import { createRng, makeImageSet, makePhoneMa, makeWebsiteUrl, nextDaysYmd, pick
 import { cn } from "@/lib/utils";
 import { isAuthed, openAuthModal } from "@/lib/auth";
 import { ReportEstablishmentDialog } from "@/components/ReportEstablishmentDialog";
+import { InlineBanner } from "@/components/banners/InlineBanner";
 import { applySeo, clearJsonLd, setJsonLd, generateLocalBusinessSchema, generateBreadcrumbSchema, buildI18nSeoFields } from "@/lib/seo";
 import { useI18n } from "@/lib/i18n";
 
@@ -661,6 +662,8 @@ export default function Culture() {
               </div>
             </section>
 
+            <InlineBanner slot="establishment_slot_1" />
+
             <section>
               <h2 className="text-xl font-bold mb-4">Informations pratiques</h2>
               <div className="space-y-4">
@@ -786,6 +789,9 @@ export default function Culture() {
             </div>
           </div>
         </section>
+
+        {/* Bannière interne — entre Horaires et Carte */}
+        <InlineBanner slot="establishment_slot_2" />
 
         <section id="section-carte" data-tab="carte" className="scroll-mt-28">
           <div className="space-y-4">

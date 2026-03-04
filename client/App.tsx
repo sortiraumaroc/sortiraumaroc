@@ -598,6 +598,7 @@ function AppContent() {
       <PlatformSettingsProvider>
         <BookingProvider>
           <BannerProvider>
+          <PushNotificationPrompt />
           <Suspense fallback={<PageLoading />}>
           <Routes>
             {/* Partner Portal Routes */}
@@ -769,7 +770,6 @@ function AppContent() {
           <Toaster />
           <NavigationResumeToast />
           <CookieConsent />
-          <PushNotificationPrompt />
           <PushForegroundToast />
           <UnifiedFAB />
           </BannerProvider>

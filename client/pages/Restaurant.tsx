@@ -64,6 +64,7 @@ import { ClaimEstablishmentDialog } from "@/components/ClaimEstablishmentDialog"
 import { CeAdvantageSection } from "@/components/ce/CeAdvantageSection";
 import { EstablishmentRamadanTab, useHasRamadanOffers } from "@/components/establishment/EstablishmentRamadanTab";
 import DisplayBannerAd from "@/components/ads/DisplayBannerAd";
+import { InlineBanner } from "@/components/banners/InlineBanner";
 import { Moon } from "lucide-react";
 
 interface RestaurantReview {
@@ -1914,6 +1915,9 @@ export default function Restaurant() {
             city={restaurant.city ?? undefined}
           />
 
+          {/* Bannière interne — entre Points forts et Informations pratiques */}
+          <InlineBanner slot="establishment_slot_1" />
+
           <section>
             <h3 className="text-lg font-extrabold text-foreground mb-3">Informations pratiques</h3>
             <div className="space-y-4">
@@ -2116,6 +2120,9 @@ export default function Restaurant() {
             legacyHours={!publicPayload?.establishment?.hours ? restaurant.hours : undefined}
           />
         </section>
+
+        {/* Bannière interne — entre Horaires et Carte */}
+        <InlineBanner slot="establishment_slot_2" />
 
         <section id="section-carte" data-tab="carte" className="scroll-mt-28 space-y-4">
           <EstablishmentSectionHeading title="Carte" />

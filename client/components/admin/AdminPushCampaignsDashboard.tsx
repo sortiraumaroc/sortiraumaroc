@@ -15,6 +15,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { AdminVisibilityNav } from "@/pages/admin/visibility/AdminVisibilityNav";
 
 // =============================================================================
@@ -1136,84 +1137,86 @@ export default function AdminPushCampaignsDashboard({ className }: { className?:
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {tabs.map((t) => {
-          const Icon = t.icon;
-          return (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={cn(
-                "shrink-0 h-8 rounded-full px-3.5 text-xs font-semibold border transition flex items-center gap-1.5",
-                tab === t.id
-                  ? "bg-[#a3001d] text-white border-[#a3001d]"
-                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50",
-              )}
-            >
-              <Icon className="h-3 w-3" />
-              {t.label}
-            </button>
-          );
-        })}
-      </div>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as TabId)} className="w-full">
+        <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:inline-grid">
+          <TabsTrigger value="campaigns" className="gap-2 data-[state=active]:bg-sam-primary data-[state=active]:text-white data-[state=active]:shadow-none">
+            <Bell className="h-4 w-4" />
+            <span className="hidden sm:inline">Campagnes</span>
+          </TabsTrigger>
+          <TabsTrigger value="form" className="gap-2 data-[state=active]:bg-sam-primary data-[state=active]:text-white data-[state=active]:shadow-none">
+            <Edit className="h-4 w-4" />
+            <span className="hidden sm:inline">Créer / Modifier</span>
+          </TabsTrigger>
+          <TabsTrigger value="stats" className="gap-2 data-[state=active]:bg-sam-primary data-[state=active]:text-white data-[state=active]:shadow-none">
+            <BarChart3 className="h-4 w-4" />
+            <span className="hidden sm:inline">Statistiques</span>
+          </TabsTrigger>
+          <TabsTrigger value="deliveries" className="gap-2 data-[state=active]:bg-sam-primary data-[state=active]:text-white data-[state=active]:shadow-none">
+            <Truck className="h-4 w-4" />
+            <span className="hidden sm:inline">Livraisons</span>
+          </TabsTrigger>
+        </TabsList>
 
-      {/* View campaign dialog */}
-      {viewingCampaign && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setViewingCampaign(null)}>
-          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full mx-4 max-h-[80vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-start justify-between mb-4">
-              <h3 className="text-base font-bold text-slate-900">{viewingCampaign.title}</h3>
-              <button type="button" onClick={() => setViewingCampaign(null)} className="text-slate-400 hover:text-slate-600">
-                <XCircle className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="space-y-3 text-sm text-slate-700">
-              <div><span className="font-semibold">Type :</span> {CAMPAIGN_TYPES.find((t) => t.value === viewingCampaign.type)?.label}</div>
-              <div><span className="font-semibold">Statut :</span> <span className={cn("inline-block px-2 py-0.5 rounded-full text-xs font-semibold", STATUS_CONFIG[viewingCampaign.status].color)}>{STATUS_CONFIG[viewingCampaign.status].label}</span></div>
-              <div><span className="font-semibold">Message :</span> {viewingCampaign.message}</div>
-              <div><span className="font-semibold">Canaux :</span> {viewingCampaign.channels.join(", ")}</div>
-              <div><span className="font-semibold">Audience :</span> {viewingCampaign.audience_type === "all" ? "Tous" : "Segment"} ({viewingCampaign.audience_count.toLocaleString("fr-FR")})</div>
-              <div><span className="font-semibold">Priorité :</span> {viewingCampaign.priority === "high" ? "Haute" : "Normale"}</div>
-              {viewingCampaign.image_url && <div><span className="font-semibold">Image :</span> <a href={viewingCampaign.image_url} target="_blank" rel="noreferrer" className="text-blue-600 underline break-all">{viewingCampaign.image_url}</a></div>}
-              {viewingCampaign.cta_url && <div><span className="font-semibold">CTA :</span> <a href={viewingCampaign.cta_url} target="_blank" rel="noreferrer" className="text-blue-600 underline break-all">{viewingCampaign.cta_url}</a></div>}
-              <div><span className="font-semibold">Programmée :</span> {formatDate(viewingCampaign.scheduled_at)}</div>
-              <div><span className="font-semibold">Envoyée :</span> {formatDate(viewingCampaign.sent_at)}</div>
-              <div className="pt-2 border-t border-slate-100">
-                <span className="font-semibold">Stats :</span>
-                <div className="grid grid-cols-2 gap-2 mt-1 text-xs">
-                  <div>Envoyés : {viewingCampaign.stats.sent.toLocaleString("fr-FR")}</div>
-                  <div>Livrés : {viewingCampaign.stats.delivered.toLocaleString("fr-FR")}</div>
-                  <div>Ouverts : {viewingCampaign.stats.opened.toLocaleString("fr-FR")}</div>
-                  <div>Cliqués : {viewingCampaign.stats.clicked.toLocaleString("fr-FR")}</div>
+        {/* View campaign dialog */}
+        {viewingCampaign && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setViewingCampaign(null)}>
+            <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full mx-4 max-h-[80vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-start justify-between mb-4">
+                <h3 className="text-base font-bold text-slate-900">{viewingCampaign.title}</h3>
+                <button type="button" onClick={() => setViewingCampaign(null)} className="text-slate-400 hover:text-slate-600">
+                  <XCircle className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="space-y-3 text-sm text-slate-700">
+                <div><span className="font-semibold">Type :</span> {CAMPAIGN_TYPES.find((t) => t.value === viewingCampaign.type)?.label}</div>
+                <div><span className="font-semibold">Statut :</span> <span className={cn("inline-block px-2 py-0.5 rounded-full text-xs font-semibold", STATUS_CONFIG[viewingCampaign.status].color)}>{STATUS_CONFIG[viewingCampaign.status].label}</span></div>
+                <div><span className="font-semibold">Message :</span> {viewingCampaign.message}</div>
+                <div><span className="font-semibold">Canaux :</span> {viewingCampaign.channels.join(", ")}</div>
+                <div><span className="font-semibold">Audience :</span> {viewingCampaign.audience_type === "all" ? "Tous" : "Segment"} ({viewingCampaign.audience_count.toLocaleString("fr-FR")})</div>
+                <div><span className="font-semibold">Priorité :</span> {viewingCampaign.priority === "high" ? "Haute" : "Normale"}</div>
+                {viewingCampaign.image_url && <div><span className="font-semibold">Image :</span> <a href={viewingCampaign.image_url} target="_blank" rel="noreferrer" className="text-blue-600 underline break-all">{viewingCampaign.image_url}</a></div>}
+                {viewingCampaign.cta_url && <div><span className="font-semibold">CTA :</span> <a href={viewingCampaign.cta_url} target="_blank" rel="noreferrer" className="text-blue-600 underline break-all">{viewingCampaign.cta_url}</a></div>}
+                <div><span className="font-semibold">Programmée :</span> {formatDate(viewingCampaign.scheduled_at)}</div>
+                <div><span className="font-semibold">Envoyée :</span> {formatDate(viewingCampaign.sent_at)}</div>
+                <div className="pt-2 border-t border-slate-100">
+                  <span className="font-semibold">Stats :</span>
+                  <div className="grid grid-cols-2 gap-2 mt-1 text-xs">
+                    <div>Envoyés : {viewingCampaign.stats.sent.toLocaleString("fr-FR")}</div>
+                    <div>Livrés : {viewingCampaign.stats.delivered.toLocaleString("fr-FR")}</div>
+                    <div>Ouverts : {viewingCampaign.stats.opened.toLocaleString("fr-FR")}</div>
+                    <div>Cliqués : {viewingCampaign.stats.clicked.toLocaleString("fr-FR")}</div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Tab content */}
-      {tab === "campaigns" && (
-        <CampagnesSection
-          campaigns={campaigns}
-          loading={loading}
-          onRefresh={loadCampaigns}
-          onView={handleView}
-          onEdit={handleEdit}
-          onAction={handleAction}
-          actionMsg={actionMsg}
-        />
-      )}
-      {tab === "form" && (
-        <CampaignFormSection
-          editingCampaign={editingCampaign}
-          onSaved={handleFormSaved}
-          onCancel={() => { setEditingCampaign(null); setTab("campaigns"); }}
-        />
-      )}
-      {tab === "stats" && <StatsSection campaigns={campaigns} />}
-      {tab === "deliveries" && <DeliveriesSection campaigns={campaigns} />}
+        <TabsContent value="campaigns" className="mt-6">
+          <CampagnesSection
+            campaigns={campaigns}
+            loading={loading}
+            onRefresh={loadCampaigns}
+            onView={handleView}
+            onEdit={handleEdit}
+            onAction={handleAction}
+            actionMsg={actionMsg}
+          />
+        </TabsContent>
+        <TabsContent value="form" className="mt-6">
+          <CampaignFormSection
+            editingCampaign={editingCampaign}
+            onSaved={handleFormSaved}
+            onCancel={() => { setEditingCampaign(null); setTab("campaigns"); }}
+          />
+        </TabsContent>
+        <TabsContent value="stats" className="mt-6">
+          <StatsSection campaigns={campaigns} />
+        </TabsContent>
+        <TabsContent value="deliveries" className="mt-6">
+          <DeliveriesSection campaigns={campaigns} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

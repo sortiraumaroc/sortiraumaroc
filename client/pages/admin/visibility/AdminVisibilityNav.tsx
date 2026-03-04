@@ -10,11 +10,13 @@ const inactiveClass = "hover:bg-background/50 hover:text-foreground";
 export function AdminVisibilityNav() {
   const { pathname } = useLocation();
 
-  // Marketing covers push-campaigns, banners, wheel
+  // Marketing covers push-campaigns, wheel
   const isMarketing =
     pathname.startsWith("/admin/push-campaigns") ||
-    pathname.startsWith("/admin/banners") ||
     pathname.startsWith("/admin/wheel");
+
+  // Banners & pop-up
+  const isBanners = pathname.startsWith("/admin/banners");
 
   // Media Factory covers production-media, messages, partners, production-media/compta
   const isMediaFactory =
@@ -57,6 +59,14 @@ export function AdminVisibilityNav() {
         }
       >
         Media Factory
+      </NavLink>
+      <NavLink
+        to="/admin/banners"
+        className={() =>
+          cn(baseClass, isBanners ? activeClass : inactiveClass)
+        }
+      >
+        Bannières & Pop-up
       </NavLink>
     </div>
   );

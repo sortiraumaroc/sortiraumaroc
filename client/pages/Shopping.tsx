@@ -28,6 +28,7 @@ import { createRng, makeImageSet, makePhoneMa, makeWebsiteUrl, nextDaysYmd, pick
 import { cn } from "@/lib/utils";
 import { isAuthed, openAuthModal } from "@/lib/auth";
 import { ReportEstablishmentDialog } from "@/components/ReportEstablishmentDialog";
+import { InlineBanner } from "@/components/banners/InlineBanner";
 import { applySeo, clearJsonLd, setJsonLd, generateLocalBusinessSchema, generateBreadcrumbSchema, hoursToOpeningHoursSpecification, buildI18nSeoFields } from "@/lib/seo";
 import { useI18n } from "@/lib/i18n";
 
@@ -413,6 +414,8 @@ export default function Shopping() {
               </div>
             </section>
 
+            <InlineBanner slot="establishment_slot_1" />
+
             <section>
               <h2 className="text-xl font-bold mb-4">Informations pratiques</h2>
               <div className="space-y-4">
@@ -506,6 +509,9 @@ export default function Shopping() {
         <section id="section-horaires" data-tab="horaires" className="scroll-mt-28 space-y-6">
           <OpeningHoursBlock legacyHours={data.hours} />
         </section>
+
+        {/* Bannière interne — entre Horaires et Carte */}
+        <InlineBanner slot="establishment_slot_2" />
 
         {data.reviews.length > 0 && (
         <section id="section-avis" data-tab="avis" className="scroll-mt-28">

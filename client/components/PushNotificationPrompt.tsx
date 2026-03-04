@@ -1,22 +1,17 @@
 /**
  * PushNotificationPrompt
  *
- * A subtle banner that appears at the bottom of the screen to ask
- * the user's permission for push notifications.
- * Only shown when:
- *   - The user is authenticated
- *   - The browser supports push
- *   - Permission is "default" (not yet asked)
- *   - The user hasn't dismissed the prompt recently
+ * A top banner asking users to enable push notifications.
+ * Works for both authenticated and anonymous users.
+ * Shows "Accepter" (red/white) and "Refuser" (black text).
+ * Dismissed for 7 days if the user clicks "Refuser".
  */
 
-import { Bell, X } from "lucide-react";
+import { Bell } from "lucide-react";
 import { useState } from "react";
-import { useI18n } from "@/lib/i18n";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 
 export function PushNotificationPrompt() {
-  const { t } = useI18n();
   const { shouldShowPrompt, requestPermission, dismissPrompt, loading } =
     usePushNotifications();
   const [visible, setVisible] = useState(true);
@@ -34,47 +29,24 @@ export function PushNotificationPrompt() {
   };
 
   return (
-    <div className="fixed bottom-4 left-4 right-4 md:start-auto md:end-4 md:w-[420px] z-[9998] animate-in slide-in-from-bottom-4 fade-in duration-300">
-      <div className="bg-white border border-slate-200 rounded-xl shadow-xl p-4 flex items-start gap-3">
-        {/* Bell icon */}
-        <div className="shrink-0 mt-0.5 w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-          <Bell className="w-5 h-5 text-primary" />
-        </div>
-
-        {/* Text */}
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-slate-900">
-            {t("push.prompt_title")}
-          </p>
-          <p className="text-xs text-slate-500 mt-0.5">
-            {t("push.prompt_description")}
-          </p>
-
-          {/* Buttons */}
-          <div className="flex items-center gap-2 mt-3">
-            <button
-              onClick={handleEnable}
-              disabled={loading}
-              className="px-4 py-1.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
-            >
-              {loading ? t("push.prompt_enabling") : t("push.prompt_enable")}
-            </button>
-            <button
-              onClick={handleDismiss}
-              className="px-3 py-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors"
-            >
-              {t("push.prompt_later")}
-            </button>
-          </div>
-        </div>
-
-        {/* Close button */}
+    <div className="bg-white border-b border-slate-200 px-4 py-2.5">
+      <div className="max-w-screen-xl mx-auto flex items-center justify-center gap-3 text-sm flex-wrap">
+        <Bell className="h-4 w-4 text-[#a3001d] shrink-0" />
+        <span className="text-slate-700">
+          Activez les notifications pour ne rien manquer de nos bons plans et offres
+        </span>
+        <button
+          onClick={handleEnable}
+          disabled={loading}
+          className="shrink-0 px-4 py-1.5 bg-[#a3001d] text-white text-xs font-semibold rounded-lg hover:bg-[#8a0018] transition disabled:opacity-50"
+        >
+          {loading ? "..." : "Accepter"}
+        </button>
         <button
           onClick={handleDismiss}
-          className="shrink-0 text-slate-400 hover:text-slate-600 transition-colors"
-          aria-label="Fermer"
+          className="shrink-0 px-3 py-1.5 text-xs font-medium text-black hover:text-slate-600 transition"
         >
-          <X className="w-4 h-4" />
+          Refuser
         </button>
       </div>
     </div>

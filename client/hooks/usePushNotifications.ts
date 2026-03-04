@@ -156,9 +156,10 @@ export function usePushNotifications(): PushNotificationState {
     setRegistered(false);
   }, []);
 
-  // Should show prompt: user is authed, push supported, permission is "default", not dismissed
+  // Should show prompt: push supported, permission is "default", not dismissed
+  // Works for both authenticated and anonymous users
   const shouldShowPrompt =
-    authed && supported && permission === "default" && !dismissed && !registered;
+    supported && permission === "default" && !dismissed && !registered;
 
   return {
     supported,

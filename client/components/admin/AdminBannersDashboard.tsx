@@ -7,17 +7,18 @@
  *  - Statistiques & Formulaires: impressions, clicks, CTR, form responses
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Image, Play, FormInput, Layers, Timer, Type,
   Plus, Copy, Pause, Power, BarChart3, Edit,
-  RefreshCw, Loader2,
+  RefreshCw, Loader2, Upload,
   X, Download, Monitor, Smartphone, Globe,
   Filter, CheckCircle, XCircle,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { AdminVisibilityNav } from "@/pages/admin/visibility/AdminVisibilityNav";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -131,6 +132,25 @@ async function adminFetch<T>(url: string, options?: RequestInit): Promise<T> {
     throw new Error(body.error || body.message || `Erreur ${res.status}`);
   }
   return res.json();
+}
+
+async function uploadBannerImage(file: File): Promise<string> {
+  const headers: Record<string, string> = {
+    ...getAdminHeaders(),
+    "content-type": file.type || "application/octet-stream",
+    "x-file-name": encodeURIComponent(file.name),
+  };
+  const res = await fetch("/api/admin/slot-images/upload", {
+    method: "POST",
+    headers,
+    body: file,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as any).error ?? `Upload failed (${res.status})`);
+  }
+  const json = await res.json();
+  return (json as any).item?.public_url ?? "";
 }
 
 // =============================================================================
@@ -410,6 +430,86 @@ function BannersListTab({
 }
 
 // =============================================================================
+// Image upload field with preview
+// =============================================================================
+
+function BannerImageField({
+  label,
+  dimension,
+  value,
+  onChange,
+  hint,
+}: {
+  label: string;
+  dimension: string;
+  value: string;
+  onChange: (url: string) => void;
+  hint?: string;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const url = await uploadBannerImage(file);
+      if (url) onChange(url);
+    } catch (err: any) {
+      console.error("Upload failed:", err);
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs">{label} <span className="text-slate-400">({dimension})</span></Label>
+      <div className="flex gap-2">
+        <Input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="https://..."
+          className="h-9 text-sm flex-1"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-9 px-3 shrink-0"
+          disabled={uploading}
+          onClick={() => fileRef.current?.click()}
+        >
+          {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+        </Button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleFile}
+        />
+      </div>
+      {value && (
+        <div className="relative mt-1 rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
+          <img src={value} alt={label} className="w-full h-auto max-h-32 object-contain" />
+          <button
+            type="button"
+            onClick={() => onChange("")}
+            className="absolute top-1 right-1 bg-white/80 hover:bg-white rounded-full p-0.5"
+          >
+            <X className="h-3.5 w-3.5 text-slate-500" />
+          </button>
+        </div>
+      )}
+      {hint && <p className="text-[10px] text-slate-400">{hint}</p>}
+    </div>
+  );
+}
+
+// =============================================================================
 // Tab 2: Create / Edit form
 // =============================================================================
 
@@ -490,15 +590,19 @@ function BannerForm({
           </div>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label className="text-xs">Image Desktop <span className="text-slate-400">(1200×625)</span></Label>
-            <Input value={form.media_url || ""} onChange={(e) => update("media_url", e.target.value)} placeholder="https://..." className="h-9 text-sm" />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Image Mobile <span className="text-slate-400">(800×800)</span></Label>
-            <Input value={form.media_url_mobile || ""} onChange={(e) => update("media_url_mobile", e.target.value)} placeholder="https://... (optionnel)" className="h-9 text-sm" />
-            <p className="text-[10px] text-slate-400">Si vide, l'image desktop sera utilisée</p>
-          </div>
+          <BannerImageField
+            label="Image Desktop"
+            dimension="1200×625"
+            value={form.media_url || ""}
+            onChange={(url) => update("media_url", url)}
+          />
+          <BannerImageField
+            label="Image Mobile"
+            dimension="800×800"
+            value={form.media_url_mobile || ""}
+            onChange={(url) => update("media_url_mobile", url)}
+            hint="Si vide, l'image desktop sera utilisée"
+          />
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="space-y-1.5">
@@ -649,6 +753,41 @@ function BannerForm({
         <legend className="text-sm font-bold text-slate-900 px-1">Ciblage</legend>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="space-y-1.5">
+            <Label className="text-xs">Où afficher</Label>
+            <Select
+              value={
+                form.trigger === "on_page" && form.trigger_page === "/establishments/*"
+                  ? "establishments"
+                  : form.trigger === "on_page" && form.trigger_page
+                    ? "custom_page"
+                    : "homepage"
+              }
+              onValueChange={(v) => {
+                if (v === "homepage") {
+                  update("trigger", "on_app_open");
+                  update("trigger_page", null);
+                } else if (v === "establishments") {
+                  update("trigger", "on_page");
+                  update("trigger_page", "/establishments/*");
+                } else if (v === "all_pages") {
+                  update("trigger", "on_load");
+                  update("trigger_page", null);
+                } else if (v === "custom_page") {
+                  update("trigger", "on_page");
+                  update("trigger_page", "");
+                }
+              }}
+            >
+              <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="homepage">Page d'accueil</SelectItem>
+                <SelectItem value="establishments">Fiches établissements</SelectItem>
+                <SelectItem value="all_pages">Toutes les pages</SelectItem>
+                <SelectItem value="custom_page">Page spécifique</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
             <Label className="text-xs">Audience</Label>
             <Select value={form.audience_type} onValueChange={(v) => update("audience_type", v as AudienceType)}>
               <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
@@ -659,16 +798,7 @@ function BannerForm({
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs">Declencheur</Label>
-            <Select value={form.trigger} onValueChange={(v) => update("trigger", v as TriggerType)}>
-              <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {TRIGGER_OPTIONS.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Frequence</Label>
+            <Label className="text-xs">Fréquence</Label>
             <Select value={form.frequency} onValueChange={(v) => update("frequency", v as FrequencyType)}>
               <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -677,7 +807,7 @@ function BannerForm({
             </Select>
           </div>
         </div>
-        {form.trigger === "on_page" && (
+        {form.trigger === "on_page" && form.trigger_page !== "/establishments/*" && (
           <div className="space-y-1.5">
             <Label className="text-xs">Page cible (URL path)</Label>
             <Input value={form.trigger_page || ""} onChange={(e) => update("trigger_page", e.target.value)} placeholder="/restaurants" className="h-9 text-sm" />
@@ -1065,58 +1195,58 @@ export function AdminBannersDashboard({ className }: AdminBannersDashboardProps)
         </div>
       )}
 
-      {/* Tab bar */}
-      <div className="flex items-center gap-1 border-b border-slate-200 overflow-x-auto">
-        {tabs.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={cn(
-                "flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold whitespace-nowrap border-b-2 transition-colors",
-                isActive
-                  ? "border-[hsl(354,100%,32%)] text-[hsl(354,100%,32%)]"
-                  : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
-              )}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {tab.label}
-            </button>
-          );
-        })}
-        <div className="ms-auto pe-1 py-1">
-          <Button size="sm" onClick={handleNewBanner} className="h-7 text-xs px-3 bg-[hsl(354,100%,32%)] hover:bg-[hsl(354,100%,28%)] text-white">
-            <Plus className="h-3.5 w-3.5 me-1" /> Nouvelle banniere
-          </Button>
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Image className="h-5 w-5 text-[#a3001d]" />
+          <h2 className="text-lg font-bold text-slate-900">Bannières & Pop-up</h2>
         </div>
+        <Button size="sm" onClick={handleNewBanner} className="h-8 px-3 bg-[#a3001d] hover:bg-[#8a0018] text-white text-xs font-semibold rounded-lg">
+          <Plus className="h-3.5 w-3.5 me-1" /> Nouvelle bannière
+        </Button>
       </div>
 
-      {/* Tab content */}
-      {activeTab === "list" && (
-        <BannersListTab
-          banners={banners}
-          loading={loading}
-          onRefresh={fetchBanners}
-          onEdit={handleEdit}
-          onDuplicate={handleDuplicate}
-          onAction={handleAction}
-          onViewStats={handleViewStats}
-        />
-      )}
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as AdminBannersTab)} className="w-full">
+        <TabsList className="grid w-full grid-cols-3 lg:w-auto lg:inline-grid">
+          <TabsTrigger value="list" className="gap-2 data-[state=active]:bg-sam-primary data-[state=active]:text-white data-[state=active]:shadow-none">
+            <Image className="h-4 w-4" />
+            <span className="hidden sm:inline">Bannières</span>
+          </TabsTrigger>
+          <TabsTrigger value="form" className="gap-2 data-[state=active]:bg-sam-primary data-[state=active]:text-white data-[state=active]:shadow-none">
+            <Edit className="h-4 w-4" />
+            <span className="hidden sm:inline">{editingBanner ? "Modifier" : "Créer"}</span>
+          </TabsTrigger>
+          <TabsTrigger value="stats" className="gap-2 data-[state=active]:bg-sam-primary data-[state=active]:text-white data-[state=active]:shadow-none">
+            <BarChart3 className="h-4 w-4" />
+            <span className="hidden sm:inline">Statistiques & Formulaires</span>
+          </TabsTrigger>
+        </TabsList>
 
-      {activeTab === "form" && (
-        <BannerForm
-          initial={editingBanner}
-          onSave={handleSave}
-          saving={saving}
-        />
-      )}
+        <TabsContent value="list" className="mt-6">
+          <BannersListTab
+            banners={banners}
+            loading={loading}
+            onRefresh={fetchBanners}
+            onEdit={handleEdit}
+            onDuplicate={handleDuplicate}
+            onAction={handleAction}
+            onViewStats={handleViewStats}
+          />
+        </TabsContent>
 
-      {activeTab === "stats" && (
-        <StatsTab banners={banners} loading={loading} />
-      )}
+        <TabsContent value="form" className="mt-6">
+          <BannerForm
+            initial={editingBanner}
+            onSave={handleSave}
+            saving={saving}
+          />
+        </TabsContent>
+
+        <TabsContent value="stats" className="mt-6">
+          <StatsTab banners={banners} loading={loading} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

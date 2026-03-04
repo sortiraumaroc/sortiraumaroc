@@ -1142,23 +1142,23 @@ export function AdminAdsPanel() {
     <div className="space-y-6">
       <Tabs defaultValue="overview" className="w-full">
         <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">
-          <TabsTrigger value="overview" className="gap-2">
+          <TabsTrigger value="overview" className="gap-2 data-[state=active]:bg-sam-primary data-[state=active]:text-white data-[state=active]:shadow-none">
             <BarChart3 className="h-4 w-4" />
             <span className="hidden sm:inline">Vue d'ensemble</span>
           </TabsTrigger>
-          <TabsTrigger value="moderation" className="gap-2">
+          <TabsTrigger value="moderation" className="gap-2 data-[state=active]:bg-sam-primary data-[state=active]:text-white data-[state=active]:shadow-none">
             <Clock className="h-4 w-4" />
             <span className="hidden sm:inline">Modération</span>
           </TabsTrigger>
-          <TabsTrigger value="campaigns" className="gap-2">
+          <TabsTrigger value="campaigns" className="gap-2 data-[state=active]:bg-sam-primary data-[state=active]:text-white data-[state=active]:shadow-none">
             <TrendingUp className="h-4 w-4" />
             <span className="hidden sm:inline">Campagnes</span>
           </TabsTrigger>
-          <TabsTrigger value="home-takeover" className="gap-2">
+          <TabsTrigger value="home-takeover" className="gap-2 data-[state=active]:bg-sam-primary data-[state=active]:text-white data-[state=active]:shadow-none">
             <Home className="h-4 w-4" />
             <span className="hidden sm:inline">Home Takeover</span>
           </TabsTrigger>
-          <TabsTrigger value="config" className="gap-2">
+          <TabsTrigger value="config" className="gap-2 data-[state=active]:bg-sam-primary data-[state=active]:text-white data-[state=active]:shadow-none">
             <Settings2 className="h-4 w-4" />
             <span className="hidden sm:inline">Configuration</span>
           </TabsTrigger>

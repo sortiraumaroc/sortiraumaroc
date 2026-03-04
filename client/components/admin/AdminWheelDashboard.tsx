@@ -18,6 +18,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { AdminVisibilityNav } from "@/pages/admin/visibility/AdminVisibilityNav";
 
 // =============================================================================
@@ -1118,80 +1119,78 @@ export default function AdminWheelDashboard({ className }: { className?: string 
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {tabs.map((t) => {
-          const Icon = t.icon;
-          return (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={cn(
-                "shrink-0 h-8 rounded-full px-3.5 text-xs font-semibold border transition flex items-center gap-1.5",
-                tab === t.id
-                  ? "bg-[#a3001d] text-white border-[#a3001d]"
-                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50",
-              )}
+      <Tabs value={tab} onValueChange={(v) => setTab(v as WheelTab)} className="w-full">
+        <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:inline-grid">
+          <TabsTrigger value="events" className="gap-2 data-[state=active]:bg-sam-primary data-[state=active]:text-white data-[state=active]:shadow-none">
+            <RotateCw className="h-4 w-4" />
+            <span className="hidden sm:inline">Événements Roue</span>
+          </TabsTrigger>
+          <TabsTrigger value="form" className="gap-2 data-[state=active]:bg-sam-primary data-[state=active]:text-white data-[state=active]:shadow-none">
+            <Edit className="h-4 w-4" />
+            <span className="hidden sm:inline">Créer / Modifier</span>
+          </TabsTrigger>
+          <TabsTrigger value="prizes" className="gap-2 data-[state=active]:bg-sam-primary data-[state=active]:text-white data-[state=active]:shadow-none">
+            <Trophy className="h-4 w-4" />
+            <span className="hidden sm:inline">Lots & Probabilités</span>
+          </TabsTrigger>
+          <TabsTrigger value="stats" className="gap-2 data-[state=active]:bg-sam-primary data-[state=active]:text-white data-[state=active]:shadow-none">
+            <BarChart3 className="h-4 w-4" />
+            <span className="hidden sm:inline">Statistiques & Fraude</span>
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Feedback message */}
+        {msg && (
+          <div className={cn(
+            "text-sm px-4 py-2.5 rounded-xl flex items-center gap-2 mt-4",
+            msg.type === "success" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600",
+          )}>
+            {msg.type === "success" ? <CheckCircle className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
+            {msg.text}
+          </div>
+        )}
+
+        {/* New event button (in events tab) */}
+        {tab === "events" && (
+          <div className="flex justify-end mt-4">
+            <Button
+              onClick={() => { setEditingEvent(null); setTab("form"); }}
+              className="h-9 px-4 bg-[#a3001d] hover:bg-[#8a0018] text-white text-sm font-semibold rounded-lg"
             >
-              <Icon className="h-3 w-3" />
-              {t.label}
-            </button>
-          );
-        })}
-      </div>
+              <Plus className="h-3.5 w-3.5 me-1" /> Nouvel événement
+            </Button>
+          </div>
+        )}
 
-      {/* Feedback message */}
-      {msg && (
-        <div className={cn(
-          "text-sm px-4 py-2.5 rounded-xl flex items-center gap-2",
-          msg.type === "success" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600",
-        )}>
-          {msg.type === "success" ? <CheckCircle className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
-          {msg.text}
-        </div>
-      )}
-
-      {/* New event button (in events tab) */}
-      {tab === "events" && (
-        <div className="flex justify-end">
-          <Button
-            onClick={() => { setEditingEvent(null); setTab("form"); }}
-            className="h-9 px-4 bg-[#a3001d] hover:bg-[#8a0018] text-white text-sm font-semibold rounded-lg"
-          >
-            <Plus className="h-3.5 w-3.5 me-1" /> Nouvel événement
-          </Button>
-        </div>
-      )}
-
-      {/* Content */}
-      {tab === "events" && (
-        <EventsListTab
-          events={events}
-          loading={loading}
-          onRefresh={fetchEvents}
-          onEdit={handleEdit}
-          onAction={handleEventAction}
-          onViewStats={handleViewStats}
-          actionLoading={actionLoading}
-        />
-      )}
-      {tab === "form" && (
-        <EventFormTab
-          editingEvent={editingEvent}
-          onSave={handleSaveEvent}
-          saving={savingForm}
-          msg={formMsg}
-        />
-      )}
-      {tab === "prizes" && (
-        <PrizesTab
-          selectedEventId={selectedEventId}
-          events={events}
-        />
-      )}
-      {tab === "stats" && (
-        <StatsTab selectedEventId={selectedEventId} />
-      )}
+        <TabsContent value="events" className="mt-6">
+          <EventsListTab
+            events={events}
+            loading={loading}
+            onRefresh={fetchEvents}
+            onEdit={handleEdit}
+            onAction={handleEventAction}
+            onViewStats={handleViewStats}
+            actionLoading={actionLoading}
+          />
+        </TabsContent>
+        <TabsContent value="form" className="mt-6">
+          <EventFormTab
+            editingEvent={editingEvent}
+            onSave={handleSaveEvent}
+            saving={savingForm}
+            msg={formMsg}
+          />
+        </TabsContent>
+        <TabsContent value="prizes" className="mt-6">
+          <PrizesTab
+            selectedEventId={selectedEventId}
+            events={events}
+          />
+        </TabsContent>
+        <TabsContent value="stats" className="mt-6">
+          <StatsTab selectedEventId={selectedEventId} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

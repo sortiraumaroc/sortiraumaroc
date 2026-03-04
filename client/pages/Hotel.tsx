@@ -35,6 +35,7 @@ import { createRng, makeImageSet, makePhoneMa, makeWebsiteUrl, nextDaysYmd, pick
 import { useI18n } from "@/lib/i18n";
 import { ReportEstablishmentDialog } from "@/components/ReportEstablishmentDialog";
 import { EstablishmentReviewsSection, useHasReviews } from "@/components/EstablishmentReviewsSection";
+import { InlineBanner } from "@/components/banners/InlineBanner";
 import { isUuid } from "@/lib/pro/visits";
 
 type HotelReview = {
@@ -709,6 +710,8 @@ export default function Hotel() {
             </div>
           </section>
 
+          <InlineBanner slot="establishment_slot_1" />
+
           <section className="space-y-4">
             <h2 className="text-xl font-bold mb-2">Infos pratiques</h2>
             <div className="space-y-4">
@@ -803,6 +806,9 @@ export default function Hotel() {
 
           <AmenitiesGrid amenities={hotel.amenities} />
         </section>
+
+        {/* Bannière interne — entre Horaires et Carte */}
+        <InlineBanner slot="establishment_slot_2" />
 
         <section id="section-carte" data-tab="carte" className="scroll-mt-28 space-y-4">
           <div>
