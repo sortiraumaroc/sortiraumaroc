@@ -73,11 +73,6 @@ export function Footer() {
             </h4>
             <ul className="space-y-2 text-sm text-white/70">
               <li>
-                <Link to={contentHref("decouvrir", "discover")} className="hover:text-white transition-colors">
-                  {t("footer.link.discover")}
-                </Link>
-              </li>
-              <li>
                 <Link to={contentHref("a-propos", "about")} className="hover:text-white transition-colors">
                   {t("footer.link.about")}
                 </Link>
