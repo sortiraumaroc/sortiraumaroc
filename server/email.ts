@@ -24,6 +24,7 @@ export type SAMEmailInput = {
   emailId: string;
   fromKey: SambookingSenderKey;
   to: string[];
+  bcc?: string[];
   subject: string;
   bodyText: string;
   ctaLabel?: string | null;
@@ -313,9 +314,14 @@ export async function sendSAMEmail(input: SAMEmailInput): Promise<{ messageId: s
   const to = normalizeEmailAddressList(input.to);
   if (!to.length) throw new Error("Recipient is missing");
 
+  const bcc = input.bcc?.length
+    ? input.bcc.map((email) => ({ email }))
+    : undefined;
+
   const msg: sgMail.MailDataRequired = {
     from: { email: sender.fromEmail, name: sender.fromName },
     to: to.map((email) => ({ email })),
+    bcc,
     replyTo: sender.replyTo ? { email: sender.replyTo } : undefined,
     subject,
     html,

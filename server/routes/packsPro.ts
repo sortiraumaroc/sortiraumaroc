@@ -269,7 +269,7 @@ const createPack: RequestHandler = async (req, res) => {
       limitPerClient: body.limit_per_client,
       isMultiUse: body.is_multi_use,
       totalUses: body.total_uses,
-      priceType: body.price_type ?? (body.price != null && body.price > 0 ? "fixed" : "free"),
+      priceType: body.price_type ?? (body.price != null && body.price > 0 ? "fixed" : "nc"),
     });
 
     if (!result.ok) {

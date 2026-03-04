@@ -21,6 +21,7 @@ import {
   ChevronUp,
   Eye,
   ImagePlus,
+  ArrowUpDown,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -63,7 +64,9 @@ import {
   adminBulkDeleteSlots,
   searchEstablishmentsByName,
   uploadAdminSlotImage,
+  fixFtourSlotPriceTypes,
   AdminApiError,
+  isAdminSuperadmin,
 } from "@/lib/adminApi";
 import type { FtourSlotWithEstablishment } from "@/lib/adminApi";
 import { PriceTypeField } from "@/components/ui/PriceTypeField";
@@ -81,6 +84,7 @@ function formatDate(iso: string | null | undefined): string {
       day: "numeric",
       month: "short",
       year: "numeric",
+      timeZone: "UTC",
     });
   } catch {
     return "—";
@@ -93,10 +97,28 @@ function formatTime(iso: string | null | undefined): string {
     return new Date(iso).toLocaleTimeString("fr-FR", {
       hour: "2-digit",
       minute: "2-digit",
+      timeZone: "UTC",
     });
   } catch {
     return "—";
   }
+}
+
+/** Construit un timestamp ISO en UTC directement à partir des composantes date/heure */
+function buildUTCTimestamp(dateStr: string, hours: number, minutes: number): string {
+  const y = Number(dateStr.slice(0, 4));
+  const m = Number(dateStr.slice(5, 7)) - 1;
+  const d = Number(dateStr.slice(8, 10));
+  return new Date(Date.UTC(y, m, d, hours, minutes, 0)).toISOString();
+}
+
+/** Formate une date YYYY-MM-DD depuis un ISO UTC */
+function isoToDateStr(iso: string): string {
+  const d = new Date(iso);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
 }
 
 function formatPrice(cents: number | null, priceType?: string | null): string {
@@ -247,6 +269,8 @@ export function AdminFtourDashboard() {
   const [slots, setSlots] = useState<FtourSlotWithEstablishment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [listSearchQuery, setListSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState<"name-asc" | "name-desc" | "price-desc" | "price-asc" | "capacity-desc" | "capacity-asc" | "status">("name-asc");
 
   // ── Selection (batch) ──
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -260,7 +284,7 @@ export function AdminFtourDashboard() {
   const [createDurationMin, setCreateDurationMin] = useState(180);
   const [createCapacity, setCreateCapacity] = useState(30);
   const [createBasePrice, setCreateBasePrice] = useState("");
-  const [createPriceType, setCreatePriceType] = useState<PriceType>("free");
+  const [createPriceType, setCreatePriceType] = useState<PriceType>("fixed");
   const [createServiceLabel, setCreateServiceLabel] = useState("Ftour");
   const [createPromoLabel, setCreatePromoLabel] = useState("");
   const [createPromoType, setCreatePromoType] = useState<"percent" | "amount">("percent");
@@ -279,7 +303,7 @@ export function AdminFtourDashboard() {
   const [editSlot, setEditSlot] = useState<FtourSlotWithEstablishment | null>(null);
   const [editCapacity, setEditCapacity] = useState(30);
   const [editBasePrice, setEditBasePrice] = useState("");
-  const [editPriceType, setEditPriceType] = useState<PriceType>("free");
+  const [editPriceType, setEditPriceType] = useState<PriceType>("fixed");
   const [editPromoLabel, setEditPromoLabel] = useState("");
   const [editPromoType, setEditPromoType] = useState<"percent" | "amount">("percent");
   const [editPromoValue, setEditPromoValue] = useState("");
@@ -292,6 +316,9 @@ export function AdminFtourDashboard() {
   const [deleting, setDeleting] = useState(false);
   const [batchDeleting, setBatchDeleting] = useState(false);
   const [batchDeleteConfirmOpen, setBatchDeleteConfirmOpen] = useState(false);
+
+  // ── Superadmin ──
+  const [isSuperAdmin] = useState(() => isAdminSuperadmin());
 
   // ── Fetch slots ──
   const fetchSlots = useCallback(async () => {
@@ -308,8 +335,12 @@ export function AdminFtourDashboard() {
   }, []);
 
   useEffect(() => {
+    // One-time fix: switch free/null price_type → fixed for all Ftour slots
+    if (isSuperAdmin) {
+      void fixFtourSlotPriceTypes(undefined).catch(() => {});
+    }
     void fetchSlots();
-  }, [fetchSlots]);
+  }, [fetchSlots, isSuperAdmin]);
 
   // ── Selection helpers ──
   const allSelected = slots.length > 0 && selectedIds.size === slots.length;
@@ -342,12 +373,21 @@ export function AdminFtourDashboard() {
     slots: FtourSlotWithEstablishment[];
     totalCapacity: number;
     priceDisplay: string;
+    /** Type de prix dominant (premier trouvé) — utilisé pour le sélecteur rapide */
+    dominantPriceType: PriceType;
     promoDisplay: string;
   };
 
   const groupedByEstab = useMemo<EstabGroup[]>(() => {
+    const q = listSearchQuery.trim().toLowerCase();
     const map = new Map<string, FtourSlotWithEstablishment[]>();
     for (const slot of slots) {
+      // Filter by search query
+      if (q) {
+        const name = (slot.establishments?.name ?? "").toLowerCase();
+        const city = (slot.establishments?.city ?? "").toLowerCase();
+        if (!name.includes(q) && !city.includes(q)) continue;
+      }
       const eid = slot.establishment_id;
       if (!map.has(eid)) map.set(eid, []);
       map.get(eid)!.push(slot);
@@ -360,6 +400,7 @@ export function AdminFtourDashboard() {
 
       // Prix : valeur unique ou plage
       const priceTypes = [...new Set(estabSlots.map((s) => s.price_type ?? inferPriceType(s.base_price)))];
+      const dominantPriceType = (priceTypes[0] ?? "nc") as PriceType;
       let priceDisplay: string;
       if (priceTypes.length === 1 && priceTypes[0] !== "fixed") {
         priceDisplay = formatPrice(null, priceTypes[0]);
@@ -386,11 +427,40 @@ export function AdminFtourDashboard() {
         slots: estabSlots,
         totalCapacity,
         priceDisplay,
+        dominantPriceType,
         promoDisplay,
       });
     }
-    return groups.sort((a, b) => a.name.localeCompare(b.name));
-  }, [slots]);
+
+    // --- Tri dynamique ---
+    const getSortPrice = (g: EstabGroup): number => {
+      const fixed = g.slots.filter((s) => (s.price_type ?? inferPriceType(s.base_price)) === "fixed");
+      if (fixed.length === 0) return 0;
+      return Math.max(...fixed.map((s) => s.base_price ?? 0));
+    };
+    const statusPriority = (g: EstabGroup): number => {
+      const sts = [...new Set(g.slots.map((s) => s.moderation_status ?? "active"))];
+      if (sts.length > 1) return 3;
+      const st = sts[0];
+      return st === "pending_moderation" ? 0 : st === "active" ? 1 : st === "suspended" ? 2 : st === "rejected" ? 4 : 3;
+    };
+
+    return groups.sort((a, b) => {
+      switch (sortBy) {
+        case "name-asc": return a.name.localeCompare(b.name, "fr");
+        case "name-desc": return b.name.localeCompare(a.name, "fr");
+        case "price-desc": return getSortPrice(b) - getSortPrice(a);
+        case "price-asc": return getSortPrice(a) - getSortPrice(b);
+        case "capacity-desc": return b.totalCapacity - a.totalCapacity;
+        case "capacity-asc": return a.totalCapacity - b.totalCapacity;
+        case "status": {
+          const d = statusPriority(a) - statusPriority(b);
+          return d !== 0 ? d : a.name.localeCompare(b.name, "fr");
+        }
+        default: return a.name.localeCompare(b.name, "fr");
+      }
+    });
+  }, [slots, listSearchQuery, sortBy]);
 
   const toggleExpand = (eid: string) => {
     setExpandedEstabs((prev) => {
@@ -426,14 +496,13 @@ export function AdminFtourDashboard() {
 
     setCreating(true);
     try {
-      const startDate = new Date(createDateStart);
-      if (isNaN(startDate.getTime())) {
+      if (!createDateStart || !/^\d{4}-\d{2}-\d{2}$/.test(createDateStart)) {
         toast({ title: "Erreur", description: "Date de début invalide", variant: "destructive" });
         return;
       }
 
-      const endDate = createRepeatEnabled && createDateEnd ? new Date(createDateEnd) : new Date(startDate);
-      if (isNaN(endDate.getTime()) || endDate < startDate) {
+      const endDateStr = createRepeatEnabled && createDateEnd ? createDateEnd : createDateStart;
+      if (!endDateStr || endDateStr < createDateStart) {
         toast({ title: "Erreur", description: "Dates invalides", variant: "destructive" });
         return;
       }
@@ -443,7 +512,7 @@ export function AdminFtourDashboard() {
       const promoValueNum = createPromoValue.trim() ? Math.round(Number(createPromoValue)) : null;
       const promoValue = promoValueNum && promoValueNum > 0 ? promoValueNum : null;
 
-      // Build slot array
+      // Build slot array — all dates/times in UTC to avoid timezone drift
       const slotDefs: Array<{
         starts_at: string;
         ends_at: string;
@@ -457,24 +526,39 @@ export function AdminFtourDashboard() {
         cover_url?: string | null;
       }> = [];
 
-      const current = new Date(startDate);
-      while (current <= endDate) {
-        if (createRepeatEnabled && createRepeatDays.length > 0 && !createRepeatDays.includes(current.getDay())) {
-          current.setDate(current.getDate() + 1);
+      // Iterate over dates using UTC to avoid timezone issues
+      const startMs = Date.UTC(
+        Number(createDateStart.slice(0, 4)),
+        Number(createDateStart.slice(5, 7)) - 1,
+        Number(createDateStart.slice(8, 10)),
+      );
+      const endMs = Date.UTC(
+        Number(endDateStr.slice(0, 4)),
+        Number(endDateStr.slice(5, 7)) - 1,
+        Number(endDateStr.slice(8, 10)),
+      );
+
+      let currentMs = startMs;
+      while (currentMs <= endMs) {
+        const current = new Date(currentMs);
+        if (createRepeatEnabled && createRepeatDays.length > 0 && !createRepeatDays.includes(current.getUTCDay())) {
+          currentMs += 86400000; // +1 day in ms
           continue;
         }
 
-        const slotStart = new Date(current);
-        slotStart.setHours(hours, minutes, 0, 0);
-
-        const slotEnd = new Date(slotStart);
-        slotEnd.setMinutes(slotEnd.getMinutes() + createDurationMin);
+        const dateStr = isoToDateStr(current.toISOString());
+        const startsAt = buildUTCTimestamp(dateStr, hours, minutes);
+        const endsAtMs = Date.UTC(
+          current.getUTCFullYear(), current.getUTCMonth(), current.getUTCDate(),
+          hours, minutes + createDurationMin, 0,
+        );
+        const endsAt = new Date(endsAtMs).toISOString();
 
         slotDefs.push({
-          starts_at: slotStart.toISOString(),
-          ends_at: slotEnd.toISOString(),
+          starts_at: startsAt,
+          ends_at: endsAt,
           capacity: createCapacity,
-          base_price: createPriceType === "fixed" ? basePrice : null,
+          base_price: (createPriceType === "fixed" || createPriceType === "starting_from") ? basePrice : null,
           price_type: createPriceType,
           service_label: createServiceLabel || "Ftour",
           promo_type: promoValue ? createPromoType : null,
@@ -483,7 +567,7 @@ export function AdminFtourDashboard() {
           cover_url: createCoverUrl.trim() || null,
         });
 
-        current.setDate(current.getDate() + 1);
+        currentMs += 86400000; // +1 day
       }
 
       if (slotDefs.length === 0) {
@@ -522,7 +606,7 @@ export function AdminFtourDashboard() {
     setCreateDurationMin(180);
     setCreateCapacity(30);
     setCreateBasePrice("");
-    setCreatePriceType("free");
+    setCreatePriceType("fixed");
     setCreateServiceLabel("Ftour");
     setCreatePromoLabel("");
     setCreatePromoType("percent");
@@ -561,7 +645,7 @@ export function AdminFtourDashboard() {
           starts_at: editSlot.starts_at,
           ends_at: editSlot.ends_at ?? new Date(new Date(editSlot.starts_at).getTime() + 180 * 60000).toISOString(),
           capacity: editCapacity,
-          base_price: editPriceType === "fixed" ? basePrice : null,
+          base_price: (editPriceType === "fixed" || editPriceType === "starting_from") ? basePrice : null,
           price_type: editPriceType,
           service_label: editSlot.service_label || "Ftour",
           promo_type: promoValue ? editPromoType : null,
@@ -650,23 +734,27 @@ export function AdminFtourDashboard() {
   // ── Summary for creation ──
   const createSummary = useMemo(() => {
     if (!createDateStart) return null;
-    const start = new Date(createDateStart);
-    if (isNaN(start.getTime())) return "Date invalide";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(createDateStart)) return "Date invalide";
 
     let days = 1;
     if (createRepeatEnabled && createDateEnd) {
-      const end = new Date(createDateEnd);
-      if (isNaN(end.getTime()) || end < start) return "Dates invalides";
+      if (createDateEnd < createDateStart) return "Dates invalides";
 
       days = 0;
+      const startMs = Date.UTC(
+        Number(createDateStart.slice(0, 4)), Number(createDateStart.slice(5, 7)) - 1, Number(createDateStart.slice(8, 10)),
+      );
+      const endMs = Date.UTC(
+        Number(createDateEnd.slice(0, 4)), Number(createDateEnd.slice(5, 7)) - 1, Number(createDateEnd.slice(8, 10)),
+      );
       if (createRepeatDays.length > 0) {
-        const cursor = new Date(start);
-        while (cursor <= end) {
-          if (createRepeatDays.includes(cursor.getDay())) days++;
-          cursor.setDate(cursor.getDate() + 1);
+        let ms = startMs;
+        while (ms <= endMs) {
+          if (createRepeatDays.includes(new Date(ms).getUTCDay())) days++;
+          ms += 86400000;
         }
       } else {
-        days = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+        days = Math.round((endMs - startMs) / 86400000) + 1;
       }
     }
 
@@ -694,6 +782,31 @@ export function AdminFtourDashboard() {
           </Badge>
         </div>
         <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Rechercher..."
+              value={listSearchQuery}
+              onChange={(e) => setListSearchQuery(e.target.value)}
+              className="h-8 w-44 rounded-md border border-slate-200 bg-white pl-8 pr-3 text-xs text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
+          <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+            <SelectTrigger className="h-8 w-[155px] text-xs">
+              <ArrowUpDown className="h-3 w-3 mr-1 shrink-0" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="name-asc">Nom A → Z</SelectItem>
+              <SelectItem value="name-desc">Nom Z → A</SelectItem>
+              <SelectItem value="price-desc">Prix ↓ (cher)</SelectItem>
+              <SelectItem value="price-asc">Prix ↑ (pas cher)</SelectItem>
+              <SelectItem value="capacity-desc">Capacité ↓</SelectItem>
+              <SelectItem value="capacity-asc">Capacité ↑</SelectItem>
+              <SelectItem value="status">Statut</SelectItem>
+            </SelectContent>
+          </Select>
           <Button
             size="sm"
             variant="outline"
@@ -839,8 +952,35 @@ export function AdminFtourDashboard() {
                         <td className="px-3 py-2.5 text-right tabular-nums">
                           {group.totalCapacity}
                         </td>
-                        <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">
-                          {group.priceDisplay}
+                        <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          {isSuperAdmin ? (
+                            <Select
+                              value={group.dominantPriceType}
+                              onValueChange={async (v) => {
+                                try {
+                                  const result = await fixFtourSlotPriceTypes(undefined, {
+                                    establishment_id: group.establishmentId,
+                                    price_type: v,
+                                  });
+                                  toast({ title: "Prix mis à jour", description: `${group.name} → ${PRICE_TYPE_LABELS[v as PriceType]} (${result.fixed} créneau(x))` });
+                                  void fetchSlots();
+                                } catch (err) {
+                                  toast({ title: "Erreur", description: err instanceof Error ? err.message : "Erreur inconnue", variant: "destructive" });
+                                }
+                              }}
+                            >
+                              <SelectTrigger className="h-7 w-[110px] text-xs ml-auto">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {(Object.entries(PRICE_TYPE_LABELS) as [PriceType, string][]).map(([val, lbl]) => (
+                                  <SelectItem key={val} value={val}>{lbl}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            group.priceDisplay
+                          )}
                         </td>
                         <td className="px-3 py-2.5">
                           {group.promoDisplay !== "—" ? (

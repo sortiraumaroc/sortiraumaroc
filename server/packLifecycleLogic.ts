@@ -160,7 +160,7 @@ export async function createPackV2(
     limit_per_client: input.limitPerClient ?? 1,
     is_multi_use: input.isMultiUse ?? false,
     total_uses: input.isMultiUse ? (input.totalUses ?? 1) : 1,
-    price_type: input.priceType ?? (input.price > 0 ? "fixed" : "free"),
+    price_type: input.priceType ?? (input.price > 0 ? "fixed" : "nc"),
     moderation_status: "draft",
     active: false,
     sold_count: 0,

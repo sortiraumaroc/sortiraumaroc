@@ -135,7 +135,7 @@ router.get("/", cacheMiddleware(120, (req) =>
           title: `Ftour — ${first.establishments?.name ?? ""}`,
           type: "ftour",
           price: first.base_price ?? 0,
-          price_type: first.price_type ?? (first.base_price && first.base_price > 0 ? "fixed" : "free"),
+          price_type: first.price_type ?? (first.base_price && first.base_price > 0 ? "fixed" : "nc"),
           original_price: null,
           currency: "MAD",
           cover_url: first.cover_url,

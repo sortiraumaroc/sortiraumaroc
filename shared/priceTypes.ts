@@ -7,21 +7,24 @@
  * - ramadan_offers
  */
 
-export const PRICE_TYPES = ["fixed", "free", "a_la_carte", "nc"] as const;
+export const PRICE_TYPES = ["fixed", "starting_from", "a_la_carte", "nc"] as const;
 export type PriceType = (typeof PRICE_TYPES)[number];
 
 /** Labels d'affichage dans les formulaires (Select) */
 export const PRICE_TYPE_LABELS: Record<PriceType, string> = {
-  fixed: "Prix fixe",
-  free: "Gratuit",
+  fixed: "Prix",
+  starting_from: "À partir de",
   a_la_carte: "À la carte",
   nc: "NC",
 };
 
+/** Types qui affichent un champ prix (input numérique) */
+export const PRICE_TYPES_WITH_INPUT: readonly PriceType[] = ["fixed", "starting_from"];
+
 /**
  * Formate l'affichage du prix selon le price_type.
  * @param priceType - Le type de prix
- * @param priceCents - Le prix en centimes (pour 'fixed')
+ * @param priceCents - Le prix en centimes (pour 'fixed' et 'starting_from')
  * @returns Chaîne formatée pour l'affichage
  */
 export function formatPriceByType(
@@ -34,15 +37,21 @@ export function formatPriceByType(
       if (priceCents && priceCents > 0) {
         return `${Math.round(priceCents / 100)} MAD`;
       }
-      return "Gratuit";
-    case "free":
-      return "Gratuit";
+      return "NC";
+    case "starting_from":
+      if (priceCents && priceCents > 0) {
+        return `À p. de ${Math.round(priceCents / 100)} MAD`;
+      }
+      return "NC";
     case "a_la_carte":
       return "À la carte";
     case "nc":
       return "NC";
+    // Rétrocompatibilité : "free" dans d'anciennes données → traiter comme NC
+    case "free" as string:
+      return "NC";
     default:
-      return "Gratuit";
+      return "NC";
   }
 }
 
@@ -50,6 +59,6 @@ export function formatPriceByType(
  * Infère le price_type depuis un prix numérique (pour rétrocompatibilité).
  */
 export function inferPriceType(priceCents: number | null | undefined): PriceType {
-  if (priceCents === null || priceCents === undefined || priceCents === 0) return "free";
+  if (priceCents === null || priceCents === undefined || priceCents === 0) return "nc";
   return "fixed";
 }

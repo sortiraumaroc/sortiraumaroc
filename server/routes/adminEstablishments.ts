@@ -9,8 +9,11 @@
 
 import type { RequestHandler } from "express";
 import { randomBytes } from "crypto";
+import multer from "multer";
+import ExcelJS from "exceljs";
 import {
   requireAdminKey,
+  requireSuperadmin,
   isRecord,
   asString,
   asStringArray,
@@ -1456,6 +1459,8 @@ export const adminUpsertSlots: RequestHandler = async (req, res) => {
       return res.status(400).json({ error: "capacity must be > 0" });
     }
 
+    const priceType = typeof r.price_type === "string" ? r.price_type : (r.base_price != null && Number(r.base_price) > 0 ? "fixed" : "nc");
+
     rows.push({
       establishment_id: establishmentId,
       starts_at: new Date(startsMs).toISOString(),
@@ -1469,12 +1474,29 @@ export const adminUpsertSlots: RequestHandler = async (req, res) => {
       active: false,
       moderation_status: "pending_moderation",
       cover_url: r.cover_url == null ? null : String(r.cover_url),
-      price_type: r.price_type ?? (r.base_price != null && Number(r.base_price) > 0 ? "fixed" : "free"),
+      // price_type géré via RPC après upsert (bypass cache PostgREST)
+      _price_type: priceType, // stocké temporairement, pas envoyé à Supabase
     });
   }
 
-  const { error } = await supabase.from("pro_slots").upsert(rows, { onConflict: "establishment_id,starts_at" });
+  // Upsert sans price_type (colonne non visible par PostgREST)
+  const upsertRows = rows.map(({ _price_type, ...rest }) => rest);
+  const { error } = await supabase.from("pro_slots").upsert(upsertRows, { onConflict: "establishment_id,starts_at" });
   if (error) return res.status(500).json({ error: error.message });
+
+  // Mettre à jour price_type via RPC (bypass cache PostgREST)
+  const priceType = rows[0]?._price_type;
+  if (priceType && priceType !== "fixed") {
+    try {
+      const { error: rpcErr } = await supabase.rpc("update_slots_price_type", {
+        p_establishment_id: establishmentId,
+        p_price_type: String(priceType),
+      });
+      if (rpcErr) console.error("[upsert] price_type RPC error:", rpcErr.message);
+    } catch (e) {
+      console.error("[upsert] price_type RPC fallback error:", e);
+    }
+  }
 
   res.json({ ok: true, upserted: rows.length });
 };
@@ -1580,32 +1602,581 @@ export const listAdminFtourSlots: RequestHandler = async (req, res) => {
 
   try {
     const supabase = getAdminSupabase();
+    const PAGE_SIZE = 1000;
+    let allSlots: any[] = [];
+    let offset = 0;
+    let hasMore = true;
 
-    let query = supabase
-      .from("pro_slots")
-      .select("*, establishments!inner(id, name, city)")
-      .eq("service_label", "Ftour")
-      .in("moderation_status", ["pending_moderation", "active", "suspended"])
-      .order("starts_at", { ascending: true })
-      .limit(2000);
+    while (hasMore) {
+      let query = supabase
+        .from("pro_slots")
+        .select("*, establishments!inner(id, name, city)")
+        .eq("service_label", "Ftour")
+        .in("moderation_status", ["pending_moderation", "active", "suspended"])
+        .order("starts_at", { ascending: true })
+        .range(offset, offset + PAGE_SIZE - 1);
 
-    if (typeof req.query.from === "string" && req.query.from) {
-      query = query.gte("starts_at", req.query.from);
+      if (typeof req.query.from === "string" && req.query.from) {
+        query = query.gte("starts_at", req.query.from);
+      }
+      if (typeof req.query.to === "string" && req.query.to) {
+        query = query.lte("starts_at", req.query.to);
+      }
+
+      const { data, error } = await query;
+      if (error) {
+        res.status(500).json({ error: error.message });
+        return;
+      }
+      if (!data || data.length === 0) {
+        hasMore = false;
+      } else {
+        allSlots = allSlots.concat(data);
+        offset += PAGE_SIZE;
+        if (data.length < PAGE_SIZE) hasMore = false;
+      }
     }
-    if (typeof req.query.to === "string" && req.query.to) {
-      query = query.lte("starts_at", req.query.to);
+
+    // Injecter price_type via RPC (bypass cache PostgREST)
+    if (allSlots.length > 0) {
+      const { data: ptData } = await supabase.rpc("get_ftour_slots_price_types");
+      if (Array.isArray(ptData)) {
+        const ptMap = new Map<string, string>();
+        for (const row of ptData) ptMap.set(row.id, row.price_type);
+        for (const s of allSlots) s.price_type = ptMap.get(s.id) ?? null;
+      }
     }
 
-    const { data, error } = await query;
-    if (error) {
-      res.status(500).json({ error: error.message });
-      return;
-    }
-
-    res.json({ ok: true, slots: data ?? [] });
+    res.json({ ok: true, slots: allSlots });
   } catch (err) {
     console.error("[admin] listAdminFtourSlots error:", err);
     res.status(500).json({ error: "internal_error" });
+  }
+};
+
+/**
+ * POST /api/admin/ftour-slots/fix-price-types
+ * Mode 1 (sans body) : Corrige les créneaux Ftour avec price_type obsolète :
+ *  - 'free' avec base_price > 0 → 'fixed'
+ *  - 'free' sans prix → 'nc'
+ *  - NULL avec base_price > 0 → 'fixed'
+ *  - NULL sans prix → 'nc'
+ * Mode 2 (avec body) : Met à jour le price_type de tous les créneaux Ftour d'un établissement.
+ *  Body: { establishment_id: string, price_type: "fixed"|"starting_from"|"a_la_carte"|"nc" }
+ * Superadmin-only, idempotent.
+ */
+export const fixFtourSlotPriceTypes: RequestHandler = async (req, res) => {
+  if (!requireSuperadmin(req, res)) return;
+
+  try {
+    const supabase = getAdminSupabase();
+    const body = req.body ?? {};
+    const { establishment_id, price_type } = body as Record<string, unknown>;
+    console.log(`[fix-price-types] body=`, JSON.stringify(body), `establishment_id=${establishment_id} price_type=${price_type}`);
+
+    // ── Mode 2 : correction ciblée par établissement (via RPC pour bypass cache PostgREST) ──
+    if (typeof establishment_id === "string" && establishment_id &&
+        typeof price_type === "string" && ["fixed", "starting_from", "a_la_carte", "nc"].includes(price_type)) {
+      const { data, error } = await supabase.rpc("update_slots_price_type", {
+        p_establishment_id: establishment_id,
+        p_price_type: price_type,
+      });
+      if (error) return res.status(500).json({ error: error.message });
+      const affected = typeof data === "number" ? data : 0;
+      console.log(`[fix-price-types] Targeted: ${affected} slots → ${price_type} for estab ${establishment_id}`);
+      return res.json({ ok: true, fixed: affected });
+    }
+
+    // ── Mode 1 : correction globale free/null (via SQL direct pour bypass cache PostgREST) ──
+    const { data: fixResult, error: fixErr } = await supabase.rpc("fix_global_slot_price_types" as any);
+    if (fixErr) {
+      // Fallback silencieux si la fonction RPC n'existe pas encore
+      console.log(`[fix-price-types] Global RPC not available, skipping: ${fixErr.message}`);
+      return res.json({ ok: true, fixed: 0 });
+    }
+    const total = typeof fixResult === "number" ? fixResult : 0;
+    console.log(`[fix-price-types] Global: Fixed ${total} Ftour slots`);
+    res.json({ ok: true, fixed: total });
+  } catch (err) {
+    console.error("[admin] fixFtourSlotPriceTypes error:", err);
+    res.status(500).json({ error: "internal_error" });
+  }
+};
+
+// =============================================================================
+// Export XLSX — Superadmin only
+// =============================================================================
+
+export const exportEstablishmentsXlsx: RequestHandler = async (req, res) => {
+  if (!requireSuperadmin(req, res)) return;
+
+  try {
+    const supabase = getAdminSupabase();
+
+    // Paginate to fetch ALL establishments
+    const PAGE_SIZE = 1000;
+    let allRows: any[] = [];
+    let from = 0;
+    let hasMore = true;
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from("establishments")
+        .select(
+          `id, name, slug, city, universe, subcategory, status,
+           address, lat, lng, phone, whatsapp, website,
+           google_maps_url, google_place_id, google_rating, google_review_count,
+           description_short, cover_url, social_links, hours,
+           verified, premium, curated, is_online,
+           created_at, updated_at`
+        )
+        .order("city", { ascending: true })
+        .order("name", { ascending: true })
+        .range(from, from + PAGE_SIZE - 1);
+      if (error) {
+        log.error({ err: error }, "export xlsx query error");
+        return res.status(500).json({ error: error.message });
+      }
+      const page = data ?? [];
+      allRows = allRows.concat(page);
+      hasMore = page.length === PAGE_SIZE;
+      from += PAGE_SIZE;
+    }
+
+    // Also fetch Ftour slot counts per establishment
+    let allSlots: any[] = [];
+    from = 0;
+    hasMore = true;
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from("pro_slots")
+        .select("establishment_id")
+        .eq("service_label", "Ftour")
+        .range(from, from + PAGE_SIZE - 1);
+      if (error) break;
+      const page = data ?? [];
+      allSlots = allSlots.concat(page);
+      hasMore = page.length === PAGE_SIZE;
+      from += PAGE_SIZE;
+    }
+
+    const slotCounts: Record<string, number> = {};
+    for (const s of allSlots) {
+      slotCounts[s.establishment_id] = (slotCounts[s.establishment_id] || 0) + 1;
+    }
+
+    // Build Excel workbook
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Sortir Au Maroc";
+    workbook.created = new Date();
+
+    const sheet = workbook.addWorksheet("Établissements", {
+      properties: { tabColor: { argb: "FFA3001D" } },
+    });
+
+    sheet.columns = [
+      { header: "ID", key: "id", width: 38 },
+      { header: "Nom", key: "name", width: 30 },
+      { header: "Ville", key: "city", width: 18 },
+      { header: "Univers", key: "universe", width: 18 },
+      { header: "Sous-catégorie", key: "subcategory", width: 22 },
+      { header: "Statut", key: "status", width: 14 },
+      { header: "Adresse", key: "address", width: 40 },
+      { header: "Téléphone", key: "phone", width: 18 },
+      { header: "WhatsApp", key: "whatsapp", width: 18 },
+      { header: "Site web", key: "website", width: 30 },
+      { header: "Google Maps", key: "google_maps_url", width: 30 },
+      { header: "Note Google", key: "google_rating", width: 12 },
+      { header: "Avis Google", key: "google_review_count", width: 12 },
+      { header: "Instagram", key: "instagram", width: 25 },
+      { header: "TripAdvisor", key: "tripadvisor", width: 25 },
+      { header: "Description courte", key: "description_short", width: 40 },
+      { header: "Photo", key: "cover_url", width: 30 },
+      { header: "Latitude", key: "lat", width: 12 },
+      { header: "Longitude", key: "lng", width: 12 },
+      { header: "Vérifié", key: "verified", width: 10 },
+      { header: "Premium", key: "premium", width: 10 },
+      { header: "En ligne", key: "is_online", width: 10 },
+      { header: "Slots Ftour", key: "ftour_slots", width: 12 },
+      { header: "Slug", key: "slug", width: 30 },
+      { header: "Créé le", key: "created_at", width: 20 },
+      { header: "Mis à jour le", key: "updated_at", width: 20 },
+    ];
+
+    // Style header
+    const headerRow = sheet.getRow(1);
+    headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    headerRow.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFA3001D" },
+    };
+    headerRow.alignment = { vertical: "middle", horizontal: "center" };
+    headerRow.height = 28;
+
+    // Add data rows
+    for (const row of allRows) {
+      const socialLinks =
+        typeof row.social_links === "object" && row.social_links
+          ? row.social_links
+          : {};
+
+      sheet.addRow({
+        id: row.id,
+        name: row.name || "",
+        city: row.city || "",
+        universe: row.universe || "",
+        subcategory: row.subcategory || "",
+        status: row.status || "",
+        address: row.address || "",
+        phone: row.phone || "",
+        whatsapp: row.whatsapp || "",
+        website: row.website || "",
+        google_maps_url: row.google_maps_url || "",
+        google_rating: row.google_rating ?? "",
+        google_review_count: row.google_review_count ?? "",
+        instagram: socialLinks.instagram || "",
+        tripadvisor: socialLinks.tripadvisor || "",
+        description_short: row.description_short || "",
+        cover_url: row.cover_url || "",
+        lat: row.lat ?? "",
+        lng: row.lng ?? "",
+        verified: row.verified ? "Oui" : "Non",
+        premium: row.premium ? "Oui" : "Non",
+        is_online: row.is_online ? "Oui" : "Non",
+        ftour_slots: slotCounts[row.id] || 0,
+        slug: row.slug || "",
+        created_at: row.created_at
+          ? new Date(row.created_at).toLocaleDateString("fr-FR")
+          : "",
+        updated_at: row.updated_at
+          ? new Date(row.updated_at).toLocaleDateString("fr-FR")
+          : "",
+      });
+    }
+
+    // Auto-filter
+    sheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: allRows.length + 1, column: sheet.columns.length },
+    };
+
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    const filename = `etablissements_sam_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(Buffer.from(buffer as ArrayBuffer));
+  } catch (err) {
+    log.error({ err }, "export xlsx error");
+    res.status(500).json({ error: "Erreur lors de l'export" });
+  }
+};
+
+// =============================================================================
+// Import XLSX — Superadmin only (upsert)
+// =============================================================================
+
+export const xlsxUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+});
+
+/** Lit la valeur texte d'une cellule ExcelJS */
+function cellText(val: unknown): string {
+  if (val === null || val === undefined) return "";
+  if (typeof val === "object" && val !== null && "text" in val) return String((val as any).text).trim();
+  if (typeof val === "object" && val !== null && "result" in val) return String((val as any).result).trim();
+  return String(val).trim();
+}
+
+function ouiNonToBool(val: string): boolean | null {
+  const lc = val.toLowerCase();
+  if (lc === "oui" || lc === "true" || lc === "1") return true;
+  if (lc === "non" || lc === "false" || lc === "0") return false;
+  return null;
+}
+
+export const importEstablishmentsXlsx: RequestHandler = async (req, res) => {
+  if (!requireSuperadmin(req, res)) return;
+
+  const file = (req as any).file as Express.Multer.File | undefined;
+  if (!file?.buffer) {
+    return res.status(400).json({ error: "Fichier .xlsx requis" });
+  }
+
+  try {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(file.buffer);
+
+    const sheet = workbook.worksheets[0];
+    if (!sheet) {
+      return res.status(400).json({ error: "Aucune feuille trouvée dans le fichier" });
+    }
+
+    // 1. Lire le header pour mapper les colonnes
+    const headerRow = sheet.getRow(1);
+    const colMap: Record<string, number> = {};
+    headerRow.eachCell((cell, colNumber) => {
+      const header = cellText(cell.value).toLowerCase();
+      colMap[header] = colNumber;
+    });
+
+    // Vérifier colonnes minimales
+    if (!colMap["nom"] && !colMap["name"]) {
+      return res.status(400).json({ error: "Colonne 'Nom' manquante dans le fichier" });
+    }
+
+    // Mapping header → colonne BDD
+    const COL = {
+      id: colMap["id"] || 0,
+      name: colMap["nom"] || colMap["name"] || 0,
+      city: colMap["ville"] || colMap["city"] || 0,
+      universe: colMap["univers"] || colMap["universe"] || 0,
+      subcategory: colMap["sous-catégorie"] || colMap["subcategory"] || colMap["sous-categorie"] || 0,
+      status: colMap["statut"] || colMap["status"] || 0,
+      address: colMap["adresse"] || colMap["address"] || 0,
+      phone: colMap["téléphone"] || colMap["telephone"] || colMap["phone"] || 0,
+      whatsapp: colMap["whatsapp"] || 0,
+      website: colMap["site web"] || colMap["website"] || 0,
+      google_maps_url: colMap["google maps"] || colMap["google_maps_url"] || 0,
+      google_rating: colMap["note google"] || colMap["google_rating"] || 0,
+      google_review_count: colMap["avis google"] || colMap["google_review_count"] || 0,
+      instagram: colMap["instagram"] || 0,
+      tripadvisor: colMap["tripadvisor"] || 0,
+      description_short: colMap["description courte"] || colMap["description_short"] || 0,
+      cover_url: colMap["photo"] || colMap["cover_url"] || 0,
+      lat: colMap["latitude"] || colMap["lat"] || 0,
+      lng: colMap["longitude"] || colMap["lng"] || 0,
+      verified: colMap["vérifié"] || colMap["verified"] || colMap["verifie"] || 0,
+      premium: colMap["premium"] || 0,
+      is_online: colMap["en ligne"] || colMap["is_online"] || 0,
+      slug: colMap["slug"] || 0,
+    };
+
+    // 2. Lire toutes les lignes de données
+    type XlsxRow = { rowNum: number; data: Record<string, unknown> };
+    const rows: XlsxRow[] = [];
+
+    sheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return; // skip header
+
+      const name = cellText(row.getCell(COL.name).value);
+      if (!name) return; // skip lignes vides
+
+      const data: Record<string, unknown> = {};
+
+      // Extraction
+      const id = COL.id ? cellText(row.getCell(COL.id).value) : "";
+      if (id) data._id = id;
+
+      data.name = name;
+      const city = COL.city ? cellText(row.getCell(COL.city).value) : "";
+      if (city) data.city = city;
+
+      const universe = COL.universe ? cellText(row.getCell(COL.universe).value) : "";
+      if (universe) data.universe = universe;
+
+      const subcategory = COL.subcategory ? cellText(row.getCell(COL.subcategory).value) : "";
+      if (subcategory) data.subcategory = subcategory;
+
+      const status = COL.status ? cellText(row.getCell(COL.status).value) : "";
+      if (status) data.status = status;
+
+      const address = COL.address ? cellText(row.getCell(COL.address).value) : "";
+      if (address) data.address = address;
+
+      const phone = COL.phone ? cellText(row.getCell(COL.phone).value) : "";
+      if (phone) data.phone = phone;
+
+      const whatsapp = COL.whatsapp ? cellText(row.getCell(COL.whatsapp).value) : "";
+      if (whatsapp) data.whatsapp = whatsapp;
+
+      const website = COL.website ? cellText(row.getCell(COL.website).value) : "";
+      if (website) data.website = website;
+
+      const googleMapsUrl = COL.google_maps_url ? cellText(row.getCell(COL.google_maps_url).value) : "";
+      if (googleMapsUrl) data.google_maps_url = googleMapsUrl;
+
+      const googleRating = COL.google_rating ? cellText(row.getCell(COL.google_rating).value) : "";
+      if (googleRating && !isNaN(Number(googleRating))) data.google_rating = Number(googleRating);
+
+      const googleReviewCount = COL.google_review_count ? cellText(row.getCell(COL.google_review_count).value) : "";
+      if (googleReviewCount && !isNaN(Number(googleReviewCount))) data.google_review_count = Number(googleReviewCount);
+
+      // Social links (will be merged, not replaced)
+      const instagram = COL.instagram ? cellText(row.getCell(COL.instagram).value) : "";
+      const tripadvisor = COL.tripadvisor ? cellText(row.getCell(COL.tripadvisor).value) : "";
+      if (instagram || tripadvisor) {
+        data._social_links_patch = {} as Record<string, string>;
+        if (instagram) (data._social_links_patch as Record<string, string>).instagram = instagram;
+        if (tripadvisor) (data._social_links_patch as Record<string, string>).tripadvisor = tripadvisor;
+      }
+
+      const descShort = COL.description_short ? cellText(row.getCell(COL.description_short).value) : "";
+      if (descShort) data.description_short = descShort;
+
+      const coverUrl = COL.cover_url ? cellText(row.getCell(COL.cover_url).value) : "";
+      if (coverUrl) data.cover_url = coverUrl;
+
+      const lat = COL.lat ? cellText(row.getCell(COL.lat).value) : "";
+      if (lat && !isNaN(Number(lat))) data.lat = Number(lat);
+
+      const lng = COL.lng ? cellText(row.getCell(COL.lng).value) : "";
+      if (lng && !isNaN(Number(lng))) data.lng = Number(lng);
+
+      const verified = COL.verified ? cellText(row.getCell(COL.verified).value) : "";
+      if (verified) { const b = ouiNonToBool(verified); if (b !== null) data.verified = b; }
+
+      const premium = COL.premium ? cellText(row.getCell(COL.premium).value) : "";
+      if (premium) { const b = ouiNonToBool(premium); if (b !== null) data.premium = b; }
+
+      const isOnline = COL.is_online ? cellText(row.getCell(COL.is_online).value) : "";
+      if (isOnline) { const b = ouiNonToBool(isOnline); if (b !== null) data.is_online = b; }
+
+      const slug = COL.slug ? cellText(row.getCell(COL.slug).value) : "";
+      if (slug) data.slug = slug;
+
+      rows.push({ rowNum: rowNumber, data });
+    });
+
+    if (rows.length === 0) {
+      return res.status(400).json({ error: "Aucune ligne de données trouvée" });
+    }
+
+    // 3. Charger les établissements existants pour le matching
+    const supabase = getAdminSupabase();
+    const PAGE_SIZE = 1000;
+    let allExisting: any[] = [];
+    let from = 0;
+    let hasMore = true;
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from("establishments")
+        .select("id, name, city, social_links")
+        .range(from, from + PAGE_SIZE - 1);
+      if (error) break;
+      const page = data ?? [];
+      allExisting = allExisting.concat(page);
+      hasMore = page.length === PAGE_SIZE;
+      from += PAGE_SIZE;
+    }
+
+    // Build lookup maps
+    const idMap = new Map<string, any>();
+    const nameMap = new Map<string, any>();
+    for (const e of allExisting) {
+      idMap.set(e.id, e);
+      const key = `${normalizeEstName(e.name)}||${normalizeEstName(e.city)}`;
+      nameMap.set(key, e);
+    }
+
+    // 4. Process rows — separate into updates and inserts
+    let created = 0;
+    let updated = 0;
+    const errors: string[] = [];
+
+    for (const { rowNum, data } of rows) {
+      try {
+        // Determine if update or insert
+        let existingId: string | null = null;
+        let existingSocialLinks: Record<string, string> = {};
+
+        // Priority 1: match by ID
+        if (data._id && typeof data._id === "string" && idMap.has(data._id)) {
+          existingId = data._id;
+          existingSocialLinks = idMap.get(data._id)?.social_links || {};
+        }
+
+        // Priority 2: match by name + city
+        if (!existingId && data.name && data.city) {
+          const key = `${normalizeEstName(data.name as string)}||${normalizeEstName(data.city as string)}`;
+          const match = nameMap.get(key);
+          if (match) {
+            existingId = match.id;
+            existingSocialLinks = match.social_links || {};
+          }
+        }
+
+        // Build the DB payload (remove internal fields)
+        const payload: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(data)) {
+          if (k.startsWith("_")) continue; // skip internal
+          payload[k] = v;
+        }
+
+        // Merge social_links
+        if (data._social_links_patch) {
+          const merged = { ...existingSocialLinks, ...(data._social_links_patch as Record<string, string>) };
+          payload.social_links = merged;
+        }
+
+        if (existingId) {
+          // UPDATE — only non-empty fields
+          delete payload.name; // don't change the name on update (risky)
+          const { error: updateErr } = await supabase
+            .from("establishments")
+            .update(payload)
+            .eq("id", existingId);
+          if (updateErr) {
+            errors.push(`Ligne ${rowNum} (${data.name}): ${updateErr.message}`);
+          } else {
+            updated++;
+          }
+        } else {
+          // INSERT — need at minimum name and city
+          if (!payload.name) {
+            errors.push(`Ligne ${rowNum}: nom manquant`);
+            continue;
+          }
+          if (!payload.city) {
+            errors.push(`Ligne ${rowNum} (${payload.name}): ville manquante`);
+            continue;
+          }
+
+          // Generate slug if missing
+          if (!payload.slug) {
+            const base = `${payload.name} ${payload.city}`
+              .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+              .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+            const suffix = randomBytes(3).toString("hex");
+            payload.slug = `${base}-${suffix}`;
+          }
+
+          // Set defaults for new establishments
+          if (!payload.status) payload.status = "pending";
+          payload.hours = payload.hours ?? {};
+          payload.country = payload.country ?? "Maroc";
+
+          const { error: insertErr } = await supabase
+            .from("establishments")
+            .insert([payload]);
+
+          if (insertErr) {
+            errors.push(`Ligne ${rowNum} (${payload.name}): ${insertErr.message}`);
+          } else {
+            created++;
+          }
+        }
+      } catch (err: any) {
+        errors.push(`Ligne ${rowNum}: ${err.message || "erreur inconnue"}`);
+      }
+    }
+
+    log.info({ created, updated, errors: errors.length, total: rows.length }, "import xlsx completed");
+
+    return res.json({
+      ok: true,
+      total: rows.length,
+      created,
+      updated,
+      errors: errors.slice(0, 50), // max 50 erreurs
+    });
+  } catch (err: any) {
+    log.error({ err }, "import xlsx error");
+    return res.status(500).json({ error: `Erreur lors de l'import: ${err.message}` });
   }
 };
 

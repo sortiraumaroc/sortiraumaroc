@@ -149,6 +149,17 @@ export async function activateRamadanOffer(offerId: string): Promise<{ ok: true 
   return adminJson(`/api/admin/ramadan/${offerId}/activate`, { method: "POST" });
 }
 
+/** PATCH /api/admin/ramadan/:id — Éditer les champs d'une offre Ramadan */
+export async function updateRamadanOffer(
+  offerId: string,
+  data: Record<string, unknown>,
+): Promise<{ ok: true }> {
+  return adminJson(`/api/admin/ramadan/${offerId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
 /** DELETE /api/admin/ramadan/:id */
 export async function deleteRamadanOffer(offerId: string): Promise<{ ok: true }> {
   return adminJson(`/api/admin/ramadan/${offerId}`, { method: "DELETE" });

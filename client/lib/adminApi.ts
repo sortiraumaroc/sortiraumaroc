@@ -3019,6 +3019,21 @@ export async function listAdminFtourSlots(
   );
 }
 
+/** POST /api/admin/ftour-slots/fix-price-types — Corrige price_type (global ou ciblé) */
+export async function fixFtourSlotPriceTypes(
+  adminKey: string | undefined,
+  opts?: { establishment_id: string; price_type: string },
+): Promise<{ ok: true; fixed: number }> {
+  return requestJson<{ ok: true; fixed: number }>(
+    "/api/admin/ftour-slots/fix-price-types",
+    adminKey,
+    {
+      method: "POST",
+      ...(opts ? { body: JSON.stringify(opts) } : {}),
+    },
+  );
+}
+
 export async function listAdminEstablishmentPackBilling(
   adminKey: string | undefined,
   establishmentId: string,

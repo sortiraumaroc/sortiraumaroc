@@ -226,7 +226,7 @@ export function ProSlotsTab({ establishment, role }: Props) {
     serviceLabel: "__auto__",
     capacity: "",
     basePrice: "",
-    priceType: "free" as PriceType,
+    priceType: "nc" as PriceType,
     promoType: "percent",
     promoValue: "",
     promoLabel: "",

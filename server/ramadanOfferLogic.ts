@@ -76,7 +76,7 @@ export async function createRamadanOffer(
     conditions_ar: input.conditionsAr ?? null,
     valid_from: input.validFrom,
     valid_to: input.validTo,
-    price_type: input.priceType ?? (input.price > 0 ? "fixed" : "free"),
+    price_type: input.priceType ?? (input.price > 0 ? "fixed" : "nc"),
     moderation_status: "draft",
   };
 
@@ -177,9 +177,13 @@ export async function approveRamadanOffer(
 ): Promise<OpResult> {
   const supabase = getAdminSupabase();
 
+  // Charger les données complètes de l'offre pour générer les pro_slots
   const { data: offer, error } = await supabase
     .from("ramadan_offers")
-    .select("id, moderation_status, title, establishment_id, valid_from")
+    .select(
+      "id, moderation_status, title, establishment_id, valid_from, valid_to, " +
+      "time_slots, capacity_per_slot, price, original_price, price_type, type, cover_url",
+    )
     .eq("id", offerId)
     .maybeSingle();
 
@@ -196,7 +200,8 @@ export async function approveRamadanOffer(
   }
 
   // Déterminer le statut cible : active immédiatement ou approved (programmé)
-  const validFrom = (offer as any).valid_from;
+  const validFrom = (offer as any).valid_from as string | null;
+  const validTo = (offer as any).valid_to as string | null;
   const now = new Date();
   const today = now.toISOString().split("T")[0];
   const shouldActivateNow = !validFrom || validFrom <= today;
@@ -217,17 +222,87 @@ export async function approveRamadanOffer(
 
   if (updateError) return { ok: false, error: updateError.message };
 
+  // ─── Générer les pro_slots réservables ────────────────────────────────────
+  // Les offres soumises via onboarding ne créent que des ramadan_offers (templates).
+  // Pour qu'elles soient réservables, on génère 1 pro_slot par jour sur la plage de dates.
+  const establishmentId = (offer as any).establishment_id as string;
+  const timeSlots = (offer as any).time_slots as Array<{ start: string; end: string; label?: string }> | null;
+  const capacityPerSlot = (offer as any).capacity_per_slot as number | null;
+  const price = (offer as any).price as number | null;
+  const priceType = (offer as any).price_type as string | null;
+  const offerTitle = (offer as any).title as string | null;
+  const coverUrl = (offer as any).cover_url as string | null;
+
+  if (validFrom && validTo && timeSlots && timeSlots.length > 0) {
+    const firstSlot = timeSlots[0];
+    const startTime = firstSlot.start; // e.g. "18:00"
+    const endTime = firstSlot.end;     // e.g. "20:00"
+    const label = firstSlot.label || "Ftour";
+
+    const slotsToInsert: Record<string, unknown>[] = [];
+    const startDate = new Date(validFrom + "T00:00:00Z");
+    const endDate = new Date(validTo + "T00:00:00Z");
+
+    for (let d = new Date(startDate); d <= endDate; d.setUTCDate(d.getUTCDate() + 1)) {
+      const dateStr = d.toISOString().split("T")[0];
+      const startsAt = `${dateStr}T${startTime}:00.000Z`;
+      const endsAt = `${dateStr}T${endTime}:00.000Z`;
+
+      slotsToInsert.push({
+        establishment_id: establishmentId,
+        starts_at: startsAt,
+        ends_at: endsAt,
+        capacity: capacityPerSlot ?? 30,
+        base_price: price ?? null,
+        price_type: priceType || "fixed",
+        service_label: label,
+        title: offerTitle || null,
+        active: true,
+        moderation_status: "active",
+        moderated_by: safeUUID(adminUserId),
+        moderated_at: now.toISOString(),
+        cover_url: coverUrl || null,
+        promo_type: null,
+        promo_value: null,
+        promo_label: null,
+      });
+    }
+
+    if (slotsToInsert.length > 0) {
+      const { error: slotErr } = await supabase
+        .from("pro_slots")
+        .insert(slotsToInsert);
+
+      if (slotErr) {
+        log.warn(
+          { err: slotErr, offerId, count: slotsToInsert.length },
+          "Failed to generate pro_slots for approved ramadan offer",
+        );
+      } else {
+        log.info(
+          { offerId, establishmentId, slotsCreated: slotsToInsert.length },
+          `Generated ${slotsToInsert.length} pro_slots for approved ramadan offer`,
+        );
+      }
+    }
+  } else {
+    log.warn(
+      { offerId, validFrom, validTo, hasTimeSlots: !!timeSlots?.length },
+      "Skipped pro_slots generation: missing valid_from, valid_to, or time_slots",
+    );
+  }
+
   // Notifier le pro
   void (async () => {
     try {
       await notifyProMembers({
         supabase,
-        establishmentId: (offer as any).establishment_id,
+        establishmentId,
         category: "ramadan_moderation",
         title: "🌙 Offre Ramadan approuvée !",
         body: targetStatus === "active"
-          ? `Votre offre "${(offer as any).title}" est maintenant visible.`
-          : `Votre offre "${(offer as any).title}" a été approuvée et sera visible à partir du ${validFrom}.`,
+          ? `Votre offre "${offerTitle}" est maintenant visible.`
+          : `Votre offre "${offerTitle}" a été approuvée et sera visible à partir du ${validFrom}.`,
         data: { offer_id: offerId, status: targetStatus },
       });
     } catch (err) { log.warn({ err }, "ramadan offer approved notification failed"); }
@@ -520,10 +595,7 @@ export async function deleteRamadanOffer(
   const status = (offer as any).moderation_status as RamadanOfferModerationStatus;
 
   if (isAdmin) {
-    // Admin peut supprimer tous les statuts sauf "active" (il faut d'abord suspendre)
-    if (status === "active") {
-      return { ok: false, error: "Suspendez d'abord l'offre avant de la supprimer.", errorCode: "not_deletable" };
-    }
+    // Admin peut supprimer tous les statuts
   } else {
     // Pro : seuls les brouillons et offres rejetées
     if (!["draft", "rejected"].includes(status)) {

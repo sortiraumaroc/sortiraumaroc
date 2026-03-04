@@ -995,6 +995,7 @@ export async function createConsumerReservation(req: Request, res: Response) {
           lang: "fr",
           fromKey: "noreply",
           to: [consumerEmail],
+          bcc: ["booking@sam.ma"],
           variables: {
             user_name: consumerName || "",
             booking_ref: bookingRef,

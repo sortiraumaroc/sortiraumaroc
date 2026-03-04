@@ -55,7 +55,9 @@ import {
   updateFtourSlot,
   updateFtourGroupCover,
   featureFtourGroup,
+  updateRamadanOffer,
 } from "@/lib/ramadanAdminApi";
+import { formatPriceByType } from "../../../shared/priceTypes";
 import type { RamadanOfferWithEstablishment } from "@/lib/ramadanAdminApi";
 import {
   RAMADAN_OFFER_TYPE_LABELS,
@@ -122,6 +124,7 @@ export default function AdminRamadanModerationPage() {
   const [totalReservations, setTotalReservations] = useState(0);
   const [totalScans, setTotalScans] = useState(0);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Upload cover
   const [uploadingCoverId, setUploadingCoverId] = useState<string | null>(null);
@@ -140,6 +143,20 @@ export default function AdminRamadanModerationPage() {
   const [detailGroup, setDetailGroup] = useState<any>(null);
   const [editingSlots, setEditingSlots] = useState<Record<string, { price: string; capacity: string }>>({});
   const [savingSlotId, setSavingSlotId] = useState<string | null>(null);
+
+  // Ramadan offer edit dialog
+  const [editOfferDialogOpen, setEditOfferDialogOpen] = useState(false);
+  const [editOffer, setEditOffer] = useState<any>(null);
+  const [editOfferFields, setEditOfferFields] = useState<{
+    title: string;
+    price: string;
+    original_price: string;
+    capacity: string;
+    description: string;
+    valid_from: string;
+    valid_to: string;
+  }>({ title: "", price: "", original_price: "", capacity: "", description: "", valid_from: "", valid_to: "" });
+  const [savingOffer, setSavingOffer] = useState(false);
 
   const loadOffers = useCallback(async () => {
     setLoading(true);
@@ -392,6 +409,72 @@ export default function AdminRamadanModerationPage() {
     }
   };
 
+  // Open edit dialog for ramadan_offer
+  const openEditOfferDialog = (offer: any) => {
+    setEditOffer(offer);
+    setEditOfferFields({
+      title: offer.title || "",
+      price: offer.price != null ? String(Math.round(offer.price / 100)) : "",
+      original_price: offer.original_price != null ? String(Math.round(offer.original_price / 100)) : "",
+      capacity: offer.capacity_per_slot != null ? String(offer.capacity_per_slot) : "",
+      description: offer.description_fr || "",
+      valid_from: offer.valid_from || "",
+      valid_to: offer.valid_to || "",
+    });
+    setEditOfferDialogOpen(true);
+  };
+
+  const handleSaveOffer = async () => {
+    if (!editOffer) return;
+    setSavingOffer(true);
+    try {
+      const updates: Record<string, unknown> = {};
+      if (editOfferFields.title !== (editOffer.title || "")) {
+        updates.title = editOfferFields.title;
+      }
+      const priceMAD = Number(editOfferFields.price);
+      if (!Number.isNaN(priceMAD) && priceMAD >= 0) {
+        const priceCents = Math.round(priceMAD * 100);
+        if (priceCents !== editOffer.price) updates.price = priceCents;
+      }
+      const origPriceMAD = Number(editOfferFields.original_price);
+      if (editOfferFields.original_price === "") {
+        if (editOffer.original_price) updates.original_price = null;
+      } else if (!Number.isNaN(origPriceMAD) && origPriceMAD >= 0) {
+        const origCents = Math.round(origPriceMAD * 100);
+        if (origCents !== editOffer.original_price) updates.original_price = origCents;
+      }
+      const cap = Number(editOfferFields.capacity);
+      if (!Number.isNaN(cap) && cap > 0 && cap !== editOffer.capacity_per_slot) {
+        updates.capacity_per_slot = Math.round(cap);
+      }
+      if (editOfferFields.description !== (editOffer.description_fr || "")) {
+        updates.description_fr = editOfferFields.description;
+      }
+      if (editOfferFields.valid_from && editOfferFields.valid_from !== editOffer.valid_from) {
+        updates.valid_from = editOfferFields.valid_from;
+      }
+      if (editOfferFields.valid_to && editOfferFields.valid_to !== editOffer.valid_to) {
+        updates.valid_to = editOfferFields.valid_to;
+      }
+
+      if (!Object.keys(updates).length) {
+        toast({ title: "Aucune modification détectée" });
+        setEditOfferDialogOpen(false);
+        return;
+      }
+
+      await updateRamadanOffer(editOffer.id, updates);
+      toast({ title: "Offre modifiée" });
+      setEditOfferDialogOpen(false);
+      await loadOffers();
+    } catch (e) {
+      toast({ title: "Erreur", description: e instanceof Error ? e.message : "Erreur", variant: "destructive" });
+    } finally {
+      setSavingOffer(false);
+    }
+  };
+
   const STATUS_TABS = [
     { value: "pending_moderation", label: "En attente", count: stats.pending_moderation ?? 0 },
     { value: "active", label: "Actives", count: stats.active ?? 0 },
@@ -421,10 +504,21 @@ export default function AdminRamadanModerationPage() {
             </p>
           </div>
         </div>
-        <Button variant="outline" size="sm" onClick={() => { loadOffers(); loadStats(); }}>
-          <RefreshCw className="h-4 w-4 mr-1" />
-          Actualiser
-        </Button>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Rechercher..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="h-9 w-48 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
+          <Button variant="outline" size="sm" onClick={() => { loadOffers(); loadStats(); }}>
+            <RefreshCw className="h-4 w-4 mr-1" />
+            Actualiser
+          </Button>
+        </div>
       </div>
 
       {/* Stats rapides */}
@@ -460,7 +554,14 @@ export default function AdminRamadanModerationPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {offers.map((offer) => {
+          {offers.filter((offer) => {
+            if (!searchQuery.trim()) return true;
+            const q = searchQuery.toLowerCase();
+            const name = (offer.establishments?.name ?? "").toLowerCase();
+            const city = (offer.establishments?.city ?? "").toLowerCase();
+            const title = ((offer as any).title ?? "").toLowerCase();
+            return name.includes(q) || city.includes(q) || title.includes(q);
+          }).map((offer) => {
             const isLoading = actionLoading === offer.id;
             const isPending = offer.moderation_status === "pending_moderation";
             const isFtourGroup = (offer as any).item_type === "ftour_group";
@@ -530,7 +631,7 @@ export default function AdminRamadanModerationPage() {
                               {d.establishments?.city ?? ""}
                             </div>
                             <div className="text-sm text-primary font-bold mt-0.5">
-                              {formatPrice(d.base_price)}
+                              {formatPriceByType(d.price_type, d.base_price)}
                               {d.promo_type === "percent" && d.promo_value ? (
                                 <span className="ml-2 text-xs text-emerald-600 font-bold">-{d.promo_value}%</span>
                               ) : null}
@@ -602,53 +703,28 @@ export default function AdminRamadanModerationPage() {
                         </Button>
                       </div>
                     )}
-                    {/* Pending offers: normal buttons */}
+                    {/* Pending offers: icon-only row (same layout as ftour) */}
                     {isPending && !isFtourGroup && (
-                      <>
-                        <Button
-                          size="sm"
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs"
-                          disabled={isLoading}
-                          onClick={() => handleApprove(offer.id)}
-                        >
-                          <CheckCircle className="h-3.5 w-3.5 mr-1" />
-                          Approuver
+                      <div className="col-span-2 flex flex-row gap-1.5">
+                        <Button size="icon" variant="outline" className="h-8 w-8" title="Éditer" onClick={() => openEditOfferDialog(d)}>
+                          <Eye className="h-4 w-4" />
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-blue-600 border-blue-200 text-xs"
-                          disabled={isLoading}
-                          onClick={() => {
-                            setDialogOfferId(offer.id);
-                            setDialogText("");
-                            setModifDialogOpen(true);
-                          }}
-                        >
-                          <AlertTriangle className="h-3.5 w-3.5 mr-1" />
-                          Demander modif
+                        <Button size="icon" className="h-8 w-8 bg-emerald-600 hover:bg-emerald-700 text-white" title="Approuver" disabled={isLoading} onClick={() => handleApprove(offer.id)}>
+                          <CheckCircle className="h-4 w-4" />
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-red-600 border-red-200 text-xs"
-                          disabled={isLoading}
-                          onClick={() => {
-                            setDialogOfferId(offer.id);
-                            setDialogText("");
-                            setRejectDialogOpen(true);
-                          }}
-                        >
-                          <XCircle className="h-3.5 w-3.5 mr-1" />
-                          Rejeter
+                        <Button size="icon" variant="outline" className="h-8 w-8 text-red-600 border-red-200" title="Rejeter" disabled={isLoading} onClick={() => { setDialogOfferId(offer.id); setDialogText(""); setRejectDialogOpen(true); }}>
+                          <XCircle className="h-4 w-4" />
                         </Button>
-                      </>
+                        <Button size="icon" variant="outline" className="h-8 w-8 text-red-600 border-red-200" title="Supprimer" disabled={isLoading} onClick={() => { setDialogOfferId(offer.id); setDeleteDialogOpen(true); }}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     )}
 
                     {/* Active: 4 icon-only buttons for all items */}
                     {offer.moderation_status === "active" && (
                       <div className="col-span-2 flex flex-row gap-1.5">
-                        <Button size="icon" variant="outline" className="h-8 w-8" title="Détail" onClick={() => isFtourGroup ? openDetailDialog(d) : undefined}>
+                        <Button size="icon" variant="outline" className="h-8 w-8" title="Éditer" onClick={() => isFtourGroup ? openDetailDialog(d) : openEditOfferDialog(d)}>
                           <Eye className="h-4 w-4" />
                         </Button>
                         <Button size="icon" variant="outline" className={cn("h-8 w-8", offer.is_featured ? "border-amber-400" : "")} title={offer.is_featured ? "Retirer vedette" : "Mettre en vedette"} onClick={() => handleFeature(offer.id, !offer.is_featured)}>
@@ -864,6 +940,102 @@ export default function AdminRamadanModerationPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Dialog Édition Offre Ramadan */}
+      <Dialog open={editOfferDialogOpen} onOpenChange={setEditOfferDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              Éditer — {editOffer?.establishments?.name ?? "Offre Ramadan"}
+            </DialogTitle>
+          </DialogHeader>
+          {editOffer && (
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-slate-600">Titre</label>
+                <Input
+                  value={editOfferFields.title}
+                  onChange={(e) => setEditOfferFields((f) => ({ ...f, title: e.target.value }))}
+                  placeholder="Titre de l'offre"
+                  className="mt-1"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-slate-600">Prix (MAD)</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={editOfferFields.price}
+                    onChange={(e) => setEditOfferFields((f) => ({ ...f, price: e.target.value }))}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-600">Prix barré (MAD)</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={editOfferFields.original_price}
+                    onChange={(e) => setEditOfferFields((f) => ({ ...f, original_price: e.target.value }))}
+                    placeholder="Optionnel"
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-600">Capacité par créneau</label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={editOfferFields.capacity}
+                  onChange={(e) => setEditOfferFields((f) => ({ ...f, capacity: e.target.value }))}
+                  className="mt-1"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-slate-600">Date début</label>
+                  <Input
+                    type="date"
+                    value={editOfferFields.valid_from}
+                    onChange={(e) => setEditOfferFields((f) => ({ ...f, valid_from: e.target.value }))}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-600">Date fin</label>
+                  <Input
+                    type="date"
+                    value={editOfferFields.valid_to}
+                    onChange={(e) => setEditOfferFields((f) => ({ ...f, valid_to: e.target.value }))}
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-600">Description</label>
+                <Textarea
+                  value={editOfferFields.description}
+                  onChange={(e) => setEditOfferFields((f) => ({ ...f, description: e.target.value }))}
+                  placeholder="Description de l'offre"
+                  rows={3}
+                  className="mt-1"
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOfferDialogOpen(false)}>
+              Annuler
+            </Button>
+            <Button onClick={handleSaveOffer} disabled={savingOffer}>
+              {savingOffer ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
+              Enregistrer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Dialog Détail Ftour */}
       <Dialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen}>
         <DialogContent className="max-w-2xl">
@@ -894,9 +1066,9 @@ export default function AdminRamadanModerationPage() {
                           {fmtDate(slot.starts_at?.split("T")[0] ?? "")}
                         </td>
                         <td className="px-3 py-2 text-xs whitespace-nowrap text-slate-500">
-                          {new Date(slot.starts_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                          {new Date(slot.starts_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })}
                           {" → "}
-                          {new Date(slot.ends_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                          {new Date(slot.ends_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })}
                         </td>
                         <td className="px-3 py-2">
                           <Input

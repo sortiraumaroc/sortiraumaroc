@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, Copy, Plus, BadgeCheck, Crown, Star, Trash2, Power, Eye, GitCompareArrows, Loader2, CheckCircle, XCircle, PauseCircle, Sparkles, UtensilsCrossed, Utensils, BookOpen, Moon, Wifi, WifiOff } from "lucide-react";
+import { ArrowRight, Copy, Plus, BadgeCheck, Crown, Star, Trash2, Power, Eye, GitCompareArrows, Loader2, CheckCircle, XCircle, PauseCircle, Sparkles, UtensilsCrossed, Utensils, BookOpen, Moon, Wifi, WifiOff, Download, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -45,6 +45,7 @@ import {
   deleteEstablishment,
   isAdminSuperadmin,
   getAdminUserRole,
+  getAdminHeaders,
   listAdminHomeCurationItems,
   createAdminHomeCurationItem,
   deleteAdminHomeCurationItem,
@@ -477,6 +478,79 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
     return role === "superadmin" || role === "admin";
   }, []);
 
+  // Export XLSX — superadmin only
+  const isSuperAdmin = useMemo(() => isAdminSuperadmin(), []);
+  const [exporting, setExporting] = useState(false);
+
+  const handleExportXlsx = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const headers = getAdminHeaders();
+      delete headers["Content-Type"]; // laisser le browser gérer
+      const res = await fetch("/api/admin/establishments/export-xlsx", { headers });
+      if (!res.ok) throw new Error(`Erreur ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `etablissements_sam_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast({ title: "Export terminé", description: "Le fichier Excel a été téléchargé." });
+    } catch (e) {
+      toast({ title: "Erreur", description: "Impossible de télécharger le fichier.", variant: "destructive" });
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // Import XLSX — superadmin only
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImportXlsx = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || importing) return;
+    // Reset input pour pouvoir re-sélectionner le même fichier
+    e.target.value = "";
+
+    setImporting(true);
+    try {
+      const headers = getAdminHeaders();
+      delete headers["Content-Type"]; // laisser le browser mettre multipart/form-data
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/admin/establishments/import-xlsx", {
+        method: "POST",
+        headers,
+        body: formData,
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `Erreur ${res.status}`);
+
+      const parts: string[] = [];
+      if (json.created > 0) parts.push(`${json.created} créé(s)`);
+      if (json.updated > 0) parts.push(`${json.updated} mis à jour`);
+      if (json.errors?.length > 0) parts.push(`${json.errors.length} erreur(s)`);
+
+      toast({
+        title: "Import terminé",
+        description: parts.join(", ") || "Aucune modification.",
+        variant: json.errors?.length > 0 ? "destructive" : "default",
+      });
+
+      // Refresh la liste
+      void refresh();
+    } catch (err: any) {
+      toast({ title: "Erreur", description: err.message || "Import échoué", variant: "destructive" });
+    } finally {
+      setImporting(false);
+    }
+  };
+
   // Vérifier si l'utilisateur peut modifier la ville inline (admin ou superadmin)
   const canEditCity = canDelete; // même condition
 
@@ -659,6 +733,41 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
                 <GitCompareArrows className="h-4 w-4" />
                 <span className="hidden sm:inline">Doublons</span>
               </Button>
+            )}
+
+            {isSuperAdmin && (
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={handleExportXlsx}
+                disabled={exporting}
+                title="Télécharger la base en Excel"
+              >
+                {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                <span className="hidden sm:inline">.xlsx</span>
+              </Button>
+            )}
+
+            {isSuperAdmin && (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx"
+                  className="hidden"
+                  onChange={handleImportXlsx}
+                />
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={importing}
+                  title="Importer un fichier Excel"
+                >
+                  {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  <span className="hidden sm:inline">Import</span>
+                </Button>
+              </>
             )}
 
             <RefreshIconButton className="h-9 w-9" loading={loading} label="Rafraîchir" onClick={() => { void refresh(); if (showFtourSections) void loadCurationState(); }} />

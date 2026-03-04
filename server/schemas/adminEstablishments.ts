@@ -258,6 +258,7 @@ export const AdminUpsertSlotsSchema = z.object({
       service_label: z.string().optional().nullable(),
       active: z.boolean().optional(),
       cover_url: z.string().max(2000).optional().nullable(),
+      price_type: z.enum(["fixed", "starting_from", "a_la_carte", "nc"]).optional().nullable(),
     }),
   ).min(1, "slots array is required"),
 });

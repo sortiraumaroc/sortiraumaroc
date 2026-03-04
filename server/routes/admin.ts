@@ -273,6 +273,10 @@ import {
   listAdminEstablishmentConversationMessages,
   listAdminEstablishmentOffers,
   listAdminFtourSlots,
+  fixFtourSlotPriceTypes,
+  exportEstablishmentsXlsx,
+  importEstablishmentsXlsx,
+  xlsxUpload,
 } from "./adminEstablishments";
 export {
   searchEstablishmentsByName,
@@ -301,6 +305,7 @@ export {
   computeCompletenessScore,
   normalizeEstName,
   adminUploadSlotImage,
+  exportEstablishmentsXlsx,
 } from "./adminEstablishments";
 
 // ── Homepage curation ─────────────────────────────────────────────────────
@@ -1020,6 +1025,8 @@ export function registerAdminCoreRoutes(app: Express) {
 
   // ── Establishments ────────────────────────────────────────────────────
   app.get("/api/admin/establishments/search", zQuery(SearchEstablishmentsByNameQuery), searchEstablishmentsByName);
+  app.get("/api/admin/establishments/export-xlsx", exportEstablishmentsXlsx);
+  app.post("/api/admin/establishments/import-xlsx", xlsxUpload.single("file"), importEstablishmentsXlsx);
   app.get("/api/admin/establishments", zQuery(ListEstablishmentsQuery), listEstablishments);
   app.post("/api/admin/establishments/wizard", zBody(CreateEstablishmentWizardSchema), createEstablishmentWizard);
   app.patch("/api/admin/establishments/wizard/:id", zParams(zIdParam), zBody(UpdateEstablishmentWizardSchema), updateEstablishmentWizard);
@@ -1147,6 +1154,7 @@ export function registerAdminCoreRoutes(app: Express) {
   );
   app.get("/api/admin/establishments/:id/offers", zParams(zIdParam), listAdminEstablishmentOffers);
   app.get("/api/admin/ftour-slots", listAdminFtourSlots);
+  app.post("/api/admin/ftour-slots/fix-price-types", fixFtourSlotPriceTypes);
   app.put("/api/admin/establishments/:id/slots/upsert", zParams(zIdParam), zBody(AdminUpsertSlotsSchema), adminUpsertSlots);
   app.delete("/api/admin/establishments/:id/slots/bulk", zParams(zIdParam), adminBulkDeleteSlots);
   app.delete("/api/admin/establishments/:id/slots/:slotId", zParams(EstablishmentSlotParams), adminDeleteSlot);

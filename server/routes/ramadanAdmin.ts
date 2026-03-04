@@ -75,24 +75,49 @@ router.get("/moderation", (async (req, res) => {
 
   if (offersError) return res.status(500).json({ error: offersError.message });
 
-  // 2. Ftour slots (only for statuses that apply)
+  // 2. Ftour slots (only for statuses that apply) — paginated to bypass 1000-row limit
   const SLOT_STATUSES = ["pending_moderation", "active", "rejected", "suspended"];
   let slotsData: unknown[] = [];
   if (SLOT_STATUSES.includes(effectiveStatus)) {
-    const { data, error } = await supabase
-      .from("pro_slots")
-      .select("*, establishments(id, name, city)")
-      .eq("service_label", "Ftour")
-      .eq("moderation_status", effectiveStatus)
-      .order("created_at", { ascending: false })
-      .limit(200);
+    const PAGE_SIZE = 1000;
+    let allSlots: any[] = [];
+    let offset = 0;
+    let hasMore = true;
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from("pro_slots")
+        .select("*, establishments(id, name, city)")
+        .eq("service_label", "Ftour")
+        .eq("moderation_status", effectiveStatus)
+        .order("created_at", { ascending: false })
+        .range(offset, offset + PAGE_SIZE - 1);
 
-    if (!error && data) {
-      // Filter out slots with invalid establishment IDs (e.g. test data like "demo")
-      slotsData = (data as any[]).filter((s: any) => {
-        const eid = s.establishment_id ?? s.establishments?.id;
-        return eid && isValidUUID(eid) && s.establishments;
-      });
+      if (error || !data || data.length === 0) {
+        hasMore = false;
+      } else {
+        allSlots = allSlots.concat(data);
+        offset += PAGE_SIZE;
+        if (data.length < PAGE_SIZE) hasMore = false;
+      }
+    }
+
+    // Filter out slots with invalid establishment IDs (e.g. test data like "demo")
+    slotsData = allSlots.filter((s: any) => {
+      const eid = s.establishment_id ?? s.establishments?.id;
+      return eid && isValidUUID(eid) && s.establishments;
+    });
+  }
+
+  // 2b. Récupérer price_type via RPC (bypass cache PostgREST qui ne voit pas la colonne)
+  const priceTypeMap = new Map<string, string>();
+  if (slotsData.length > 0) {
+    const { data: ptData } = await supabase.rpc("get_ftour_slots_price_types");
+    if (Array.isArray(ptData)) {
+      for (const row of ptData) priceTypeMap.set(row.id, row.price_type);
+    }
+    // Injecter price_type dans chaque slot
+    for (const s of slotsData as any[]) {
+      s.price_type = priceTypeMap.get(s.id) ?? null;
     }
   }
 
@@ -131,6 +156,7 @@ router.get("/moderation", (async (req, res) => {
       date_to: last.starts_at,
       total_capacity: slots.reduce((sum: number, s: any) => sum + (s.capacity ?? 0), 0),
       base_price: first.base_price,
+      price_type: first.price_type ?? null,
       promo_type: first.promo_type,
       promo_value: first.promo_value,
       promo_label: first.promo_label,
@@ -143,6 +169,7 @@ router.get("/moderation", (async (req, res) => {
         starts_at: s.starts_at,
         ends_at: s.ends_at,
         base_price: s.base_price,
+        price_type: s.price_type ?? null,
         capacity: s.capacity,
         promo_type: s.promo_type,
         promo_value: s.promo_value,
@@ -205,13 +232,31 @@ router.get("/stats", (async (req, res) => {
   }
 
   // Ftour slots counts — count distinct establishments (grouped in moderation queue)
-  const { data: allSlots } = await supabase
-    .from("pro_slots")
-    .select("moderation_status, establishment_id")
-    .eq("service_label", "Ftour");
+  // Paginated to bypass Supabase's 1000-row default limit
+  let allSlots: Array<{ moderation_status: string; establishment_id: string }> = [];
+  {
+    const PAGE_SIZE = 1000;
+    let offset = 0;
+    let hasMore = true;
+    while (hasMore) {
+      const { data, error: slotErr } = await supabase
+        .from("pro_slots")
+        .select("moderation_status, establishment_id")
+        .eq("service_label", "Ftour")
+        .range(offset, offset + PAGE_SIZE - 1);
+
+      if (slotErr || !data || data.length === 0) {
+        hasMore = false;
+      } else {
+        allSlots = allSlots.concat(data as any[]);
+        offset += PAGE_SIZE;
+        if (data.length < PAGE_SIZE) hasMore = false;
+      }
+    }
+  }
 
   const ftourEstabsByStatus = new Map<string, Set<string>>();
-  for (const s of (allSlots ?? []) as Array<{ moderation_status: string; establishment_id: string }>) {
+  for (const s of allSlots as Array<{ moderation_status: string; establishment_id: string }>) {
     if (!s.establishment_id || !isValidUUID(s.establishment_id)) continue;
     const st = s.moderation_status ?? "active";
     if (!ftourEstabsByStatus.has(st)) ftourEstabsByStatus.set(st, new Set());
@@ -242,6 +287,118 @@ router.get("/stats", (async (req, res) => {
       total_valid_scans: totalScans ?? 0,
     },
   });
+}) as RequestHandler);
+
+// =============================================================================
+// Ftour Slot bulk actions (BEFORE /:id routes to avoid Express route conflicts)
+// =============================================================================
+
+// PATCH /api/admin/ramadan/slots/cover — Mettre à jour la cover pour un groupe ftour
+router.patch("/slots/cover", (async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const { slot_ids, cover_url } = req.body ?? {};
+  if (!Array.isArray(slot_ids) || !slot_ids.length || !slot_ids.every(isValidUUID)) {
+    return res.status(400).json({ error: "slot_ids invalides." });
+  }
+  const url = typeof cover_url === "string" ? cover_url.trim() : null;
+
+  const supabase = getAdminSupabase();
+  const { error } = await supabase
+    .from("pro_slots")
+    .update({ cover_url: url || null })
+    .in("id", slot_ids);
+
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ ok: true });
+}) as RequestHandler);
+
+// POST /api/admin/ramadan/slots/feature — Mettre en avant un groupe ftour
+router.post("/slots/feature", (async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const { slot_ids, featured } = req.body ?? {};
+  if (!Array.isArray(slot_ids) || !slot_ids.length || !slot_ids.every(isValidUUID)) {
+    return res.status(400).json({ error: "slot_ids invalides." });
+  }
+
+  const supabase = getAdminSupabase();
+  const { error } = await supabase
+    .from("pro_slots")
+    .update({ is_featured: !!featured })
+    .in("id", slot_ids);
+
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ ok: true });
+}) as RequestHandler);
+
+// POST /api/admin/ramadan/slots/bulk-action
+router.post("/slots/bulk-action", (async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const { slot_ids, action, reason } = req.body ?? {};
+  if (!Array.isArray(slot_ids) || !slot_ids.length) {
+    return res.status(400).json({ error: "slot_ids requis." });
+  }
+  if (!slot_ids.every((id: unknown) => typeof id === "string" && isValidUUID(id))) {
+    return res.status(400).json({ error: "IDs invalides." });
+  }
+
+  const validActions = ["approve", "reject", "suspend", "resume", "delete"];
+  if (typeof action !== "string" || !validActions.includes(action)) {
+    return res.status(400).json({ error: "Action invalide." });
+  }
+
+  const supabase = getAdminSupabase();
+  const adminId = getAdminId(req);
+  const now = new Date().toISOString();
+
+  if (action === "delete") {
+    // 1. Détacher les réservations liées (slot_id → NULL) pour éviter les FK constraints
+    await supabase
+      .from("reservations")
+      .update({ slot_id: null })
+      .in("slot_id", slot_ids);
+
+    // 2. Supprimer physiquement les slots
+    const { error: delErr } = await supabase
+      .from("pro_slots")
+      .delete()
+      .in("id", slot_ids);
+
+    if (delErr) {
+      console.error("[bulk-action] delete error after detach:", delErr.message);
+      return res.status(500).json({ error: "Erreur lors de la suppression." });
+    }
+
+    return res.json({ ok: true });
+  }
+
+  const updateMap: Record<string, Record<string, unknown>> = {
+    approve: {
+      moderation_status: "active",
+      active: true,
+      moderated_by: adminId,
+      moderated_at: now,
+    },
+    reject: {
+      moderation_status: "rejected",
+      active: false,
+      moderated_by: adminId,
+      moderated_at: now,
+      moderation_note: (typeof reason === "string" ? reason.trim() : "") || null,
+    },
+    suspend: { moderation_status: "suspended", active: false },
+    resume: { moderation_status: "active", active: true },
+  };
+
+  const { error } = await supabase
+    .from("pro_slots")
+    .update(updateMap[action])
+    .in("id", slot_ids);
+
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ ok: true });
 }) as RequestHandler);
 
 // ---------------------------------------------------------------------------
@@ -435,6 +592,63 @@ router.patch("/:id/cover", (async (req, res) => {
 }) as RequestHandler);
 
 // ---------------------------------------------------------------------------
+// PATCH /api/admin/ramadan/:id — Éditer les champs d'une offre Ramadan (admin)
+// ---------------------------------------------------------------------------
+router.patch("/:id", (async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const offerId = req.params.id;
+  if (!offerId || !isValidUUID(offerId)) return res.status(400).json({ error: "ID invalide." });
+
+  const supabase = getAdminSupabase();
+  const { data: offer } = await supabase
+    .from("ramadan_offers")
+    .select("id")
+    .eq("id", offerId)
+    .maybeSingle();
+
+  if (!offer) return res.status(404).json({ error: "Offre introuvable." });
+
+  const body = req.body ?? {};
+  const updates: Record<string, unknown> = {};
+
+  if (typeof body.title === "string") updates.title = body.title.trim() || null;
+  if (typeof body.description_fr === "string") updates.description_fr = body.description_fr.trim() || null;
+  if (typeof body.type === "string") updates.type = body.type;
+  if (body.price !== undefined) {
+    const p = Number(body.price);
+    if (!Number.isNaN(p) && p >= 0) updates.price = Math.round(p);
+  }
+  if (body.original_price !== undefined) {
+    const p = Number(body.original_price);
+    updates.original_price = !Number.isNaN(p) && p > 0 ? Math.round(p) : null;
+  }
+  if (typeof body.price_type === "string") updates.price_type = body.price_type || null;
+  if (body.capacity_per_slot !== undefined) {
+    const c = Number(body.capacity_per_slot);
+    if (!Number.isNaN(c) && c > 0) updates.capacity_per_slot = Math.round(c);
+  }
+  if (typeof body.valid_from === "string") updates.valid_from = body.valid_from;
+  if (typeof body.valid_to === "string") updates.valid_to = body.valid_to;
+  if (typeof body.conditions_fr === "string") updates.conditions_fr = body.conditions_fr.trim() || null;
+  if (Array.isArray(body.time_slots)) updates.time_slots = body.time_slots;
+
+  if (!Object.keys(updates).length) {
+    return res.status(400).json({ error: "Aucun champ à modifier." });
+  }
+
+  updates.updated_at = new Date().toISOString();
+
+  const { error } = await supabase
+    .from("ramadan_offers")
+    .update(updates)
+    .eq("id", offerId);
+
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ ok: true });
+}) as RequestHandler);
+
+// ---------------------------------------------------------------------------
 // DELETE /api/admin/ramadan/:id — Supprimer une offre (admin)
 // ---------------------------------------------------------------------------
 router.delete("/:id", (async (req, res) => {
@@ -455,113 +669,6 @@ router.delete("/:id", (async (req, res) => {
   const result = await deleteRamadanOffer(offerId, (offer as any).establishment_id, true);
   if (!result.ok) return res.status(400).json({ error: result.error });
 
-  return res.json({ ok: true });
-}) as RequestHandler);
-
-// =============================================================================
-// Ftour Slot bulk actions
-// =============================================================================
-
-// PATCH /api/admin/ramadan/slots/cover — Mettre à jour la cover pour un groupe ftour
-router.patch("/slots/cover", (async (req, res) => {
-  if (!requireAdminKey(req, res)) return;
-
-  const { slot_ids, cover_url } = req.body ?? {};
-  if (!Array.isArray(slot_ids) || !slot_ids.length || !slot_ids.every(isValidUUID)) {
-    return res.status(400).json({ error: "slot_ids invalides." });
-  }
-  const url = typeof cover_url === "string" ? cover_url.trim() : null;
-
-  const supabase = getAdminSupabase();
-  const { error } = await supabase
-    .from("pro_slots")
-    .update({ cover_url: url || null })
-    .in("id", slot_ids);
-
-  if (error) return res.status(500).json({ error: error.message });
-  return res.json({ ok: true });
-}) as RequestHandler);
-
-// POST /api/admin/ramadan/slots/feature — Mettre en avant un groupe ftour
-router.post("/slots/feature", (async (req, res) => {
-  if (!requireAdminKey(req, res)) return;
-
-  const { slot_ids, featured } = req.body ?? {};
-  if (!Array.isArray(slot_ids) || !slot_ids.length || !slot_ids.every(isValidUUID)) {
-    return res.status(400).json({ error: "slot_ids invalides." });
-  }
-
-  const supabase = getAdminSupabase();
-  const { error } = await supabase
-    .from("pro_slots")
-    .update({ is_featured: !!featured })
-    .in("id", slot_ids);
-
-  if (error) return res.status(500).json({ error: error.message });
-  return res.json({ ok: true });
-}) as RequestHandler);
-
-// POST /api/admin/ramadan/slots/bulk-action
-router.post("/slots/bulk-action", (async (req, res) => {
-  if (!requireAdminKey(req, res)) return;
-
-  const { slot_ids, action, reason } = req.body ?? {};
-  if (!Array.isArray(slot_ids) || !slot_ids.length) {
-    return res.status(400).json({ error: "slot_ids requis." });
-  }
-  if (!slot_ids.every((id: unknown) => typeof id === "string" && isValidUUID(id))) {
-    return res.status(400).json({ error: "IDs invalides." });
-  }
-
-  const validActions = ["approve", "reject", "suspend", "resume", "delete"];
-  if (typeof action !== "string" || !validActions.includes(action)) {
-    return res.status(400).json({ error: "Action invalide." });
-  }
-
-  const supabase = getAdminSupabase();
-  const adminId = getAdminId(req);
-  const now = new Date().toISOString();
-
-  if (action === "delete") {
-    const { error: delErr } = await supabase
-      .from("pro_slots")
-      .delete()
-      .in("id", slot_ids);
-
-    if (delErr) {
-      // FK violation → deactivate instead
-      await supabase
-        .from("pro_slots")
-        .update({ active: false, moderation_status: "rejected" })
-        .in("id", slot_ids);
-    }
-    return res.json({ ok: true });
-  }
-
-  const updateMap: Record<string, Record<string, unknown>> = {
-    approve: {
-      moderation_status: "active",
-      active: true,
-      moderated_by: adminId,
-      moderated_at: now,
-    },
-    reject: {
-      moderation_status: "rejected",
-      active: false,
-      moderated_by: adminId,
-      moderated_at: now,
-      moderation_note: (typeof reason === "string" ? reason.trim() : "") || null,
-    },
-    suspend: { moderation_status: "suspended", active: false },
-    resume: { moderation_status: "active", active: true },
-  };
-
-  const { error } = await supabase
-    .from("pro_slots")
-    .update(updateMap[action])
-    .in("id", slot_ids);
-
-  if (error) return res.status(500).json({ error: error.message });
   return res.json({ ok: true });
 }) as RequestHandler);
 

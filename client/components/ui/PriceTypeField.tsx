@@ -1,7 +1,7 @@
 /**
  * PriceTypeField — Champ prix avec sélecteur de type
  *
- * Permet de choisir : "Prix fixe" (+ input MAD), "Gratuit", "À la carte", "NC"
+ * Permet de choisir : "Prix" (+ input MAD), "À partir de" (+ input MAD), "À la carte", "NC"
  */
 
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { PRICE_TYPE_LABELS, type PriceType } from "../../../shared/priceTypes";
+import { PRICE_TYPE_LABELS, PRICE_TYPES_WITH_INPUT, type PriceType } from "../../../shared/priceTypes";
 
 const ENTRIES = Object.entries(PRICE_TYPE_LABELS) as [PriceType, string][];
 
@@ -42,6 +42,7 @@ export function PriceTypeField({
   compact,
 }: Props) {
   const h = compact ? "h-8 text-sm" : "h-9";
+  const showPriceInput = PRICE_TYPES_WITH_INPUT.includes(priceType);
 
   return (
     <div className={className}>
@@ -51,10 +52,10 @@ export function PriceTypeField({
           value={priceType}
           onValueChange={(v) => {
             onPriceTypeChange(v as PriceType);
-            if (v !== "fixed") onPriceChange("");
+            if (!PRICE_TYPES_WITH_INPUT.includes(v as PriceType)) onPriceChange("");
           }}
         >
-          <SelectTrigger className={`${h} ${priceType === "fixed" ? "w-[120px]" : "flex-1"}`}>
+          <SelectTrigger className={`${h} ${showPriceInput ? "w-[120px]" : "flex-1"}`}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -66,7 +67,7 @@ export function PriceTypeField({
           </SelectContent>
         </Select>
 
-        {priceType === "fixed" && (
+        {showPriceInput && (
           <div className="relative flex-1">
             <Input
               type="number"
