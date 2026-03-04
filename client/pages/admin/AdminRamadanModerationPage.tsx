@@ -497,7 +497,7 @@ export default function AdminRamadanModerationPage() {
           <Moon className="h-7 w-7 text-amber-500" />
           <div>
             <h1 className="text-2xl font-extrabold text-slate-900">
-              Modération Ramadan 2026
+              Modération
             </h1>
             <p className="text-sm text-slate-500">
               {totalReservations} réservations · {totalScans} scans QR validés
