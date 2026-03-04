@@ -69,8 +69,9 @@ router.get("/", cacheMiddleware(120, (req) =>
     featured: String(req.query.featured ?? ""),
     min_price: String(req.query.min_price ?? ""),
     max_price: String(req.query.max_price ?? ""),
-    limit: String(req.query.limit ?? ""),
-    offset: String(req.query.offset ?? ""),
+    sort: String(req.query.sort ?? ""),
+    page: String(req.query.page ?? ""),
+    per_page: String(req.query.per_page ?? ""),
     search: String(req.query.search ?? ""),
   }),
 ), (async (req, res) => {
