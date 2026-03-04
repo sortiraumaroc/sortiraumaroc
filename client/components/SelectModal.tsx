@@ -81,7 +81,7 @@ export function SelectModal({
               <button
                 key={option.id}
                 onClick={() => handleSelect(option.id)}
-                className={`w-full text-left px-4 py-3 border-b border-slate-100 text-sm italic ${
+                className={`w-full text-start px-4 py-3 border-b border-slate-100 text-sm italic ${
                   selectedValue === option.id
                     ? "bg-slate-50 text-gray-700 font-medium"
                     : "text-gray-700"
@@ -122,7 +122,7 @@ export function SelectModal({
             <button
               key={option.id}
               onClick={() => handleSelect(option.id)}
-              className={`w-full text-left px-4 py-3 border-b border-slate-100 text-sm italic ${
+              className={`w-full text-start px-4 py-3 border-b border-slate-100 text-sm italic ${
                 selectedValue === option.id
                   ? "bg-slate-50 text-gray-700 font-medium"
                   : "text-gray-700"

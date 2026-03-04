@@ -87,7 +87,7 @@ export function CityBottomSheet({
           </h2>
           <button
             onClick={onClose}
-            className="p-2 -mr-2 hover:bg-slate-100 rounded-full transition-colors"
+            className="p-2 -me-2 hover:bg-slate-100 rounded-full transition-colors"
           >
             <X className="w-5 h-5 text-slate-500" />
           </button>
@@ -96,13 +96,13 @@ export function CityBottomSheet({
         {/* Search Input */}
         <div className="px-4 py-3 border-b border-slate-100">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
             <input
               type="text"
               placeholder={t("search.city.search_placeholder") || "Rechercher une ville..."}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+              className="w-full ps-10 pe-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
               autoFocus
             />
           </div>
@@ -113,7 +113,7 @@ export function CityBottomSheet({
           {/* Ma position */}
           <button
             onClick={handleGeolocation}
-            className="w-full flex items-center gap-3 px-4 py-4 hover:bg-slate-50 active:bg-slate-100 transition text-left border-b border-slate-100"
+            className="w-full flex items-center gap-3 px-4 py-4 hover:bg-slate-50 active:bg-slate-100 transition text-start border-b border-slate-100"
           >
             <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
               <Zap className="w-5 h-5 text-primary" />
@@ -148,7 +148,7 @@ export function CityBottomSheet({
                       handleSelectCity(city.name, city.id);
                     }
                   }}
-                  className={`w-full flex items-center gap-3 px-4 py-3.5 hover:bg-slate-50 active:bg-slate-100 transition text-left ${
+                  className={`w-full flex items-center gap-3 px-4 py-3.5 hover:bg-slate-50 active:bg-slate-100 transition text-start ${
                     selectedCity === city.name ? "bg-primary/5" : ""
                   }`}
                 >
@@ -175,7 +175,7 @@ export function CityBottomSheet({
                       <button
                         key={neighborhood.id}
                         onClick={() => handleSelectNeighborhood(neighborhood.name, neighborhood.id, city.name)}
-                        className="w-full flex items-center gap-3 pl-8 pr-4 py-3 hover:bg-slate-100 active:bg-slate-200 transition text-left"
+                        className="w-full flex items-center gap-3 ps-8 pe-4 py-3 hover:bg-slate-100 active:bg-slate-200 transition text-start"
                       >
                         <MapPin className="w-4 h-4 text-slate-300 flex-shrink-0" />
                         <span className="text-sm text-slate-700">{neighborhood.name}</span>

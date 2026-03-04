@@ -15,8 +15,8 @@ export function HeaderSearchBar({ className }: HeaderSearchBarProps) {
   const location = useLocation();
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Get current search state for display
-  const searchState = readSearchState();
+  // Get current search state for display (restaurants as default universe)
+  const searchState = readSearchState("restaurants");
 
   // Build display parts with icons
   const buildDisplayParts = () => {
@@ -52,10 +52,10 @@ export function HeaderSearchBar({ className }: HeaderSearchBarProps) {
     }
 
     // Guests
-    if (searchState.guests && searchState.guests > 0) {
+    if (searchState.numPeople && Number(searchState.numPeople) > 0) {
       parts.push({
         icon: <Users className="w-3.5 h-3.5" />,
-        text: `${searchState.guests}`,
+        text: `${searchState.numPeople}`,
       });
     }
 

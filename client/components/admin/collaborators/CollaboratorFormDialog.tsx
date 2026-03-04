@@ -210,7 +210,7 @@ export function CollaboratorFormDialog({ open, onOpenChange, collaborator, roles
               <Input
                 value={form.firstName}
                 onChange={(e) => setForm((p) => ({ ...p, firstName: e.target.value }))}
-                placeholder="Jean"
+                placeholder="Amina"
               />
             </div>
             <div className="space-y-2">
@@ -218,7 +218,7 @@ export function CollaboratorFormDialog({ open, onOpenChange, collaborator, roles
               <Input
                 value={form.lastName}
                 onChange={(e) => setForm((p) => ({ ...p, lastName: e.target.value }))}
-                placeholder="Dupont"
+                placeholder="Benali"
               />
             </div>
           </div>
@@ -241,7 +241,7 @@ export function CollaboratorFormDialog({ open, onOpenChange, collaborator, roles
               type="email"
               value={form.email}
               onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
-              placeholder="jean.dupont@sortiraumaroc.ma"
+              placeholder="jean.dupont@sam.ma"
               disabled={isEdit}
             />
             {isEdit ? <div className="text-xs text-slate-500">L'email ne peut pas être modifié.</div> : null}

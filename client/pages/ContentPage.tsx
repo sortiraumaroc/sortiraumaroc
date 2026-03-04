@@ -9,7 +9,7 @@ import { getPublicContentPage, type PublicContentPage } from "@/lib/content";
 import { useI18n } from "@/lib/i18n";
 import { addLocalePrefix } from "@/lib/i18n/types";
 import { sanitizeRichTextHtml } from "@/lib/richText";
-import { applySeo, clearJsonLd, setJsonLd } from "@/lib/seo";
+import { applySeo, clearJsonLd, setJsonLd, buildI18nSeoFields } from "@/lib/seo";
 
 function resolveBrandSuffix(): string {
   return "Sortir Au Maroc";
@@ -85,12 +85,14 @@ export default function ContentPage() {
         const ogDescription = String(item?.resolved?.og_description ?? "").trim();
         const ogImageUrl = String(item?.resolved?.og_image_url ?? "").trim();
 
-        const hreflangs: Record<string, string> = {};
+        // Custom hreflangs from DB (override auto-generated if present)
+        const customHreflangs: Record<string, string> = {};
         const canonicalFr = String((item as any)?.canonical_url_fr ?? "").trim();
         const canonicalEn = String((item as any)?.canonical_url_en ?? "").trim();
-        if (canonicalFr) hreflangs.fr = canonicalFr;
-        if (canonicalEn) hreflangs.en = canonicalEn;
-        if (canonicalFr) hreflangs["x-default"] = canonicalFr;
+        if (canonicalFr) customHreflangs.fr = canonicalFr;
+        if (canonicalEn) customHreflangs.en = canonicalEn;
+        if (canonicalFr) customHreflangs["x-default"] = canonicalFr;
+        const hasCustomHreflangs = Object.keys(customHreflangs).length > 0;
 
         const brand = resolveBrandSuffix();
         const finalTitle = seoTitle ? (seoTitle.includes(brand) ? seoTitle : `${seoTitle} — ${brand}`) : brand;
@@ -98,14 +100,14 @@ export default function ContentPage() {
         applySeo({
           title: finalTitle,
           description: seoDescription || undefined,
-          canonicalUrl: canonicalUrl || undefined,
           robots: robots || undefined,
           ogTitle: ogTitle || undefined,
           ogDescription: ogDescription || undefined,
           ogImageUrl: ogImageUrl || undefined,
-          ogLocale: locale === "en" ? "en_US" : "fr_MA",
-          ogLocaleAlternates: locale === "en" ? ["fr_MA"] : ["en_US"],
-          hreflangs: Object.keys(hreflangs).length ? hreflangs : undefined,
+          ...buildI18nSeoFields(locale),
+          // DB overrides: custom canonical and hreflangs take priority
+          ...(canonicalUrl ? { canonicalUrl } : {}),
+          ...(hasCustomHreflangs ? { hreflangs: customHreflangs } : {}),
         });
 
         if (item?.resolved?.schema_jsonld) {
@@ -193,31 +195,44 @@ export default function ContentPage() {
     );
   }
 
+  const heroSlugs = [
+    "a-propos", "about",
+    "contact",
+    "carrieres", "careers",
+    "conditions-utilisation", "terms-of-use",
+    "politique-confidentialite", "privacy-policy",
+    "mentions-legales", "legal-notice",
+  ];
+  const showHero = heroSlugs.includes(String(slug ?? ""));
+
   return (
     <div className="min-h-screen bg-white">
       <Header />
 
-      <main className="container mx-auto px-4 py-8 md:py-12">
-        <div className="max-w-5xl mx-auto">
-          <div className="rounded-lg border-2 border-slate-200 bg-white overflow-hidden">
-            <div className="p-6 md:p-8 bg-primary/5 border-b border-slate-200">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <h1 className="text-2xl md:text-3xl font-extrabold text-foreground">{page.resolved.title}</h1>
-                  {page.resolved.page_subtitle ? (
-                    <p className="mt-2 text-slate-700 max-w-3xl">{page.resolved.page_subtitle}</p>
-                  ) : null}
-                </div>
-                <Link to={href("/results")} className="hidden sm:block">
-                  <Button variant="outline" className="gap-2">
-                    <ArrowLeft className="h-4 w-4" />
-                    {t("common.back")}
-                  </Button>
-                </Link>
+      {showHero ? (
+        <>
+          {/* Hero banner – same style as Blog */}
+          <section className="relative text-white py-12 md:py-16">
+            <div
+              className="absolute inset-0 bg-gradient-to-r from-primary to-[#6a000f]"
+              aria-hidden="true"
+            />
+            <div className="container mx-auto px-4 relative z-10">
+              <div className="text-start max-w-3xl">
+                <h1 className="text-3xl md:text-5xl font-bold mb-4 tracking-tight">
+                  {page.resolved.title}
+                </h1>
+                {page.resolved.page_subtitle ? (
+                  <p className="text-lg text-white/90 max-w-2xl">
+                    {page.resolved.page_subtitle}
+                  </p>
+                ) : null}
               </div>
             </div>
+          </section>
 
-            <div className="p-6 md:p-8">
+          <main className="container mx-auto px-4 py-8 md:py-12">
+            <div className="max-w-5xl mx-auto">
               {blocks.length ? (
                 <CmsBlocksRenderer blocks={blocks} />
               ) : (
@@ -226,7 +241,7 @@ export default function ContentPage() {
                     [&_p]:mb-4
                     [&_h2]:text-xl [&_h2]:font-extrabold [&_h2]:text-foreground [&_h2]:mt-8 [&_h2]:mb-3
                     [&_h3]:text-lg [&_h3]:font-bold [&_h3]:text-foreground [&_h3]:mt-6 [&_h3]:mb-2
-                    [&_ul]:my-4 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:my-4 [&_ol]:list-decimal [&_ol]:pl-6
+                    [&_ul]:my-4 [&_ul]:list-disc [&_ul]:ps-6 [&_ol]:my-4 [&_ol]:list-decimal [&_ol]:ps-6
                     [&_li]:my-1
                     [&_a]:text-primary [&_a:hover]:underline
                     [&_strong]:font-bold"
@@ -264,9 +279,80 @@ export default function ContentPage() {
                 </Link>
               </div>
             </div>
+          </main>
+        </>
+      ) : (
+        <main className="container mx-auto px-4 py-8 md:py-12">
+          <div className="max-w-5xl mx-auto">
+            <div className="rounded-lg border-2 border-slate-200 bg-white overflow-hidden">
+              <div className="p-6 md:p-8 bg-primary/5 border-b border-slate-200">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <h1 className="text-2xl md:text-3xl font-extrabold text-foreground">{page.resolved.title}</h1>
+                    {page.resolved.page_subtitle ? (
+                      <p className="mt-2 text-slate-700 max-w-3xl">{page.resolved.page_subtitle}</p>
+                    ) : null}
+                  </div>
+                  <Link to={href("/results")} className="hidden sm:block">
+                    <Button variant="outline" className="gap-2">
+                      <ArrowLeft className="h-4 w-4" />
+                      {t("common.back")}
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+
+              <div className="p-6 md:p-8">
+                {blocks.length ? (
+                  <CmsBlocksRenderer blocks={blocks} />
+                ) : (
+                  <div
+                    className="text-slate-800 leading-relaxed
+                      [&_p]:mb-4
+                      [&_h2]:text-xl [&_h2]:font-extrabold [&_h2]:text-foreground [&_h2]:mt-8 [&_h2]:mb-3
+                      [&_h3]:text-lg [&_h3]:font-bold [&_h3]:text-foreground [&_h3]:mt-6 [&_h3]:mb-2
+                      [&_ul]:my-4 [&_ul]:list-disc [&_ul]:ps-6 [&_ol]:my-4 [&_ol]:list-decimal [&_ol]:ps-6
+                      [&_li]:my-1
+                      [&_a]:text-primary [&_a:hover]:underline
+                      [&_strong]:font-bold"
+                    dangerouslySetInnerHTML={{ __html: html }}
+                  />
+                )}
+
+                {relatedLinks.length ? (
+                  <div className="mt-10 rounded-lg border border-slate-200 bg-slate-50 p-5">
+                    <div className="text-sm font-extrabold text-slate-900">{t("content.related_links")}</div>
+                    <ul className="mt-3 space-y-2">
+                      {relatedLinks.map((link) => (
+                        <li key={link.href}>
+                          {link.href.startsWith("/") ? (
+                            <Link to={href(link.href)} className="text-primary hover:underline font-medium">
+                              {link.label}
+                            </Link>
+                          ) : (
+                            <a href={link.href} className="text-primary hover:underline font-medium" target="_blank" rel="noreferrer">
+                              {link.label}
+                            </a>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                <div className="mt-8 sm:hidden">
+                  <Link to={href("/results")}>
+                    <Button variant="outline" className="w-full gap-2">
+                      <ArrowLeft className="h-4 w-4" />
+                      {t("common.back")}
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-      </main>
+        </main>
+      )}
     </div>
   );
 }

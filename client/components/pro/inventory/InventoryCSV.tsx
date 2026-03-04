@@ -22,6 +22,7 @@ type Props = {
   items: ProInventoryItem[];
   canWrite: boolean;
   onImportComplete: () => void;
+  itemLabel?: string;
 };
 
 type ImportResult = {
@@ -124,8 +125,40 @@ export function downloadCSV(content: string, filename: string) {
 }
 
 // =============================================================================
-// IMPORT CSV
+// IMPORT CSV / XLSX
 // =============================================================================
+
+async function parseXLSX(file: File): Promise<string[][]> {
+  const ExcelJS = (await import("exceljs")).default;
+  const wb = new ExcelJS.Workbook();
+  const buffer = await file.arrayBuffer();
+  await wb.xlsx.load(buffer);
+
+  // Use first worksheet (the "Import" sheet if from our template)
+  const ws = wb.getWorksheet(1);
+  if (!ws) return [];
+
+  const rows: string[][] = [];
+  ws.eachRow((row) => {
+    const cells: string[] = [];
+    row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+      // Pad with empty strings if columns were skipped
+      while (cells.length < colNumber - 1) cells.push("");
+      const val = cell.value;
+      if (val === null || val === undefined) {
+        cells.push("");
+      } else if (typeof val === "object" && "text" in val) {
+        // RichText
+        cells.push(String((val as { text: string }).text ?? ""));
+      } else {
+        cells.push(String(val));
+      }
+    });
+    rows.push(cells);
+  });
+
+  return rows;
+}
 
 function parseCSVLine(line: string): string[] {
   const result: string[] = [];
@@ -287,6 +320,7 @@ export function InventoryCSVDialog({
   items,
   canWrite,
   onImportComplete,
+  itemLabel = "produits",
 }: Props & { open: boolean; onOpenChange: (open: boolean) => void }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
@@ -306,8 +340,15 @@ export function InventoryCSVDialog({
     setImportResult(null);
 
     try {
-      const content = await file.text();
-      const rows = parseCSV(content);
+      const isXlsx = file.name.toLowerCase().endsWith(".xlsx") || file.name.toLowerCase().endsWith(".xls");
+
+      let rows: string[][];
+      if (isXlsx) {
+        rows = await parseXLSX(file);
+      } else {
+        const content = await file.text();
+        rows = parseCSV(content);
+      }
 
       if (rows.length < 2) {
         setImportResult({ success: 0, failed: 0, errors: ["Fichier vide ou invalide"] });
@@ -315,8 +356,26 @@ export function InventoryCSVDialog({
         return;
       }
 
-      const headers = rows[0].map((h) => h.toLowerCase().trim());
-      const dataRows = rows.slice(1);
+      const headers = rows[0].map((h) =>
+        h.toLowerCase().trim()
+          // Map Excel display headers → internal CSV header names
+          .replace("titre *", "titre")
+          .replace("prix (mad)", "prix_base_mad")
+          .replace("allergènes", "allergenes")
+          .replace("régimes", "regimes")
+          .replace("niveau épice", "niveau_epice")
+          .replace("visible si indispo", "visible_si_indisponible")
+          .replace("photos (urls)", "photos")
+      );
+      // Filter out empty/example rows (italic rows from template)
+      const dataRows = rows.slice(1).filter((row) => {
+        const firstCell = (row[0] ?? "").trim();
+        // Skip empty rows and example rows from our template
+        if (!firstCell) return false;
+        if (firstCell.toLowerCase().startsWith("exemple ")) return false;
+        if (firstCell.toLowerCase().startsWith("supprimez ces lignes")) return false;
+        return true;
+      });
 
       // Build category map for quick lookup
       const categoryMap = new Map<string, string>();
@@ -365,11 +424,130 @@ export function InventoryCSVDialog({
     }
   };
 
-  const downloadTemplate = () => {
-    const template = `titre,description,categorie,prix_base_mad,labels,allergenes,regimes,niveau_epice,actif,visible_si_indisponible,photos,variantes
-"Exemple Plat","Description du plat","Entrées",12.50,"best_seller;traditionnel","gluten;lait","halal","mild","oui","oui","https://example.com/photo.jpg",""
-"Exemple Boisson","Jus frais","Boissons",3.00,"","","vegan","none","oui","oui","",""`;
-    downloadCSV(template, "modele_import.csv");
+  const downloadTemplate = async () => {
+    const ExcelJS = (await import("exceljs")).default;
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "Sortir Au Maroc";
+
+    // ===================== Sheet 1 — Import =====================
+    const ws = wb.addWorksheet("Import");
+
+    const columns = [
+      { header: "Titre *", key: "titre", width: 28 },
+      { header: "Description", key: "description", width: 36 },
+      { header: "Catégorie", key: "categorie", width: 20 },
+      { header: "Prix (MAD)", key: "prix_base_mad", width: 14 },
+      { header: "Labels", key: "labels", width: 28 },
+      { header: "Allergènes", key: "allergenes", width: 28 },
+      { header: "Régimes", key: "regimes", width: 22 },
+      { header: "Niveau épice", key: "niveau_epice", width: 16 },
+      { header: "Actif", key: "actif", width: 10 },
+      { header: "Visible si indispo", key: "visible_si_indisponible", width: 20 },
+      { header: "Photos (URLs)", key: "photos", width: 36 },
+      { header: "Variantes", key: "variantes", width: 32 },
+    ];
+    ws.columns = columns;
+
+    // Header style
+    const brandColor = "A3001D";
+    ws.getRow(1).eachCell((cell) => {
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${brandColor}` } };
+      cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+      cell.border = {
+        bottom: { style: "thin", color: { argb: "FF333333" } },
+      };
+    });
+    ws.getRow(1).height = 30;
+
+    // Example rows
+    const examples = [
+      ["Exemple Plat", "Description du plat", "Entrées", 12.5, "best_seller;traditionnel", "gluten;lait", "halal", "mild", "oui", "oui", "https://example.com/photo.jpg", ""],
+      ["Exemple Boisson", "Jus d'orange frais", "Boissons", 3.0, "", "", "vegan", "none", "oui", "oui", "", ""],
+    ];
+    for (const ex of examples) {
+      const row = ws.addRow(ex);
+      row.eachCell((cell) => {
+        cell.font = { italic: true, color: { argb: "FF888888" }, size: 10 };
+      });
+    }
+
+    // Instructions row
+    ws.addRow([]);
+    const noteRow = ws.addRow(["Supprimez ces lignes d'exemple et remplissez vos données. Les valeurs acceptées pour chaque colonne sont listées dans l'onglet Référence."]);
+    noteRow.getCell(1).font = { italic: true, color: { argb: "FF666666" }, size: 9 };
+    ws.mergeCells(noteRow.number, 1, noteRow.number, columns.length);
+
+    // ===================== Sheet 2 — Référence =====================
+    const ref = wb.addWorksheet("Référence");
+    ref.columns = [
+      { header: "Champ", key: "field", width: 22 },
+      { header: "Valeur acceptée", key: "value", width: 24 },
+      { header: "Description", key: "desc", width: 40 },
+    ];
+    // Header style
+    ref.getRow(1).eachCell((cell) => {
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${brandColor}` } };
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+    });
+    ref.getRow(1).height = 28;
+
+    const addSection = (field: string, items: { id: string; title: string }[]) => {
+      for (const item of items) {
+        ref.addRow([field, item.id, item.title]);
+      }
+    };
+
+    // Labels
+    addSection("labels", INVENTORY_LABELS);
+    ref.addRow([]);
+
+    // Allergènes
+    addSection("allergenes", ALL_ALLERGENS);
+    ref.addRow([]);
+
+    // Régimes
+    addSection("regimes", DIETARY_PREFERENCES);
+    ref.addRow([]);
+
+    // Niveaux épice
+    addSection("niveau_epice", SPICY_LEVELS.map((s) => ({ id: s.id, title: s.title })));
+    ref.addRow([]);
+
+    // Actif / Visible
+    ref.addRow(["actif", "oui", "Produit actif (par défaut)"]);
+    ref.addRow(["actif", "non", "Produit désactivé"]);
+    ref.addRow(["visible_si_indisponible", "oui", "Reste visible même si indisponible"]);
+    ref.addRow(["visible_si_indisponible", "non", "Masqué si indisponible"]);
+    ref.addRow([]);
+
+    // Séparateurs
+    ref.addRow(["photos", "URL;URL;...", "URLs séparées par des point-virgules"]);
+    ref.addRow(["labels / allergenes / regimes", "val1;val2;...", "Valeurs séparées par des point-virgules"]);
+    ref.addRow(["variantes", "titre:prix;titre:prix", 'Ex: "Grande:15.00;Petite:10.00"']);
+
+    // Zebra striping on reference sheet
+    ref.eachRow((row, idx) => {
+      if (idx === 1) return; // Skip header
+      if (idx % 2 === 0) {
+        row.eachCell((cell) => {
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8F8F8" } };
+        });
+      }
+    });
+
+    // Generate & download
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "modele_import_sam.xlsx";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -378,38 +556,31 @@ export function InventoryCSVDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileSpreadsheet className="w-5 h-5" />
-            Import / Export CSV
+            Import / Export
           </DialogTitle>
-          <DialogDescription>
-            Exportez vos produits ou importez-en en masse via un fichier CSV.
-          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Export section */}
-          <div className="rounded-lg border border-slate-200 p-4 space-y-3">
-            <div className="font-semibold text-slate-900">Exporter</div>
+          {/* Export */}
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-4">
             <p className="text-sm text-slate-600">
-              Téléchargez tous vos produits ({items.length}) au format CSV.
+              {items.length > 0
+                ? `Exportez vos ${items.length} ${itemLabel.toLowerCase()} au format CSV.`
+                : `Aucun ${itemLabel.toLowerCase()} à exporter.`}
             </p>
             <Button
               variant="outline"
-              className="gap-2"
+              className="gap-2 shrink-0"
               onClick={handleExport}
               disabled={items.length === 0}
             >
               <Download className="w-4 h-4" />
-              Télécharger CSV
+              Exporter
             </Button>
           </div>
 
-          {/* Import section */}
+          {/* Import */}
           <div className="rounded-lg border border-slate-200 p-4 space-y-3">
-            <div className="font-semibold text-slate-900">Importer</div>
-            <p className="text-sm text-slate-600">
-              Ajoutez des produits en masse via un fichier CSV.
-            </p>
-
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="outline"
@@ -417,13 +588,13 @@ export function InventoryCSVDialog({
                 onClick={downloadTemplate}
               >
                 <FileSpreadsheet className="w-4 h-4" />
-                Télécharger modèle
+                Modèle Excel
               </Button>
 
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".csv,text/csv"
+                accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                 onChange={handleFileSelect}
                 className="hidden"
                 disabled={!canWrite || importing}
@@ -438,7 +609,7 @@ export function InventoryCSVDialog({
                 ) : (
                   <Upload className="w-4 h-4" />
                 )}
-                {importing ? "Import en cours..." : "Importer CSV"}
+                {importing ? "Import en cours..." : "Importer"}
               </Button>
             </div>
 
@@ -472,13 +643,10 @@ export function InventoryCSVDialog({
               </div>
             )}
 
-            {/* Format info */}
-            <div className="mt-3 text-xs text-slate-500 space-y-1">
-              <div className="font-medium">Colonnes attendues :</div>
-              <div>titre, description, categorie, prix_base_mad, labels, allergenes, regimes, niveau_epice, actif, visible_si_indisponible, photos</div>
-              <div className="mt-2 font-medium">Labels disponibles :</div>
-              <div>{INVENTORY_LABELS.map((l) => l.id).join(", ")}</div>
-            </div>
+            {/* Format hint */}
+            <p className="mt-2 text-xs text-slate-500">
+              Formats acceptés : <span className="font-medium">.xlsx</span> et <span className="font-medium">.csv</span>. Le modèle Excel contient un onglet <span className="font-medium">Référence</span> avec toutes les valeurs acceptées.
+            </p>
           </div>
         </div>
 

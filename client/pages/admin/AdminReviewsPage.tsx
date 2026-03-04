@@ -1,31 +1,45 @@
 /**
- * AdminReviewsPage
- * Moderation of customer reviews and establishment reports
+ * AdminReviewsPage V2
+ *
+ * Moderation of customer reviews, pro responses, and review reports.
+ * Uses V2 API with new workflow: moderation → gesture → publication.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
-import { Loader2, Star, Clock, AlertTriangle, Send, Check, X, Flag } from "lucide-react";
+import {
+  Loader2,
+  Star,
+  Clock,
+  AlertTriangle,
+  Check,
+  X,
+  Flag,
+  MessageSquare,
+  Gift,
+  Eye,
+  Edit3,
+  Search,
+  RefreshCw,
+} from "lucide-react";
 
-import { AdminDataTable } from "@/components/admin/table/AdminDataTable";
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
 import {
-  AdminApiError,
-  listAdminReviews,
-  listAdminReports,
-  approveAdminReview,
-  rejectAdminReview,
-  sendAdminReviewToPro,
-  resolveAdminReport,
-  getAdminReviewStats,
-  type AdminReview,
-  type AdminReport,
-  type AdminReviewStatus,
-  type AdminReportStatus,
+  listAdminReviewsV2,
+  getAdminReviewV2,
+  moderateAdminReviewV2,
+  getAdminReviewStatsV2,
+  listAdminReviewReportsV2,
+  resolveAdminReviewReportV2,
+  listAdminPendingResponsesV2,
+  moderateAdminResponseV2,
+  type AdminReviewV2,
+  type AdminReviewStatusV2,
+  type AdminReviewStatsV2,
+  type AdminReviewReportV2,
+  type AdminPendingResponseV2,
 } from "@/lib/adminApi";
 
 import { useToast } from "@/hooks/use-toast";
-import { formatLeJjMmAaAHeure } from "@shared/datetime";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,86 +63,77 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { StarRating } from "@/components/reviews/StarRating";
+import { CriteriaRatingsDisplay } from "@/components/reviews/CriteriaRating";
+import { CRITERIA_LABELS_FR } from "@shared/reviewTypes";
 
 // ---------------------------------------------------------------------------
 // Status badges
 // ---------------------------------------------------------------------------
 
-function reviewStatusBadge(status: AdminReviewStatus) {
-  const config: Record<AdminReviewStatus, { className: string; label: string }> = {
-    pending_moderation: {
-      className: "bg-amber-50 text-amber-700 border-amber-200",
-      label: "À modérer",
-    },
-    sent_to_pro: {
-      className: "bg-blue-50 text-blue-700 border-blue-200",
-      label: "Envoyé au pro",
-    },
-    pro_responded_hidden: {
-      className: "bg-slate-100 text-slate-700 border-slate-200",
-      label: "Masqué (promo)",
-    },
-    approved: {
-      className: "bg-emerald-50 text-emerald-700 border-emerald-200",
-      label: "Publié",
-    },
-    rejected: {
-      className: "bg-red-50 text-red-700 border-red-200",
-      label: "Rejeté",
-    },
-    auto_published: {
-      className: "bg-purple-50 text-purple-700 border-purple-200",
-      label: "Auto-publié",
-    },
-  };
-
-  const c = config[status] || { className: "bg-slate-100 text-slate-700", label: status };
-  return <Badge className={c.className}>{c.label}</Badge>;
-}
-
-function reportStatusBadge(status: AdminReportStatus) {
-  const config: Record<AdminReportStatus, { className: string; label: string }> = {
-    pending: {
-      className: "bg-amber-50 text-amber-700 border-amber-200",
-      label: "À traiter",
-    },
-    investigating: {
-      className: "bg-blue-50 text-blue-700 border-blue-200",
-      label: "En cours",
-    },
-    resolved: {
-      className: "bg-emerald-50 text-emerald-700 border-emerald-200",
-      label: "Résolu",
-    },
-    dismissed: {
-      className: "bg-slate-100 text-slate-700 border-slate-200",
-      label: "Rejeté",
-    },
-  };
-
-  const c = config[status] || { className: "bg-slate-100 text-slate-700", label: status };
-  return <Badge className={c.className}>{c.label}</Badge>;
-}
-
-function ratingStars(rating: number) {
-  return (
-    <div className="flex items-center gap-1">
-      <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
-      <span className="font-semibold">{rating.toFixed(1)}</span>
-    </div>
-  );
-}
-
-const REPORT_REASON_LABELS: Record<string, string> = {
-  inappropriate_content: "Contenu inapproprié",
-  false_information: "Fausses informations",
-  closed_permanently: "Fermé définitivement",
-  duplicate_listing: "Doublon",
-  spam_or_scam: "Spam / Arnaque",
-  safety_concern: "Problème de sécurité",
-  harassment: "Harcèlement",
-  other: "Autre",
+const REVIEW_STATUS_CONFIG: Record<
+  AdminReviewStatusV2,
+  { className: string; label: string }
+> = {
+  pending_moderation: {
+    className: "bg-amber-50 text-amber-700 border-amber-200",
+    label: "À modérer",
+  },
+  approved: {
+    className: "bg-blue-50 text-blue-700 border-blue-200",
+    label: "Approuvé",
+  },
+  rejected: {
+    className: "bg-red-50 text-red-700 border-red-200",
+    label: "Rejeté",
+  },
+  modification_requested: {
+    className: "bg-orange-50 text-orange-700 border-orange-200",
+    label: "Modification demandée",
+  },
+  pending_commercial_gesture: {
+    className: "bg-purple-50 text-purple-700 border-purple-200",
+    label: "En attente geste commercial",
+  },
+  resolved: {
+    className: "bg-slate-100 text-slate-700 border-slate-200",
+    label: "Résolu",
+  },
+  published: {
+    className: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    label: "Publié",
+  },
 };
+
+function reviewStatusBadge(status: AdminReviewStatusV2) {
+  const c = REVIEW_STATUS_CONFIG[status] || {
+    className: "bg-slate-100 text-slate-700",
+    label: status,
+  };
+  return <Badge className={c.className}>{c.label}</Badge>;
+}
+
+function formatDate(d: string | null): string {
+  if (!d) return "—";
+  return new Date(d).toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatTimeRemaining(deadline: string): string {
+  const now = Date.now();
+  const target = new Date(deadline).getTime();
+  const diff = target - now;
+  if (diff <= 0) return "Expiré";
+  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -138,388 +143,275 @@ export function AdminReviewsPage() {
   const { toast } = useToast();
 
   // Tab state
-  const [activeTab, setActiveTab] = useState<"reviews" | "reports">("reviews");
-
-  // Reviews state
-  const [reviews, setReviews] = useState<AdminReview[]>([]);
-  const [reviewsLoading, setReviewsLoading] = useState(true);
-  const [reviewStatusFilter, setReviewStatusFilter] = useState<AdminReviewStatus | "all">("all");
-
-  // Reports state
-  const [reports, setReports] = useState<AdminReport[]>([]);
-  const [reportsLoading, setReportsLoading] = useState(true);
-  const [reportStatusFilter, setReportStatusFilter] = useState<AdminReportStatus | "all">("all");
-
-  // Search
-  const [search, setSearch] = useState("");
+  const [activeTab, setActiveTab] = useState<
+    "reviews" | "responses" | "reports"
+  >("reviews");
 
   // Stats
-  const [stats, setStats] = useState<{
-    reviews: Record<string, number>;
-    reports: Record<string, number>;
-    expiring_soon: number;
-  } | null>(null);
+  const [stats, setStats] = useState<AdminReviewStatsV2 | null>(null);
 
-  // Dialogs
-  const [selectedReview, setSelectedReview] = useState<AdminReview | null>(null);
-  const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
-  const [selectedReport, setSelectedReport] = useState<AdminReport | null>(null);
-  const [reportDialogOpen, setReportDialogOpen] = useState(false);
+  // Reviews state
+  const [reviews, setReviews] = useState<AdminReviewV2[]>([]);
+  const [reviewsTotal, setReviewsTotal] = useState(0);
+  const [reviewsLoading, setReviewsLoading] = useState(true);
+  const [reviewStatusFilter, setReviewStatusFilter] = useState<
+    AdminReviewStatusV2 | "all"
+  >("pending_moderation");
+  const [reviewPage, setReviewPage] = useState(1);
 
-  // Action states
-  const [actionLoading, setActionLoading] = useState(false);
-  const [rejectReason, setRejectReason] = useState("");
-  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
-  const [resolveNotes, setResolveNotes] = useState("");
-  const [resolveAction, setResolveAction] = useState<string>("none");
+  // Review detail dialog
+  const [selectedReview, setSelectedReview] = useState<AdminReviewV2 | null>(
+    null,
+  );
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [moderationNote, setModerationNote] = useState("");
+  const [moderating, setModerating] = useState(false);
+
+  // Responses state
+  const [responses, setResponses] = useState<AdminPendingResponseV2[]>([]);
+  const [responsesLoading, setResponsesLoading] = useState(false);
+  const [selectedResponse, setSelectedResponse] =
+    useState<AdminPendingResponseV2 | null>(null);
+  const [responseNote, setResponseNote] = useState("");
+
+  // Reports state
+  const [reports, setReports] = useState<AdminReviewReportV2[]>([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [selectedReport, setSelectedReport] =
+    useState<AdminReviewReportV2 | null>(null);
+  const [reportNote, setReportNote] = useState("");
 
   // ---------------------------------------------------------------------------
-  // Data fetching
+  // Load stats
+  // ---------------------------------------------------------------------------
+
+  const loadStats = useCallback(async () => {
+    try {
+      const res = await getAdminReviewStatsV2(undefined);
+      if (res.ok) setStats(res.stats);
+    } catch {
+      // Non-critical
+    }
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // Load reviews
   // ---------------------------------------------------------------------------
 
   const loadReviews = useCallback(async () => {
     setReviewsLoading(true);
     try {
-      const res = await listAdminReviews(undefined, {
-        status: reviewStatusFilter === "all" ? undefined : reviewStatusFilter,
-        limit: 100,
+      const res = await listAdminReviewsV2(undefined, {
+        status: reviewStatusFilter,
+        page: reviewPage,
+        limit: 20,
+        sort_by: "created_at",
+        sort_order: "desc",
       });
-      setReviews(res.items || []);
-    } catch (e) {
-      const msg = e instanceof AdminApiError ? e.message : "Erreur de chargement";
-      toast({ title: "Erreur", description: msg, variant: "destructive" });
+      if (res.ok) {
+        setReviews(res.items);
+        setReviewsTotal(res.total);
+      }
+    } catch (e: unknown) {
+      toast({
+        title: "Erreur",
+        description: e instanceof Error ? e.message : "Erreur de chargement",
+        variant: "destructive",
+      });
     } finally {
       setReviewsLoading(false);
     }
-  }, [reviewStatusFilter, toast]);
+  }, [reviewStatusFilter, reviewPage, toast]);
+
+  // ---------------------------------------------------------------------------
+  // Load responses
+  // ---------------------------------------------------------------------------
+
+  const loadResponses = useCallback(async () => {
+    setResponsesLoading(true);
+    try {
+      const res = await listAdminPendingResponsesV2(undefined);
+      if (res.ok) setResponses(res.items);
+    } catch {
+      // Non-critical
+    } finally {
+      setResponsesLoading(false);
+    }
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // Load reports
+  // ---------------------------------------------------------------------------
 
   const loadReports = useCallback(async () => {
     setReportsLoading(true);
     try {
-      const res = await listAdminReports(undefined, {
-        status: reportStatusFilter === "all" ? undefined : reportStatusFilter,
-        limit: 100,
+      const res = await listAdminReviewReportsV2(undefined, {
+        status: "pending",
       });
-      setReports(res.items || []);
-    } catch (e) {
-      const msg = e instanceof AdminApiError ? e.message : "Erreur de chargement";
-      toast({ title: "Erreur", description: msg, variant: "destructive" });
+      if (res.ok) setReports(res.items);
+    } catch {
+      // Non-critical
     } finally {
       setReportsLoading(false);
     }
-  }, [reportStatusFilter, toast]);
-
-  const loadStats = useCallback(async () => {
-    try {
-      const res = await getAdminReviewStats(undefined);
-      setStats({
-        reviews: res.reviews,
-        reports: res.reports,
-        expiring_soon: res.expiring_soon,
-      });
-    } catch {
-      // Ignore stats errors
-    }
   }, []);
+
+  // ---------------------------------------------------------------------------
+  // Effects
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    void loadStats();
+  }, [loadStats]);
 
   useEffect(() => {
     void loadReviews();
   }, [loadReviews]);
 
   useEffect(() => {
-    void loadReports();
-  }, [loadReports]);
-
-  useEffect(() => {
-    void loadStats();
-  }, [loadStats]);
+    if (activeTab === "responses") void loadResponses();
+    if (activeTab === "reports") void loadReports();
+  }, [activeTab, loadResponses, loadReports]);
 
   // ---------------------------------------------------------------------------
-  // Review actions
+  // Review detail
   // ---------------------------------------------------------------------------
 
-  const handleApproveReview = async () => {
+  const openReviewDetail = async (review: AdminReviewV2) => {
+    setSelectedReview(review);
+    setModerationNote("");
+    setDetailLoading(true);
+    try {
+      const res = await getAdminReviewV2(undefined, review.id);
+      if (res.ok) setSelectedReview(res.review);
+    } catch {
+      // Use the already-loaded partial data
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Moderate review
+  // ---------------------------------------------------------------------------
+
+  const handleModerate = async (
+    action: "approve" | "reject" | "request_modification",
+  ) => {
     if (!selectedReview) return;
-    setActionLoading(true);
+    setModerating(true);
     try {
-      await approveAdminReview(undefined, selectedReview.id);
-      toast({ title: "Avis approuvé", description: "L'avis a été publié." });
-      setReviewDialogOpen(false);
-      setSelectedReview(null);
-      void loadReviews();
-      void loadStats();
-    } catch (e) {
-      const msg = e instanceof AdminApiError ? e.message : "Erreur";
-      toast({ title: "Erreur", description: msg, variant: "destructive" });
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleRejectReview = async () => {
-    if (!selectedReview || !rejectReason.trim()) return;
-    setActionLoading(true);
-    try {
-      await rejectAdminReview(undefined, selectedReview.id, rejectReason.trim());
-      toast({ title: "Avis rejeté", description: "L'avis a été rejeté." });
-      setRejectDialogOpen(false);
-      setReviewDialogOpen(false);
-      setSelectedReview(null);
-      setRejectReason("");
-      void loadReviews();
-      void loadStats();
-    } catch (e) {
-      const msg = e instanceof AdminApiError ? e.message : "Erreur";
-      toast({ title: "Erreur", description: msg, variant: "destructive" });
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleSendToPro = async () => {
-    if (!selectedReview) return;
-    setActionLoading(true);
-    try {
-      const res = await sendAdminReviewToPro(undefined, selectedReview.id);
+      const res = await moderateAdminReviewV2(undefined, selectedReview.id, {
+        action,
+        moderation_note: moderationNote.trim() || undefined,
+      });
+      if (res.ok) {
+        toast({
+          title: "Succès",
+          description:
+            action === "approve"
+              ? "Avis approuvé"
+              : action === "reject"
+                ? "Avis rejeté"
+                : "Modification demandée",
+        });
+        setSelectedReview(null);
+        void loadReviews();
+        void loadStats();
+      }
+    } catch (e: unknown) {
       toast({
-        title: "Envoyé au Pro",
-        description: `Le pro a jusqu'au ${formatLeJjMmAaAHeure(res.deadline)} pour répondre.`,
+        title: "Erreur",
+        description: e instanceof Error ? e.message : "Erreur de modération",
+        variant: "destructive",
       });
-      setReviewDialogOpen(false);
-      setSelectedReview(null);
-      void loadReviews();
-      void loadStats();
-    } catch (e) {
-      const msg = e instanceof AdminApiError ? e.message : "Erreur";
-      toast({ title: "Erreur", description: msg, variant: "destructive" });
     } finally {
-      setActionLoading(false);
+      setModerating(false);
     }
   };
 
   // ---------------------------------------------------------------------------
-  // Report actions
+  // Moderate response
   // ---------------------------------------------------------------------------
 
-  const handleResolveReport = async (status: "resolved" | "dismissed") => {
-    if (!selectedReport) return;
-    setActionLoading(true);
+  const handleModerateResponse = async (action: "approve" | "reject") => {
+    if (!selectedResponse) return;
     try {
-      await resolveAdminReport(undefined, selectedReport.id, {
-        status,
-        notes: resolveNotes.trim() || undefined,
-        action_taken: status === "resolved" ? resolveAction : undefined,
-      });
-      toast({
-        title: status === "resolved" ? "Signalement résolu" : "Signalement rejeté",
-        description: "Le signalement a été traité.",
-      });
-      setReportDialogOpen(false);
-      setSelectedReport(null);
-      setResolveNotes("");
-      setResolveAction("none");
-      void loadReports();
-      void loadStats();
-    } catch (e) {
-      const msg = e instanceof AdminApiError ? e.message : "Erreur";
-      toast({ title: "Erreur", description: msg, variant: "destructive" });
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  // ---------------------------------------------------------------------------
-  // Filtered data
-  // ---------------------------------------------------------------------------
-
-  const filteredReviews = useMemo(() => {
-    if (!search.trim()) return reviews;
-    const q = search.toLowerCase();
-    return reviews.filter((r) => {
-      const hay = [
-        r.establishments?.name,
-        r.establishments?.title,
-        r.establishments?.city,
-        r.user_email,
-        r.comment,
-        r.title,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(q);
-    });
-  }, [reviews, search]);
-
-  const filteredReports = useMemo(() => {
-    if (!search.trim()) return reports;
-    const q = search.toLowerCase();
-    return reports.filter((r) => {
-      const hay = [
-        r.establishments?.name,
-        r.establishments?.title,
-        r.reporter_email,
-        r.reason_text,
-        REPORT_REASON_LABELS[r.reason_code],
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(q);
-    });
-  }, [reports, search]);
-
-  // ---------------------------------------------------------------------------
-  // Table columns
-  // ---------------------------------------------------------------------------
-
-  const reviewColumns = useMemo<ColumnDef<AdminReview>[]>(
-    () => [
-      {
-        accessorKey: "overall_rating",
-        header: "Note",
-        cell: ({ row }) => ratingStars(row.original.overall_rating),
-      },
-      {
-        accessorKey: "establishments.name",
-        header: "Établissement",
-        cell: ({ row }) => (
-          <div>
-            <div className="font-medium">
-              {row.original.establishments?.name || row.original.establishments?.title || "—"}
-            </div>
-            <div className="text-xs text-slate-500">
-              {row.original.establishments?.city}
-            </div>
-          </div>
-        ),
-      },
-      {
-        accessorKey: "user_email",
-        header: "Auteur",
-        cell: ({ row }) =>
-          row.original.anonymous ? (
-            <span className="text-slate-400 italic">Anonyme</span>
-          ) : (
-            row.original.user_email || "—"
-          ),
-      },
-      {
-        accessorKey: "comment",
-        header: "Commentaire",
-        cell: ({ row }) => (
-          <div className="max-w-[200px] truncate text-sm text-slate-600">
-            {row.original.comment || <span className="italic text-slate-400">Pas de commentaire</span>}
-          </div>
-        ),
-      },
-      {
-        accessorKey: "status",
-        header: "Statut",
-        cell: ({ row }) => reviewStatusBadge(row.original.status),
-      },
-      {
-        accessorKey: "pro_response_deadline",
-        header: "Deadline",
-        cell: ({ row }) => {
-          if (row.original.status !== "sent_to_pro" || !row.original.pro_response_deadline) {
-            return "—";
-          }
-          const deadline = new Date(row.original.pro_response_deadline);
-          const now = new Date();
-          const hoursLeft = Math.max(0, (deadline.getTime() - now.getTime()) / (1000 * 60 * 60));
-          const isUrgent = hoursLeft < 6;
-          return (
-            <div className={`flex items-center gap-1 ${isUrgent ? "text-red-600" : "text-slate-600"}`}>
-              <Clock className="h-3 w-3" />
-              <span className="text-xs tabular-nums">
-                {hoursLeft < 1 ? "< 1h" : `${Math.floor(hoursLeft)}h`}
-              </span>
-            </div>
-          );
+      const res = await moderateAdminResponseV2(
+        undefined,
+        selectedResponse.id,
+        {
+          action,
+          moderation_note: responseNote.trim() || undefined,
         },
-      },
-      {
-        accessorKey: "created_at",
-        header: "Date",
-        cell: ({ row }) => (
-          <span className="text-xs tabular-nums">{formatLeJjMmAaAHeure(row.original.created_at)}</span>
-        ),
-      },
-    ],
-    []
-  );
+      );
+      if (res.ok) {
+        toast({
+          title: "Succès",
+          description:
+            action === "approve"
+              ? "Réponse approuvée"
+              : "Réponse rejetée",
+        });
+        setSelectedResponse(null);
+        void loadResponses();
+        void loadStats();
+      }
+    } catch (e: unknown) {
+      toast({
+        title: "Erreur",
+        description: e instanceof Error ? e.message : "Erreur",
+        variant: "destructive",
+      });
+    }
+  };
 
-  const reportColumns = useMemo<ColumnDef<AdminReport>[]>(
-    () => [
-      {
-        accessorKey: "reason_code",
-        header: "Motif",
-        cell: ({ row }) => (
-          <div className="flex items-center gap-2">
-            <Flag className="h-4 w-4 text-red-500" />
-            <span>{REPORT_REASON_LABELS[row.original.reason_code] || row.original.reason_code}</span>
-          </div>
-        ),
-      },
-      {
-        accessorKey: "establishments.name",
-        header: "Établissement",
-        cell: ({ row }) => (
-          <div>
-            <div className="font-medium">
-              {row.original.establishments?.name || row.original.establishments?.title || "—"}
-            </div>
-            <div className="text-xs text-slate-500">
-              {row.original.establishments?.city}
-            </div>
-          </div>
-        ),
-      },
-      {
-        accessorKey: "reporter_email",
-        header: "Signalé par",
-        cell: ({ row }) => row.original.reporter_email || <span className="text-slate-400">Anonyme</span>,
-      },
-      {
-        accessorKey: "reason_text",
-        header: "Détails",
-        cell: ({ row }) => (
-          <div className="max-w-[200px] truncate text-sm text-slate-600">
-            {row.original.reason_text || "—"}
-          </div>
-        ),
-      },
-      {
-        accessorKey: "status",
-        header: "Statut",
-        cell: ({ row }) => reportStatusBadge(row.original.status),
-      },
-      {
-        accessorKey: "created_at",
-        header: "Date",
-        cell: ({ row }) => (
-          <span className="text-xs tabular-nums">{formatLeJjMmAaAHeure(row.original.created_at)}</span>
-        ),
-      },
-    ],
-    []
-  );
+  // ---------------------------------------------------------------------------
+  // Resolve report
+  // ---------------------------------------------------------------------------
+
+  const handleResolveReport = async (action: "reviewed" | "dismissed") => {
+    if (!selectedReport) return;
+    try {
+      const res = await resolveAdminReviewReportV2(
+        undefined,
+        selectedReport.id,
+        {
+          action,
+          review_note: reportNote.trim() || undefined,
+        },
+      );
+      if (res.ok) {
+        toast({
+          title: "Succès",
+          description:
+            action === "reviewed"
+              ? "Signalement traité"
+              : "Signalement rejeté",
+        });
+        setSelectedReport(null);
+        void loadReports();
+        void loadStats();
+      }
+    } catch (e: unknown) {
+      toast({
+        title: "Erreur",
+        description: e instanceof Error ? e.message : "Erreur",
+        variant: "destructive",
+      });
+    }
+  };
 
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <AdminPageHeader
-        title="Avis & signalements"
-        description="Modération des avis clients et des signalements d'établissements."
-        actions={
-          <Button variant="outline" onClick={() => { void loadReviews(); void loadReports(); void loadStats(); }}>
-            Rafraîchir
-          </Button>
-        }
+        title="Modération des avis"
+        description="Gérez les avis clients, réponses pro et signalements"
       />
 
       {/* Stats cards */}
@@ -528,518 +420,648 @@ export function AdminReviewsPage() {
           <Card>
             <CardContent className="p-4">
               <div className="text-2xl font-bold text-amber-600">
-                {stats.reviews.pending_moderation || 0}
+                {stats.pending_moderation}
               </div>
-              <div className="text-xs text-slate-500">Avis à modérer</div>
+              <div className="text-sm text-slate-500">À modérer</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="text-2xl font-bold text-purple-600">
+                {stats.pending_commercial_gesture}
+              </div>
+              <div className="text-sm text-slate-500">Gestes en attente</div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4">
               <div className="text-2xl font-bold text-blue-600">
-                {stats.reviews.sent_to_pro || 0}
+                {stats.pending_responses}
               </div>
-              <div className="text-xs text-slate-500">Envoyés au pro</div>
+              <div className="text-sm text-slate-500">Réponses pro</div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4">
               <div className="text-2xl font-bold text-red-600">
-                {stats.expiring_soon || 0}
+                {stats.pending_reports}
               </div>
-              <div className="text-xs text-slate-500">Deadline {"<"} 6h</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-2xl font-bold text-amber-600">
-                {stats.reports.pending || 0}
-              </div>
-              <div className="text-xs text-slate-500">Signalements à traiter</div>
+              <div className="text-sm text-slate-500">Signalements</div>
             </CardContent>
           </Card>
         </div>
       )}
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "reviews" | "reports")}>
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => setActiveTab(v as typeof activeTab)}
+      >
         <TabsList>
-          <TabsTrigger value="reviews" className="gap-2">
-            <Star className="h-4 w-4" />
-            Avis ({reviews.length})
+          <TabsTrigger value="reviews">
+            Avis
+            {stats && stats.pending_moderation > 0 && (
+              <Badge className="ms-2 bg-amber-100 text-amber-700 text-xs">
+                {stats.pending_moderation}
+              </Badge>
+            )}
           </TabsTrigger>
-          <TabsTrigger value="reports" className="gap-2">
-            <Flag className="h-4 w-4" />
-            Signalements ({reports.length})
+          <TabsTrigger value="responses">
+            Réponses pro
+            {stats && stats.pending_responses > 0 && (
+              <Badge className="ms-2 bg-blue-100 text-blue-700 text-xs">
+                {stats.pending_responses}
+              </Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="reports">
+            Signalements
+            {stats && stats.pending_reports > 0 && (
+              <Badge className="ms-2 bg-red-100 text-red-700 text-xs">
+                {stats.pending_reports}
+              </Badge>
+            )}
           </TabsTrigger>
         </TabsList>
 
-        {/* Reviews Tab */}
-        <TabsContent value="reviews" className="space-y-4">
-          <Card>
-            <CardHeader className="p-4">
-              <CardTitle className="text-sm">Filtres</CardTitle>
-            </CardHeader>
-            <CardContent className="p-4 pt-0">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs">Recherche</Label>
-                  <Input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="établissement, email, commentaire…"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Statut</Label>
-                  <Select
-                    value={reviewStatusFilter}
-                    onValueChange={(v) => setReviewStatusFilter(v as AdminReviewStatus | "all")}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Tous</SelectItem>
-                      <SelectItem value="pending_moderation">À modérer</SelectItem>
-                      <SelectItem value="sent_to_pro">Envoyé au pro</SelectItem>
-                      <SelectItem value="approved">Publié</SelectItem>
-                      <SelectItem value="auto_published">Auto-publié</SelectItem>
-                      <SelectItem value="rejected">Rejeté</SelectItem>
-                      <SelectItem value="pro_responded_hidden">Masqué (promo)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-end">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setSearch("");
-                      setReviewStatusFilter("all");
-                    }}
-                  >
-                    Réinitialiser
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+        {/* ================================================================= */}
+        {/* REVIEWS TAB */}
+        {/* ================================================================= */}
 
+        <TabsContent value="reviews" className="space-y-4">
+          {/* Filters */}
+          <div className="flex items-center gap-3">
+            <Select
+              value={reviewStatusFilter}
+              onValueChange={(v) => {
+                setReviewStatusFilter(v as AdminReviewStatusV2 | "all");
+                setReviewPage(1);
+              }}
+            >
+              <SelectTrigger className="w-56">
+                <SelectValue placeholder="Filtrer par statut" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous les statuts</SelectItem>
+                <SelectItem value="pending_moderation">À modérer</SelectItem>
+                <SelectItem value="approved">Approuvés</SelectItem>
+                <SelectItem value="rejected">Rejetés</SelectItem>
+                <SelectItem value="modification_requested">
+                  Modification demandée
+                </SelectItem>
+                <SelectItem value="pending_commercial_gesture">
+                  Geste commercial
+                </SelectItem>
+                <SelectItem value="resolved">Résolus</SelectItem>
+                <SelectItem value="published">Publiés</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="icon" onClick={() => loadReviews()}>
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+            <span className="text-sm text-slate-500 ms-auto">
+              {reviewsTotal} avis au total
+            </span>
+          </div>
+
+          {/* Reviews list */}
           {reviewsLoading ? (
-            <div className="flex items-center justify-center p-8">
-              <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+            <div className="py-12 text-center">
+              <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
             </div>
-          ) : filteredReviews.length === 0 ? (
-            <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-500">
-              Aucun avis à afficher.
+          ) : reviews.length === 0 ? (
+            <div className="py-12 text-center text-slate-500">
+              Aucun avis trouvé
             </div>
           ) : (
-            <AdminDataTable
-              data={filteredReviews}
-              columns={reviewColumns}
-              searchPlaceholder="Rechercher…"
-              onRowClick={(row) => {
-                setSelectedReview(row);
-                setReviewDialogOpen(true);
-              }}
-            />
+            <div className="space-y-3">
+              {reviews.map((review) => (
+                <Card
+                  key={review.id}
+                  className="cursor-pointer hover:border-primary/30 transition-colors"
+                  onClick={() => openReviewDetail(review)}
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-start gap-4">
+                      {/* Rating */}
+                      <div className="flex flex-col items-center gap-1 min-w-[50px]">
+                        <div className="flex items-center gap-1">
+                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                          <span className="font-bold">
+                            {review.rating_overall.toFixed(1)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Content */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          {reviewStatusBadge(review.status)}
+                          {review.commercial_gesture_status !== "none" && (
+                            <Badge
+                              variant="outline"
+                              className="text-purple-600 border-purple-200"
+                            >
+                              <Gift className="h-3 w-3 me-1" />
+                              Geste
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-slate-700 line-clamp-2">
+                          {review.comment}
+                        </p>
+                        <div className="flex items-center gap-3 mt-2 text-xs text-slate-500">
+                          <span>{review.user_name || review.user_email || "Client"}</span>
+                          <span>•</span>
+                          <span>
+                            {review.establishment_name || "Établissement"}
+                          </span>
+                          <span>•</span>
+                          <span>{formatDate(review.created_at)}</span>
+                          {review.gesture_deadline && (
+                            <>
+                              <span>•</span>
+                              <span className="text-amber-600 flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {formatTimeRemaining(review.gesture_deadline)}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Action hint */}
+                      <Eye className="h-4 w-4 text-slate-400 shrink-0" />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {/* Pagination */}
+          {reviewsTotal > 20 && (
+            <div className="flex justify-center gap-2 pt-4">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={reviewPage <= 1}
+                onClick={() => setReviewPage((p) => p - 1)}
+              >
+                Précédent
+              </Button>
+              <span className="text-sm text-slate-500 self-center px-3">
+                Page {reviewPage} / {Math.ceil(reviewsTotal / 20)}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={reviewPage >= Math.ceil(reviewsTotal / 20)}
+                onClick={() => setReviewPage((p) => p + 1)}
+              >
+                Suivant
+              </Button>
+            </div>
           )}
         </TabsContent>
 
-        {/* Reports Tab */}
-        <TabsContent value="reports" className="space-y-4">
-          <Card>
-            <CardHeader className="p-4">
-              <CardTitle className="text-sm">Filtres</CardTitle>
-            </CardHeader>
-            <CardContent className="p-4 pt-0">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs">Recherche</Label>
-                  <Input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="établissement, email, motif…"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Statut</Label>
-                  <Select
-                    value={reportStatusFilter}
-                    onValueChange={(v) => setReportStatusFilter(v as AdminReportStatus | "all")}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Tous</SelectItem>
-                      <SelectItem value="pending">À traiter</SelectItem>
-                      <SelectItem value="investigating">En cours</SelectItem>
-                      <SelectItem value="resolved">Résolu</SelectItem>
-                      <SelectItem value="dismissed">Rejeté</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-end">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setSearch("");
-                      setReportStatusFilter("all");
-                    }}
-                  >
-                    Réinitialiser
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+        {/* ================================================================= */}
+        {/* RESPONSES TAB */}
+        {/* ================================================================= */}
 
-          {reportsLoading ? (
-            <div className="flex items-center justify-center p-8">
-              <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+        <TabsContent value="responses" className="space-y-4">
+          {responsesLoading ? (
+            <div className="py-12 text-center">
+              <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
             </div>
-          ) : filteredReports.length === 0 ? (
-            <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-500">
-              Aucun signalement à afficher.
+          ) : responses.length === 0 ? (
+            <div className="py-12 text-center text-slate-500">
+              Aucune réponse pro en attente
             </div>
           ) : (
-            <AdminDataTable
-              data={filteredReports}
-              columns={reportColumns}
-              searchPlaceholder="Rechercher…"
-              onRowClick={(row) => {
-                setSelectedReport(row);
-                setReportDialogOpen(true);
-              }}
-            />
+            <div className="space-y-3">
+              {responses.map((resp) => (
+                <Card
+                  key={resp.id}
+                  className="cursor-pointer hover:border-primary/30 transition-colors"
+                  onClick={() => {
+                    setSelectedResponse(resp);
+                    setResponseNote("");
+                  }}
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-start gap-4">
+                      <MessageSquare className="h-5 w-5 text-blue-500 shrink-0 mt-1" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-slate-700 mb-1">
+                          {resp.establishment_name || "Établissement"}
+                        </div>
+                        <p className="text-sm text-slate-600 line-clamp-2">
+                          {resp.content}
+                        </p>
+                        <div className="text-xs text-slate-400 mt-1">
+                          En réponse à un avis noté{" "}
+                          {resp.review_rating?.toFixed(1)}/5
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* ================================================================= */}
+        {/* REPORTS TAB */}
+        {/* ================================================================= */}
+
+        <TabsContent value="reports" className="space-y-4">
+          {reportsLoading ? (
+            <div className="py-12 text-center">
+              <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
+            </div>
+          ) : reports.length === 0 ? (
+            <div className="py-12 text-center text-slate-500">
+              Aucun signalement en attente
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {reports.map((report) => (
+                <Card
+                  key={report.id}
+                  className="cursor-pointer hover:border-primary/30 transition-colors"
+                  onClick={() => {
+                    setSelectedReport(report);
+                    setReportNote("");
+                  }}
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-start gap-4">
+                      <Flag className="h-5 w-5 text-red-500 shrink-0 mt-1" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-slate-700 mb-1">
+                          {report.establishment_name || "Établissement"} — Avis
+                          noté {report.review_rating?.toFixed(1)}/5
+                        </div>
+                        <p className="text-sm text-slate-600 line-clamp-2">
+                          {report.reason}
+                        </p>
+                        <div className="text-xs text-slate-400 mt-1">
+                          Signalé le {formatDate(report.created_at)} par{" "}
+                          {report.reporter_type}
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           )}
         </TabsContent>
       </Tabs>
 
-      {/* Review Detail Dialog */}
+      {/* ================================================================= */}
+      {/* REVIEW DETAIL DIALOG */}
+      {/* ================================================================= */}
+
       <Dialog
-        open={reviewDialogOpen}
-        onOpenChange={(open) => {
-          setReviewDialogOpen(open);
-          if (!open) setSelectedReview(null);
-        }}
+        open={!!selectedReview}
+        onOpenChange={(open) => !open && setSelectedReview(null)}
       >
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Détail de l'avis</DialogTitle>
-            <DialogDescription>
-              Modération de l'avis client
-            </DialogDescription>
-          </DialogHeader>
-
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           {selectedReview && (
-            <div className="space-y-4">
-              {/* Rating and status */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="rounded-lg border p-3">
-                  <div className="text-xs font-medium text-slate-500">Note</div>
-                  <div className="mt-1 flex items-center gap-2">
-                    {ratingStars(selectedReview.overall_rating)}
-                    <span className="text-sm text-slate-500">/ 5</span>
-                  </div>
-                </div>
-                <div className="rounded-lg border p-3">
-                  <div className="text-xs font-medium text-slate-500">Statut</div>
-                  <div className="mt-2">{reviewStatusBadge(selectedReview.status)}</div>
-                </div>
-              </div>
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  Détail de l'avis
+                  {reviewStatusBadge(selectedReview.status)}
+                </DialogTitle>
+                <DialogDescription>
+                  {selectedReview.establishment_name || "Établissement"} —{" "}
+                  {formatDate(selectedReview.created_at)}
+                </DialogDescription>
+              </DialogHeader>
 
-              {/* Establishment and author */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="rounded-lg border p-3">
-                  <div className="text-xs font-medium text-slate-500">Établissement</div>
-                  <div className="mt-1 font-semibold">
-                    {selectedReview.establishments?.name || selectedReview.establishments?.title}
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    {selectedReview.establishments?.city} • {selectedReview.establishments?.universe}
-                  </div>
+              <div className="space-y-4 py-2">
+                {/* Author */}
+                <div className="text-sm text-slate-600">
+                  <strong>Auteur :</strong>{" "}
+                  {selectedReview.user_name || selectedReview.user_email || "Client anonyme"}
                 </div>
-                <div className="rounded-lg border p-3">
-                  <div className="text-xs font-medium text-slate-500">Auteur</div>
-                  <div className="mt-1 font-semibold">
-                    {selectedReview.anonymous ? (
-                      <span className="italic text-slate-400">Anonyme</span>
-                    ) : (
-                      selectedReview.user_email
-                    )}
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    {formatLeJjMmAaAHeure(selectedReview.created_at)}
-                  </div>
-                </div>
-              </div>
 
-              {/* Comment */}
-              <div className="rounded-lg border p-3">
-                <div className="text-xs font-medium text-slate-500">Commentaire</div>
-                {selectedReview.title && (
-                  <div className="mt-1 font-semibold">{selectedReview.title}</div>
+                {/* Overall rating */}
+                <div className="flex items-center gap-3">
+                  <StarRating
+                    value={selectedReview.rating_overall}
+                    size={20}
+                    readonly
+                  />
+                  <span className="text-lg font-bold">
+                    {selectedReview.rating_overall.toFixed(1)}/5
+                  </span>
+                  {selectedReview.would_recommend != null && (
+                    <Badge
+                      variant="outline"
+                      className={
+                        selectedReview.would_recommend
+                          ? "text-emerald-600 border-emerald-200"
+                          : "text-red-600 border-red-200"
+                      }
+                    >
+                      {selectedReview.would_recommend
+                        ? "Recommande"
+                        : "Ne recommande pas"}
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Per-criteria ratings */}
+                <CriteriaRatingsDisplay
+                  criteria={{
+                    welcome: selectedReview.rating_welcome,
+                    quality: selectedReview.rating_quality,
+                    value: selectedReview.rating_value,
+                    ambiance: selectedReview.rating_ambiance,
+                    ...(selectedReview.rating_hygiene != null
+                      ? { hygiene: selectedReview.rating_hygiene }
+                      : {}),
+                    ...(selectedReview.rating_organization != null
+                      ? { organization: selectedReview.rating_organization }
+                      : {}),
+                  }}
+                  universe={selectedReview.establishment_universe}
+                />
+
+                {/* Comment */}
+                <div>
+                  <Label className="text-xs text-slate-500">Commentaire</Label>
+                  <p className="text-sm text-slate-700 whitespace-pre-wrap mt-1 p-3 bg-slate-50 rounded-lg">
+                    {selectedReview.comment}
+                  </p>
+                </div>
+
+                {/* Photos */}
+                {selectedReview.photos && selectedReview.photos.length > 0 && (
+                  <div>
+                    <Label className="text-xs text-slate-500">Photos</Label>
+                    <div className="flex gap-2 mt-1">
+                      {selectedReview.photos.map((url, idx) => (
+                        <img
+                          key={idx}
+                          src={url}
+                          alt={`Photo ${idx + 1}`}
+                          className="w-20 h-20 rounded-lg object-cover border"
+                        />
+                      ))}
+                    </div>
+                  </div>
                 )}
-                <div className="mt-2 text-sm text-slate-700 whitespace-pre-wrap">
-                  {selectedReview.comment || <span className="italic text-slate-400">Pas de commentaire</span>}
-                </div>
+
+                {/* Gesture info */}
+                {selectedReview.gesture && (
+                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Gift className="h-4 w-4 text-purple-600" />
+                      <span className="text-sm font-medium text-purple-700">
+                        Geste commercial — {selectedReview.gesture.status}
+                      </span>
+                    </div>
+                    <p className="text-sm text-purple-600">
+                      {selectedReview.gesture.message}
+                    </p>
+                    <div className="text-xs text-purple-500 mt-1">
+                      {selectedReview.gesture.discount_percent}% de réduction
+                    </div>
+                  </div>
+                )}
+
+                {/* Pro response */}
+                {selectedReview.pro_response && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <MessageSquare className="h-4 w-4 text-blue-600" />
+                      <span className="text-sm font-medium text-blue-700">
+                        Réponse pro — {selectedReview.pro_response.status}
+                      </span>
+                    </div>
+                    <p className="text-sm text-blue-600">
+                      {selectedReview.pro_response.content}
+                    </p>
+                  </div>
+                )}
+
+                {/* Previous moderation note */}
+                {selectedReview.moderation_note && (
+                  <div className="bg-slate-50 border rounded-lg p-3">
+                    <Label className="text-xs text-slate-500">
+                      Note de modération précédente
+                    </Label>
+                    <p className="text-sm text-slate-600 mt-1">
+                      {selectedReview.moderation_note}
+                    </p>
+                  </div>
+                )}
+
+                {/* Moderation actions — only for pending reviews */}
+                {selectedReview.status === "pending_moderation" && (
+                  <div className="space-y-3 pt-2 border-t">
+                    <Label htmlFor="mod-note">
+                      Note de modération (optionnel)
+                    </Label>
+                    <Textarea
+                      id="mod-note"
+                      value={moderationNote}
+                      onChange={(e) => setModerationNote(e.target.value)}
+                      placeholder="Raison de la décision..."
+                      rows={2}
+                    />
+                  </div>
+                )}
               </div>
 
-              {/* Criteria ratings */}
-              {selectedReview.criteria_ratings && Object.keys(selectedReview.criteria_ratings).length > 0 && (
-                <div className="rounded-lg border p-3">
-                  <div className="text-xs font-medium text-slate-500 mb-2">Notes détaillées</div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                    {Object.entries(selectedReview.criteria_ratings).map(([key, value]) => (
-                      <div key={key} className="flex items-center justify-between text-sm">
-                        <span className="text-slate-600 capitalize">{key.replace(/_/g, " ")}</span>
-                        <span className="font-medium">{(value as number).toFixed(1)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Pro deadline warning */}
-              {selectedReview.status === "sent_to_pro" && selectedReview.pro_response_deadline && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-                  <div className="flex items-center gap-2 text-amber-700">
-                    <Clock className="h-4 w-4" />
-                    <span className="font-medium">
-                      Deadline pro : {formatLeJjMmAaAHeure(selectedReview.pro_response_deadline)}
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* Rejection reason */}
-              {selectedReview.status === "rejected" && selectedReview.rejection_reason && (
-                <div className="rounded-lg border border-red-200 bg-red-50 p-3">
-                  <div className="text-xs font-medium text-red-700">Raison du rejet</div>
-                  <div className="mt-1 text-sm text-red-600">{selectedReview.rejection_reason}</div>
-                </div>
-              )}
-
-              {/* Actions */}
               {selectedReview.status === "pending_moderation" && (
-                <DialogFooter className="gap-2 flex-wrap">
+                <DialogFooter className="gap-2">
                   <Button
                     variant="outline"
-                    onClick={() => setRejectDialogOpen(true)}
-                    disabled={actionLoading}
-                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                    onClick={() => handleModerate("reject")}
+                    disabled={moderating}
+                    className="text-red-600"
                   >
-                    <X className="h-4 w-4 mr-2" />
+                    <X className="h-4 w-4 me-1" />
                     Rejeter
                   </Button>
-                  {selectedReview.overall_rating < 3.5 && (
-                    <Button
-                      variant="outline"
-                      onClick={handleSendToPro}
-                      disabled={actionLoading}
-                      className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                    >
-                      {actionLoading ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <Send className="h-4 w-4 mr-2" />
-                      )}
-                      Envoyer au Pro (24h)
-                    </Button>
-                  )}
-                  <Button onClick={handleApproveReview} disabled={actionLoading}>
-                    {actionLoading ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  <Button
+                    variant="outline"
+                    onClick={() => handleModerate("request_modification")}
+                    disabled={moderating}
+                    className="text-orange-600"
+                  >
+                    <Edit3 className="h-4 w-4 me-1" />
+                    Demander modif
+                  </Button>
+                  <Button
+                    onClick={() => handleModerate("approve")}
+                    disabled={moderating}
+                  >
+                    {moderating ? (
+                      <Loader2 className="h-4 w-4 me-1 animate-spin" />
                     ) : (
-                      <Check className="h-4 w-4 mr-2" />
+                      <Check className="h-4 w-4 me-1" />
                     )}
-                    Approuver & Publier
+                    Approuver
                   </Button>
                 </DialogFooter>
               )}
-            </div>
+            </>
           )}
         </DialogContent>
       </Dialog>
 
-      {/* Reject Dialog */}
-      <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Rejeter l'avis</DialogTitle>
-            <DialogDescription>
-              Indiquez la raison du rejet. L'avis ne sera pas publié.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="reject-reason">Raison du rejet</Label>
-              <Textarea
-                id="reject-reason"
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                placeholder="Ex: Contenu inapproprié, langage offensant, fausses informations…"
-                rows={3}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>
-              Annuler
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleRejectReview}
-              disabled={actionLoading || !rejectReason.trim()}
-            >
-              {actionLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-              Confirmer le rejet
-            </Button>
-          </DialogFooter>
+      {/* ================================================================= */}
+      {/* RESPONSE MODERATION DIALOG */}
+      {/* ================================================================= */}
+
+      <Dialog
+        open={!!selectedResponse}
+        onOpenChange={(open) => !open && setSelectedResponse(null)}
+      >
+        <DialogContent className="max-w-lg">
+          {selectedResponse && (
+            <>
+              <DialogHeader>
+                <DialogTitle>Modérer la réponse pro</DialogTitle>
+                <DialogDescription>
+                  {selectedResponse.establishment_name || "Établissement"}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4 py-2">
+                {selectedResponse.review_comment && (
+                  <div>
+                    <Label className="text-xs text-slate-500">
+                      Avis original
+                    </Label>
+                    <p className="text-sm text-slate-600 mt-1 p-2 bg-slate-50 rounded line-clamp-3">
+                      {selectedResponse.review_comment}
+                    </p>
+                  </div>
+                )}
+
+                <div>
+                  <Label className="text-xs text-slate-500">
+                    Réponse du pro
+                  </Label>
+                  <p className="text-sm text-slate-700 mt-1 p-3 bg-blue-50 rounded-lg whitespace-pre-wrap">
+                    {selectedResponse.content}
+                  </p>
+                </div>
+
+                <div>
+                  <Label htmlFor="resp-note">
+                    Note de modération (optionnel)
+                  </Label>
+                  <Textarea
+                    id="resp-note"
+                    value={responseNote}
+                    onChange={(e) => setResponseNote(e.target.value)}
+                    placeholder="Raison..."
+                    rows={2}
+                  />
+                </div>
+              </div>
+
+              <DialogFooter className="gap-2">
+                <Button
+                  variant="outline"
+                  className="text-red-600"
+                  onClick={() => handleModerateResponse("reject")}
+                >
+                  <X className="h-4 w-4 me-1" />
+                  Rejeter
+                </Button>
+                <Button onClick={() => handleModerateResponse("approve")}>
+                  <Check className="h-4 w-4 me-1" />
+                  Approuver
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 
-      {/* Report Detail Dialog */}
+      {/* ================================================================= */}
+      {/* REPORT RESOLUTION DIALOG */}
+      {/* ================================================================= */}
+
       <Dialog
-        open={reportDialogOpen}
-        onOpenChange={(open) => {
-          setReportDialogOpen(open);
-          if (!open) {
-            setSelectedReport(null);
-            setResolveNotes("");
-            setResolveAction("none");
-          }
-        }}
+        open={!!selectedReport}
+        onOpenChange={(open) => !open && setSelectedReport(null)}
       >
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Détail du signalement</DialogTitle>
-            <DialogDescription>
-              Traitement du signalement d'établissement
-            </DialogDescription>
-          </DialogHeader>
-
+        <DialogContent className="max-w-lg">
           {selectedReport && (
-            <div className="space-y-4">
-              {/* Reason and status */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="rounded-lg border p-3">
-                  <div className="text-xs font-medium text-slate-500">Motif</div>
-                  <div className="mt-1 flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 text-red-500" />
-                    <span className="font-medium">
-                      {REPORT_REASON_LABELS[selectedReport.reason_code] || selectedReport.reason_code}
-                    </span>
-                  </div>
+            <>
+              <DialogHeader>
+                <DialogTitle>Traiter le signalement</DialogTitle>
+                <DialogDescription>
+                  {selectedReport.establishment_name || "Établissement"}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4 py-2">
+                <div>
+                  <Label className="text-xs text-slate-500">
+                    Raison du signalement
+                  </Label>
+                  <p className="text-sm text-slate-700 mt-1 p-3 bg-red-50 rounded-lg">
+                    {selectedReport.reason}
+                  </p>
                 </div>
-                <div className="rounded-lg border p-3">
-                  <div className="text-xs font-medium text-slate-500">Statut</div>
-                  <div className="mt-2">{reportStatusBadge(selectedReport.status)}</div>
+
+                {selectedReport.review_comment && (
+                  <div>
+                    <Label className="text-xs text-slate-500">
+                      Avis signalé ({selectedReport.review_rating?.toFixed(1)}
+                      /5)
+                    </Label>
+                    <p className="text-sm text-slate-600 mt-1 p-2 bg-slate-50 rounded line-clamp-4">
+                      {selectedReport.review_comment}
+                    </p>
+                  </div>
+                )}
+
+                <div>
+                  <Label htmlFor="report-note">
+                    Note de résolution (optionnel)
+                  </Label>
+                  <Textarea
+                    id="report-note"
+                    value={reportNote}
+                    onChange={(e) => setReportNote(e.target.value)}
+                    placeholder="Action prise..."
+                    rows={2}
+                  />
                 </div>
               </div>
 
-              {/* Establishment and reporter */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="rounded-lg border p-3">
-                  <div className="text-xs font-medium text-slate-500">Établissement signalé</div>
-                  <div className="mt-1 font-semibold">
-                    {selectedReport.establishments?.name || selectedReport.establishments?.title}
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    {selectedReport.establishments?.city} • {selectedReport.establishments?.universe}
-                  </div>
-                </div>
-                <div className="rounded-lg border p-3">
-                  <div className="text-xs font-medium text-slate-500">Signalé par</div>
-                  <div className="mt-1 font-semibold">
-                    {selectedReport.reporter_email || <span className="italic text-slate-400">Anonyme</span>}
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    {formatLeJjMmAaAHeure(selectedReport.created_at)}
-                  </div>
-                </div>
-              </div>
-
-              {/* Details */}
-              {selectedReport.reason_text && (
-                <div className="rounded-lg border p-3">
-                  <div className="text-xs font-medium text-slate-500">Détails</div>
-                  <div className="mt-2 text-sm text-slate-700 whitespace-pre-wrap">
-                    {selectedReport.reason_text}
-                  </div>
-                </div>
-              )}
-
-              {/* Resolution notes (if already resolved) */}
-              {selectedReport.resolved_at && (
-                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
-                  <div className="text-xs font-medium text-emerald-700">Résolution</div>
-                  <div className="mt-1 text-sm text-emerald-600">
-                    {selectedReport.resolution_notes || "Aucune note"}
-                  </div>
-                  {selectedReport.action_taken && (
-                    <div className="mt-2 text-xs text-emerald-500">
-                      Action : {selectedReport.action_taken}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Resolution form (if pending) */}
-              {selectedReport.status === "pending" && (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="resolve-notes">Notes de résolution</Label>
-                    <Textarea
-                      id="resolve-notes"
-                      value={resolveNotes}
-                      onChange={(e) => setResolveNotes(e.target.value)}
-                      placeholder="Notes sur la résolution du signalement…"
-                      rows={2}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Action prise</Label>
-                    <Select value={resolveAction} onValueChange={setResolveAction}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Aucune action</SelectItem>
-                        <SelectItem value="warning_sent">Avertissement envoyé</SelectItem>
-                        <SelectItem value="content_removed">Contenu supprimé</SelectItem>
-                        <SelectItem value="listing_suspended">Listing suspendu</SelectItem>
-                        <SelectItem value="listing_removed">Listing supprimé</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <DialogFooter className="gap-2">
-                    <Button
-                      variant="outline"
-                      onClick={() => handleResolveReport("dismissed")}
-                      disabled={actionLoading}
-                    >
-                      {actionLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                      Rejeter le signalement
-                    </Button>
-                    <Button
-                      onClick={() => handleResolveReport("resolved")}
-                      disabled={actionLoading}
-                    >
-                      {actionLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                      Marquer comme résolu
-                    </Button>
-                  </DialogFooter>
-                </>
-              )}
-            </div>
+              <DialogFooter className="gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => handleResolveReport("dismissed")}
+                >
+                  Rejeter
+                </Button>
+                <Button onClick={() => handleResolveReport("reviewed")}>
+                  <Check className="h-4 w-4 me-1" />
+                  Traité
+                </Button>
+              </DialogFooter>
+            </>
           )}
         </DialogContent>
       </Dialog>
     </div>
   );
 }
+
+export default AdminReviewsPage;

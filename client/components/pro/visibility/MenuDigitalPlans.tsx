@@ -232,7 +232,7 @@ export function MenuDigitalPlans({ offers, billingCycle, onBillingCycleChange, o
             value="annual"
             className="rounded-full px-3 sm:px-4 whitespace-nowrap data-[state=on]:bg-white data-[state=on]:shadow-sm data-[state=on]:text-slate-900"
           >
-            <span className="mr-2">Annuel</span>
+            <span className="me-2">Annuel</span>
             <span className="text-emerald-700 text-xs">-17%</span>
           </ToggleGroupItem>
           <ToggleGroupItem

@@ -371,7 +371,7 @@ export function CustomLabelsManager({
               onClick={handleSave}
               disabled={!title.trim() || saving}
             >
-              {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              {saving && <Loader2 className="w-4 h-4 me-2 animate-spin" />}
               {editingLabel ? "Enregistrer" : "Créer"}
             </Button>
           </DialogFooter>

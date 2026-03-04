@@ -248,18 +248,18 @@ export function PartnerMissionDetails() {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="w-full grid grid-cols-3 h-9">
           <TabsTrigger value="brief" className="text-xs">
-            <FileText className="w-3.5 h-3.5 mr-1" />
+            <FileText className="w-3.5 h-3.5 me-1" />
             Brief
           </TabsTrigger>
           <TabsTrigger value="livrables" className="text-xs">
-            <Upload className="w-3.5 h-3.5 mr-1" />
+            <Upload className="w-3.5 h-3.5 me-1" />
             Livrables
             {deliverables.some((d: any) => d.status === "expected") && (
-              <span className="ml-1 w-2 h-2 rounded-full bg-amber-500" />
+              <span className="ms-1 w-2 h-2 rounded-full bg-amber-500" />
             )}
           </TabsTrigger>
           <TabsTrigger value="facturation" className="text-xs">
-            <Banknote className="w-3.5 h-3.5 mr-1" />
+            <Banknote className="w-3.5 h-3.5 me-1" />
             Facturation
           </TabsTrigger>
         </TabsList>
@@ -385,7 +385,7 @@ function BriefSection({
             className="h-7 px-2 text-xs mt-1"
             disabled
           >
-            <MessageSquare className="w-3 h-3 mr-1" />
+            <MessageSquare className="w-3 h-3 me-1" />
             Message
           </Button>
         </div>
@@ -414,7 +414,7 @@ function BriefSection({
           </div>
           <Button variant="outline" size="sm" asChild>
             <a href={briefPdfUrl} target="_blank" rel="noopener noreferrer">
-              <Download className="w-4 h-4 mr-1" />
+              <Download className="w-4 h-4 me-1" />
               Télécharger
             </a>
           </Button>
@@ -692,7 +692,7 @@ function InvoiceSection({
             }
           />
           <EligibilityItem
-            checked={hasProfileComplete}
+            checked={!!hasProfileComplete}
             label="Profil complété"
             detail={hasProfileComplete ? "OK" : "Nom ou RIB manquant"}
             actionLabel={!hasProfileComplete ? "Compléter" : undefined}
@@ -842,7 +842,7 @@ function EligibilityItem({
         >
           {label}
         </span>
-        <span className="text-xs text-slate-400 ml-1">({detail})</span>
+        <span className="text-xs text-slate-400 ms-1">({detail})</span>
       </div>
       {actionLabel && actionHref && (
         <Link

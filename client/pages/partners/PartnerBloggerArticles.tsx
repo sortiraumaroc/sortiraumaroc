@@ -184,7 +184,7 @@ export default function PartnerBloggerArticles() {
             onClick={() => void loadData(true)}
             disabled={refreshing}
           >
-            <RefreshCw className={cn("h-4 w-4 mr-1", refreshing && "animate-spin")} />
+            <RefreshCw className={cn("h-4 w-4 me-1", refreshing && "animate-spin")} />
             Actualiser
           </Button>
           <Link to="/partners/articles/new">
@@ -262,25 +262,25 @@ export default function PartnerBloggerArticles() {
         <div className="flex flex-wrap gap-3">
           {stats.drafts > 0 && (
             <Badge variant="outline" className="text-slate-600">
-              <FileText className="h-3 w-3 mr-1" />
+              <FileText className="h-3 w-3 me-1" />
               {stats.drafts} brouillon{stats.drafts > 1 ? "s" : ""}
             </Badge>
           )}
           {stats.pending_moderation > 0 && (
             <Badge variant="secondary">
-              <Clock className="h-3 w-3 mr-1" />
+              <Clock className="h-3 w-3 me-1" />
               {stats.pending_moderation} en attente
             </Badge>
           )}
           {stats.rejected > 0 && (
             <Badge variant="destructive">
-              <XCircle className="h-3 w-3 mr-1" />
+              <XCircle className="h-3 w-3 me-1" />
               {stats.rejected} refusé{stats.rejected > 1 ? "s" : ""}
             </Badge>
           )}
           {stats.pending_payments > 0 && (
             <Badge className="bg-amber-100 text-amber-800">
-              <DollarSign className="h-3 w-3 mr-1" />
+              <DollarSign className="h-3 w-3 me-1" />
               {stats.pending_payments} paiement{stats.pending_payments > 1 ? "s" : ""} en cours
             </Badge>
           )}
@@ -314,9 +314,9 @@ export default function PartnerBloggerArticles() {
                   <TableRow>
                     <TableHead className="w-[40%]">Article</TableHead>
                     <TableHead>Statut</TableHead>
-                    <TableHead className="text-right">Lectures</TableHead>
+                    <TableHead className="text-end">Lectures</TableHead>
                     <TableHead>Date</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    <TableHead className="text-end">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -353,12 +353,12 @@ export default function PartnerBloggerArticles() {
                         <TableCell>
                           <div className="flex flex-col gap-1">
                             <Badge variant={config.variant} className="w-fit text-xs">
-                              <StatusIcon className="h-3 w-3 mr-1" />
+                              <StatusIcon className="h-3 w-3 me-1" />
                               {config.label}
                             </Badge>
                             {article.is_published && (
                               <Badge variant="default" className="w-fit text-xs bg-emerald-600">
-                                <Eye className="h-3 w-3 mr-1" />
+                                <Eye className="h-3 w-3 me-1" />
                                 Publié
                               </Badge>
                             )}
@@ -369,7 +369,7 @@ export default function PartnerBloggerArticles() {
                             )}
                           </div>
                         </TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="text-end">
                           <div className="flex items-center justify-end gap-1 text-slate-600">
                             <Eye className="h-3.5 w-3.5" />
                             {(article.read_count ?? 0).toLocaleString()}
@@ -380,7 +380,7 @@ export default function PartnerBloggerArticles() {
                             {formatDate(article.published_at || article.created_at)}
                           </div>
                         </TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="text-end">
                           <div className="flex items-center justify-end gap-2">
                             <Link to={`/partners/articles/${article.id}`}>
                               <Button variant="outline" size="sm">

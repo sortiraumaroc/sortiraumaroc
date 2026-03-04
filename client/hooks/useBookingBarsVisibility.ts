@@ -25,10 +25,20 @@ export function useBookingBarsVisibility(
   const { rootMargin, threshold = 0.01, initialVisible = true } = options;
   const [isTopBookingVisible, setIsTopBookingVisible] = React.useState<boolean>(initialVisible);
 
+  // Track when the ref element actually mounts/unmounts so the effect re-runs.
+  // Without this, the effect only runs once because the ref object identity never changes,
+  // even when ref.current transitions from null → element (e.g. after async data loads).
+  const [refElement, setRefElement] = React.useState<Element | null>(null);
+
+  React.useEffect(() => {
+    const el = topBookingRef.current;
+    if (el !== refElement) setRefElement(el);
+  });
+
   React.useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const el = topBookingRef.current;
+    const el = refElement;
     if (!el) return;
 
     if (typeof IntersectionObserver === "undefined") {
@@ -58,7 +68,7 @@ export function useBookingBarsVisibility(
       mounted = false;
       observer.disconnect();
     };
-  }, [initialVisible, rootMargin, threshold, topBookingRef]);
+  }, [initialVisible, rootMargin, threshold, refElement]);
 
   return { isTopBookingVisible } as const;
 }

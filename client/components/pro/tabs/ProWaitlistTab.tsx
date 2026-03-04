@@ -580,7 +580,7 @@ export function ProWaitlistTab({ establishment, role }: Props) {
             >
               <Filter className="h-3.5 w-3.5" />
               Tout
-              <Badge variant="secondary" className="ml-1 text-xs bg-white/20">
+              <Badge variant="secondary" className="ms-1 text-xs bg-white/20">
                 {allItems.length}
               </Badge>
             </button>
@@ -597,7 +597,7 @@ export function ProWaitlistTab({ establishment, role }: Props) {
               <Hourglass className="h-3.5 w-3.5" />
               En attente
               {statusCounts.waiting > 0 && (
-                <Badge variant="secondary" className={cn("ml-1 text-xs", statusFilter === "waiting" ? "bg-white/20" : "bg-yellow-200")}>
+                <Badge variant="secondary" className={cn("ms-1 text-xs", statusFilter === "waiting" ? "bg-white/20" : "bg-yellow-200")}>
                   {statusCounts.waiting}
                 </Badge>
               )}
@@ -615,7 +615,7 @@ export function ProWaitlistTab({ establishment, role }: Props) {
               <Send className="h-3.5 w-3.5" />
               Offre envoyée
               {statusCounts.offer_sent > 0 && (
-                <Badge variant="secondary" className={cn("ml-1 text-xs", statusFilter === "offer_sent" ? "bg-white/20" : "bg-orange-200")}>
+                <Badge variant="secondary" className={cn("ms-1 text-xs", statusFilter === "offer_sent" ? "bg-white/20" : "bg-orange-200")}>
                   {statusCounts.offer_sent}
                 </Badge>
               )}
@@ -633,7 +633,7 @@ export function ProWaitlistTab({ establishment, role }: Props) {
               <CheckCircle2 className="h-3.5 w-3.5" />
               Confirmée
               {statusCounts.confirmed > 0 && (
-                <Badge variant="secondary" className={cn("ml-1 text-xs", statusFilter === "confirmed" ? "bg-white/20" : "bg-emerald-200")}>
+                <Badge variant="secondary" className={cn("ms-1 text-xs", statusFilter === "confirmed" ? "bg-white/20" : "bg-emerald-200")}>
                   {statusCounts.confirmed}
                 </Badge>
               )}
@@ -651,7 +651,7 @@ export function ProWaitlistTab({ establishment, role }: Props) {
               <XCircle className="h-3.5 w-3.5" />
               Terminée
               {statusCounts.closed > 0 && (
-                <Badge variant="secondary" className={cn("ml-1 text-xs", statusFilter === "closed" ? "bg-white/20" : "bg-slate-200")}>
+                <Badge variant="secondary" className={cn("ms-1 text-xs", statusFilter === "closed" ? "bg-white/20" : "bg-slate-200")}>
                   {statusCounts.closed}
                 </Badge>
               )}
@@ -661,18 +661,18 @@ export function ProWaitlistTab({ establishment, role }: Props) {
           {/* Recherche et tri */}
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Search className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <Input
                 placeholder="Rechercher par référence ou téléphone..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
+                className="ps-9"
               />
             </div>
 
             <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as typeof sortOrder)}>
               <SelectTrigger className="w-[180px]">
-                <ArrowUpDown className="h-4 w-4 mr-2" />
+                <ArrowUpDown className="h-4 w-4 me-2" />
                 <SelectValue placeholder="Tri" />
               </SelectTrigger>
               <SelectContent>
@@ -707,7 +707,7 @@ export function ProWaitlistTab({ establishment, role }: Props) {
                     <TableHead className="w-[100px]">Personnes</TableHead>
                     <TableHead>Référence</TableHead>
                     <TableHead className="w-[100px]">Expire</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    <TableHead className="text-end">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -747,7 +747,7 @@ export function ProWaitlistTab({ establishment, role }: Props) {
                         </TableCell>
                         <TableCell className="font-mono text-xs">{ref || "—"}</TableCell>
                         <TableCell className="text-xs">{offerActive ? formatOfferExpiryLabel(entry.offer_expires_at) : "—"}</TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="text-end">
                           <div className="inline-flex items-center justify-end gap-2">
                             {reservation?.id ? (
                               <Button type="button" variant="ghost" size="sm" onClick={() => goToReservation(reservation.id)}>

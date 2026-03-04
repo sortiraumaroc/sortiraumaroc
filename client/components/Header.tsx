@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { LogOut, User } from "lucide-react";
 
@@ -27,6 +27,7 @@ import {
 import { readSelectedEstablishmentId, writeSelectedEstablishmentId } from "@/lib/pro/establishmentSelection";
 import { getProSession, listMyEstablishments } from "@/lib/pro/api";
 import { proSupabase } from "@/lib/pro/supabase";
+import { CrescentMoonSvg } from "@/components/ramadan/ramadan-assets";
 
 import { AuthModalV2 } from "@/components/AuthModalV2";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -38,18 +39,15 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { AUTH_CHANGED_EVENT, AUTH_MODAL_OPEN_EVENT, clearAuthed, isAuthed } from "@/lib/auth";
+import { AUTH_CHANGED_EVENT, AUTH_MODAL_OPEN_EVENT, ONBOARDING_NEEDED_EVENT, clearAuthed, isAuthed } from "@/lib/auth";
+import type { OnboardingNeededDetail } from "@/lib/auth";
 import { USER_DATA_CHANGED_EVENT, getUserProfile } from "@/lib/userData";
 
-function initialsFromProfile(profile: ReturnType<typeof getUserProfile>, fallback: string): string {
+function initialsFromProfile(profile: ReturnType<typeof getUserProfile>): string {
   const first = (profile.firstName ?? "").trim();
   const last = (profile.lastName ?? "").trim();
-  const fromContact = (profile.contact ?? "").trim();
 
   const parts = [first, last].filter(Boolean);
-  if (!parts.length && fromContact) {
-    return fromContact.slice(0, 2).toUpperCase();
-  }
 
   const letters = parts
     .slice(0, 2)
@@ -57,16 +55,19 @@ function initialsFromProfile(profile: ReturnType<typeof getUserProfile>, fallbac
     .filter(Boolean)
     .join("");
 
-  return letters.toUpperCase() || fallback;
+  return letters.toUpperCase();
 }
 
-export function Header() {
+export function Header({ isRamadan }: { isRamadan?: boolean } = {}) {
   const { t, locale } = useI18n();
-  const { isScrolledPastSearch } = useScrollContext();
+  const { isScrolledPastSearch, alwaysShowSearchBar } = useScrollContext();
 
   const [authModalOpen, setAuthModalOpen] = useState(false);
+  const authModalOpenRef = useRef(false);
+  authModalOpenRef.current = authModalOpen;
   const [authed, setAuthed] = useState(isAuthed());
   const [profileTick, setProfileTick] = useState(0);
+  const [oauthOnboardingPrefill, setOauthOnboardingPrefill] = useState<OnboardingNeededDetail | null>(null);
 
   const [proSignedIn, setProSignedIn] = useState(false);
   const [proConflictOpen, setProConflictOpen] = useState(false);
@@ -82,6 +83,9 @@ export function Header() {
   // Only on home page and results page
   const isSearchPage = canonicalPathname === "/" || canonicalPathname === "" || canonicalPathname.startsWith("/results");
   const showScrolledHeader = isScrolledPastSearch && isSearchPage;
+  // On Results page: search bar always visible — white bg at top, red bg when scrolled
+  const showSearchBarOnWhite = alwaysShowSearchBar && !isScrolledPastSearch;
+  const showSearchBar = showScrolledHeader || showSearchBarOnWhite;
   const selectedEstablishmentId = searchParams.get("eid");
   const [storedEstablishmentId, setStoredEstablishmentId] = useState<string | null>(() => readSelectedEstablishmentId());
   const [selectedEstablishmentName, setSelectedEstablishmentName] = useState<string | null>(null);
@@ -92,17 +96,26 @@ export function Header() {
     const syncAuth = () => setAuthed(isAuthed());
     const syncProfile = () => setProfileTick((v) => v + 1);
     const handleOpenAuthModal = () => setAuthModalOpen(true);
+    const handleOnboardingNeeded = (e: Event) => {
+      // Ignore if auth modal is already open (email/phone signup handles onboarding internally)
+      if (authModalOpenRef.current) return;
+      const detail = (e as CustomEvent<OnboardingNeededDetail>).detail;
+      setOauthOnboardingPrefill(detail ?? null);
+      setAuthModalOpen(true);
+    };
 
     window.addEventListener(AUTH_CHANGED_EVENT, syncAuth);
     window.addEventListener(USER_DATA_CHANGED_EVENT, syncProfile);
     window.addEventListener("storage", syncAuth);
     window.addEventListener(AUTH_MODAL_OPEN_EVENT, handleOpenAuthModal);
+    window.addEventListener(ONBOARDING_NEEDED_EVENT, handleOnboardingNeeded);
 
     return () => {
       window.removeEventListener(AUTH_CHANGED_EVENT, syncAuth);
       window.removeEventListener(USER_DATA_CHANGED_EVENT, syncProfile);
       window.removeEventListener("storage", syncAuth);
       window.removeEventListener(AUTH_MODAL_OPEN_EVENT, handleOpenAuthModal);
+      window.removeEventListener(ONBOARDING_NEEDED_EVENT, handleOnboardingNeeded);
     };
   }, []);
 
@@ -190,21 +203,7 @@ export function Header() {
     setAuthModalOpen(true);
   };
 
-  const brandInitials = useMemo(() => {
-    const label = t("header.brand");
-    const parts = String(label ?? "")
-      .split(/\s+/)
-      .map((p) => p.trim())
-      .filter(Boolean);
-    const letters = parts
-      .slice(0, 2)
-      .map((p) => p[0])
-      .filter(Boolean)
-      .join("");
-    return (letters || "SA").toUpperCase();
-  }, [t]);
-
-  const initials = useMemo(() => initialsFromProfile(profile, brandInitials), [brandInitials, profile]);
+  const initials = useMemo(() => initialsFromProfile(profile), [profile]);
 
   const headerLabel = useMemo(() => {
     if (selectedEstablishmentName) return selectedEstablishmentName;
@@ -216,7 +215,9 @@ export function Header() {
     <>
       <header
         className={cn(
-          "sticky top-0 z-50 transition-all duration-300",
+          "top-0 z-50 transition-all duration-300",
+          // On mobile Results page: header is NOT sticky (scrolls away, mobile bar takes over)
+          alwaysShowSearchBar ? "md:sticky relative" : "sticky",
           showScrolledHeader
             ? "bg-primary border-b border-primary/80"
             : "border-b border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80"
@@ -226,55 +227,56 @@ export function Header() {
           <div className="flex items-center justify-between h-16">
             {/* Logo - changes to megaphone + text when scrolled */}
             <Link to={addLocalePrefix("/", locale)} className="flex items-center gap-2 flex-shrink-0">
-              {showScrolledHeader ? (
-                <img
-                  src="/Logo_SAM_N.png"
-                  alt={t("header.logo_alt")}
-                  className="h-16 sm:h-20 w-auto transition-all duration-300"
-                />
-              ) : (
-                <img
-                  src="/Logo_SAM_Officiel.png"
-                  alt={t("header.logo_alt")}
-                  className="h-16 sm:h-20 w-auto transition-all duration-300"
-                />
+              <img
+                src={showScrolledHeader ? "/logo_sam.svg" : "/Logo_SAM_N.png"}
+                alt={t("header.logo_alt")}
+                className={cn(
+                  "w-auto transition-all duration-300",
+                  showScrolledHeader ? "h-10 sm:h-12" : "h-16 sm:h-20"
+                )}
+              />
+              {isRamadan && (
+                <CrescentMoonSvg className="w-5 h-5 text-ramadan-gold shrink-0" aria-hidden="true" />
               )}
             </Link>
 
-            {/* Mobile: Full search bar when scrolled (city + search + button) */}
-            {showScrolledHeader && (
-              <div className="lg:hidden flex-1 ml-3">
+            {/* Mobile: Full search bar — only on home page scroll (NOT on Results page, which has its own mobile bar) */}
+            {showScrolledHeader && !alwaysShowSearchBar && (
+              <div className="lg:hidden flex-1 ms-3">
                 <MobileHeaderSearch
                   universe={searchParams.get("universe") || "restaurants"}
                 />
               </div>
             )}
 
-            {/* Desktop: Full search form appears in header when scrolled */}
-            {showScrolledHeader && (
+            {/* Desktop: Full search form appears in header */}
+            {showSearchBar && (
               <div className="hidden lg:block flex-1 mx-4 overflow-visible">
                 <HeaderSearchBarWithUniverses />
               </div>
             )}
 
-            {/* Actions - hidden on mobile when scrolled */}
+            {/* Actions - hidden on mobile when search bar is visible (home page scroll only) */}
             <div className={cn(
               "flex items-center gap-2 sm:gap-3",
-              showScrolledHeader && "hidden lg:flex"
+              showScrolledHeader && !alwaysShowSearchBar && "hidden lg:flex"
             )}>
-              <Link to={addLocalePrefix("/ajouter-mon-etablissement", locale)} className="inline-flex">
-                <Button
-                  className={cn(
-                    "h-10 rounded-md font-bold px-4 transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
-                    showScrolledHeader
-                      ? "bg-white text-primary hover:bg-white/90 focus-visible:ring-white"
-                      : "bg-primary text-white hover:bg-primary/90 focus-visible:ring-primary"
-                  )}
-                >
-                  <span className="hidden md:inline">{t("header.add_establishment.full")}</span>
-                  <span className="md:hidden">{t("header.add_establishment.short")}</span>
-                </Button>
-              </Link>
+              {/* Hide "Ajouter mon établissement" button when logged in or already on that page */}
+              {!authed && !proSignedIn && !canonicalPathname.startsWith("/ajouter-mon-etablissement") && (
+                <Link to={addLocalePrefix("/ajouter-mon-etablissement", locale)} className="inline-flex">
+                  <Button
+                    className={cn(
+                      "h-10 rounded-md font-bold px-4 transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
+                      showScrolledHeader
+                        ? "bg-white text-primary hover:bg-white/90 focus-visible:ring-white"
+                        : "bg-primary text-white hover:bg-primary/90 focus-visible:ring-primary"
+                    )}
+                  >
+                    <span className="hidden md:inline">{t("header.add_establishment.full")}</span>
+                    <span className="md:hidden">{t("header.add_establishment.short")}</span>
+                  </Button>
+                </Link>
+              )}
 
               <LanguageSwitcher variant={showScrolledHeader ? "header-inverted" : "header"} />
 
@@ -301,7 +303,7 @@ export function Header() {
                             showScrolledHeader ? "bg-white text-primary" : "bg-primary text-white"
                           )}
                         >
-                          {initials}
+                          {initials || <User className="h-4 w-4" />}
                         </AvatarFallback>
                       </Avatar>
                     </button>
@@ -356,7 +358,7 @@ export function Header() {
             <AlertDialogTitle>{t("header.pro_conflict.title")}</AlertDialogTitle>
             <AlertDialogDescription>{t("header.pro_conflict.description")}</AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className="gap-2 sm:flex-col-reverse sm:items-stretch sm:justify-start sm:space-x-0">
+          <AlertDialogFooter className="gap-2 sm:flex-col-reverse sm:items-stretch sm:justify-start sm:gap-x-0">
             <AlertDialogCancel className="mt-0 w-full h-12 rounded-xl border border-primary/30 text-primary hover:bg-primary/5">
               {t("common.cancel")}
             </AlertDialogCancel>
@@ -373,7 +375,9 @@ export function Header() {
             <AlertDialogAction
               className="w-full h-12 rounded-xl"
               onClick={async () => {
-                await proSupabase.auth.signOut();
+                // [FIX-AUTH] Use local scope to avoid revoking the refresh token
+                // server-side, which would invalidate Pro sessions on all devices.
+                await proSupabase.auth.signOut({ scope: "local" });
                 setProSignedIn(false);
                 setProConflictOpen(false);
                 setAuthModalOpen(true);
@@ -387,11 +391,21 @@ export function Header() {
 
       <AuthModalV2
         isOpen={authModalOpen}
-        onClose={() => setAuthModalOpen(false)}
+        onClose={() => {
+          setAuthModalOpen(false);
+          setOauthOnboardingPrefill(null);
+        }}
         onAuthed={() => {
           setAuthed(true);
           setAuthModalOpen(false);
+          setOauthOnboardingPrefill(null);
         }}
+        initialStep={oauthOnboardingPrefill ? "onboarding" : undefined}
+        oauthOnboardingPrefill={oauthOnboardingPrefill ? {
+          firstName: oauthOnboardingPrefill.prefillFirstName,
+          lastName: oauthOnboardingPrefill.prefillLastName,
+          email: oauthOnboardingPrefill.prefillEmail,
+        } : undefined}
       />
     </>
   );

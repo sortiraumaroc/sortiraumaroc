@@ -40,8 +40,8 @@ const DEFAULT_TIME_SLOTS = [
   "21:00", "21:30", "22:00", "22:30", "23:00", "23:30",
 ];
 
-// Calendar component for date selection
-function CalendarGrid({
+// Calendar component for date selection — exported for desktop popover reuse
+export function CalendarGrid({
   selectedDate,
   onDateChange,
   minDate,
@@ -177,8 +177,8 @@ function CalendarGrid({
   );
 }
 
-// Time slots grid
-function TimeGrid({
+// Time slots grid — exported for desktop popover reuse
+export function TimeGrid({
   selectedTime,
   onTimeChange,
   availableSlots,
@@ -213,8 +213,8 @@ function TimeGrid({
   );
 }
 
-// Persons grid
-function PersonsGrid({
+// Persons grid — exported for desktop popover reuse
+export function PersonsGrid({
   selectedPersons,
   onPersonsChange,
   maxPersons = 20,
@@ -231,7 +231,7 @@ function PersonsGrid({
       <div className="grid grid-cols-3 gap-3">
         {Array.from({ length: displayCount }, (_, i) => i + 1).map((n) => {
           const selected = selectedPersons === n;
-          const label = n === 1 ? "1 personne" : `${n} personnes`;
+          const label = n === 1 ? "1 pers." : `${n} pers.`;
           return (
             <button
               key={n}
@@ -421,13 +421,13 @@ export function ResultsFilterBottomSheet({
           <div className="flex items-center justify-between gap-3">
             <div className="flex-1 text-sm text-slate-600">
               {selectedDate && (
-                <span className="inline-flex items-center gap-1 mr-3">
+                <span className="inline-flex items-center gap-1 me-3">
                   <Calendar className="w-4 h-4" />
                   {selectedDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
                 </span>
               )}
               {selectedTime && (
-                <span className="inline-flex items-center gap-1 mr-3">
+                <span className="inline-flex items-center gap-1 me-3">
                   <Clock className="w-4 h-4" />
                   {selectedTime}
                 </span>

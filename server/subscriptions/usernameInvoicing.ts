@@ -15,6 +15,9 @@ import {
   type VisibilityInvoiceLineItem,
 } from "../billing/visibilityInvoicePdf";
 import type { FinanceActor } from "../finance/types";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("usernameInvoicing");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -396,7 +399,7 @@ export async function sendUsernameSubscriptionInvoiceEmail(args: {
 
     return { ok: true, emailId: sent.emailId };
   } catch (e) {
-    console.error("sendUsernameSubscriptionInvoiceEmail failed:", e);
+    log.error({ err: e }, "sendUsernameSubscriptionInvoiceEmail failed");
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }

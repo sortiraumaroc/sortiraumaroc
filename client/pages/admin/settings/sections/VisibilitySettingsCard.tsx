@@ -335,7 +335,7 @@ export function VisibilitySettingsCard({ onToast }: Props) {
               <div className="col-span-2">Type</div>
               <div className="col-span-2">Prix (MAD)</div>
               <div className="col-span-1">Statut</div>
-              <div className="col-span-2 text-right">Action</div>
+              <div className="col-span-2 text-end">Action</div>
             </div>
 
             <div className="divide-y divide-slate-200">

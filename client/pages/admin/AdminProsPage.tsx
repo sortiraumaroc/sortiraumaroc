@@ -893,12 +893,12 @@ export function AdminProsPage() {
             >
               {deleteLoading ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  <Loader2 className="h-4 w-4 animate-spin me-2" />
                   Suppression...
                 </>
               ) : (
                 <>
-                  <Trash2 className="h-4 w-4 mr-2" />
+                  <Trash2 className="h-4 w-4 me-2" />
                   Supprimer {selectedIds.length} compte(s)
                 </>
               )}
@@ -1049,7 +1049,7 @@ export function AdminProsPage() {
                               key={id}
                               role="button"
                               tabIndex={0}
-                              className="w-full text-left p-3 hover:bg-slate-50 flex items-center gap-3 cursor-pointer"
+                              className="w-full text-start p-3 hover:bg-slate-50 flex items-center gap-3 cursor-pointer"
                               onClick={() => toggleCreateEstablishment(id)}
                               onKeyDown={(ev) => {
                                 if (ev.key === "Enter" || ev.key === " ") {
@@ -1171,7 +1171,7 @@ export function AdminProsPage() {
                           key={id}
                           role="button"
                           tabIndex={0}
-                          className="w-full text-left p-3 hover:bg-slate-50 flex items-center gap-3 cursor-pointer"
+                          className="w-full text-start p-3 hover:bg-slate-50 flex items-center gap-3 cursor-pointer"
                           onClick={() => toggleEditEstablishment(id)}
                           onKeyDown={(ev) => {
                             if (ev.key === "Enter" || ev.key === " ") {
@@ -1301,7 +1301,7 @@ export function AdminProsPage() {
             >
               {suspendLoading ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  <Loader2 className="h-4 w-4 animate-spin me-2" />
                   Suspension...
                 </>
               ) : (
@@ -1392,12 +1392,12 @@ export function AdminProsPage() {
             >
               {deleteLoading ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  <Loader2 className="h-4 w-4 animate-spin me-2" />
                   Suppression...
                 </>
               ) : (
                 <>
-                  <Trash2 className="h-4 w-4 mr-2" />
+                  <Trash2 className="h-4 w-4 me-2" />
                   Supprimer définitivement
                 </>
               )}
@@ -1647,7 +1647,7 @@ function EditProProfileDialog({
             Annuler
           </Button>
           <Button onClick={() => void handleSave()} disabled={saving || loading || !profile}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            {saving ? <Loader2 className="h-4 w-4 animate-spin me-2" /> : null}
             Enregistrer
           </Button>
         </DialogFooter>

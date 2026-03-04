@@ -95,12 +95,12 @@ export function ReferralCodeInput({
           disabled={disabled}
           maxLength={20}
           className={cn(
-            "pr-10",
+            "pe-10",
             isValid === true && "border-green-500 focus-visible:ring-green-500",
             isValid === false && "border-red-500 focus-visible:ring-red-500"
           )}
         />
-        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+        <div className="absolute end-3 top-1/2 -translate-y-1/2">
           {checking && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
           {!checking && isValid === true && <Check className="h-4 w-4 text-green-500" />}
           {!checking && isValid === false && <X className="h-4 w-4 text-red-500" />}

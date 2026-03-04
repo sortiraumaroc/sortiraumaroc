@@ -31,6 +31,19 @@ export interface PlatformSettingsSnapshot {
     short: string;
     domain: string;
   };
+  footer: {
+    social_instagram: string;
+    social_tiktok: string;
+    social_facebook: string;
+    social_youtube: string;
+    social_snapchat: string;
+    social_linkedin: string;
+  };
+  ramadan: {
+    enabled: boolean;
+    start_date: string;
+    end_date: string;
+  };
 }
 
 interface PlatformSettingsContextValue {
@@ -63,7 +76,20 @@ const defaultSnapshot: PlatformSettingsSnapshot = {
   branding: {
     name: "Sortir Au Maroc",
     short: "SAM",
-    domain: "sortiraumaroc.ma",
+    domain: "sam.ma",
+  },
+  footer: {
+    social_instagram: "",
+    social_tiktok: "",
+    social_facebook: "",
+    social_youtube: "",
+    social_snapchat: "",
+    social_linkedin: "",
+  },
+  ramadan: {
+    enabled: false,
+    start_date: "",
+    end_date: "",
   },
 };
 
@@ -96,12 +122,24 @@ export function PlatformSettingsProvider({ children }: { children: ReactNode }) 
         throw new Error("Failed to load platform settings");
       }
 
+      // Guard against Vite dev server returning HTML before Express is mounted
+      const ct = res.headers.get("content-type") || "";
+      if (!ct.includes("application/json")) {
+        setSettings(defaultSnapshot);
+        return;
+      }
+
       const data = await res.json();
       setSettings(data.snapshot || defaultSnapshot);
     } catch (e) {
-      console.error("[PlatformSettings] Load error:", e);
-      setError(e instanceof Error ? e.message : "Unknown error");
-      setSettings(defaultSnapshot);
+      // Silence in dev — race condition with Vite mounting Express
+      if (import.meta.env.DEV) {
+        setSettings(defaultSnapshot);
+      } else {
+        console.error("[PlatformSettings] Load error:", e);
+        setError(e instanceof Error ? e.message : "Unknown error");
+        setSettings(defaultSnapshot);
+      }
     } finally {
       setLoading(false);
     }

@@ -194,7 +194,7 @@ async function openInvoicePrint(invoice: ProInvoice, establishment: Establishmen
           .muted { color: #6b7280; font-size: 12px; }
           .block { margin-top: 20px; }
           table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-          th, td { text-align: left; padding: 10px; border-bottom: 1px solid #e5e7eb; }
+          th, td { text-align: start; padding: 10px; border-bottom: 1px solid #e5e7eb; }
           th { background: #f9fafb; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
           .total { font-weight: bold; }
           .issuer { margin-top: 6px; }
@@ -287,7 +287,7 @@ async function openVisibilityOrderInvoicePrint(order: VisibilityOrder, establish
           .muted { color: #6b7280; font-size: 12px; }
           .block { margin-top: 20px; }
           table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-          th, td { text-align: left; padding: 10px; border-bottom: 1px solid #e5e7eb; }
+          th, td { text-align: start; padding: 10px; border-bottom: 1px solid #e5e7eb; }
           th { background: #f9fafb; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
           .total { font-weight: bold; }
           .issuer { margin-top: 6px; }
@@ -745,7 +745,7 @@ export function ProBillingTab({ establishment, role }: Props) {
                             <div className="text-xs text-slate-500">Montant</div>
                             <div className="font-semibold tabular-nums whitespace-nowrap">{formatMoney(window.amount_cents, window.currency)}</div>
                           </div>
-                          <div className="text-right">
+                          <div className="text-end">
                             <div className="text-xs text-slate-500">Payable le</div>
                             <div className="text-sm text-slate-700 whitespace-nowrap">{new Date(window.eligible_at).toLocaleDateString("fr-FR")}</div>
                           </div>
@@ -765,7 +765,7 @@ export function ProBillingTab({ establishment, role }: Props) {
                           >
                             {isSubmitting ? (
                               <>
-                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                <Loader2 className="w-4 h-4 me-2 animate-spin" />
                                 Soumission…
                               </>
                             ) : (
@@ -786,7 +786,7 @@ export function ProBillingTab({ establishment, role }: Props) {
                         <TableHead>Montant</TableHead>
                         <TableHead>Payable le</TableHead>
                         <TableHead>Statut</TableHead>
-                        <TableHead className="text-right">Action</TableHead>
+                        <TableHead className="text-end">Action</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -813,7 +813,7 @@ export function ProBillingTab({ establishment, role }: Props) {
                                 </Badge>
                               )}
                             </TableCell>
-                            <TableCell className="text-right">
+                            <TableCell className="text-end">
                               {!window.has_request && isEligible ? (
                                 <Button
                                   size="sm"
@@ -823,7 +823,7 @@ export function ProBillingTab({ establishment, role }: Props) {
                                 >
                                   {isSubmitting ? (
                                     <>
-                                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                                      <Loader2 className="w-3.5 h-3.5 me-1.5 animate-spin" />
                                       Soumission…
                                     </>
                                   ) : (
@@ -977,7 +977,7 @@ export function ProBillingTab({ establishment, role }: Props) {
                         <div className="text-xs text-slate-500">Total</div>
                         <div className="font-semibold tabular-nums whitespace-nowrap">{formatMoney(i.amount_due, i.currency)}</div>
                       </div>
-                      <div className="text-right">
+                      <div className="text-end">
                         <div className="text-xs text-slate-500">Échéance</div>
                         <div className="text-sm text-slate-700 whitespace-nowrap">{i.due_date}</div>
                       </div>
@@ -1000,7 +1000,7 @@ export function ProBillingTab({ establishment, role }: Props) {
                     <TableHead>Total</TableHead>
                     <TableHead>Statut</TableHead>
                     <TableHead>Échéance</TableHead>
-                    <TableHead className="text-right">PDF</TableHead>
+                    <TableHead className="text-end">PDF</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1017,7 +1017,7 @@ export function ProBillingTab({ establishment, role }: Props) {
                           <Badge className={st.cls}>{st.label}</Badge>
                         </TableCell>
                         <TableCell className="whitespace-nowrap">{i.due_date}</TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="text-end">
                           <Button variant="outline" size="sm" className="gap-2" onClick={() => void openInvoicePrint(i, establishment)}>
                             <Download className="w-4 h-4" />
                             PDF
@@ -1121,7 +1121,7 @@ export function ProBillingTab({ establishment, role }: Props) {
                             <div className="text-xs text-slate-500">Client</div>
                             <div className="font-semibold truncate">{p.buyer_name || p.buyer_email || "Client"}</div>
                           </div>
-                          <div className="text-right">
+                          <div className="text-end">
                             <div className="text-xs text-slate-500">Total</div>
                             <div className="font-semibold tabular-nums whitespace-nowrap">{formatMoney(p.total_price, p.currency)}</div>
                           </div>
@@ -1136,7 +1136,7 @@ export function ProBillingTab({ establishment, role }: Props) {
                             <div className="text-xs text-slate-500">Consommé</div>
                             <div className="font-semibold tabular-nums">{consumed}</div>
                           </div>
-                          <div className="text-right">
+                          <div className="text-end">
                             <div className="text-xs text-slate-500">Restant</div>
                             <div className="font-semibold tabular-nums">{remaining}</div>
                           </div>
@@ -1349,7 +1349,7 @@ export function ProBillingTab({ establishment, role }: Props) {
                       <TableHead>Services</TableHead>
                       <TableHead>Statut</TableHead>
                       <TableHead>Total</TableHead>
-                      <TableHead className="text-right">Action</TableHead>
+                      <TableHead className="text-end">Action</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1369,7 +1369,7 @@ export function ProBillingTab({ establishment, role }: Props) {
                         <TableCell className="whitespace-nowrap font-semibold">
                           {formatMoney(order.total_cents, order.currency)}
                         </TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="text-end">
                           <Button
                             variant="outline"
                             size="sm"

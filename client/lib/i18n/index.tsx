@@ -5,7 +5,7 @@ import { DEFAULT_TIME_ZONE } from "../../../shared/datetime";
 import { isStaleConsumerAuthError, resetConsumerAuth } from "../auth";
 import { consumerSupabase } from "../supabase";
 
-import { messages, type MessagesDict } from "./messages";
+import { getCachedMessages, getFrMessages, loadMessages, preloadMessages, type MessagesDict } from "./messages";
 import { hardcodedStringKeys, type HardcodedStringKey } from "./hardcoded-strings";
 import {
   DEFAULT_APP_LOCALE,
@@ -13,6 +13,7 @@ import {
   appLocaleToDateFnsLocale,
   appLocaleToIntlLocale,
   detectBrowserAppLocale,
+  isRtlLocale,
   normalizeAppLocale,
   type AppLocale,
 } from "./types";
@@ -102,34 +103,81 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   const [source, setSource] = useState<"stored" | "browser">(initialStored ? "stored" : "browser");
   const [suggestionDismissed, setSuggestionDismissed] = useState<boolean>(() => readSuggestionDismissed());
 
+  // Loaded messages dict for the active locale (FR always available synchronously)
+  const [loadedDict, setLoadedDict] = useState<MessagesDict>(() => getCachedMessages(locale) ?? getFrMessages());
+
   const localeRef = useRef(locale);
   const isUpdatingServerRef = useRef(false); // Prevent onAuthStateChange loop
   useEffect(() => {
     localeRef.current = locale;
   }, [locale]);
 
+  // ---------------------------------------------------------------------------
+  // Lazy-load messages when locale changes
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    let cancelled = false;
+
+    const cached = getCachedMessages(locale);
+    if (cached) {
+      setLoadedDict(cached);
+      return;
+    }
+
+    // Not cached yet — trigger async load. Meanwhile, FR fallback is used.
+    loadMessages(locale)
+      .then((dict) => {
+        if (!cancelled) setLoadedDict(dict);
+      })
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error(`[i18n] Failed to load locale "${locale}":`, err);
+        // Show a discrete toast via Sonner (async import to avoid bundling issues)
+        void import("sonner")
+          .then(({ toast }) => toast("Impossible de charger la langue sélectionnée"))
+          .catch(() => { /* Sonner not available — silent fallback to FR */ });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [locale]);
+
+  // Preload EN in background on mount
+  useEffect(() => {
+    preloadMessages("en");
+  }, []);
+
   const intlLocale = useMemo(() => appLocaleToIntlLocale(locale), [locale]);
   const dateFnsLocale = useMemo(() => appLocaleToDateFnsLocale(locale), [locale]);
 
-  // Avoid memoizing on locale only: during dev/HMR the imported `messages` object can be refreshed,
-  // and we still want components to see new keys without requiring a full reload.
-  const dict: MessagesDict = messages[locale] ?? messages[DEFAULT_APP_LOCALE];
+  // Current dict: loaded messages for locale, or FR as fallback
+  const dict: MessagesDict = loadedDict;
+  const frDict: MessagesDict = getFrMessages();
 
   const missingKeysRef = useRef<Set<string>>(new Set());
 
   const t = useCallback(
     (key: string, params?: TranslateParams) => {
-      const defaultDict = messages[DEFAULT_APP_LOCALE] ?? {};
       const hasCurrent = Object.prototype.hasOwnProperty.call(dict, key);
-      const hasDefault = Object.prototype.hasOwnProperty.call(defaultDict, key);
+      const currentValue = hasCurrent ? dict[key] : undefined;
+
+      // Skip empty strings (placeholder values in ES/IT/AR)
+      const hasNonEmpty = !!currentValue;
+
+      const hasFr = Object.prototype.hasOwnProperty.call(frDict, key);
 
       // Try hardcoded strings as fallback
       const hardcodedEntry = hardcodedStringKeys[key as HardcodedStringKey];
       const hasHardcoded = !!hardcodedEntry;
 
-      const raw = (hasCurrent ? dict[key] : undefined) ?? (hasDefault ? defaultDict[key] : undefined) ?? (hasHardcoded ? hardcodedEntry[locale] : undefined) ?? key;
+      const raw =
+        (hasNonEmpty ? currentValue : undefined) ??
+        (hasFr ? frDict[key] : undefined) ??
+        (hasHardcoded ? (hardcodedEntry[locale] ?? hardcodedEntry[DEFAULT_APP_LOCALE]) : undefined) ??
+        key;
 
-      if (import.meta.env.DEV && raw === key && !hasCurrent && !hasDefault && !hasHardcoded) {
+      if (import.meta.env.DEV && raw === key && !hasNonEmpty && !hasFr && !hasHardcoded) {
         if (!missingKeysRef.current.has(key)) {
           missingKeysRef.current.add(key);
           // eslint-disable-next-line no-console
@@ -139,7 +187,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
 
       return interpolate(raw, params);
     },
-    [dict, locale],
+    [dict, frDict, locale],
   );
 
   const setLocale = useCallback(
@@ -187,6 +235,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (typeof document === "undefined") return;
     document.documentElement.lang = locale;
+    document.documentElement.dir = isRtlLocale(locale) ? "rtl" : "ltr";
   }, [locale]);
 
   useEffect(() => {

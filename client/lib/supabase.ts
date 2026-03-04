@@ -18,5 +18,11 @@ export const consumerSupabase = createClient(supabaseUrl, supabaseAnonKey, {
     storageKey: CONSUMER_AUTH_STORAGE_KEY,
     persistSession: true,
     autoRefreshToken: true,
+    // [FIX-AUTH] Re-enabled: Consumer needs detectSessionInUrl: true so that
+    // Google/Apple OAuth callbacks (PKCE code in URL) are automatically exchanged
+    // for a session. This is safe because the Pro client has detectSessionInUrl: false,
+    // and Pro has NO OAuth — only email/password + password-reset PKCE (handled
+    // manually via exchangeCodeForSession in ProAuthGate.tsx).
+    detectSessionInUrl: true,
   },
 });

@@ -196,7 +196,7 @@ export function AIAssistantDialog({ open, onOpenChange, onInsert, initialText = 
                   }
                 }}
                 className={cn(
-                  "flex items-start gap-3 p-4 rounded-lg border border-slate-200 text-left",
+                  "flex items-start gap-3 p-4 rounded-lg border border-slate-200 text-start",
                   "hover:border-primary/50 hover:bg-primary/5 transition-all",
                   "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
                 )}

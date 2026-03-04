@@ -99,7 +99,7 @@ export function CityInput({
 
   return (
     <div className={`relative w-full group ${className}`} ref={containerRef}>
-      <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary w-5 h-5 pointer-events-none transition-colors" />
+      <MapPin className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary w-5 h-5 pointer-events-none transition-colors" />
       <input
         ref={inputRef}
         type="text"
@@ -113,7 +113,7 @@ export function CityInput({
           setIsOpen(true);
         }}
         onFocus={() => !disabled && setIsOpen(true)}
-        className={inputClassName ?? `w-full pl-10 pr-4 py-2 h-10 md:h-11 border border-slate-200 rounded-md text-sm text-slate-900 placeholder:text-slate-600 placeholder:font-normal transition-colors [font-family:Circular_Std,_sans-serif] ${
+        className={inputClassName ?? `w-full ps-10 pe-4 py-2 h-10 md:h-11 border border-slate-200 rounded-md text-sm text-slate-900 placeholder:text-slate-600 placeholder:font-normal transition-colors [font-family:Circular_Std,_sans-serif] ${
           disabled
             ? "bg-slate-200 text-slate-400 cursor-not-allowed"
             : `bg-slate-100 hover:border-slate-300 focus-visible:border-primary/50 focus-visible:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${isEmpty ? "italic" : "not-italic"}`

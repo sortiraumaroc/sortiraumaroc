@@ -190,6 +190,24 @@ export async function clearAllSessions(): Promise<void> {
 }
 
 /**
+ * Check if the user is already logged in as the target account type.
+ * Returns the active session if found, null otherwise.
+ * Unlike checkSessionConflict, this checks for SAME-type sessions.
+ */
+export async function checkAlreadyLoggedIn(
+  targetType: AccountType
+): Promise<ActiveSession | null> {
+  switch (targetType) {
+    case "consumer":
+      return checkConsumerSession();
+    case "pro":
+      return checkProSession();
+    case "admin":
+      return checkAdminSession();
+  }
+}
+
+/**
  * Get display name for account type
  */
 export function getAccountTypeLabel(type: AccountType): string {

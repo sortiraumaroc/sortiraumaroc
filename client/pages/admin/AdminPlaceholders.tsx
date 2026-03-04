@@ -3,8 +3,9 @@ import type { ColumnDef } from "@tanstack/react-table";
 
 import { AdminDataTable } from "@/components/admin/table/AdminDataTable";
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
-import { AdminApiError, listAdminLogs, listAdminNotifications, isAdminSuperadmin, type AdminLogEntry, type AdminNotification } from "@/lib/adminApi";
+import { AdminApiError, listAdminLogs, listAdminNotifications, isAdminSuperadmin, getAdminUserRole, type AdminLogEntry, type AdminNotification } from "@/lib/adminApi";
 
+import { Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 import { formatLeJjMmAaAHeure } from "@shared/datetime";
@@ -492,7 +493,17 @@ export function AdminReviewsPage() {
   const [selected, setSelected] = useState<ReviewRow | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  const all = useMemo(() => makeMockReviews(), []);
+  const [all, setAll] = useState<ReviewRow[]>(() => makeMockReviews());
+
+  const canDelete = useMemo(() => {
+    const role = getAdminUserRole();
+    return role === "superadmin" || role === "admin";
+  }, []);
+
+  const handleDeleteReview = (id: string) => {
+    setAll((prev) => prev.filter((r) => r.id !== id));
+    toast({ title: "Supprimé", description: "L'élément a été supprimé." });
+  };
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -515,7 +526,7 @@ export function AdminReviewsPage() {
   }, [all, fromDate, search, statusFilter, toDate, typeFilter]);
 
   const columns = useMemo<ColumnDef<ReviewRow>[]>(() => {
-    return [
+    const cols: ColumnDef<ReviewRow>[] = [
       {
         accessorKey: "type",
         header: "Type",
@@ -535,7 +546,30 @@ export function AdminReviewsPage() {
         cell: ({ row }) => <span className="tabular-nums">{formatLeJjMmAaAHeure(row.original.createdAtIso)}</span>,
       },
     ];
-  }, []);
+
+    if (canDelete) {
+      cols.push({
+        id: "actions",
+        header: "",
+        cell: ({ row }) => (
+          <button
+            type="button"
+            className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+            title="Supprimer"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDeleteReview(row.original.id);
+            }}
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        ),
+        size: 50,
+      });
+    }
+
+    return cols;
+  }, [canDelete]);
 
   return (
     <div className="space-y-4">

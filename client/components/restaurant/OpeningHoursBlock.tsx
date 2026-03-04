@@ -5,6 +5,7 @@ import { AlertTriangle, CheckCircle2, Clock, Moon, Utensils } from "lucide-react
 
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useI18n } from "@/lib/i18n";
+import type { AppLocale } from "@/lib/i18n/types";
 import { cn } from "@/lib/utils";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import type {
@@ -43,8 +44,8 @@ function weekdayLabel(day: WeekdayKey, t: (k: string) => string): string {
   return t(WEEKDAY_LABEL_KEYS[day]);
 }
 
-function formatTimeLabel(time: string, locale: "fr" | "en"): string {
-  return locale === "fr" ? formatTimeFr(time) : time;
+function formatTimeLabel(time: string, locale: AppLocale): string {
+  return locale === "en" ? time : formatTimeFr(time);
 }
 
 function makeLocalDateAt(date: Date, time: string): Date {
@@ -87,21 +88,32 @@ function buildIntervalsAroundNow(now: Date, openingHours: NormalizedOpeningHours
   return intervals;
 }
 
-function formatTimeCompact(time: string, locale: "fr" | "en"): string {
+function formatTimeCompact(time: string, locale: AppLocale): string {
   const [hh, mm] = time.split(":");
 
+  // English uses colon format (12:30), others use French-style (12h30)
   if (locale === "en") return `${hh}:${mm}`;
 
   if (mm === "00") return `${Number(hh)}h`;
   return `${Number(hh)}h${mm}`;
 }
 
-function formatRangeArrow(from: string, to: string, locale: "fr" | "en"): string {
+function formatRangeArrow(from: string, to: string, locale: AppLocale): string {
   return `${formatTimeLabel(from, locale)} → ${formatTimeLabel(to, locale)}`;
 }
 
-function formatRangeCompact(from: string, to: string, locale: "fr" | "en"): string {
+function formatRangeCompact(from: string, to: string, locale: AppLocale): string {
   return `${formatTimeCompact(from, locale)}–${formatTimeCompact(to, locale)}`;
+}
+
+/**
+ * Detect if a day's intervals represent "continuous" opening (single long slot).
+ * A day is continuous when it has only one interval (type "lunch").
+ * Handles closing after midnight (e.g. 12:00–02:00 = 14h).
+ */
+function isContinuousDay(intervals: { type: string; from: string; to: string }[]): boolean {
+  if (intervals.length !== 1) return false;
+  return intervals[0].type === "lunch";
 }
 
 function relativeDayLabel(targetDate: Date, now: Date, args: { t: (k: string) => string }): string {
@@ -175,7 +187,7 @@ function ServiceRow({
   type: ServiceType;
   from: string;
   to: string;
-  locale: "fr" | "en";
+  locale: AppLocale;
   t: (k: string) => string;
 }) {
   const Icon = type === "lunch" ? Utensils : Moon;
@@ -198,18 +210,30 @@ function WeeklyDesktopTable({
   t,
 }: {
   openingHours: NormalizedOpeningHours;
-  locale: "fr" | "en";
+  locale: AppLocale;
   t: (k: string) => string;
 }) {
+  // Detect if ALL open days are continuous (single long slot)
+  const allContinuous = WEEKDAYS_ORDER.every((day) => {
+    const intervals = openingHours[day] || [];
+    return intervals.length === 0 || isContinuousDay(intervals);
+  });
+
   return (
     <div className="hidden md:block">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-slate-600">
-              <th className="py-2 pr-4 font-semibold">{t("restaurant.hours.table.day")}</th>
-              <th className="py-2 pr-4 font-semibold">{t("restaurant.hours.service.lunch")}</th>
-              <th className="py-2 pr-0 font-semibold">{t("restaurant.hours.service.dinner")}</th>
+            <tr className="text-slate-600">
+              <th className="py-2 pe-4 text-start font-semibold">{t("restaurant.hours.table.day")}</th>
+              {allContinuous ? (
+                <th className="py-2 pe-0 text-start font-semibold">En continu</th>
+              ) : (
+                <>
+                  <th className="py-2 pe-4 text-start font-semibold">{t("restaurant.hours.service.lunch")}</th>
+                  <th className="py-2 pe-0 text-start font-semibold">{t("restaurant.hours.service.dinner")}</th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -219,10 +243,27 @@ function WeeklyDesktopTable({
               const dinner = intervals.find((i) => i.type === "dinner");
               const closed = !intervals.length;
 
+              if (allContinuous) {
+                return (
+                  <tr key={day} className="text-slate-800">
+                    <td className="py-3 pe-4 text-start font-semibold">{weekdayLabel(day, t)}</td>
+                    <td className="py-3 pe-0 text-start tabular-nums">
+                      {closed ? (
+                        <span className="text-slate-500">❌ {t("restaurant.hours.closed")}</span>
+                      ) : lunch ? (
+                        <span>{formatRangeCompact(lunch.from, lunch.to, locale)}</span>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              }
+
               return (
                 <tr key={day} className="text-slate-800">
-                  <td className="py-3 pr-4 font-semibold">{weekdayLabel(day, t)}</td>
-                  <td className="py-3 pr-4 tabular-nums">
+                  <td className="py-3 pe-4 text-start font-semibold">{weekdayLabel(day, t)}</td>
+                  <td className="py-3 pe-4 text-start tabular-nums">
                     {closed ? (
                       <span className="text-slate-500">❌ {t("restaurant.hours.closed")}</span>
                     ) : lunch ? (
@@ -231,7 +272,7 @@ function WeeklyDesktopTable({
                       <span className="text-slate-400">—</span>
                     )}
                   </td>
-                  <td className="py-3 pr-0 tabular-nums">
+                  <td className="py-3 pe-0 text-start tabular-nums">
                     {closed ? (
                       <span className="text-slate-500">❌ {t("restaurant.hours.closed")}</span>
                     ) : dinner ? (
@@ -256,7 +297,7 @@ function WeeklyMobileCards({
   t,
 }: {
   openingHours: NormalizedOpeningHours;
-  locale: "fr" | "en";
+  locale: AppLocale;
   t: (k: string) => string;
 }) {
   return (
@@ -265,6 +306,7 @@ function WeeklyMobileCards({
         const intervals = openingHours[day] || [];
         const lunch = intervals.find((i) => i.type === "lunch");
         const dinner = intervals.find((i) => i.type === "dinner");
+        const continuous = isContinuousDay(intervals);
 
         return (
           <div key={day} className="rounded-xl border border-slate-200 bg-white p-4">
@@ -272,6 +314,14 @@ function WeeklyMobileCards({
             <div className="mt-3 space-y-2">
               {!intervals.length ? (
                 <div className="text-slate-500">❌ {t("restaurant.hours.closed")}</div>
+              ) : continuous && lunch ? (
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2 text-slate-700">
+                    <Clock className="h-4 w-4" />
+                    <span className="font-medium">En continu</span>
+                  </div>
+                  <div className="font-semibold text-slate-900 tabular-nums">{formatRangeCompact(lunch.from, lunch.to, locale)}</div>
+                </div>
               ) : (
                 <>
                   {lunch ? (
@@ -307,7 +357,7 @@ function WeeklyMobileCards({
 
 function compatibilityHint(args: {
   compatibility: DateTimeCompatibility;
-  locale: "fr" | "en";
+  locale: AppLocale;
   t: (k: string, params?: Record<string, string>) => string;
 }): string | null {
   if (args.compatibility.ok === true) return null;
@@ -398,10 +448,20 @@ export function OpeningHoursBlock({ openingHours, legacyHours, className }: Open
 
         <div className="mt-4 space-y-3">
           {todayIntervals.length ? (
-            todayIntervals
-              .slice()
-              .sort((a, b) => (a.type === b.type ? timeToMinutes(a.from) - timeToMinutes(b.from) : a.type === "lunch" ? -1 : 1))
-              .map((i) => <ServiceRow key={`${i.type}-${i.from}-${i.to}`} type={i.type} from={i.from} to={i.to} locale={locale} t={t} />)
+            isContinuousDay(todayIntervals) ? (
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-center gap-2 text-slate-700">
+                  <Clock className="h-4 w-4" />
+                  <span className="font-medium">En continu</span>
+                </div>
+                <div className="text-slate-900 font-semibold tabular-nums">{formatRangeArrow(todayIntervals[0].from, todayIntervals[0].to, locale)}</div>
+              </div>
+            ) : (
+              todayIntervals
+                .slice()
+                .sort((a, b) => (a.type === b.type ? timeToMinutes(a.from) - timeToMinutes(b.from) : a.type === "lunch" ? -1 : 1))
+                .map((i) => <ServiceRow key={`${i.type}-${i.from}-${i.to}`} type={i.type} from={i.from} to={i.to} locale={locale} t={t} />)
+            )
           ) : (
             <div className="text-slate-600 font-medium">❌ {t("restaurant.hours.closed_today")}</div>
           )}

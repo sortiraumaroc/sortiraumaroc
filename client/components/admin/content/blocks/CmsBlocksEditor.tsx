@@ -283,7 +283,7 @@ export function CmsBlocksEditor({ blocks, onChange }: Props) {
                           <span className="flex items-center gap-2">
                             {Icon && <Icon className="h-4 w-4 text-slate-500" />}
                             <span>{t.label}</span>
-                            <span className="text-xs text-slate-400 ml-1">— {t.description}</span>
+                            <span className="text-xs text-slate-400 ms-1">— {t.description}</span>
                           </span>
                         </SelectItem>
                       );

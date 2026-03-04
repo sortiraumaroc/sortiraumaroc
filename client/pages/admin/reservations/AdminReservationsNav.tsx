@@ -1,17 +1,28 @@
 import { NavLink } from "react-router-dom";
 
 import { cn } from "@/lib/utils";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
-const ITEMS: Array<{ label: string; to: string }> = [
+const BASE_ITEMS: Array<{ label: string; to: string }> = [
   { label: "Réservations", to: "/admin/reservations" },
   { label: "Liste d'attente", to: "/admin/waitlist" },
   { label: "Offres & packs", to: "/admin/deals" },
 ];
 
+const RAMADAN_ITEMS: Array<{ label: string; to: string }> = [
+  { label: "Spécial Ramadan", to: "/admin/ramadan" },
+  { label: "Ftour", to: "/admin/ftour" },
+];
+
 export function AdminReservationsNav() {
+  const { settings } = usePlatformSettings();
+  const ramadanEnabled = settings?.ramadan?.enabled === true;
+
+  const items = ramadanEnabled ? [...BASE_ITEMS, ...RAMADAN_ITEMS] : BASE_ITEMS;
+
   return (
     <div className="inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground">
-      {ITEMS.map((item) => (
+      {items.map((item) => (
         <NavLink
           key={item.to}
           to={item.to}

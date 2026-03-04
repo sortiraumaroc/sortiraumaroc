@@ -12,6 +12,7 @@ export const AD_CAMPAIGN_TYPES = [
   'home_takeover',       // Habillage homepage
   'push_notification',   // Push notifications
   'email_campaign',      // Campagnes emailing
+  'display_banner',      // Bannières IAB sur pages établissements
 ] as const;
 
 export type AdCampaignType = typeof AD_CAMPAIGN_TYPES[number];
@@ -94,6 +95,11 @@ export interface AdCampaignTargeting {
   device_types?: ('mobile' | 'desktop' | 'tablet')[];
   days_of_week?: number[];       // 0-6 (dimanche-samedi)
   hours_of_day?: number[];       // 0-23
+  // Display banner targeting
+  countries?: string[];          // Pays ciblés (ex: "MA", "FR")
+  gender?: 'homme' | 'femme' | 'tous';
+  age_range?: { min?: number; max?: number };
+  placements?: string[];         // Emplacements ciblés (ex: "establishment_detail_slot_1")
 }
 
 export interface AdCampaign {

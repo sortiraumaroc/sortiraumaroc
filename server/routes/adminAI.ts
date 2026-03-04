@@ -1,6 +1,11 @@
 import type { RequestHandler, Router } from "express";
+import { createModuleLogger } from "../lib/logger";
 import { parseCookies, getSessionCookieName, verifyAdminSessionToken, type AdminSessionPayload } from "../adminSession";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { zBody } from "../lib/validate";
+import { AdminAIGenerateSchema, AdminAIExtractMenuSchema } from "../schemas/adminAI";
+
+const log = createModuleLogger("adminAI");
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
@@ -102,7 +107,7 @@ function hasAIAccess(session: AdminSessionPayload): boolean {
 
 export function registerAdminAIRoutes(router: Router): void {
   // AI text generation endpoint - SAM admins only
-  router.post("/api/admin/ai/generate", (async (req, res) => {
+  router.post("/api/admin/ai/generate", zBody(AdminAIGenerateSchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
@@ -164,7 +169,7 @@ export function registerAdminAIRoutes(router: Router): void {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        console.error("[AI] Anthropic API error:", response.status, errorData);
+        log.error({ status: response.status, errorData }, "Anthropic API error");
         return res.status(500).json({ error: "AI service error" });
       }
 
@@ -176,26 +181,28 @@ export function registerAdminAIRoutes(router: Router): void {
         result: generatedText.trim(),
       });
     } catch (error) {
-      console.error("[AI] Generate error:", error);
+      log.error({ err: error }, "Generate error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // AI menu extraction endpoint - SAM admins only
-  router.post("/api/admin/ai/extract-menu", (async (req, res) => {
+  router.post("/api/admin/ai/extract-menu", zBody(AdminAIExtractMenuSchema), (async (req, res) => {
     try {
       // Debug: log cookies and headers
       const cookieHeader = req.header("cookie") ?? "";
-      console.log("[AI Menu Extraction] Cookie header:", cookieHeader ? `${cookieHeader.slice(0, 100)}...` : "(empty)");
-      console.log("[AI Menu Extraction] x-admin-session header:", req.header("x-admin-session") ? "present" : "absent");
+      log.debug({
+        hasCookie: !!cookieHeader,
+        hasSessionHeader: !!req.header("x-admin-session"),
+      }, "Menu extraction auth check");
 
       const session = requireAdminSession(req);
       if (!session) {
-        console.log("[AI Menu Extraction] No session found - Unauthorized");
+        log.warn("Menu extraction - no session found");
         return res.status(401).json({ error: "Unauthorized", debug: "No valid session token found in cookies or headers" });
       }
 
-      console.log("[AI Menu Extraction] Session found:", { role: session.role, collaborator_id: session.collaborator_id });
+      log.debug({ role: session.role, collaborator_id: session.collaborator_id }, "Menu extraction session found");
 
       // Allow SAM admin team members to use this feature
       if (!hasAIAccess(session)) {
@@ -309,7 +316,7 @@ Labels valides pour autres: debutant, intermediaire, avance, famille, enfants, a
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        console.error("[AI Menu Extraction] Anthropic API error:", response.status, errorData);
+        log.error({ status: response.status, errorData }, "Menu extraction Anthropic API error");
         return res.status(500).json({ error: "ai_error", message: "Erreur du service IA" });
       }
 
@@ -345,7 +352,7 @@ Labels valides pour autres: debutant, intermediaire, avance, famille, enfants, a
         }
         extraction = JSON.parse(jsonMatch[0]);
       } catch (parseError) {
-        console.error("[AI Menu Extraction] Parse error:", parseError, generatedText);
+        log.error({ err: parseError, rawResponse: generatedText.slice(0, 500) }, "Menu extraction parse error");
         return res.status(500).json({
           error: "parse_error",
           message: "Impossible de parser la réponse de l'IA",
@@ -384,7 +391,7 @@ Labels valides pour autres: debutant, intermediaire, avance, famille, enfants, a
       });
 
     } catch (error) {
-      console.error("[AI Menu Extraction] Error:", error);
+      log.error({ err: error }, "Menu extraction error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -412,7 +419,7 @@ Labels valides pour autres: debutant, intermediaire, avance, famille, enfants, a
         message: "Cette fonctionnalité nécessite l'intégration d'un service de génération d'images (DALL-E, Stable Diffusion, etc.)"
       });
     } catch (error) {
-      console.error("[AI] Generate image error:", error);
+      log.error({ err: error }, "Generate image error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);

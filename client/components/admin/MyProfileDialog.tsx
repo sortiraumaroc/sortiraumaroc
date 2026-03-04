@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Upload, Trash2, User } from "lucide-react";
+import { Loader2, Upload, Trash2, User, X } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -13,9 +13,31 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 import { getAdminMyProfile, updateAdminMyProfile, type AdminMyProfile } from "@/lib/adminApi";
 import { fileToAvatarDataUrl } from "@/lib/profilePhoto";
+
+const FUNCTIONS = [
+  "Directeur général",
+  "Directeur commercial",
+  "Responsable opérations",
+  "Responsable support",
+  "Responsable marketing",
+  "Développeur",
+  "Designer",
+  "Community manager",
+  "Comptable",
+  "Assistant(e)",
+  "Stagiaire",
+  "Autre",
+];
 
 type Props = {
   open: boolean;
@@ -38,11 +60,16 @@ export function MyProfileDialog({ open, onOpenChange, onProfileUpdated }: Props)
 
   const [profile, setProfile] = useState<AdminMyProfile | null>(null);
   const [email, setEmail] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [functionLabel, setFunctionLabel] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
+  const [originalAvatarUrl, setOriginalAvatarUrl] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showLightbox, setShowLightbox] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -53,8 +80,12 @@ export function MyProfileDialog({ open, onOpenChange, onProfileUpdated }: Props)
         .then((res) => {
           setProfile(res.profile);
           setEmail(res.profile.email ?? "");
+          setFirstName(res.profile.firstName ?? "");
+          setLastName(res.profile.lastName ?? "");
+          setFunctionLabel(res.profile.function ?? "");
           setDisplayName(res.profile.displayName ?? "");
           setAvatarUrl(res.profile.avatarUrl ?? "");
+          setOriginalAvatarUrl(res.profile.avatarUrl ?? "");
           setCurrentPassword("");
           setNewPassword("");
           setConfirmPassword("");
@@ -101,10 +132,14 @@ export function MyProfileDialog({ open, onOpenChange, onProfileUpdated }: Props)
     setSaving(true);
 
     try {
+      const avatarChanged = avatarUrl !== originalAvatarUrl;
       await updateAdminMyProfile(undefined, {
         email: email.trim() !== profile?.email ? email.trim() : undefined,
-        displayName: displayName.trim() || undefined,
-        avatarUrl: avatarUrl || undefined,
+        firstName: firstName.trim() !== profile?.firstName ? firstName.trim() : undefined,
+        lastName: lastName.trim() !== profile?.lastName ? lastName.trim() : undefined,
+        function: functionLabel !== (profile?.function ?? "") ? functionLabel : undefined,
+        displayName: displayName.trim() || null,
+        avatarUrl: avatarChanged ? (avatarUrl || null) : undefined,
         currentPassword: newPassword ? currentPassword : undefined,
         newPassword: newPassword || undefined,
       });
@@ -125,7 +160,7 @@ export function MyProfileDialog({ open, onOpenChange, onProfileUpdated }: Props)
         <DialogHeader>
           <DialogTitle>Mon profil</DialogTitle>
           <DialogDescription>
-            Modifiez votre pseudo et votre photo de profil.
+            Modifiez vos informations personnelles.
           </DialogDescription>
         </DialogHeader>
 
@@ -149,12 +184,19 @@ export function MyProfileDialog({ open, onOpenChange, onProfileUpdated }: Props)
           <div className="space-y-4 py-2">
             {/* Avatar */}
             <div className="flex items-center gap-4">
-              <Avatar className="h-16 w-16">
-                {avatarUrl ? <AvatarImage src={avatarUrl} alt="Photo de profil" /> : null}
-                <AvatarFallback className="bg-primary text-white font-extrabold text-lg">
-                  {getInitials(profile?.firstName ?? "", profile?.lastName ?? "")}
-                </AvatarFallback>
-              </Avatar>
+              <button
+                type="button"
+                className={avatarUrl ? "cursor-pointer rounded-full ring-offset-2 hover:ring-2 hover:ring-primary/30 transition-shadow" : "cursor-default"}
+                onClick={() => avatarUrl && setShowLightbox(true)}
+                title={avatarUrl ? "Voir en grand" : undefined}
+              >
+                <Avatar className="h-16 w-16">
+                  {avatarUrl ? <AvatarImage src={avatarUrl} alt="Photo de profil" /> : null}
+                  <AvatarFallback className="bg-primary text-white font-extrabold text-lg">
+                    {getInitials(firstName, lastName)}
+                  </AvatarFallback>
+                </Avatar>
+              </button>
               <div className="space-y-2">
                 <div className="text-sm font-semibold text-slate-900">Photo de profil</div>
                 <div className="flex gap-2">
@@ -189,6 +231,28 @@ export function MyProfileDialog({ open, onOpenChange, onProfileUpdated }: Props)
               </div>
             </div>
 
+            {/* Lightbox photo plein format */}
+            {showLightbox && avatarUrl ? (
+              <div
+                className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+                onClick={() => setShowLightbox(false)}
+              >
+                <button
+                  type="button"
+                  className="absolute top-4 end-4 rounded-full bg-white/20 p-2 text-white hover:bg-white/40 transition-colors"
+                  onClick={() => setShowLightbox(false)}
+                >
+                  <X className="h-6 w-6" />
+                </button>
+                <img
+                  src={avatarUrl}
+                  alt="Photo de profil"
+                  className="max-h-[80vh] max-w-[80vw] rounded-2xl shadow-2xl object-contain"
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </div>
+            ) : null}
+
             {/* Email modifiable */}
             <div className="space-y-2">
               <Label>Email</Label>
@@ -203,16 +267,39 @@ export function MyProfileDialog({ open, onOpenChange, onProfileUpdated }: Props)
               </div>
             </div>
 
-            {/* Info non-modifiable */}
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-500">Nom complet</span>
-                <span className="font-medium text-slate-900">{profile?.firstName} {profile?.lastName}</span>
+            {/* Prénom + Nom */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Prénom</Label>
+                <Input
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  placeholder="Prénom"
+                />
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-500">Fonction</span>
-                <span className="font-medium text-slate-900">{profile?.function || "Non définie"}</span>
+              <div className="space-y-2">
+                <Label>Nom</Label>
+                <Input
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  placeholder="Nom"
+                />
               </div>
+            </div>
+
+            {/* Fonction */}
+            <div className="space-y-2">
+              <Label>Fonction</Label>
+              <Select value={functionLabel} onValueChange={setFunctionLabel}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Sélectionner une fonction" />
+                </SelectTrigger>
+                <SelectContent>
+                  {FUNCTIONS.map((fn) => (
+                    <SelectItem key={fn} value={fn}>{fn}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             {/* Pseudo */}

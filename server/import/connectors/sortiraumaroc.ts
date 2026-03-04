@@ -52,7 +52,7 @@ const MOROCCAN_CITIES = [
   "tetouan",
   "tétouan",
   "essaouira",
-  "mohammedia",
+  "mohammédia",
   "el jadida",
   "el_jadida",
   "eljadida",

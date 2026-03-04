@@ -43,7 +43,7 @@ async function main() {
     process.exit(1);
   }
 
-  const user = users.users.find((u) => u.email?.toLowerCase() === email.toLowerCase());
+  const user = users.users.find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
 
   if (!user) {
     console.error(`Error: User with email "${email}" not found`);

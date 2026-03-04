@@ -1,4 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("consumerNotifications");
 
 function asString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -29,8 +32,8 @@ async function ensureConsumerUserExists(args: { supabase: SupabaseClient; userId
     if (error) {
       // ignore
     }
-  } catch {
-    // ignore
+  } catch (err) {
+    log.warn({ err }, "Best-effort: ensureConsumerUserExists upsert failed");
   }
 
   // Best-effort: ensure stats row exists too.
@@ -39,8 +42,8 @@ async function ensureConsumerUserExists(args: { supabase: SupabaseClient; userId
     if (error) {
       // ignore
     }
-  } catch {
-    // ignore
+  } catch (err) {
+    log.warn({ err }, "Best-effort: consumer_user_stats upsert failed");
   }
 }
 
@@ -75,7 +78,7 @@ export async function emitConsumerUserEvent(args: {
       const second = await args.supabase.from("consumer_user_events").insert(row);
       if (!second.error) return;
     }
-  } catch {
-    // ignore (best-effort)
+  } catch (err) {
+    log.warn({ err }, "Best-effort: emitConsumerUserEvent failed");
   }
 }

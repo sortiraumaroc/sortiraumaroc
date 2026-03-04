@@ -264,7 +264,7 @@ export function AdminEstablishmentFinanceRulesCard(props: { establishmentId: str
                 Enregistrer
               </Button>
               <Button size="sm" variant="outline" onClick={onCancel} disabled={saving || deleting} className="h-8">
-                <X className="h-3.5 w-3.5 mr-1" />
+                <X className="h-3.5 w-3.5 me-1" />
                 Annuler
               </Button>
               {hasOverride && (
@@ -273,7 +273,7 @@ export function AdminEstablishmentFinanceRulesCard(props: { establishmentId: str
                   variant="destructive"
                   onClick={() => void onDelete()}
                   disabled={saving || deleting}
-                  className="h-8 ml-auto"
+                  className="h-8 ms-auto"
                 >
                   {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Supprimer"}
                 </Button>

@@ -5,7 +5,14 @@
  */
 
 import type { Request, Response } from "express";
+import type { Express } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
+import { createRateLimiter } from "../middleware/rateLimiter";
+import { zBody } from "../lib/validate";
+import { RegisterPushTokenSchema, UnregisterPushTokenSchema, UpdatePushPreferencesSchema } from "../schemas/pushTokens";
+
+const log = createModuleLogger("pushTokens");
 
 const supabase = getAdminSupabase();
 
@@ -68,13 +75,13 @@ export async function registerConsumerPushToken(req: Request, res: Response) {
       );
 
     if (error) {
-      console.error("[registerConsumerPushToken] Error:", error);
+      log.error({ err: error }, "registerConsumerPushToken error");
       return res.status(500).json({ ok: false, error: "Failed to register token" });
     }
 
     return res.json({ ok: true });
   } catch (err) {
-    console.error("[registerConsumerPushToken] Unexpected error:", err);
+    log.error({ err }, "registerConsumerPushToken unexpected error");
     return res.status(500).json({ ok: false, error: "Server error" });
   }
 }
@@ -106,7 +113,7 @@ export async function unregisterConsumerPushToken(req: Request, res: Response) {
 
     return res.json({ ok: true });
   } catch (err) {
-    console.error("[unregisterConsumerPushToken] Unexpected error:", err);
+    log.error({ err }, "unregisterConsumerPushToken unexpected error");
     return res.status(500).json({ ok: false, error: "Server error" });
   }
 }
@@ -160,13 +167,23 @@ export async function updateConsumerPushPreferences(req: Request, res: Response)
       .eq("id", userId);
 
     if (error) {
-      console.error("[updateConsumerPushPreferences] Error:", error);
+      log.error({ err: error }, "updateConsumerPushPreferences error");
       return res.status(500).json({ ok: false, error: "Failed to update preferences" });
     }
 
     return res.json({ ok: true });
   } catch (err) {
-    console.error("[updateConsumerPushPreferences] Unexpected error:", err);
+    log.error({ err }, "updateConsumerPushPreferences unexpected error");
     return res.status(500).json({ ok: false, error: "Server error" });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerPushTokenRoutes(app: Express) {
+  app.post("/api/consumer/push/register", createRateLimiter("push-register", { windowMs: 5 * 60 * 1000, maxRequests: 10 }), zBody(RegisterPushTokenSchema), registerConsumerPushToken);
+  app.post("/api/consumer/push/unregister", createRateLimiter("push-unregister", { windowMs: 5 * 60 * 1000, maxRequests: 10 }), zBody(UnregisterPushTokenSchema), unregisterConsumerPushToken);
+  app.post("/api/consumer/push/preferences", zBody(UpdatePushPreferencesSchema), updateConsumerPushPreferences);
 }

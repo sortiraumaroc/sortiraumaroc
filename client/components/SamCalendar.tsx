@@ -10,6 +10,8 @@ export type SamCalendarProps = {
   availableDates?: Date[];
   disabledDates?: (date: Date) => boolean;
   className?: string;
+  month?: Date;
+  onMonthChange?: (month: Date) => void;
 };
 
 function toLocalDay(date: Date): Date {
@@ -23,7 +25,7 @@ function ymd(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-export function SamCalendar({ value, onChange, minDate, availableDates, disabledDates, className }: SamCalendarProps) {
+export function SamCalendar({ value, onChange, minDate, availableDates, disabledDates, className, month, onMonthChange }: SamCalendarProps) {
   const { dateFnsLocale } = useI18n();
 
   const min = React.useMemo(() => (minDate ? toLocalDay(minDate) : null), [minDate]);
@@ -42,6 +44,8 @@ export function SamCalendar({ value, onChange, minDate, availableDates, disabled
           if (!next) return;
           onChange(toLocalDay(next));
         }}
+        month={month}
+        onMonthChange={onMonthChange}
         weekStartsOn={1}
         locale={dateFnsLocale}
         disabled={(date) => {

@@ -5,10 +5,12 @@
 
 import { createClient } from "@supabase/supabase-js";
 
-const supabase = createClient(
-  process.env.SUPABASE_URL || "https://ogjghzgzkxxoggocadln.supabase.co",
-  process.env.SUPABASE_SERVICE_ROLE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9namdoemd6a3h4b2dnb2NhZGxuIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NjE3NTAyOCwiZXhwIjoyMDgxNzUxMDI4fQ.sniHdQ-EWw2ZdMj2gEjnrIvwLyinoLlVQ0aJL3-BNww"
-);
+const url = process.env.SUPABASE_URL;
+const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+if (!url || !key) {
+  throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env vars");
+}
+const supabase = createClient(url, key);
 
 async function run() {
   const { data: templates, error } = await supabase

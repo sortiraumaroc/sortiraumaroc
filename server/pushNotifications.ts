@@ -10,6 +10,9 @@
 
 import admin from "firebase-admin";
 import { getAdminSupabase } from "./supabaseAdmin";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("pushNotifications");
 
 const supabase = getAdminSupabase();
 
@@ -26,7 +29,7 @@ function initializeFirebaseAdmin(): boolean {
   const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
 
   if (!serviceAccountJson && !projectId) {
-    console.warn("[PushNotifications] Firebase not configured - push notifications disabled");
+    log.warn("Firebase not configured - push notifications disabled");
     return false;
   }
 
@@ -46,10 +49,10 @@ function initializeFirebaseAdmin(): boolean {
     }
 
     firebaseInitialized = true;
-    console.log("[PushNotifications] Firebase Admin SDK initialized");
+    log.info("Firebase Admin SDK initialized");
     return true;
   } catch (error) {
-    console.error("[PushNotifications] Failed to initialize Firebase:", error);
+    log.error({ err: error }, "Failed to initialize Firebase");
     return false;
   }
 }
@@ -157,7 +160,7 @@ export async function sendPushNotification(args: {
         .map((r) => r.error?.message || "Unknown error"),
     };
   } catch (error) {
-    console.error("[PushNotifications] Error sending:", error);
+    log.error({ err: error }, "Error sending push notification");
     return {
       ok: false,
       errors: [error instanceof Error ? error.message : "Unknown error"],
@@ -192,7 +195,7 @@ export async function sendPushToConsumerUser(args: {
     .limit(10); // Limit to 10 most recent tokens per user
 
   if (error) {
-    console.error("[PushNotifications] Error fetching tokens:", error);
+    log.error({ err: error }, "Error fetching consumer FCM tokens");
     return { ok: false, errors: [error.message] };
   }
 
@@ -236,7 +239,7 @@ export async function sendPushToProUser(args: {
     .limit(10);
 
   if (error) {
-    console.error("[PushNotifications] Error fetching pro tokens:", error);
+    log.error({ err: error }, "Error fetching pro FCM tokens");
     return { ok: false, errors: [error.message] };
   }
 
@@ -353,7 +356,7 @@ export async function sendPushToTopic(args: {
     const messageId = await admin.messaging().send(message);
     return { ok: true, successCount: 1, failureCount: 0 };
   } catch (error) {
-    console.error("[PushNotifications] Error sending to topic:", error);
+    log.error({ err: error }, "Error sending push to topic");
     return {
       ok: false,
       errors: [error instanceof Error ? error.message : "Unknown error"],

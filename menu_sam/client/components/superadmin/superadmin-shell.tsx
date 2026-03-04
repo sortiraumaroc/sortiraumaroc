@@ -5,7 +5,7 @@ import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import { BarChart3, BookOpenCheck, LifeBuoy, LogOut, Receipt, Settings, ShieldAlert, Users, ScrollText } from "lucide-react";
+import { BarChart3, BookOpenCheck, Building2, LifeBuoy, LogOut, Receipt, Settings, ShieldAlert, Users, ScrollText } from "lucide-react";
 
 type NavItem = {
   href: string;
@@ -18,6 +18,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/superadmin/accounts", label: "Comptes", icon: <Users className="h-4 w-4" /> },
   { href: "/superadmin/payments", label: "Paiements", icon: <Receipt className="h-4 w-4" /> },
   { href: "/superadmin/support", label: "Support", icon: <LifeBuoy className="h-4 w-4" /> },
+  { href: "/superadmin/conciergerie", label: "Conciergerie", icon: <Building2 className="h-4 w-4" /> },
   { href: "/superadmin/faq", label: "FAQ", icon: <BookOpenCheck className="h-4 w-4" /> },
   { href: "/superadmin/logs", label: "Logs", icon: <ScrollText className="h-4 w-4" /> },
   { href: "/superadmin/settings", label: "Système", icon: <Settings className="h-4 w-4" /> },

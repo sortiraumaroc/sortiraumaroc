@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Edit3, Loader2, Plus, Trash2, Calendar, User, Tag, Eye, FileText, Globe, Search } from "lucide-react";
 
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
+import { AdminHomepageNav } from "./homepage/AdminHomepageNav";
 import { AdminDataTable } from "@/components/admin/table/AdminDataTable";
 import { RichTextEditor } from "@/components/admin/content/RichTextEditor";
 import { CmsBlocksEditor } from "@/components/admin/content/blocks/CmsBlocksEditor";
@@ -13,6 +14,7 @@ import {
   createAdminCmsBlogArticle,
   createAdminCmsBlogAuthor,
   createAdminContentPage,
+  deleteAdminContentPage,
   deleteAdminCmsBlogArticle,
   listAdminCmsBlogArticleBlocks,
   listAdminCmsBlogArticles,
@@ -315,6 +317,8 @@ export function AdminContentPage() {
   const [pageEditor, setPageEditor] = useState<PageEditorState | null>(null);
   const [pageSlugFrError, setPageSlugFrError] = useState<string | null>(null);
   const [pageSlugEnError, setPageSlugEnError] = useState<string | null>(null);
+  const [pageDeleteConfirm, setPageDeleteConfirm] = useState<ContentPageAdmin | null>(null);
+  const [pageDeleting, setPageDeleting] = useState(false);
 
   const refreshPages = useCallback(async () => {
     setPagesLoading(true);
@@ -629,6 +633,21 @@ export function AdminContentPage() {
     pageSlugFrError,
   ]);
 
+  const confirmDeletePage = useCallback(async () => {
+    if (!pageDeleteConfirm) return;
+    setPageDeleting(true);
+    try {
+      await deleteAdminContentPage(undefined, pageDeleteConfirm.id);
+      toast({ title: "Supprimé", description: `Page « ${pageDeleteConfirm.page_key} » supprimée.` });
+      setPageDeleteConfirm(null);
+      await refreshPages();
+    } catch (e) {
+      toast({ title: "Erreur", description: humanAdminError(e), variant: "destructive" });
+    } finally {
+      setPageDeleting(false);
+    }
+  }, [pageDeleteConfirm, refreshPages, toast]);
+
   const pageColumns = useMemo<ColumnDef<ContentPageAdmin>[]>(() => {
     return [
       {
@@ -684,15 +703,25 @@ export function AdminContentPage() {
         id: "actions",
         header: "",
         cell: ({ row }) => (
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            onClick={() => openPage(row.original)}
-          >
-            <Edit3 className="h-4 w-4" />
-            Éditer
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => openPage(row.original)}
+            >
+              <Edit3 className="h-4 w-4" />
+              Éditer
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+              onClick={() => setPageDeleteConfirm(row.original)}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
         ),
       },
     ];
@@ -1082,8 +1111,9 @@ export function AdminContentPage() {
 
   return (
     <div className="space-y-6">
+      <AdminHomepageNav />
       <AdminPageHeader
-        title="Contenu"
+        title="Pages & Blog"
         description="Gérez les pages et le blog."
         actions={
           tab === "pages" ? (
@@ -1134,6 +1164,29 @@ export function AdminContentPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Delete page confirmation */}
+      <Dialog open={!!pageDeleteConfirm} onOpenChange={(open) => { if (!open) setPageDeleteConfirm(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Supprimer la page</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-slate-700">
+            Êtes-vous sûr de vouloir supprimer la page{" "}
+            <strong>{pageDeleteConfirm?.page_key ?? pageDeleteConfirm?.slug_fr}</strong> ?
+            Cette action est irréversible.
+          </p>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setPageDeleteConfirm(null)} disabled={pageDeleting}>
+              Annuler
+            </Button>
+            <Button variant="destructive" onClick={confirmDeletePage} disabled={pageDeleting} className="gap-2">
+              {pageDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              Supprimer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Page editor */}
       <Dialog open={pageDialogOpen} onOpenChange={setPageDialogOpen}>
@@ -1403,7 +1456,7 @@ export function AdminContentPage() {
                               : prev,
                           )
                         }
-                        placeholder="https://sortiraumaroc.ma/content/a-propos"
+                        placeholder="https://sam.ma/content/a-propos"
                       />
                     </div>
                     <div className="space-y-2">
@@ -1417,7 +1470,7 @@ export function AdminContentPage() {
                               : prev,
                           )
                         }
-                        placeholder="https://sortiraumaroc.ma/en/content/about"
+                        placeholder="https://sam.ma/en/content/about"
                       />
                     </div>
                   </div>

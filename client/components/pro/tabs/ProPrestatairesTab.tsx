@@ -782,12 +782,12 @@ export function ProPrestatairesTab({ establishment, role }: Props) {
                 {/* Filters */}
                 <div className="flex flex-col sm:flex-row gap-3">
                   <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <Input
                       placeholder="Rechercher..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-10"
+                      className="ps-10"
                     />
                   </div>
                   <Select value={filterStatut} onValueChange={setFilterStatut}>
@@ -838,7 +838,7 @@ export function ProPrestatairesTab({ establishment, role }: Props) {
                         className="mt-4"
                         onClick={() => setShowWizard(true)}
                       >
-                        <Plus className="w-4 h-4 mr-2" />
+                        <Plus className="w-4 h-4 me-2" />
                         Ajouter un prestataire
                       </Button>
                     )}
@@ -862,7 +862,7 @@ export function ProPrestatairesTab({ establishment, role }: Props) {
                                 </h4>
                                 <Badge className={cfg.className}>
                                   {cfg.icon}
-                                  <span className="ml-1">{cfg.label}</span>
+                                  <span className="ms-1">{cfg.label}</span>
                                 </Badge>
                                 {p.categorie_prestation && (
                                   <Badge variant="outline" className="text-xs">
@@ -931,7 +931,7 @@ export function ProPrestatairesTab({ establishment, role }: Props) {
                               </h4>
                               <Badge className={cfg.className}>
                                 {cfg.icon}
-                                <span className="ml-1">{cfg.label}</span>
+                                <span className="ms-1">{cfg.label}</span>
                               </Badge>
                             </div>
                             <div className="text-sm text-slate-600 flex flex-wrap items-center gap-3">
@@ -1326,7 +1326,7 @@ export function ProPrestatairesTab({ establishment, role }: Props) {
                 disabled={creating || !wizardForm.nom_legal.trim()}
               >
                 {creating ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  <Loader2 className="w-4 h-4 me-2 animate-spin" />
                 ) : null}
                 Créer le prestataire
               </Button>
@@ -1358,7 +1358,7 @@ export function ProPrestatairesTab({ establishment, role }: Props) {
                         return (
                           <Badge className={cfg.className}>
                             {cfg.icon}
-                            <span className="ml-1">{cfg.label}</span>
+                            <span className="ms-1">{cfg.label}</span>
                           </Badge>
                         );
                       })()}
@@ -1656,9 +1656,9 @@ export function ProPrestatairesTab({ establishment, role }: Props) {
                         disabled={uploading}
                       >
                         {uploading ? (
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          <Loader2 className="w-4 h-4 me-2 animate-spin" />
                         ) : (
-                          <Upload className="w-4 h-4 mr-2" />
+                          <Upload className="w-4 h-4 me-2" />
                         )}
                         Uploader
                       </Button>
@@ -1729,13 +1729,13 @@ export function ProPrestatairesTab({ establishment, role }: Props) {
                 <TabsContent value="messages" className="space-y-4">
                   {messagesLoading ? (
                     <div className="flex items-center justify-center py-12 text-slate-500">
-                      <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                      <Loader2 className="w-5 h-5 animate-spin me-2" />
                       Chargement des messages...
                     </div>
                   ) : (
                     <div className="flex flex-col h-[400px]">
                       {/* Messages list */}
-                      <ScrollArea className="flex-1 pr-2">
+                      <ScrollArea className="flex-1 pe-2">
                         <div className="space-y-3">
                           {messages.length === 0 ? (
                             <div className="text-center py-12 text-slate-500">
@@ -1905,7 +1905,7 @@ export function ProPrestatairesTab({ establishment, role }: Props) {
                 {canEdit && (
                   <Button onClick={handleSaveDetail} disabled={saving}>
                     {saving ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      <Loader2 className="w-4 h-4 me-2 animate-spin" />
                     ) : null}
                     Enregistrer
                   </Button>
@@ -2028,7 +2028,7 @@ export function ProPrestatairesTab({ establishment, role }: Props) {
               disabled={creatingDemande || !demandeForm.nom.trim()}
             >
               {creatingDemande ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                <Loader2 className="w-4 h-4 me-2 animate-spin" />
               ) : null}
               Soumettre
             </Button>

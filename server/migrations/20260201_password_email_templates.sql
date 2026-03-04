@@ -77,6 +77,13 @@ The Sortir Au Maroc team',
     null,
     true
   )
-on conflict (key) do nothing;
+on conflict (key) do update set
+  subject_fr = EXCLUDED.subject_fr,
+  subject_en = EXCLUDED.subject_en,
+  body_fr = EXCLUDED.body_fr,
+  body_en = EXCLUDED.body_en,
+  cta_label_fr = EXCLUDED.cta_label_fr,
+  cta_label_en = EXCLUDED.cta_label_en,
+  cta_url = EXCLUDED.cta_url;
 
 commit;

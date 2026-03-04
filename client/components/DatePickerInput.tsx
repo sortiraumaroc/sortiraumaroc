@@ -14,6 +14,12 @@ interface DatePickerInputProps {
   mode?: "picker" | "text";
   minDate?: Date;
   maxDate?: Date;
+  /** Force popover mode even on mobile (useful inside Dialogs) */
+  forcePopover?: boolean;
+  /** Called when the picker opens or closes */
+  onOpenChange?: (open: boolean) => void;
+  /** Controlled open state */
+  open?: boolean;
 }
 
 function toLocalDay(date: Date): Date {
@@ -85,6 +91,9 @@ export function DatePickerInput({
   mode = "picker",
   minDate,
   maxDate,
+  forcePopover,
+  onOpenChange,
+  open,
 }: DatePickerInputProps) {
   const isMobile = useIsMobile();
   const { intlLocale, t } = useI18n();
@@ -106,21 +115,21 @@ export function DatePickerInput({
   }, [intlLocale, selectedDate?.getFullYear(), selectedDate?.getMonth(), selectedDate?.getDate()]);
 
   const triggerClassName = cn(
-    "w-full flex items-center justify-start pl-10 pr-4 py-2 h-10 md:h-11 border border-slate-200 rounded-md",
-    "text-sm bg-slate-100 hover:bg-slate-100 text-left transition-colors hover:border-slate-300",
+    "w-full flex items-center justify-start ps-10 pe-4 py-2 h-10 md:h-11 border border-slate-200 rounded-md",
+    "text-sm bg-slate-100 hover:bg-slate-100 text-start transition-colors hover:border-slate-300",
     "focus-visible:border-primary/50 focus-visible:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
   );
 
   const trigger = (
     <button type="button" className={triggerClassName}>
-      <span className={cn("text-sm font-normal", isEmpty ? "italic text-slate-600" : "not-italic text-slate-900")}>{displayDate}</span>
+      <span className={cn("text-sm font-normal truncate", isEmpty ? "italic text-slate-600" : "not-italic text-slate-900")}>{displayDate}</span>
     </button>
   );
 
   if (mode === "text") {
     return (
       <div className={cn("relative w-full group", className)}>
-        <CalendarIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary w-5 h-5 pointer-events-none transition-colors" />
+        <CalendarIcon className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary w-5 h-5 pointer-events-none transition-colors" />
         <input
           type="text"
           inputMode="numeric"
@@ -179,13 +188,13 @@ export function DatePickerInput({
   if (isMobile && onMobileClick) {
     return (
       <div className={cn("relative w-full group", className)}>
-        <CalendarIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary w-5 h-5 pointer-events-none transition-colors" />
+        <CalendarIcon className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary w-5 h-5 pointer-events-none transition-colors" />
         <button
           type="button"
           className={triggerClassName}
           onClick={onMobileClick}
         >
-          <span className={cn("text-sm font-normal", isEmpty ? "italic text-slate-600" : "not-italic text-slate-900")}>
+          <span className={cn("text-sm font-normal truncate", isEmpty ? "italic text-slate-600" : "not-italic text-slate-900")}>
             {displayDate}
           </span>
         </button>
@@ -195,7 +204,7 @@ export function DatePickerInput({
 
   return (
     <div className={cn("relative w-full group", className)}>
-      <CalendarIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary w-5 h-5 pointer-events-none transition-colors" />
+      <CalendarIcon className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary w-5 h-5 pointer-events-none transition-colors" />
 
       <AdaptivePicker
         type="date"
@@ -206,6 +215,9 @@ export function DatePickerInput({
         minDate={min}
         onClear={() => onChange("")}
         clearLabel={t("common.clear")}
+        forcePopover={forcePopover}
+        onOpenChange={onOpenChange}
+        open={open}
       />
     </div>
   );

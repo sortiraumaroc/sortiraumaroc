@@ -423,7 +423,7 @@ export function AdminImageUploader({
               )}
 
               {/* Index badge */}
-              <div className="absolute top-1 left-1 bg-black/60 text-white text-xs px-1.5 py-0.5 rounded">
+              <div className="absolute top-1 start-1 bg-black/60 text-white text-xs px-1.5 py-0.5 rounded">
                 {idx + 1}
               </div>
             </div>
@@ -432,7 +432,7 @@ export function AdminImageUploader({
       )}
 
       {/* Photos count */}
-      <div className="text-xs text-slate-500 text-right">
+      <div className="text-xs text-slate-500 text-end">
         {photos.length} / {maxPhotos} photos
       </div>
     </div>

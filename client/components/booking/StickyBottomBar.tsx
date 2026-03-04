@@ -20,6 +20,7 @@ export function StickyBottomBar({
 }: StickyBottomBarProps) {
   return show ? (
     <div
+      data-sticky-bottom-bar
       className={cn(
         "fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white",
         className,

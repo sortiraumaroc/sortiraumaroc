@@ -1,9 +1,13 @@
 // This file maps common hardcoded strings found in the codebase
 // These keys should be merged into client/lib/i18n/messages.ts
 
+import type { AppLocale } from "./types";
+
 export type HardcodedStringKey = keyof typeof hardcodedStringKeys;
 
-export const hardcodedStringKeys = {
+type HardcodedEntry = Partial<Record<AppLocale, string>> & { fr: string };
+
+export const hardcodedStringKeys: Record<string, HardcodedEntry> = {
   // Establishment & Entity Terms
   "establishment.not_found": { fr: "Établissement introuvable", en: "Establishment not found" },
   "establishment.label": { fr: "Établissement", en: "Establishment" },
@@ -100,8 +104,8 @@ export const hardcodedStringKeys = {
 };
 
 // Helper function to get translated string
-export function getTranslation(key: string, locale: 'fr' | 'en'): string | undefined {
+export function getTranslation(key: string, locale: AppLocale): string | undefined {
   const entry = hardcodedStringKeys[key as keyof typeof hardcodedStringKeys];
   if (!entry) return undefined;
-  return entry[locale];
+  return entry[locale] ?? entry.fr;
 }

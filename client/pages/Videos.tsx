@@ -10,7 +10,7 @@ import { getPublicHomeVideos, type PublicHomeVideo } from "@/lib/publicApi";
 import { buildEstablishmentUrl } from "@/lib/establishmentUrl";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
-import { applySeo } from "@/lib/seo";
+import { applySeo, buildI18nSeoFields } from "@/lib/seo";
 
 // Default videos hero settings
 const DEFAULT_VIDEOS_HERO = {
@@ -77,7 +77,7 @@ function VideoPlayerModal({ videoId, title, onClose }: VideoPlayerModalProps) {
         <button
           type="button"
           onClick={onClose}
-          className="absolute top-4 right-4 z-10 w-12 h-12 bg-red-600 rounded-full flex items-center justify-center shadow-lg hover:bg-red-700 transition-colors"
+          className="absolute top-4 end-4 z-10 w-12 h-12 bg-red-600 rounded-full flex items-center justify-center shadow-lg hover:bg-red-700 transition-colors"
           aria-label="Fermer"
         >
           <X className="w-6 h-6 text-white" />
@@ -130,7 +130,7 @@ function FeaturedVideoCard({ video, locale, onPlay }: { video: PublicHomeVideo; 
           {/* Play overlay */}
           <div className="absolute inset-0 bg-black/30 flex items-center justify-center group-hover:bg-black/40 transition-colors">
             <div className="w-20 h-20 rounded-full bg-red-600 flex items-center justify-center shadow-xl group-hover:scale-110 transition-transform">
-              <Play className="w-8 h-8 text-white fill-white ml-1" />
+              <Play className="w-8 h-8 text-white fill-white ms-1" />
             </div>
           </div>
         </button>
@@ -200,7 +200,7 @@ function VideoCardGrid({ video, locale, onPlay }: { video: PublicHomeVideo; loca
         {/* Play overlay */}
         <div className="absolute inset-0 bg-black/30 flex items-center justify-center group-hover:bg-black/40 transition-colors">
           <div className="w-16 h-16 rounded-full bg-red-600 flex items-center justify-center shadow-xl group-hover:scale-110 transition-transform">
-            <Play className="w-7 h-7 text-white fill-white ml-1" />
+            <Play className="w-7 h-7 text-white fill-white ms-1" />
           </div>
         </div>
       </button>
@@ -272,7 +272,7 @@ function VideoCardList({ video, locale, onPlay }: { video: PublicHomeVideo; loca
         {/* Play overlay */}
         <div className="absolute inset-0 bg-black/30 flex items-center justify-center group-hover:bg-black/40 transition-colors">
           <div className="w-12 h-12 rounded-full bg-red-600 flex items-center justify-center shadow-xl group-hover:scale-110 transition-transform">
-            <Play className="w-5 h-5 text-white fill-white ml-0.5" />
+            <Play className="w-5 h-5 text-white fill-white ms-0.5" />
           </div>
         </div>
       </button>
@@ -330,6 +330,7 @@ export default function VideosPage() {
       title: `${heroSettings.title || t("videos.page.title")} — Sortir Au Maroc`,
       description: heroSettings.subtitle || t("videos.page.subtitle"),
       ogType: "website",
+      ...buildI18nSeoFields(locale),
     });
   }, [t, locale, heroSettings]);
 
@@ -413,7 +414,7 @@ export default function VideosPage() {
 
         {/* Content */}
         <div className="container mx-auto px-4 relative z-10">
-          <div className="text-left max-w-3xl">
+          <div className="text-start max-w-3xl">
             <h1 className="text-3xl md:text-5xl font-bold mb-4 tracking-tight">
               {heroSettings.title || t("videos.page.title")}
             </h1>

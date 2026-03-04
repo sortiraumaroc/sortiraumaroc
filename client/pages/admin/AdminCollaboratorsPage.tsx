@@ -24,11 +24,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { AdminDataTable } from "@/components/admin/table/AdminDataTable";
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
+import { AdminCollaboratorsNav } from "@/pages/admin/collaborators/AdminCollaboratorsNav";
 import { CollaboratorFormDialog } from "@/components/admin/collaborators/CollaboratorFormDialog";
 
 import type { AdminCollaborator, AdminCollaboratorFormData, AdminRole } from "@/lib/admin/permissions";
 import { toast } from "@/hooks/use-toast";
-import { loadAdminApiKey, loadAdminSessionToken } from "@/lib/adminApi";
+import { loadAdminApiKey, loadAdminSessionToken, decodeAdminSessionToken } from "@/lib/adminApi";
 
 async function fetchAdmin(path: string, options?: RequestInit) {
   const adminKey = loadAdminApiKey();
@@ -92,6 +93,14 @@ export function AdminCollaboratorsPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [collaboratorToDelete, setCollaboratorToDelete] = useState<AdminCollaborator | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Detect if the current logged-in admin is a superadmin
+  const currentUserIsSuperadmin = useMemo(() => {
+    const session = decodeAdminSessionToken();
+    // If using API key (no session token), they are superadmin
+    if (!session && loadAdminApiKey()) return true;
+    return session?.role === "superadmin";
+  }, []);
 
   const roleMap = useMemo(() => {
     const map = new Map<string, AdminRole>();
@@ -323,7 +332,9 @@ export function AdminCollaboratorsPage() {
         header: "",
         cell: ({ row }) => {
           const c = row.original;
-          const isSuperadmin = c.roleId === "superadmin";
+          const targetIsSuperadmin = c.roleId === "superadmin";
+          // Only block actions on superadmin accounts if the current user is NOT superadmin
+          const cannotManageTarget = targetIsSuperadmin && !currentUserIsSuperadmin;
           return (
             <div className="flex justify-end">
               <DropdownMenu>
@@ -333,11 +344,19 @@ export function AdminCollaboratorsPage() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => handleEdit(c)} className="gap-2">
+                  <DropdownMenuItem
+                    onClick={() => handleEdit(c)}
+                    className="gap-2"
+                    disabled={cannotManageTarget}
+                  >
                     <Edit3 className="h-4 w-4" />
                     Modifier
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => void handleResetPassword(c)} className="gap-2">
+                  <DropdownMenuItem
+                    onClick={() => void handleResetPassword(c)}
+                    className="gap-2"
+                    disabled={cannotManageTarget}
+                  >
                     <RefreshCw className="h-4 w-4" />
                     Reset mot de passe
                   </DropdownMenuItem>
@@ -345,7 +364,7 @@ export function AdminCollaboratorsPage() {
                   <DropdownMenuItem
                     onClick={() => void handleToggleStatus(c)}
                     className="gap-2"
-                    disabled={isSuperadmin}
+                    disabled={cannotManageTarget}
                   >
                     {c.status === "active" ? (
                       <>
@@ -363,7 +382,7 @@ export function AdminCollaboratorsPage() {
                   <DropdownMenuItem
                     onClick={() => handleDeleteClick(c)}
                     className="gap-2 text-red-600 focus:text-red-600"
-                    disabled={isSuperadmin}
+                    disabled={cannotManageTarget}
                   >
                     <Trash2 className="h-4 w-4" />
                     Supprimer
@@ -380,6 +399,7 @@ export function AdminCollaboratorsPage() {
 
   return (
     <div className="space-y-4">
+      <AdminCollaboratorsNav />
       <AdminPageHeader
         title="Collaborateurs"
         description="Gérez les comptes internes de l'équipe Sortir Au Maroc : profils, fonctions, rôles et permissions."
@@ -432,7 +452,7 @@ export function AdminCollaboratorsPage() {
               disabled={deleting}
               className="bg-red-600 hover:bg-red-700 text-white"
             >
-              {deleting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin me-2" /> : null}
               Supprimer
             </AlertDialogAction>
           </AlertDialogFooter>

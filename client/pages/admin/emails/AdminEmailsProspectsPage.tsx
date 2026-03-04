@@ -543,12 +543,12 @@ export function AdminEmailsProspectsPage() {
       {/* Actions bar */}
       <div className="flex flex-wrap items-center gap-4">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <Search className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <Input
             placeholder="Rechercher par email, nom..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-10"
+            className="ps-10"
           />
         </div>
 
@@ -578,21 +578,21 @@ export function AdminEmailsProspectsPage() {
           ))}
         </select>
 
-        <div className="flex items-center gap-2 ml-auto">
+        <div className="flex items-center gap-2 ms-auto">
           <Button variant="outline" size="sm" onClick={() => fetchData()}>
-            <RefreshCw className="h-4 w-4 mr-2" />
+            <RefreshCw className="h-4 w-4 me-2" />
             Actualiser
           </Button>
           <Button variant="outline" size="sm" onClick={() => setImportDialogOpen(true)}>
-            <Upload className="h-4 w-4 mr-2" />
+            <Upload className="h-4 w-4 me-2" />
             Importer
           </Button>
           <Button variant="outline" size="sm" onClick={() => setExportDialogOpen(true)}>
-            <Download className="h-4 w-4 mr-2" />
+            <Download className="h-4 w-4 me-2" />
             Exporter
           </Button>
           <Button size="sm" onClick={() => setAddDialogOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
+            <Plus className="h-4 w-4 me-2" />
             Ajouter
           </Button>
         </div>
@@ -603,7 +603,7 @@ export function AdminEmailsProspectsPage() {
         <div className="flex items-center gap-4 p-3 bg-blue-50 rounded-lg">
           <span className="text-sm font-medium">{selectedIds.length} prospect(s) sélectionné(s)</span>
           <Button variant="destructive" size="sm" onClick={() => setDeleteDialogOpen(true)}>
-            <Trash2 className="h-4 w-4 mr-2" />
+            <Trash2 className="h-4 w-4 me-2" />
             Supprimer
           </Button>
         </div>
@@ -613,8 +613,7 @@ export function AdminEmailsProspectsPage() {
       <AdminDataTable
         columns={columns}
         data={prospects}
-        loading={loading}
-        onRowSelectionChange={(rows) => setSelectedIds(rows.map((r) => r.id))}
+        isLoading={loading}
       />
 
       {/* Import Dialog */}

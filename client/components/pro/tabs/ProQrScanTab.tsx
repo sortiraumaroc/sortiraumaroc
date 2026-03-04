@@ -823,10 +823,10 @@ export function ProQrScanTab({ establishment, role }: Props) {
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div className="w-64 h-64 relative">
                     {/* Corner brackets */}
-                    <div className="absolute top-0 left-0 w-12 h-12 border-t-4 border-l-4 border-white rounded-tl-xl" />
-                    <div className="absolute top-0 right-0 w-12 h-12 border-t-4 border-r-4 border-white rounded-tr-xl" />
-                    <div className="absolute bottom-0 left-0 w-12 h-12 border-b-4 border-l-4 border-white rounded-bl-xl" />
-                    <div className="absolute bottom-0 right-0 w-12 h-12 border-b-4 border-r-4 border-white rounded-br-xl" />
+                    <div className="absolute top-0 start-0 w-12 h-12 border-t-4 border-s-4 border-white rounded-tl-xl" />
+                    <div className="absolute top-0 end-0 w-12 h-12 border-t-4 border-e-4 border-white rounded-tr-xl" />
+                    <div className="absolute bottom-0 start-0 w-12 h-12 border-b-4 border-s-4 border-white rounded-bl-xl" />
+                    <div className="absolute bottom-0 end-0 w-12 h-12 border-b-4 border-e-4 border-white rounded-br-xl" />
 
                     {/* Animated scan line */}
                     <div className="absolute left-4 right-4 h-1 bg-gradient-to-r from-transparent via-primary to-transparent animate-pulse top-1/2 -translate-y-1/2 rounded-full" />
@@ -979,7 +979,7 @@ export function ProQrScanTab({ establishment, role }: Props) {
         <button
           type="button"
           onClick={() => setShowHistory(!showHistory)}
-          className="w-full flex items-center justify-between p-4 text-left hover:bg-slate-50 transition-colors"
+          className="w-full flex items-center justify-between p-4 text-start hover:bg-slate-50 transition-colors"
         >
           <div className="flex items-center gap-3">
             <div className="p-2 bg-slate-100 rounded-lg">
@@ -998,12 +998,12 @@ export function ProQrScanTab({ establishment, role }: Props) {
             {/* Filters */}
             <div className="flex flex-col gap-3">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <Search className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                 <Input
                   placeholder="Rechercher..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9"
+                  className="ps-9"
                 />
               </div>
 

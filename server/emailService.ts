@@ -128,6 +128,7 @@ export async function sendTemplateEmail(args: {
   lang?: "fr" | "en";
   fromKey: SambookingSenderKey;
   to: string[];
+  bcc?: string[];
   variables?: Record<string, string | number | null | undefined>;
   ctaUrl?: string | null;
   ctaLabel?: string | null;
@@ -154,6 +155,7 @@ export async function sendTemplateEmail(args: {
     emailId,
     fromKey: args.fromKey,
     to: args.to,
+    bcc: args.bcc,
     subject,
     bodyText,
     ctaLabel: args.ctaLabel ?? ctaLabelDefault,

@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
-import { AdminMediaFactoryNav } from "./media-factory/AdminMediaFactoryNav";
+import { AdminVisibilityNav } from "@/pages/admin/visibility/AdminVisibilityNav";
 import { AdminDataTable } from "@/components/admin/table/AdminDataTable";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -406,7 +406,7 @@ export function AdminPartnersPage() {
         description="Prestataires (caméramans, monteurs, blogueurs...)"
       />
 
-      <AdminMediaFactoryNav />
+      <AdminVisibilityNav />
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between pb-3">
@@ -435,8 +435,7 @@ export function AdminPartnersPage() {
           <AdminDataTable
             columns={columns}
             data={items}
-            loading={loading}
-            emptyMessage="Aucun prestataire enregistré."
+            isLoading={loading}
           />
         </CardContent>
       </Card>
@@ -488,7 +487,7 @@ export function AdminPartnersPage() {
                       display_name: e.target.value,
                     }))
                   }
-                  placeholder="Jean Dupont"
+                  placeholder="Amina Benali"
                 />
               </div>
               <div className="space-y-2">
@@ -562,7 +561,7 @@ export function AdminPartnersPage() {
             </Button>
             <Button onClick={handleCreate} disabled={creating}>
               {creating ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                <Loader2 className="h-4 w-4 animate-spin me-2" />
               ) : null}
               Créer le prestataire
             </Button>
@@ -743,7 +742,7 @@ export function AdminPartnersPage() {
             </Button>
             <Button onClick={handleSave} disabled={saving || editLoading}>
               {saving ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                <Loader2 className="h-4 w-4 animate-spin me-2" />
               ) : null}
               Enregistrer
             </Button>

@@ -8,7 +8,11 @@
  */
 
 import type { Request, Response } from "express";
+import type { Express } from "express";
+import { createModuleLogger } from "../lib/logger";
 import { getAdminSupabase } from "../supabaseAdmin";
+
+const log = createModuleLogger("subscriptionsCron");
 import { emitAdminNotification } from "../adminNotifications";
 import {
   findExpiredSubscriptions,
@@ -19,6 +23,7 @@ import {
   markReminderSent,
   sendRenewalReminderEmail,
 } from "../subscriptions/usernameSubscription";
+import { sendTemplateEmail } from "../emailService";
 
 const supabase = getAdminSupabase();
 
@@ -54,7 +59,7 @@ export async function cronSubscriptionsExpire(req: Request, res: Response) {
         await processExpiration(sub.id);
         results.push({ id: sub.id, status: sub.status, success: true });
       } catch (err: any) {
-        console.error(`[cronSubscriptionsExpire] Failed to process ${sub.id}:`, err);
+        log.error({ err, subscriptionId: sub.id }, "Failed to process expiration");
         results.push({ id: sub.id, status: sub.status, success: false, error: err.message });
       }
     }
@@ -74,7 +79,7 @@ export async function cronSubscriptionsExpire(req: Request, res: Response) {
       });
     }
 
-    console.log(`[cronSubscriptionsExpire] Processed ${successCount}/${processedCount} subscriptions`);
+    log.info({ successCount, processedCount }, "Processed expired subscriptions");
 
     return res.json({
       ok: true,
@@ -83,7 +88,7 @@ export async function cronSubscriptionsExpire(req: Request, res: Response) {
       results,
     });
   } catch (err) {
-    console.error("[cronSubscriptionsExpire] Unexpected error:", err);
+    log.error({ err }, "cronSubscriptionsExpire unexpected error");
     return res.status(500).json({ ok: false, error: "Server error" });
   }
 }
@@ -120,7 +125,7 @@ export async function cronSubscriptionsReminders(req: Request, res: Response) {
             await markReminderSent(sub.id, `${days}d`);
             sentIds.push(sub.id);
           } catch (err) {
-            console.error(`[cronSubscriptionsReminders] Failed to send ${days}d reminder for ${sub.id}:`, err);
+            log.error({ err, subscriptionId: sub.id, days }, "Failed to send reminder");
           }
         }
 
@@ -130,7 +135,7 @@ export async function cronSubscriptionsReminders(req: Request, res: Response) {
           subscriptionIds: sentIds,
         });
       } catch (err) {
-        console.error(`[cronSubscriptionsReminders] Failed to process ${days}d reminders:`, err);
+        log.error({ err, days }, "Failed to process reminders");
         results.push({ days, sent: 0, subscriptionIds: [] });
       }
     }
@@ -150,7 +155,7 @@ export async function cronSubscriptionsReminders(req: Request, res: Response) {
       });
     }
 
-    console.log(`[cronSubscriptionsReminders] Sent ${totalSent} reminders`);
+    log.info({ totalSent }, "Sent renewal reminders");
 
     return res.json({
       ok: true,
@@ -158,7 +163,7 @@ export async function cronSubscriptionsReminders(req: Request, res: Response) {
       results,
     });
   } catch (err) {
-    console.error("[cronSubscriptionsReminders] Unexpected error:", err);
+    log.error({ err }, "cronSubscriptionsReminders unexpected error");
     return res.status(500).json({ ok: false, error: "Server error" });
   }
 }
@@ -195,7 +200,7 @@ export async function cronSubscriptionsReleaseUsernames(req: Request, res: Respo
         await releaseUsername(sub.id);
         results.push({ id: sub.id, establishmentId: sub.establishment_id, success: true });
       } catch (err: any) {
-        console.error(`[cronSubscriptionsRelease] Failed to release username for ${sub.id}:`, err);
+        log.error({ err, subscriptionId: sub.id }, "Failed to release username");
         results.push({ id: sub.id, establishmentId: sub.establishment_id, success: false, error: err.message });
       }
     }
@@ -215,7 +220,7 @@ export async function cronSubscriptionsReleaseUsernames(req: Request, res: Respo
       });
     }
 
-    console.log(`[cronSubscriptionsRelease] Released ${successCount}/${processedCount} usernames`);
+    log.info({ successCount, processedCount }, "Released usernames");
 
     return res.json({
       ok: true,
@@ -224,7 +229,7 @@ export async function cronSubscriptionsReleaseUsernames(req: Request, res: Respo
       results,
     });
   } catch (err) {
-    console.error("[cronSubscriptionsRelease] Unexpected error:", err);
+    log.error({ err }, "cronSubscriptionsRelease unexpected error");
     return res.status(500).json({ ok: false, error: "Server error" });
   }
 }
@@ -265,7 +270,7 @@ export async function cronSubscriptionsTrialReminders(req: Request, res: Respons
       .lte("trial_ends_at", threeDaysFromNow.toISOString());
 
     if (error) {
-      console.error("[cronSubscriptionsTrialReminders] Error fetching trials:", error);
+      log.error({ err: error }, "Error fetching trials for reminders");
       return res.status(500).json({ ok: false, error: "Database error" });
     }
 
@@ -297,7 +302,6 @@ export async function cronSubscriptionsTrialReminders(req: Request, res: Respons
         }
 
         // Send trial reminder email
-        const { sendTemplateEmail } = await import("../emailService");
         const establishment = (trial as any).establishments;
 
         // Get owner email
@@ -341,11 +345,11 @@ export async function cronSubscriptionsTrialReminders(req: Request, res: Respons
           }
         }
       } catch (err) {
-        console.error(`[cronSubscriptionsTrialReminders] Failed to send reminder for ${trial.id}:`, err);
+        log.error({ err, trialId: trial.id }, "Failed to send trial reminder");
       }
     }
 
-    console.log(`[cronSubscriptionsTrialReminders] Sent ${sentIds.length} trial reminders`);
+    log.info({ count: sentIds.length }, "Sent trial reminders");
 
     return res.json({
       ok: true,
@@ -353,7 +357,18 @@ export async function cronSubscriptionsTrialReminders(req: Request, res: Respons
       reminders: sentIds,
     });
   } catch (err) {
-    console.error("[cronSubscriptionsTrialReminders] Unexpected error:", err);
+    log.error({ err }, "cronSubscriptionsTrialReminders unexpected error");
     return res.status(500).json({ ok: false, error: "Server error" });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerSubscriptionsCronRoutes(app: Express) {
+  app.post("/api/internal/cron/subscriptions/expire", cronSubscriptionsExpire);
+  app.post("/api/internal/cron/subscriptions/reminders", cronSubscriptionsReminders);
+  app.post("/api/internal/cron/subscriptions/release-usernames", cronSubscriptionsReleaseUsernames);
+  app.post("/api/internal/cron/subscriptions/trial-reminders", cronSubscriptionsTrialReminders);
 }

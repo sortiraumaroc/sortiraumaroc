@@ -71,7 +71,7 @@ export function MenuEditItemDialog({
   onOpenChange,
   item,
   onSave,
-  ciBaseUrl = "https://www.sortiraumaroc.ma",
+  ciBaseUrl = "https://www.sam.ma",
 }: Props) {
   const [title, setTitle] = React.useState(item.title);
   const [description, setDescription] = React.useState(item.description ?? "");

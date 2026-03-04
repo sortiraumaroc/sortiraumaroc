@@ -1,5 +1,8 @@
 import type { RequestHandler, Router } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("adminDashboard");
 
 // Helper: format date to YYYY-MM-DD
 function formatDate(date: Date): string {
@@ -85,10 +88,13 @@ type DashboardStats = {
   // Payout
   pendingPayouts: { value: number; delta: string };
 
-  // Traffic (placeholder for analytics integration)
-  visitors: { value: number; delta: string };
+  // Traffic (real data from analytics_page_views)
+  currentVisitors: { value: number };
+  uniqueVisitors: { value: number; delta: string };
   pageViews: { value: number; delta: string };
-  conversionRate: { value: string; delta: string };
+  avgTimeOnPage: { value: string; delta: string };
+  engagementRate: { value: string; delta: string };
+  mobileBounceRate: { value: string; delta: string };
 
   // Chart data
   reservationsChart: Array<{ date: string; label: string; value: number }>;
@@ -171,16 +177,25 @@ export function registerAdminDashboardRoutes(router: Router): void {
 
         // Top categories
         topCategoriesRes,
+
+        // Analytics: page views & sessions
+        analyticsPageViewsRes,
+        prevAnalyticsPageViewsRes,
+        analyticsUniqueVisitorsRes,
+        prevAnalyticsUniqueVisitorsRes,
+        analyticsCurrentVisitorsRes,
       ] = await Promise.all([
-        // Active users (users who made a booking in the period)
+        // Active users (registered consumers, excluding deleted accounts)
         supabase
-          .from("bookings")
-          .select("user_id", { count: "exact", head: true })
+          .from("consumer_users")
+          .select("*", { count: "exact", head: true })
+          .not("email", "like", "deleted+%@example.invalid")
           .gte("created_at", startStr)
           .lte("created_at", endStr),
         supabase
-          .from("bookings")
-          .select("user_id", { count: "exact", head: true })
+          .from("consumer_users")
+          .select("*", { count: "exact", head: true })
+          .not("email", "like", "deleted+%@example.invalid")
           .gte("created_at", prevStartStr)
           .lte("created_at", prevEndStr),
 
@@ -354,6 +369,36 @@ export function registerAdminDashboardRoutes(router: Router): void {
 
         // Top categories
         supabase.rpc("get_top_categories_by_reservations", { start_date: startStr, end_date: endStr, limit_count: 5 }),
+
+        // Analytics: total page views in period
+        supabase
+          .from("analytics_page_views")
+          .select("*", { count: "exact", head: true })
+          .gte("created_at", startStr)
+          .lte("created_at", endStr),
+        supabase
+          .from("analytics_page_views")
+          .select("*", { count: "exact", head: true })
+          .gte("created_at", prevStartStr)
+          .lte("created_at", prevEndStr),
+
+        // Analytics: unique visitors (distinct session_id) — fetch session_ids to count distinct
+        supabase
+          .from("analytics_page_views")
+          .select("session_id")
+          .gte("created_at", startStr)
+          .lte("created_at", endStr),
+        supabase
+          .from("analytics_page_views")
+          .select("session_id")
+          .gte("created_at", prevStartStr)
+          .lte("created_at", prevEndStr),
+
+        // Analytics: current visitors (sessions active in last 5 minutes)
+        supabase
+          .from("analytics_page_views")
+          .select("session_id")
+          .gte("created_at", new Date(Date.now() - 5 * 60 * 1000).toISOString()),
       ]);
 
       // Calculate financial totals
@@ -442,13 +487,122 @@ export function registerAdminDashboardRoutes(router: Router): void {
         };
       });
 
-      // Placeholder for visitor data (would need analytics integration)
-      // For now, estimate based on reservations with a conversion rate
-      const estimatedConversionRate = 0.025; // 2.5% typical e-commerce
-      const estimatedVisitors = Math.round(reservationCount / estimatedConversionRate);
-      const prevEstimatedVisitors = Math.round(prevReservationCount / estimatedConversionRate);
-      const estimatedPageViews = estimatedVisitors * 4.5; // avg pages per session
-      const prevEstimatedPageViews = prevEstimatedVisitors * 4.5;
+      // ── Analytics: real traffic data from analytics_page_views ──────────
+      const totalPageViews = analyticsPageViewsRes.count || 0;
+      const prevTotalPageViews = prevAnalyticsPageViewsRes.count || 0;
+
+      // Unique visitors (distinct session_id)
+      const uniqueSessionIds = new Set(
+        ((analyticsUniqueVisitorsRes.data || []) as Array<{ session_id: string }>).map((r) => r.session_id),
+      );
+      const uniqueVisitors = uniqueSessionIds.size;
+
+      const prevUniqueSessionIds = new Set(
+        ((prevAnalyticsUniqueVisitorsRes.data || []) as Array<{ session_id: string }>).map((r) => r.session_id),
+      );
+      const prevUniqueVisitors = prevUniqueSessionIds.size;
+
+      // Current visitors (distinct sessions in last 5 min)
+      const currentVisitorSessions = new Set(
+        ((analyticsCurrentVisitorsRes.data || []) as Array<{ session_id: string }>).map((r) => r.session_id),
+      );
+      const currentVisitors = currentVisitorSessions.size;
+
+      // Avg time on page: we need duration data — fetch in a separate lightweight query
+      // For now, compute from page views count / unique visitors as a proxy,
+      // or do a targeted query for avg duration
+      let avgTimeSeconds = 0;
+      let prevAvgTimeSeconds = 0;
+      let engagementRateVal = 0;
+      let prevEngagementRateVal = 0;
+      let mobileBounceRateVal = 0;
+      let prevMobileBounceRateVal = 0;
+
+      try {
+        // Fetch session-level aggregates for the current period
+        const { data: sessionAggData } = await supabase
+          .from("analytics_page_views")
+          .select("session_id, duration_seconds, had_interaction, is_mobile")
+          .gte("created_at", startStr)
+          .lte("created_at", endStr);
+
+        const { data: prevSessionAggData } = await supabase
+          .from("analytics_page_views")
+          .select("session_id, duration_seconds, had_interaction, is_mobile")
+          .gte("created_at", prevStartStr)
+          .lte("created_at", prevEndStr);
+
+        // Helper to compute session-level metrics
+        function computeSessionMetrics(rows: Array<{ session_id: string; duration_seconds: number; had_interaction: boolean; is_mobile: boolean }>) {
+          const sessions = new Map<string, { pages: number; totalDuration: number; hadInteraction: boolean; isMobile: boolean }>();
+          for (const r of rows) {
+            const s = sessions.get(r.session_id);
+            if (!s) {
+              sessions.set(r.session_id, {
+                pages: 1,
+                totalDuration: r.duration_seconds || 0,
+                hadInteraction: r.had_interaction,
+                isMobile: r.is_mobile,
+              });
+            } else {
+              s.pages++;
+              s.totalDuration += r.duration_seconds || 0;
+              if (r.had_interaction) s.hadInteraction = true;
+            }
+          }
+
+          let totalDuration = 0;
+          let sessionCount = 0;
+          let engagedCount = 0;
+          let mobileTotal = 0;
+          let mobileBounced = 0;
+
+          for (const s of sessions.values()) {
+            sessionCount++;
+            totalDuration += s.totalDuration;
+
+            // Engaged = 2+ pages OR had_interaction OR duration > 10s
+            if (s.pages >= 2 || s.hadInteraction || s.totalDuration > 10) {
+              engagedCount++;
+            }
+
+            if (s.isMobile) {
+              mobileTotal++;
+              if (s.pages === 1) mobileBounced++;
+            }
+          }
+
+          return {
+            avgTime: sessionCount > 0 ? Math.round(totalDuration / sessionCount) : 0,
+            engagementRate: sessionCount > 0 ? (engagedCount / sessionCount) * 100 : 0,
+            mobileBounceRate: mobileTotal > 0 ? (mobileBounced / mobileTotal) * 100 : 0,
+          };
+        }
+
+        const currentMetrics = computeSessionMetrics(
+          (sessionAggData || []) as Array<{ session_id: string; duration_seconds: number; had_interaction: boolean; is_mobile: boolean }>,
+        );
+        const prevMetrics = computeSessionMetrics(
+          (prevSessionAggData || []) as Array<{ session_id: string; duration_seconds: number; had_interaction: boolean; is_mobile: boolean }>,
+        );
+
+        avgTimeSeconds = currentMetrics.avgTime;
+        prevAvgTimeSeconds = prevMetrics.avgTime;
+        engagementRateVal = currentMetrics.engagementRate;
+        prevEngagementRateVal = prevMetrics.engagementRate;
+        mobileBounceRateVal = currentMetrics.mobileBounceRate;
+        prevMobileBounceRateVal = prevMetrics.mobileBounceRate;
+      } catch (analyticsErr) {
+        log.warn({ err: analyticsErr }, "Analytics session aggregation failed, using defaults");
+      }
+
+      // Format avg time as "Xm Xs"
+      const formatAvgTime = (seconds: number): string => {
+        if (seconds === 0) return "0s";
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return m > 0 ? `${m}m ${s}s` : `${s}s`;
+      };
 
       const stats: DashboardStats = {
         activeUsers: {
@@ -533,17 +687,26 @@ export function registerAdminDashboardRoutes(router: Router): void {
           delta: "N/A",
         },
 
-        visitors: {
-          value: estimatedVisitors,
-          delta: calculateDelta(estimatedVisitors, prevEstimatedVisitors),
+        currentVisitors: { value: currentVisitors },
+        uniqueVisitors: {
+          value: uniqueVisitors,
+          delta: calculateDelta(uniqueVisitors, prevUniqueVisitors),
         },
         pageViews: {
-          value: Math.round(estimatedPageViews),
-          delta: calculateDelta(estimatedPageViews, prevEstimatedPageViews),
+          value: totalPageViews,
+          delta: calculateDelta(totalPageViews, prevTotalPageViews),
         },
-        conversionRate: {
-          value: `${(estimatedConversionRate * 100).toFixed(1)}%`,
-          delta: "0%",
+        avgTimeOnPage: {
+          value: formatAvgTime(avgTimeSeconds),
+          delta: calculateDelta(avgTimeSeconds, prevAvgTimeSeconds),
+        },
+        engagementRate: {
+          value: `${engagementRateVal.toFixed(1)}%`,
+          delta: calculateDelta(engagementRateVal, prevEngagementRateVal),
+        },
+        mobileBounceRate: {
+          value: `${mobileBounceRateVal.toFixed(1)}%`,
+          delta: calculateDelta(mobileBounceRateVal, prevMobileBounceRateVal),
         },
 
         reservationsChart: chartData,
@@ -570,22 +733,32 @@ export function registerAdminDashboardRoutes(router: Router): void {
 
       return res.json(stats);
     } catch (error) {
-      console.error("[Dashboard] Stats error:", error);
+      log.error({ err: error }, "stats error");
       return res.status(500).json({ error: "Erreur lors de la récupération des statistiques" });
     }
   }) as RequestHandler);
 
-  // Endpoint for real-time visitor count (placeholder for WebSocket/analytics)
+  // Endpoint for real-time visitor count (distinct sessions in last 5 min)
   router.get("/api/admin/dashboard/realtime", (async (_req, res) => {
     try {
-      // This would typically connect to a real-time analytics service
-      // For now, return simulated data
+      const supabase = getAdminSupabase();
+      const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+
+      const { data } = await supabase
+        .from("analytics_page_views")
+        .select("session_id")
+        .gte("created_at", fiveMinAgo);
+
+      const uniqueSessions = new Set(
+        ((data || []) as Array<{ session_id: string }>).map((r) => r.session_id),
+      );
+
       return res.json({
-        currentVisitors: Math.floor(Math.random() * 50) + 10,
+        currentVisitors: uniqueSessions.size,
         lastUpdated: new Date().toISOString(),
       });
     } catch (error) {
-      console.error("[Dashboard] Realtime error:", error);
+      log.error({ err: error }, "realtime error");
       return res.status(500).json({ error: "Erreur" });
     }
   }) as RequestHandler);

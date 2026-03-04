@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3, CalendarDays, Check, CheckCircle, ChevronLeft, ChevronRight, Clock, Copy, Download, Edit3, Eye, Filter, LayoutList, ListPlus, Loader2, MessageSquareText, Search, Settings2, ShieldAlert, Users, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, BarChart3, CalendarDays, Check, CheckCircle, ChevronLeft, ChevronRight, Clock, Copy, Download, Edit3, Eye, Filter, LayoutList, ListPlus, Loader2, MessageSquareText, Search, Settings2, ShieldAlert, Users, XCircle } from "lucide-react";
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
@@ -49,12 +49,14 @@ import {
   getClientRiskScore,
   getComputedReservationKind,
   getGuestInfo,
+  getEstablishmentNoShows,
   getNoShowCount,
   getPaymentBadge,
   getRiskBadge,
   getRiskLevel,
   getStatusBadges,
   getSuggestedSlots,
+  hasEstablishmentNoShow,
   hasProposedChange,
   isGuaranteedReservation,
   isPastGracePeriod,
@@ -265,7 +267,7 @@ export function ProReservationsTab({ establishment, role }: Props) {
   const [selectedDay, setSelectedDay] = useState<string>(() => todayYmd());
   const [showAll, setShowAll] = useState(true);
   const [workflowFilter, setWorkflowFilter] = useState<"all" | "modif" | "proposition">("all");
-  const [timeFilter, setTimeFilter] = useState<"current" | "expired" | "all">("current");
+  const [timeFilter, setTimeFilter] = useState<"current" | "expired" | "all">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -1173,19 +1175,19 @@ export function ProReservationsTab({ establishment, role }: Props) {
               <div className="min-w-[200px] flex-1 max-w-[320px]">
                 <Label className="text-xs text-slate-500 mb-1 block">Recherche</Label>
                 <div className="relative">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <Input
                     type="text"
                     placeholder="Nom, téléphone, email, référence..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="h-9 text-sm pl-8"
+                    className="h-9 text-sm ps-8"
                   />
                   {searchQuery && (
                     <button
                       type="button"
                       onClick={() => setSearchQuery("")}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      className="absolute end-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                       aria-label="Effacer la recherche"
                     >
                       <XCircle className="w-4 h-4" />
@@ -1350,7 +1352,7 @@ export function ProReservationsTab({ establishment, role }: Props) {
                         <AccordionItem key={r.id} value={r.id} data-reservation-id={r.id} className="border rounded-xl mb-3 overflow-hidden">
                           <AccordionTrigger className="px-4">
                             <div className="flex flex-1 items-start justify-between gap-3">
-                              <div className="min-w-0 text-left">
+                              <div className="min-w-0 text-start">
                                 <div className="font-semibold">
                                   {Number.isFinite(when.getTime()) ? formatLeJjMmAaAHeure(when) : r.starts_at}
                                 </div>
@@ -1408,7 +1410,7 @@ export function ProReservationsTab({ establishment, role }: Props) {
                                     ) : null}
                                   </div>
                                 </div>
-                                <div className="text-right">
+                                <div className="text-end">
                                   <div className="text-xs text-slate-500">Quantité</div>
                                   <div className="font-semibold tabular-nums">{r.party_size ?? "—"}</div>
                                 </div>
@@ -1425,6 +1427,12 @@ export function ProReservationsTab({ establishment, role }: Props) {
                                   return <Badge className={`${payment.cls} whitespace-nowrap`}>{payment.label}</Badge>;
                                 })()}
                                 <Badge className={`${riskBadge.cls} whitespace-nowrap`}>{riskBadge.label}</Badge>
+                                {hasEstablishmentNoShow(r) ? (
+                                  <Badge className="bg-orange-100 text-orange-700 border-orange-200 whitespace-nowrap gap-1">
+                                    <AlertTriangle className="w-3 h-3" />
+                                    No-show chez vous
+                                  </Badge>
+                                ) : null}
                                 {needsGuarantee ? (
                                   <Badge className="bg-red-50 text-red-700 border-red-200 whitespace-nowrap">Garantie obligatoire</Badge>
                                 ) : null}
@@ -1668,7 +1676,7 @@ export function ProReservationsTab({ establishment, role }: Props) {
                         </div>
                       </TableHead>
                       <TableHead className="whitespace-nowrap">Dernier message</TableHead>
-                      <TableHead className="text-right whitespace-nowrap">Actions</TableHead>
+                      <TableHead className="text-end whitespace-nowrap">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1772,6 +1780,20 @@ export function ProReservationsTab({ establishment, role }: Props) {
                             {getNoShowCount(r) ? (
                               <div className="text-xs text-slate-500">No-show: {getNoShowCount(r)}</div>
                             ) : null}
+                            {hasEstablishmentNoShow(r) ? (
+                              <div className="mt-1 flex items-start gap-1 rounded-md bg-orange-50 border border-orange-200 px-2 py-1">
+                                <AlertTriangle className="w-3.5 h-3.5 text-orange-600 mt-0.5 shrink-0" />
+                                <div className="text-xs text-orange-700 font-medium">
+                                  No-show chez vous
+                                  {(() => {
+                                    const nsList = getEstablishmentNoShows(r);
+                                    if (!nsList.length) return null;
+                                    const last = nsList[0];
+                                    return ` (${last.date}, ${last.party_size} pers.)`;
+                                  })()}
+                                </div>
+                              </div>
+                            ) : null}
                           </TableCell>
 
                           <TableCell className="min-w-[260px]">
@@ -1801,7 +1823,7 @@ export function ProReservationsTab({ establishment, role }: Props) {
                             )}
                           </TableCell>
 
-                          <TableCell className="text-right whitespace-nowrap align-top">
+                          <TableCell className="text-end whitespace-nowrap align-top">
                             <div className="grid grid-cols-2 gap-1.5 min-w-[200px]">
                               <Button
                                 type="button"

@@ -632,7 +632,7 @@ export function NewsletterTab() {
               Annuler
             </Button>
             <Button onClick={handleSaveEdit} disabled={saving}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              {saving ? <Loader2 className="h-4 w-4 animate-spin me-2" /> : null}
               Enregistrer
             </Button>
           </DialogFooter>
@@ -655,7 +655,7 @@ export function NewsletterTab() {
               disabled={deleting}
               className="bg-red-600 hover:bg-red-700"
             >
-              {deleting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin me-2" /> : null}
               Supprimer
             </AlertDialogAction>
           </AlertDialogFooter>

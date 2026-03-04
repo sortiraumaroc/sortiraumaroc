@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronUp, Copy, History } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronUp, Copy, Gift, History } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,11 +8,14 @@ import { toast } from "@/hooks/use-toast";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import {
   getClientRiskScore,
+  getEstablishmentNoShows,
   getGuestInfo,
+  getNoShowCount,
   getPaymentBadge,
   getRiskBadge,
   getRiskLevel,
   getStatusBadges,
+  hasEstablishmentNoShow,
   isGuaranteedReservation,
 } from "@/components/pro/reservations/reservationHelpers";
 import { ReservationTimeline } from "@/components/pro/reservations/ReservationTimeline";
@@ -178,9 +181,50 @@ export function ProReservationDetailsDialog(props: {
                   {r.is_from_waitlist ? (
                     <Badge className="bg-blue-50 text-blue-700 border-blue-200 whitespace-nowrap">Depuis liste d'attente</Badge>
                   ) : null}
+                  {isRecord(r.meta) && r.meta.ftour_offert === true ? (
+                    <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 whitespace-nowrap">🎁 Ftour SAM</Badge>
+                  ) : null}
                 </div>
               </div>
             </div>
+
+            {hasEstablishmentNoShow(r) ? (
+              <div className="rounded-lg border-2 border-orange-300 bg-orange-50 p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle className="w-5 h-5 text-orange-600" />
+                  <div className="text-sm font-bold text-orange-800">
+                    Attention : Ce client a des no-shows chez vous
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  {getEstablishmentNoShows(r).map((ns, i) => (
+                    <div key={i} className="text-sm text-orange-700 flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" />
+                      <span>Le {ns.date} à {ns.time} — {ns.party_size} personne(s)</span>
+                    </div>
+                  ))}
+                </div>
+                {getNoShowCount(r) > getEstablishmentNoShows(r).length ? (
+                  <div className="mt-2 text-xs text-orange-600">
+                    + {getNoShowCount(r) - getEstablishmentNoShows(r).length} no-show(s) dans d'autres établissements
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {isRecord(r.meta) && r.meta.ftour_offert === true ? (
+              <div className="rounded-lg border-2 border-emerald-300 bg-emerald-50 p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Gift className="w-5 h-5 text-emerald-600" />
+                  <div className="text-sm font-bold text-emerald-800">
+                    Ftour offert par SAM.ma
+                  </div>
+                </div>
+                <p className="text-sm text-emerald-700 leading-relaxed">
+                  Ce repas est offert dans le cadre des accords négociés avec la plateforme SAM.ma. Valable pour 1 personne.
+                </p>
+              </div>
+            ) : null}
 
             <div className="rounded-lg border border-slate-200 bg-white">
               <div className="px-4 py-3 border-b border-slate-200 text-sm font-semibold text-slate-900">Client</div>

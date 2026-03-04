@@ -62,7 +62,7 @@ export function VerifyEmailScreen({
         <button
           type="button"
           onClick={onBack}
-          className="p-1.5 -ml-1.5 rounded-full hover:bg-slate-100 transition-colors"
+          className="p-1.5 -ms-1.5 rounded-full hover:bg-slate-100 transition-colors"
           aria-label="Retour"
           disabled={loading}
         >

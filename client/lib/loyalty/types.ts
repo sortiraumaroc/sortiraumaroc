@@ -2,6 +2,40 @@
 // SAM LOYALTY SYSTEM - Types TypeScript
 // =============================================================================
 
+// Re-export V2 types from shared
+export type {
+  StampFrequency,
+  CardTextColor,
+  LoyaltyProgramStatus,
+  LoyaltyCardStatusV2,
+  StampTypeV2,
+  LoyaltyProgramV2Fields,
+  LoyaltyCardV2Fields,
+  LoyaltyStampV2Fields,
+  PlatformGiftType,
+  PlatformGiftStatus,
+  PlatformGift,
+  PlatformGiftCreate,
+  DistributionMethod,
+  PlatformGiftDistributionStatus,
+  PlatformGiftDistribution,
+  DistributionCriteria,
+  LoyaltyAlertType,
+  LoyaltyAlertStatus,
+  LoyaltyAlert,
+  ScanLoyaltyResult,
+  ConditionalStampResult,
+  LoyaltyAdminStats,
+  PlatformGiftsStats,
+} from "../../../shared/loyaltyTypesV2";
+
+export {
+  getPlatformGiftRemaining,
+  LOYALTY_FRAUD_THRESHOLDS,
+  LOYALTY_SCORING,
+  LOYALTY_DEFAULTS,
+} from "../../../shared/loyaltyTypesV2";
+
 // Design de la carte
 export type CardDesignStyle = "solid" | "gradient" | "pastel" | "neon";
 
@@ -11,6 +45,7 @@ export type CardDesign = {
   secondary_color?: string;
   stamp_icon: string; // lucide icon name: coffee, pizza, scissors, star, heart, etc.
   logo_url?: string | null;
+  background_url?: string | null;
 };
 
 // Règles de bonus
@@ -52,6 +87,26 @@ export type LoyaltyProgram = {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+
+  // V2 fields
+  stamp_frequency?: import("../../../shared/loyaltyTypesV2").StampFrequency;
+  stamp_requires_reservation?: boolean;
+  stamp_conditional?: boolean;
+  stamp_minimum_amount?: number | null;
+  stamp_minimum_currency?: string;
+  card_validity_days?: number | null;
+  is_renewable?: boolean;
+  card_background_image?: string | null;
+  card_background_opacity?: number;
+  card_logo?: string | null;
+  card_text_color?: import("../../../shared/loyaltyTypesV2").CardTextColor;
+  card_stamp_filled_color?: string | null;
+  card_stamp_empty_color?: string;
+  card_stamp_custom_icon?: string | null;
+  status?: import("../../../shared/loyaltyTypesV2").LoyaltyProgramStatus;
+  suspended_by?: string | null;
+  suspended_reason?: string | null;
+  suspended_at?: string | null;
 };
 
 export type LoyaltyProgramCreate = {
@@ -79,7 +134,7 @@ export type LoyaltyProgramUpdate = Partial<LoyaltyProgramCreate> & {
 // CARTE DE FIDÉLITÉ
 // =============================================================================
 
-export type LoyaltyCardStatus = "active" | "completed" | "reward_pending" | "reward_used" | "expired";
+export type LoyaltyCardStatus = "active" | "completed" | "reward_pending" | "reward_used" | "expired" | "frozen";
 
 export type LoyaltyCard = {
   id: string;
@@ -100,11 +155,23 @@ export type LoyaltyCard = {
     id: string;
     name: string;
     slug: string | null;
+    logo_url: string | null;
     cover_url: string | null;
     city: string | null;
   };
   stamps?: LoyaltyStamp[];
   active_reward?: LoyaltyReward | null;
+
+  // V2 fields
+  reward_description?: string | null;
+  reward_type?: string | null;
+  reward_value?: string | null;
+  reward_expires_at?: string | null;
+  reward_claimed_at?: string | null;
+  qr_reward_token?: string | null;
+  previous_card_id?: string | null;
+  started_at?: string | null;
+  stamps_required?: number | null;
 };
 
 // Carte avec infos complètes pour affichage
@@ -114,6 +181,7 @@ export type LoyaltyCardFull = LoyaltyCard & {
     id: string;
     name: string;
     slug: string | null;
+    logo_url: string | null;
     cover_url: string | null;
     city: string | null;
   };
@@ -125,7 +193,7 @@ export type LoyaltyCardFull = LoyaltyCard & {
 // TAMPONS
 // =============================================================================
 
-export type StampType = "regular" | "bonus" | "birthday" | "happy_hour" | "sam_booking" | "retroactive" | "manual";
+export type StampType = "regular" | "bonus" | "birthday" | "happy_hour" | "sam_booking" | "retroactive" | "manual" | "conditional_validated";
 export type StampSource = "scan" | "reservation" | "manual" | "retroactive" | "offline_sync";
 
 export type LoyaltyStamp = {
@@ -144,6 +212,9 @@ export type LoyaltyStamp = {
   synced_at: string | null;
   notes: string | null;
   created_at: string;
+
+  // V2 fields
+  amount_spent?: number | null;
 };
 
 export type StampCreate = {

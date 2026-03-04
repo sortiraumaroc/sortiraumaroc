@@ -9,6 +9,7 @@ export type Establishment = {
   created_by: string | null;
   name: string | null;
   universe: string | null;
+  category: string | null;
   subcategory: string | null;
   specialties: string[] | null;
   city: string | null;
@@ -29,8 +30,10 @@ export type Establishment = {
   amenities: string[] | null;
   tags: string[] | null;
   cover_url: string | null;
+  logo_url: string | null;
   gallery_urls: string[] | null;
   ambiance_tags: string[] | null;
+  service_types: string[] | null;
   mix_experience: Record<string, unknown> | null;
   verified: boolean;
   premium: boolean;
@@ -38,6 +41,7 @@ export type Establishment = {
   edit_status: EstablishmentEditStatus | null;
   booking_enabled: boolean;
   extra: Record<string, unknown> | null;
+  hide_google_reviews?: boolean;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -110,6 +114,7 @@ export type ProSlot = {
   ends_at: string | null;
   capacity: number;
   base_price: number | null;
+  price_type: string | null;
   promo_type: SlotPromoType | null;
   promo_value: number | null;
   promo_label: string | null;
@@ -117,6 +122,7 @@ export type ProSlot = {
   active: boolean;
   created_at: string;
   updated_at: string;
+  cover_url: string | null;
 };
 
 export type Pack = {
@@ -127,6 +133,7 @@ export type Pack = {
   label: string | null;
   items: unknown;
   price: number;
+  price_type: string | null;
   original_price: number | null;
   is_limited: boolean;
   stock: number | null;
@@ -324,4 +331,58 @@ export type UsernameSubscriptionInfo = {
   subscription: UsernameSubscription | null;
   can_start_trial: boolean;
   has_used_trial: boolean;
+};
+
+// ---------------------------------------------------------------------------
+// Pro Onboarding Wizard Types
+// ---------------------------------------------------------------------------
+
+export type ProWizardData = {
+  // Step 1: Identity
+  name: string;
+  universe: string;
+  category: string;
+  subcategory: string;
+  specialties: string[];
+  // Step 2: Location
+  city: string;
+  region: string;
+  neighborhood: string;
+  postal_code: string;
+  address: string;
+  lat: string;
+  lng: string;
+  // Step 3: Contact
+  phone_country: string;
+  phone_national: string;
+  whatsapp_country: string;
+  whatsapp_national: string;
+  email: string;
+  website: string;
+  google_maps_url: string;
+  social_instagram: string;
+  social_facebook: string;
+  social_tiktok: string;
+  social_snapchat: string;
+  social_youtube: string;
+  social_tripadvisor: string;
+  // Step 4: Description
+  description_short: string;
+  description_long: string;
+  // Step 5: Media
+  cover_url: string;
+  logo_url: string;
+  gallery_urls: string[];
+  // Step 6: Hours
+  hours: Record<string, unknown>;
+};
+
+export type OnboardingWizardProgress = {
+  establishment_id: string;
+  current_step: number;
+  completed_steps: number[];
+  skipped: boolean;
+  completed: boolean;
+  submitted_at: string | null;
+  data: Partial<ProWizardData>;
 };

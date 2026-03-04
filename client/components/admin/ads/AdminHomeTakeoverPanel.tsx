@@ -334,7 +334,7 @@ export function AdminHomeTakeoverPanel() {
                   className="border-yellow-300"
                   onClick={() => handleDayClick(new Date(day.date))}
                 >
-                  <Calendar className="mr-2 h-4 w-4" />
+                  <Calendar className="me-2 h-4 w-4" />
                   {format(new Date(day.date), "d MMM", { locale: fr })} -{" "}
                   {day.establishment_name || "N/A"}
                 </Button>
@@ -493,15 +493,15 @@ export function AdminHomeTakeoverPanel() {
             <Tabs defaultValue="assets" className="mt-4">
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="assets">
-                  <Image className="h-4 w-4 mr-2" />
+                  <Image className="h-4 w-4 me-2" />
                   Visuels
                 </TabsTrigger>
                 <TabsTrigger value="content">
-                  <Type className="h-4 w-4 mr-2" />
+                  <Type className="h-4 w-4 me-2" />
                   Contenu
                 </TabsTrigger>
                 <TabsTrigger value="style">
-                  <Palette className="h-4 w-4 mr-2" />
+                  <Palette className="h-4 w-4 me-2" />
                   Style
                 </TabsTrigger>
               </TabsList>
@@ -735,7 +735,7 @@ export function AdminHomeTakeoverPanel() {
                   onClick={handleReject}
                   disabled={saving}
                 >
-                  <XCircle className="h-4 w-4 mr-2" />
+                  <XCircle className="h-4 w-4 me-2" />
                   Rejeter
                 </Button>
                 <Button
@@ -745,20 +745,20 @@ export function AdminHomeTakeoverPanel() {
                   className="bg-green-600 hover:bg-green-700"
                 >
                   {saving ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    <Loader2 className="h-4 w-4 me-2 animate-spin" />
                   ) : (
-                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                    <CheckCircle2 className="h-4 w-4 me-2" />
                   )}
                   Confirmer & Débiter
                 </Button>
               </>
             )}
             <Button variant="outline" onClick={() => setPreviewOpen(true)}>
-              <Eye className="h-4 w-4 mr-2" />
+              <Eye className="h-4 w-4 me-2" />
               Aperçu
             </Button>
             <Button onClick={handleSave} disabled={saving}>
-              {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {saving && <Loader2 className="h-4 w-4 me-2 animate-spin" />}
               Enregistrer
             </Button>
           </DialogFooter>

@@ -96,7 +96,7 @@ export const generateReservationPDF = async (data: ReservationPdfData): Promise<
               <!-- QR notice -->
               <div style="margin-top: 12px; background: #fff7f8; border: 1px solid #ffd6dc; border-radius: 8px; padding: 10px 14px; text-align: center;">
                 <p style="margin: 0; font-size: 12px; color: #a3001d; font-weight: 600; line-height: 1.5;">
-                  \u{1F4F1} Pr\u00e9sentez votre QR code personnel dans l\u2019application Sortir Au Maroc pour valider votre r\u00e9servation.
+                  \u{1F4F1} Présentez votre QR code personnel dans l’application Sortir Au Maroc pour valider votre réservation.
                 </p>
               </div>
           </div>

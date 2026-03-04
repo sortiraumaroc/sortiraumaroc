@@ -538,7 +538,7 @@ export function AdminUserDetailsPage() {
   return (
     <div className="space-y-4">
       <AdminPageHeader
-        title={
+        title={(
           user ? (
             <div className="flex items-center gap-2">
               <span>{user.displayName || user.name || "Client"}</span>
@@ -548,7 +548,7 @@ export function AdminUserDetailsPage() {
           ) : (
             "Fiche client"
           )
-        }
+        ) as any}
         description=""
         actions={
           <div className="flex flex-wrap items-center gap-2">

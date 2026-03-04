@@ -402,7 +402,7 @@ export function ProBookingSettingsTab({ establishment, role }: Props) {
                         className="flex-1"
                         aria-label="Pénalité après la limite"
                       />
-                      <span className="text-lg font-bold text-amber-700 w-16 text-right">{draft.cancellation_penalty_percent}%</span>
+                      <span className="text-lg font-bold text-amber-700 w-16 text-end">{draft.cancellation_penalty_percent}%</span>
                     </div>
                     <div className="text-xs text-amber-700">
                       → Si le client annule moins de {draft.free_cancellation_hours}h avant, il perd {draft.cancellation_penalty_percent}% du montant
@@ -524,9 +524,9 @@ export function ProBookingSettingsTab({ establishment, role }: Props) {
                     }}
                     disabled={!writable || saving}
                     placeholder="Ex: 60"
-                    className="pr-16"
+                    className="pe-16"
                   />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">MAD/pers.</span>
+                  <span className="absolute end-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">MAD/pers.</span>
                 </div>
                 <div className="text-xs text-slate-500">
                   {draft.deposit_per_person && draft.deposit_per_person > 0

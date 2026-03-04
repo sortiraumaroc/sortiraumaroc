@@ -1,7 +1,14 @@
 import { createHmac } from "crypto";
 import type { RequestHandler } from "express";
+import type { Express } from "express";
 
 import { getAdminSupabase } from "../supabaseAdmin";
+import { zQuery } from "../lib/validate";
+import {
+  TrackEmailOpenQuery,
+  TrackEmailClickQuery,
+  TrackEmailUnsubscribeQuery,
+} from "../schemas/emailTracking";
 
 function asString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -129,3 +136,13 @@ export const trackEmailUnsubscribe: RequestHandler = async (req, res) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.status(200).send(`<!doctype html><html lang="fr"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Désinscription confirmée</title></head><body style="font-family:Arial,Helvetica,sans-serif;background:#f6f6f7;margin:0;padding:24px;"><div style="max-width:640px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:18px;"><h1 style="margin:0 0 8px 0;font-size:18px;">Désinscription confirmée</h1><p style="margin:0;font-size:14px;line-height:1.6;color:#111827;">Vous ne recevrez plus nos campagnes marketing sur <strong>${email.replace(/</g, "&lt;")}</strong>.</p><p style="margin:12px 0 0 0;font-size:13px;line-height:1.6;color:#6b7280;">Les emails transactionnels (réservations, paiements, sécurité) peuvent toujours vous être envoyés.</p></div></body></html>`);
 };
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerEmailTrackingRoutes(app: Express) {
+  app.get("/api/public/email/open", zQuery(TrackEmailOpenQuery), trackEmailOpen);
+  app.get("/api/public/email/click", zQuery(TrackEmailClickQuery), trackEmailClick);
+  app.get("/api/public/email/unsubscribe", zQuery(TrackEmailUnsubscribeQuery), trackEmailUnsubscribe);
+}

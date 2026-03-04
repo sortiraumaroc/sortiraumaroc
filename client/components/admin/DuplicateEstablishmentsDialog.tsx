@@ -188,7 +188,7 @@ export function DuplicateEstablishmentsDialog({ open, onOpenChange, adminKey, on
               )}
             </div>
 
-            <div className="flex-1 min-h-0 overflow-y-auto pr-1" style={{ maxHeight: "calc(90vh - 220px)" }}>
+            <div className="flex-1 min-h-0 overflow-y-auto pe-1" style={{ maxHeight: "calc(90vh - 220px)" }}>
               <div className="space-y-6 pb-2">
                 {groups.map((group, gi) => (
                   <div key={gi} className="rounded-lg border border-slate-200 bg-slate-50/50">

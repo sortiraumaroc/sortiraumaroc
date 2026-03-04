@@ -10,6 +10,12 @@
 import type { RequestHandler, Router } from "express";
 import { randomUUID } from "node:crypto";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
+import { zBody, zQuery } from "../lib/validate";
+import { TrackImpressionSchema, TrackClickSchema, TrackConversionSchema, SponsoredAdsQuery, FeaturedPackQuery, DisplayBannerQuery } from "../schemas/publicAds";
+
+const log = createModuleLogger("publicAds");
+import { adReadRateLimiter, adImpressionRateLimiter, adClickRateLimiter } from "../middleware/rateLimiter";
 
 // =============================================================================
 // HELPERS
@@ -74,6 +80,7 @@ export const getSponsoredResults: RequestHandler = async (req, res) => {
           name,
           city,
           address,
+          neighborhood,
           cover_url,
           subcategory,
           avg_rating,
@@ -91,7 +98,7 @@ export const getSponsoredResults: RequestHandler = async (req, res) => {
     const { data: campaigns, error } = await query;
 
     if (error) {
-      console.error("[publicAds] Error fetching sponsored campaigns:", error);
+      log.error({ err: error }, "Error fetching sponsored campaigns");
       return res.status(500).json({ error: "Erreur serveur" });
     }
 
@@ -170,6 +177,7 @@ export const getSponsoredResults: RequestHandler = async (req, res) => {
           name: establishment.name,
           city: establishment.city,
           address: establishment.address,
+          neighborhood: establishment.neighborhood ?? null,
           cover_url: establishment.cover_url,
           subcategory: establishment.subcategory,
           avg_rating: establishment.avg_rating,
@@ -188,7 +196,7 @@ export const getSponsoredResults: RequestHandler = async (req, res) => {
       total: sponsored.length,
     });
   } catch (error) {
-    console.error("[publicAds] getSponsoredResults error:", error);
+    log.error({ err: error }, "getSponsoredResults error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -231,6 +239,7 @@ export const getFeaturedPack: RequestHandler = async (req, res) => {
           universe,
           city,
           address,
+          neighborhood,
           cover_url,
           subcategory,
           avg_rating,
@@ -246,7 +255,7 @@ export const getFeaturedPack: RequestHandler = async (req, res) => {
       .eq("moderation_status", "approved");
 
     if (error) {
-      console.error("[publicAds] Error fetching featured pack campaigns:", error);
+      log.error({ err: error }, "Error fetching featured pack campaigns");
       return res.status(500).json({ error: "Erreur serveur" });
     }
 
@@ -331,6 +340,7 @@ export const getFeaturedPack: RequestHandler = async (req, res) => {
           universe: establishment.universe,
           city: establishment.city,
           address: establishment.address,
+          neighborhood: establishment.neighborhood ?? null,
           cover_url: establishment.cover_url,
           subcategory: establishment.subcategory,
           avg_rating: establishment.avg_rating,
@@ -343,7 +353,7 @@ export const getFeaturedPack: RequestHandler = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("[publicAds] getFeaturedPack error:", error);
+    log.error({ err: error }, "getFeaturedPack error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -382,7 +392,7 @@ export const trackImpression: RequestHandler = async (req, res) => {
 
     return res.json({ ok: true, impression_id: impressionId });
   } catch (error) {
-    console.error("[publicAds] trackImpression error:", error);
+    log.error({ err: error }, "trackImpression error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
@@ -471,14 +481,50 @@ export const trackClick: RequestHandler = async (req, res) => {
       is_valid: isValid,
     });
   } catch (error) {
-    console.error("[publicAds] trackClick error:", error);
+    log.error({ err: error }, "trackClick error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
 
 // =============================================================================
-// REGISTER ROUTES
+// TRACK CONVERSION
 // =============================================================================
+
+/**
+ * POST /api/public/ads/conversion
+ * Enregistre une conversion publicitaire (réservation, achat pack, etc.)
+ */
+export const trackConversion: RequestHandler = async (req, res) => {
+  const { user_id, conversion_type, conversion_value_cents, entity_type, entity_id, establishment_id } = req.body;
+
+  if (!user_id || !conversion_type || !establishment_id) {
+    return res.status(400).json({ error: "user_id, conversion_type et establishment_id requis" });
+  }
+
+  const validTypes = ["reservation", "pack_purchase", "page_view", "contact"];
+  if (!validTypes.includes(conversion_type)) {
+    return res.status(400).json({ error: `conversion_type invalide. Attendu: ${validTypes.join(", ")}` });
+  }
+
+  try {
+    const { recordConversion } = await import("../ads/qualityScore");
+    const supabase = getAdminSupabase();
+
+    const result = await recordConversion(supabase, {
+      userId: user_id,
+      conversionType: conversion_type,
+      conversionValueCents: conversion_value_cents,
+      entityType: entity_type,
+      entityId: entity_id,
+      establishmentId: establishment_id,
+    });
+
+    return res.json({ ok: true, ...result });
+  } catch (error) {
+    log.error({ err: error }, "trackConversion error");
+    return res.status(500).json({ error: "Erreur serveur" });
+  }
+};
 
 // =============================================================================
 // GET HOME TAKEOVER (today's homepage takeover)
@@ -552,15 +598,176 @@ export const getHomeTakeover: RequestHandler = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("[publicAds] getHomeTakeover error:", error);
+    log.error({ err: error }, "getHomeTakeover error");
+    return res.status(500).json({ error: "Erreur serveur" });
+  }
+};
+
+// =============================================================================
+// GET DISPLAY BANNER (IAB ad for establishment detail page)
+// =============================================================================
+
+/**
+ * GET /api/public/ads/display-banner
+ * Récupère une bannière display à afficher sur une fiche établissement.
+ * Sélection aléatoire pondérée par score d'enchère (bid × quality × CTR).
+ * Retourne null si aucune campagne éligible.
+ */
+export const getDisplayBanner: RequestHandler = async (req, res) => {
+  const supabase = getAdminSupabase();
+
+  const placement = asString(req.query.placement) || "establishment_detail_slot_1";
+  const city = asString(req.query.city);
+  const country = asString(req.query.country);
+  const deviceType = asString(req.query.device_type) as "mobile" | "desktop" | "tablet" | undefined;
+
+  try {
+    // Récupérer les campagnes display_banner actives et approuvées
+    const { data: campaigns, error } = await supabase
+      .from("pro_campaigns")
+      .select(`
+        id,
+        establishment_id,
+        title,
+        bid_amount_cents,
+        cpc_cents,
+        cpm_cents,
+        billing_model,
+        daily_budget_cents,
+        daily_spent_cents,
+        remaining_cents,
+        targeting,
+        quality_score,
+        ctr,
+        starts_at,
+        ends_at
+      `)
+      .eq("type", "display_banner")
+      .eq("status", "active")
+      .eq("moderation_status", "approved");
+
+    if (error) {
+      log.error({ err: error }, "Error fetching display banner campaigns");
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+
+    if (!campaigns || campaigns.length === 0) {
+      return res.json({ ok: true, banner: null });
+    }
+
+    const now = new Date();
+
+    // Filtrer les campagnes éligibles
+    const eligible = campaigns.filter((c: any) => {
+      // Dates
+      if (c.starts_at && new Date(c.starts_at) > now) return false;
+      if (c.ends_at && new Date(c.ends_at) <= now) return false;
+
+      // Budget restant
+      const minCost = c.billing_model === "cpm"
+        ? Math.ceil((c.cpm_cents ?? 300) / 1000)
+        : (c.cpc_cents ?? c.bid_amount_cents ?? 150);
+      if ((c.remaining_cents ?? 0) < minCost) return false;
+
+      // Budget quotidien
+      if (c.daily_budget_cents && c.daily_spent_cents >= c.daily_budget_cents) return false;
+
+      // --- Ciblage ---
+      const targeting = c.targeting as any ?? {};
+
+      // Ciblage par placement
+      if (targeting.placements?.length > 0) {
+        if (!targeting.placements.includes(placement)) return false;
+      }
+
+      // Ciblage par ville
+      if (city && targeting.cities?.length > 0) {
+        const cityLower = city.toLowerCase();
+        if (!(targeting.cities as string[]).some((v: string) => v.toLowerCase() === cityLower)) return false;
+      }
+
+      // Ciblage par pays
+      if (country && targeting.countries?.length > 0) {
+        const countryUpper = country.toUpperCase();
+        if (!(targeting.countries as string[]).some((p: string) => p.toUpperCase() === countryUpper)) return false;
+      }
+
+      // Ciblage par device
+      if (deviceType && targeting.device_types?.length > 0) {
+        if (!(targeting.device_types as string[]).includes(deviceType)) return false;
+      }
+
+      return true;
+    });
+
+    if (eligible.length === 0) {
+      return res.json({ ok: true, banner: null });
+    }
+
+    // Calculer les scores pour la sélection pondérée
+    const scored = eligible.map((c: any) => {
+      const bidCents = c.bid_amount_cents ?? c.cpc_cents ?? c.cpm_cents ?? 300;
+      const qualityScore = c.quality_score ?? 1.0;
+      const ctr = c.ctr ?? 0.01;
+      const ctrFactor = 1 + Math.log10(1 + ctr * 100);
+      const score = bidCents * qualityScore * ctrFactor;
+      return { campaign: c, score };
+    });
+
+    // Sélection aléatoire pondérée
+    const totalScore = scored.reduce((sum: number, item: any) => sum + item.score, 0);
+    let random = Math.random() * totalScore;
+    let selectedCampaign = scored[0].campaign;
+
+    for (const item of scored) {
+      random -= item.score;
+      if (random <= 0) {
+        selectedCampaign = item.campaign;
+        break;
+      }
+    }
+
+    // Récupérer la créative banner approuvée de la campagne gagnante
+    const { data: creative } = await supabase
+      .from("ad_creatives")
+      .select("id, type, content, status")
+      .eq("campaign_id", selectedCampaign.id)
+      .eq("type", "banner")
+      .eq("status", "approved")
+      .limit(1)
+      .maybeSingle();
+
+    if (!creative || !creative.content) {
+      // Pas de créative banner approuvée → ne rien afficher
+      return res.json({ ok: true, banner: null });
+    }
+
+    const content = creative.content as any;
+
+    return res.json({
+      ok: true,
+      banner: {
+        campaign_id: selectedCampaign.id,
+        creative_id: creative.id,
+        desktop_url: content.desktop_url ?? null,
+        mobile_url: content.mobile_url ?? null,
+        cta_url: content.cta_url ?? null,
+        cta_text: content.cta_text ?? null,
+        alt_text: content.alt_text ?? null,
+      },
+    });
+  } catch (error) {
+    log.error({ err: error }, "getDisplayBanner error");
     return res.status(500).json({ error: "Erreur serveur" });
   }
 };
 
 export function registerPublicAdsRoutes(app: Router) {
-  app.get("/api/public/ads/sponsored", getSponsoredResults);
-  app.get("/api/public/ads/featured-pack", getFeaturedPack);
-  app.get("/api/public/ads/home-takeover", getHomeTakeover);
-  app.post("/api/public/ads/impression", trackImpression);
-  app.post("/api/public/ads/click", trackClick);
+  app.get("/api/public/ads/sponsored", zQuery(SponsoredAdsQuery), adReadRateLimiter, getSponsoredResults);
+  app.get("/api/public/ads/featured-pack", zQuery(FeaturedPackQuery), adReadRateLimiter, getFeaturedPack);
+  app.get("/api/public/ads/home-takeover", adReadRateLimiter, getHomeTakeover);
+  app.get("/api/public/ads/display-banner", zQuery(DisplayBannerQuery), adReadRateLimiter, getDisplayBanner);
+  app.post("/api/public/ads/impression", adImpressionRateLimiter, zBody(TrackImpressionSchema), trackImpression);
+  app.post("/api/public/ads/click", adClickRateLimiter, zBody(TrackClickSchema), trackClick);
+  app.post("/api/public/ads/conversion", adClickRateLimiter, zBody(TrackConversionSchema), trackConversion);
 }

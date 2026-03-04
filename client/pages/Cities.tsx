@@ -4,9 +4,11 @@ import { MapPin } from "lucide-react";
 
 import { Header } from "@/components/Header";
 import { getPublicHomeCities, type PublicHomeCity } from "@/lib/publicApi";
-import { applySeo } from "@/lib/seo";
+import { applySeo, buildI18nSeoFields } from "@/lib/seo";
+import { useI18n } from "@/lib/i18n";
 
 export default function Cities() {
+  const { locale } = useI18n();
   const [cities, setCities] = useState<PublicHomeCity[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -40,6 +42,7 @@ export default function Cities() {
       title: "Villes au Maroc - Sortir Au Maroc",
       description:
         "Explorez toutes les villes du Maroc et découvrez les meilleurs établissements : restaurants, hôtels, loisirs et plus encore.",
+      ...buildI18nSeoFields(locale),
     });
   }, []);
 

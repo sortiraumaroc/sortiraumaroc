@@ -1,5 +1,8 @@
 import { getAdminSupabase } from "../supabaseAdmin";
 import { emitAdminNotification } from "../adminNotifications";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("financeDiscrepancies");
 
 export async function openDiscrepancy(args: {
   entityType: string;
@@ -26,7 +29,7 @@ export async function openDiscrepancy(args: {
     .maybeSingle();
 
   if (selErr) {
-    console.error("openDiscrepancy select failed", selErr);
+    log.error({ err: selErr }, "openDiscrepancy select failed");
     return;
   }
 
@@ -45,7 +48,7 @@ export async function openDiscrepancy(args: {
   });
 
   if (error) {
-    console.error("openDiscrepancy insert failed", error);
+    log.error({ err: error }, "openDiscrepancy insert failed");
     return;
   }
 

@@ -4,9 +4,16 @@
  */
 
 import type { RequestHandler } from "express";
+import type { Express } from "express";
+import { createModuleLogger } from "../lib/logger";
 import { adminSupabase } from "../supabase";
 import { emitAdminNotification } from "../adminNotifications";
 import { notifyProMembers } from "../proNotifications";
+import { getAuditActorInfo } from "./admin";
+import { zBody, zParams, zIdParam } from "../lib/validate";
+import { AdminRejectReviewSchema, AdminResolveReportSchema } from "../schemas/adminReviews";
+
+const log = createModuleLogger("adminReviews");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -74,7 +81,7 @@ async function updateEstablishmentRatingStats(establishmentId: string): Promise<
   });
 
   if (error) {
-    console.error("[adminReviews] Error updating establishment rating stats:", error);
+    log.error({ err: error }, "Error updating establishment rating stats");
   }
 }
 
@@ -140,7 +147,7 @@ export const listAdminReviews: RequestHandler = async (req, res) => {
     const { data, error } = await query;
 
     if (error) {
-      console.error("[adminReviews] listAdminReviews error:", error);
+      log.error({ err: error }, "listAdminReviews error");
       return res.status(500).json({ ok: false, error: error.message });
     }
 
@@ -157,7 +164,7 @@ export const listAdminReviews: RequestHandler = async (req, res) => {
 
     return res.json({ ok: true, items: reviewsWithUserInfo });
   } catch (err) {
-    console.error("[adminReviews] listAdminReviews exception:", err);
+    log.error({ err }, "listAdminReviews exception");
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 };
@@ -194,7 +201,7 @@ export const getAdminReview: RequestHandler = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("[adminReviews] getAdminReview exception:", err);
+    log.error({ err }, "getAdminReview exception");
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 };
@@ -243,18 +250,20 @@ export const approveReview: RequestHandler = async (req, res) => {
     await updateEstablishmentRatingStats(review.establishment_id);
 
     // Log to audit
+    const actor = getAuditActorInfo(req);
     await adminSupabase.from("admin_audit_log").insert({
       source: "admin",
       action: "review.approve",
       entity_type: "review",
       entity_id: id,
       actor_user_id: adminUserId,
-      metadata: { establishment_id: review.establishment_id },
+      actor_id: actor.actor_id,
+      metadata: { establishment_id: review.establishment_id, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
     });
 
     return res.json({ ok: true, status: "approved" });
   } catch (err) {
-    console.error("[adminReviews] approveReview exception:", err);
+    log.error({ err }, "approveReview exception");
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 };
@@ -305,18 +314,20 @@ export const rejectReview: RequestHandler = async (req, res) => {
     }
 
     // Log to audit
+    const actor = getAuditActorInfo(req);
     await adminSupabase.from("admin_audit_log").insert({
       source: "admin",
       action: "review.reject",
       entity_type: "review",
       entity_id: id,
       actor_user_id: adminUserId,
-      metadata: { establishment_id: review.establishment_id, reason: reason.trim() },
+      actor_id: actor.actor_id,
+      metadata: { establishment_id: review.establishment_id, reason: reason.trim(), actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
     });
 
     return res.json({ ok: true, status: "rejected" });
   } catch (err) {
-    console.error("[adminReviews] rejectReview exception:", err);
+    log.error({ err }, "rejectReview exception");
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 };
@@ -369,7 +380,9 @@ export const sendReviewToPro: RequestHandler = async (req, res) => {
     const establishmentName = await getEstablishmentName(review.establishment_id);
 
     // Notify pro members
-    await notifyProMembers(review.establishment_id, {
+    await notifyProMembers({
+      supabase: adminSupabase,
+      establishmentId: review.establishment_id,
       title: "Nouvel avis à traiter",
       body: `Un avis client nécessite votre attention pour ${establishmentName}. Vous avez 24h pour y répondre.`,
       category: "review",
@@ -381,15 +394,20 @@ export const sendReviewToPro: RequestHandler = async (req, res) => {
     });
 
     // Log to audit
+    const actor = getAuditActorInfo(req);
     await adminSupabase.from("admin_audit_log").insert({
       source: "admin",
       action: "review.send_to_pro",
       entity_type: "review",
       entity_id: id,
       actor_user_id: adminUserId,
+      actor_id: actor.actor_id,
       metadata: {
         establishment_id: review.establishment_id,
         deadline: deadline.toISOString(),
+        actor_email: actor.actor_email,
+        actor_name: actor.actor_name,
+        actor_role: actor.actor_role,
       },
     });
 
@@ -399,7 +417,7 @@ export const sendReviewToPro: RequestHandler = async (req, res) => {
       deadline: deadline.toISOString(),
     });
   } catch (err) {
-    console.error("[adminReviews] sendReviewToPro exception:", err);
+    log.error({ err }, "sendReviewToPro exception");
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 };
@@ -438,7 +456,7 @@ export const listAdminReports: RequestHandler = async (req, res) => {
     const { data, error } = await query;
 
     if (error) {
-      console.error("[adminReviews] listAdminReports error:", error);
+      log.error({ err: error }, "listAdminReports error");
       return res.status(500).json({ ok: false, error: error.message });
     }
 
@@ -458,7 +476,7 @@ export const listAdminReports: RequestHandler = async (req, res) => {
 
     return res.json({ ok: true, items: reportsWithUserInfo });
   } catch (err) {
-    console.error("[adminReviews] listAdminReports exception:", err);
+    log.error({ err }, "listAdminReports exception");
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 };
@@ -510,22 +528,27 @@ export const resolveReport: RequestHandler = async (req, res) => {
     }
 
     // Log to audit
+    const actor = getAuditActorInfo(req);
     await adminSupabase.from("admin_audit_log").insert({
       source: "admin",
       action: `report.${status}`,
       entity_type: "establishment_report",
       entity_id: id,
       actor_user_id: adminUserId,
+      actor_id: actor.actor_id,
       metadata: {
         establishment_id: report.establishment_id,
         action_taken,
         notes,
+        actor_email: actor.actor_email,
+        actor_name: actor.actor_name,
+        actor_role: actor.actor_role,
       },
     });
 
     return res.json({ ok: true, status });
   } catch (err) {
-    console.error("[adminReviews] resolveReport exception:", err);
+    log.error({ err }, "resolveReport exception");
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 };
@@ -588,7 +611,21 @@ export const getReviewStats: RequestHandler = async (req, res) => {
       expiring_soon: expiringCount || 0,
     });
   } catch (err) {
-    console.error("[adminReviews] getReviewStats exception:", err);
+    log.error({ err }, "getReviewStats exception");
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 };
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerAdminReviewRoutes(app: Express) {
+  app.get("/api/admin/reviews", listAdminReviews);
+  app.get("/api/admin/reviews/stats", getReviewStats);
+  app.post("/api/admin/reviews/:id/approve", zParams(zIdParam), approveReview);
+  app.post("/api/admin/reviews/:id/reject", zParams(zIdParam), zBody(AdminRejectReviewSchema), rejectReview);
+  app.post("/api/admin/reviews/:id/send-to-pro", zParams(zIdParam), sendReviewToPro);
+  app.get("/api/admin/reports", listAdminReports);
+  app.post("/api/admin/reports/:id/resolve", zParams(zIdParam), zBody(AdminResolveReportSchema), resolveReport);
+}

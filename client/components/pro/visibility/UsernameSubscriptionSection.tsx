@@ -153,19 +153,19 @@ export function UsernameSubscriptionSection({
           </div>
           {isSubscriptionActive && (
             <Badge className="bg-green-100 text-green-700 border-green-200">
-              <Check className="w-3 h-3 mr-1" />
+              <Check className="w-3 h-3 me-1" />
               Actif
             </Badge>
           )}
           {isTrialActive && (
             <Badge className="bg-blue-100 text-blue-700 border-blue-200">
-              <Sparkles className="w-3 h-3 mr-1" />
+              <Sparkles className="w-3 h-3 me-1" />
               Essai
             </Badge>
           )}
           {isGracePeriod && (
             <Badge variant="destructive">
-              <AlertTriangle className="w-3 h-3 mr-1" />
+              <AlertTriangle className="w-3 h-3 me-1" />
               Expire
             </Badge>
           )}

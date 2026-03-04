@@ -82,6 +82,8 @@ import {
   listProReservations,
   sendProConversationMessage,
   markProMessagesRead,
+  markProMessagesUnread,
+  uploadMessageAttachment,
   getProMessageReadReceipts,
   listProClientHistory,
   getProAutoReplySettings,
@@ -90,6 +92,7 @@ import {
   type ProClientHistory,
   type ProMessageReadReceipt,
 } from "@/lib/pro/api";
+import { proSupabase } from "@/lib/pro/supabase";
 import type { Establishment, ProRole } from "@/lib/pro/types";
 
 type Props = {
@@ -563,7 +566,7 @@ function AutoReplySettingsDialog({
             Annuler
           </Button>
           <Button onClick={handleSave} disabled={saving}>
-            {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+            {saving ? <Loader2 className="w-4 h-4 animate-spin me-2" /> : null}
             Enregistrer
           </Button>
         </DialogFooter>
@@ -613,7 +616,7 @@ function ClientHistoryDialog({
                   <div className="font-bold text-slate-900">{history.client.name || "Client"}</div>
                   <div className="text-sm text-slate-500">{history.client.email || "Email non disponible"}</div>
                 </div>
-                <Badge className="ml-auto bg-slate-100 text-slate-700 border-slate-200">
+                <Badge className="ms-auto bg-slate-100 text-slate-700 border-slate-200">
                   {history.client.total_reservations} réservation{history.client.total_reservations > 1 ? "s" : ""}
                 </Badge>
               </div>
@@ -657,15 +660,15 @@ function ClientHistoryDialog({
                       <MessageSquare className="w-3 h-3" />
                       {conv.subject}
                     </div>
-                    <div className="space-y-2 pl-2 border-l-2 border-slate-200">
+                    <div className="space-y-2 ps-2 border-s-2 border-slate-200">
                       {convMessages.map((msg) => (
                         <div
                           key={msg.id}
                           className={cn(
                             "rounded-lg px-3 py-2 text-sm",
                             msg.from_role === "pro"
-                              ? "bg-primary/10 text-slate-800 ml-4"
-                              : "bg-slate-100 text-slate-800 mr-4"
+                              ? "bg-primary/10 text-slate-800 ms-4"
+                              : "bg-slate-100 text-slate-800 me-4"
                           )}
                         >
                           <div className="text-[11px] text-slate-500 mb-1">
@@ -862,6 +865,61 @@ export function ProMessagesTab({ establishment, role }: Props) {
     void loadAutoReplySettings();
   }, [establishment.id, previewMode]);
 
+  // ─── Supabase Realtime: listen to new pro_messages inserts ───
+  useEffect(() => {
+    if (previewMode) return;
+
+    const channelName = `pro-msgs:${establishment.id}`;
+    const channel = proSupabase
+      .channel(channelName)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "pro_messages",
+          filter: `establishment_id=eq.${establishment.id}`,
+        },
+        (payload) => {
+          const row = payload.new as Record<string, unknown> | undefined;
+          if (!row) return;
+
+          const incomingConvId = typeof row.conversation_id === "string" ? row.conversation_id : null;
+          const fromRole = typeof row.from_role === "string" ? row.from_role : "";
+
+          // If the new message is in the currently selected conversation, append it
+          if (incomingConvId && incomingConvId === selectedId && fromRole !== "pro") {
+            const newMsg: Message = {
+              id: typeof row.id === "string" ? row.id : `rt-${Date.now()}`,
+              conversation_id: incomingConvId,
+              establishment_id: establishment.id,
+              from_role: fromRole,
+              body: typeof row.body === "string" ? row.body : "",
+              created_at: typeof row.created_at === "string" ? row.created_at : new Date().toISOString(),
+              sender_user_id: typeof row.sender_user_id === "string" ? row.sender_user_id : null,
+              read_by_pro_at: null,
+              read_by_client_at: null,
+            };
+            setMessages((prev) => {
+              // Avoid duplicates
+              if (prev.some((m) => m.id === newMsg.id)) return prev;
+              return [...prev, newMsg];
+            });
+            // Auto-mark as read since pro is viewing this conversation
+            void markProMessagesRead({ establishmentId: establishment.id, conversationId: incomingConvId }).catch(() => {});
+          }
+
+          // Refresh conversation list to update unread counts / order
+          void load();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void proSupabase.removeChannel(channel);
+    };
+  }, [establishment.id, previewMode, selectedId]);
+
   useEffect(() => {
     if (!selectedId) {
       setMessages([]);
@@ -927,13 +985,20 @@ export function ProMessagesTab({ establishment, role }: Props) {
       return;
     }
 
-    // In real mode, we'd call an API endpoint
-    // For now, just update local state
+    // Optimistic local update
     setConversations((prev) =>
       prev.map((c) =>
         c.id === conversationId ? { ...c, unread_count: 1 } : c
       )
     );
+
+    // Persist to server
+    try {
+      await markProMessagesUnread({ establishmentId: establishment.id, conversationId });
+    } catch {
+      // Revert on failure
+      void load();
+    }
   };
 
   // Insert quick reply
@@ -1059,14 +1124,38 @@ export function ProMessagesTab({ establishment, role }: Props) {
     }
 
     const body = draft.trim();
-    if (!body) return;
+    if (!body && !attachmentFile) return;
 
     setSending(true);
     setError(null);
 
     try {
-      await sendProConversationMessage({ establishmentId: establishment.id, conversationId: selected.id, body });
+      // Upload attachment first if present
+      let attachmentInfo: { url: string | null; name: string; size: number; type: string } | null = null;
+      if (attachmentFile) {
+        const uploadRes = await uploadMessageAttachment({
+          establishmentId: establishment.id,
+          conversationId: selected.id,
+          file: attachmentFile,
+        });
+        attachmentInfo = uploadRes.attachment;
+      }
+
+      // Build message body (include attachment link if no text)
+      let messageBody = body;
+      if (attachmentInfo?.url) {
+        const attachLabel = `📎 ${attachmentInfo.name}`;
+        messageBody = body
+          ? `${body}\n\n${attachLabel}\n${attachmentInfo.url}`
+          : `${attachLabel}\n${attachmentInfo.url}`;
+      }
+
+      if (messageBody) {
+        await sendProConversationMessage({ establishmentId: establishment.id, conversationId: selected.id, body: messageBody });
+      }
+
       setDraft("");
+      removeAttachment();
       await loadMessages(selected.id);
       await load();
     } catch (e) {
@@ -1109,7 +1198,7 @@ export function ProMessagesTab({ establishment, role }: Props) {
             <div className="flex items-center gap-2 flex-wrap">
               {totalUnread > 0 && (
                 <Badge className="bg-red-500 text-white border-red-500 text-sm px-2.5 py-1">
-                  <Mail className="w-3.5 h-3.5 mr-1.5" />
+                  <Mail className="w-3.5 h-3.5 me-1.5" />
                   {totalUnread} non lu{totalUnread > 1 ? "s" : ""}
                 </Badge>
               )}
@@ -1187,7 +1276,7 @@ export function ProMessagesTab({ establishment, role }: Props) {
                 <Label>Sélectionner une réservation</Label>
                 {loadingReservations && !previewMode ? (
                   <div className="h-10 flex items-center text-sm text-slate-500">
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    <Loader2 className="w-4 h-4 animate-spin me-2" />
                     Chargement...
                   </div>
                 ) : availableReservations.length > 0 ? (
@@ -1264,19 +1353,19 @@ export function ProMessagesTab({ establishment, role }: Props) {
             {/* Search and filters */}
             <div className="mt-3 space-y-2">
               <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <Input
                   type="text"
                   placeholder="Rechercher..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-8 h-9 text-sm"
+                  className="ps-8 h-9 text-sm"
                 />
                 {searchQuery && (
                   <button
                     type="button"
                     onClick={() => setSearchQuery("")}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    className="absolute end-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -1341,7 +1430,7 @@ export function ProMessagesTab({ establishment, role }: Props) {
                       <button
                         type="button"
                         onClick={() => setSelectedId(c.id)}
-                        className="w-full text-left px-3 py-3 pr-10 border-b border-slate-100 hover:bg-slate-50 transition"
+                        className="w-full text-start px-3 py-3 pe-10 border-b border-slate-100 hover:bg-slate-50 transition"
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
@@ -1377,7 +1466,7 @@ export function ProMessagesTab({ establishment, role }: Props) {
                       <DropdownMenuTrigger asChild>
                         <button
                           type="button"
-                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-slate-200 opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="absolute end-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-slate-200 opacity-0 group-hover:opacity-100 transition-opacity"
                         >
                           <MoreVertical className="w-4 h-4 text-slate-500" />
                         </button>
@@ -1511,13 +1600,21 @@ export function ProMessagesTab({ establishment, role }: Props) {
                                 <div className="flex-1 h-px bg-slate-200" />
                               </div>
                             )}
-                            <div className={cn("flex", m.from_role === "pro" ? "justify-end" : "justify-start")}>
+                            <div className={cn("flex", m.from_role === "pro" || m.from_role === "auto" ? "justify-end" : "justify-start")}>
                               <div
                                 className={cn(
                                   "max-w-[85%] rounded-lg px-3 py-2 text-sm",
-                                  m.from_role === "pro" ? "bg-primary text-white" : "bg-white border border-slate-200 text-slate-800",
+                                  m.from_role === "pro" ? "bg-primary text-white"
+                                    : m.from_role === "auto" ? "bg-emerald-50 border border-emerald-200 text-slate-800"
+                                    : "bg-white border border-slate-200 text-slate-800",
                                 )}
                               >
+                                {m.from_role === "auto" && (
+                                  <div className="flex items-center gap-1 text-[10px] text-emerald-600 font-medium mb-1">
+                                    <Bot className="w-3 h-3" />
+                                    Réponse automatique
+                                  </div>
+                                )}
                                 <div className="whitespace-pre-wrap break-words">{m.body}</div>
                                 <div className={cn("mt-1 flex items-center justify-end gap-1.5", m.from_role === "pro" ? "text-white/80" : "text-slate-500")}>
                                   <span className="text-[11px]">{formatTime(m.created_at)}</span>
@@ -1590,12 +1687,12 @@ export function ProMessagesTab({ establishment, role }: Props) {
                           }
                         }}
                         placeholder={previewMode ? "Réponse IA (démo)…" : "Votre message…"}
-                        className="min-h-[88px] pr-20"
+                        className="min-h-[88px] pe-20"
                         disabled={sending}
                       />
 
                       {/* Quick actions inside textarea */}
-                      <div className="absolute bottom-2 right-2 flex items-center gap-1">
+                      <div className="absolute bottom-2 end-2 flex items-center gap-1">
                         {/* Quick replies */}
                         <Popover open={quickRepliesOpen} onOpenChange={setQuickRepliesOpen}>
                           <PopoverTrigger asChild>
@@ -1617,7 +1714,7 @@ export function ProMessagesTab({ establishment, role }: Props) {
                                   key={template.id}
                                   type="button"
                                   onClick={() => insertQuickReply(template.text)}
-                                  className="w-full text-left px-2 py-1.5 rounded hover:bg-slate-100 transition"
+                                  className="w-full text-start px-2 py-1.5 rounded hover:bg-slate-100 transition"
                                 >
                                   <div className="font-medium text-sm text-slate-900">
                                     {template.label}

@@ -188,7 +188,7 @@ export function CityInputWithHistory({
 
   return (
     <div className={`relative w-full group ${className}`} ref={containerRef}>
-      <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary w-5 h-5 pointer-events-none transition-colors" />
+      <MapPin className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary w-5 h-5 pointer-events-none transition-colors" />
       <input
         ref={inputRef}
         type="text"
@@ -203,7 +203,7 @@ export function CityInputWithHistory({
         }}
         onFocus={() => !disabled && setIsOpen(true)}
         className={inputClassName ?? cn(
-          "w-full pl-10 pr-4 py-2 h-10 md:h-11 border border-slate-200 rounded-md text-sm text-slate-900",
+          "w-full ps-10 pe-4 py-2 h-10 md:h-11 border border-slate-200 rounded-md text-sm text-slate-900",
           "placeholder:text-slate-600 placeholder:font-normal transition-colors [font-family:Circular_Std,_sans-serif]",
           disabled
             ? "bg-slate-200 text-slate-400 cursor-not-allowed"

@@ -123,7 +123,7 @@ function loadRecaptchaScript(): Promise<void> {
     script.defer = true;
 
     script.onload = () => {
-      console.log("[Firebase] reCAPTCHA v2 script loaded manually");
+      // reCAPTCHA v2 script loaded
       recaptchaScriptLoaded = true;
       // Wait for grecaptcha to be ready
       const checkReady = () => {
@@ -172,13 +172,13 @@ async function getRecaptchaToken(containerId: string): Promise<string> {
   if (recaptchaWidgetId !== null && recaptchaWidgetContainerId === containerId) {
     const existingToken = grecaptcha.getResponse(recaptchaWidgetId);
     if (existingToken) {
-      console.log("[Firebase] reCAPTCHA already has a valid token, reusing it");
+      // Reusing existing reCAPTCHA token
       return existingToken;
     }
 
     // Widget exists but no token yet — return a new promise that will
     // resolve when the user checks the box (via the global callbacks)
-    console.log("[Firebase] reCAPTCHA widget already rendered, waiting for user to check the box...");
+    // reCAPTCHA widget already rendered, waiting for user
     return new Promise<string>((resolve, reject) => {
       // Clear previous timeout if any
       if (recaptchaTimeoutId) clearTimeout(recaptchaTimeoutId);
@@ -210,7 +210,7 @@ async function getRecaptchaToken(containerId: string): Promise<string> {
 
     const onSuccess = (token: string) => {
       if (recaptchaTimeoutId) clearTimeout(recaptchaTimeoutId);
-      console.log("[Firebase] reCAPTCHA v2 token obtained (length:", token.length, ")");
+      // reCAPTCHA v2 token obtained
       if (recaptchaResolve) recaptchaResolve(token);
     };
 
@@ -228,10 +228,9 @@ async function getRecaptchaToken(containerId: string): Promise<string> {
       });
       recaptchaWidgetContainerId = containerId;
 
-      console.log("[Firebase] reCAPTCHA checkbox widget rendered, id:", recaptchaWidgetId, "— waiting for user...");
+      // reCAPTCHA checkbox widget rendered, waiting for user
     } catch (err) {
       if (recaptchaTimeoutId) clearTimeout(recaptchaTimeoutId);
-      console.error("[Firebase] reCAPTCHA render error:", err);
       reject(err);
     }
   });
@@ -254,7 +253,7 @@ let preRenderPromise: Promise<string> | null = null;
 export async function preRenderRecaptcha(containerId: string): Promise<void> {
   // If already pre-rendering, don't start again (React Strict Mode guard)
   if (preRenderPromise) {
-    console.log("[Firebase] preRenderRecaptcha: already in progress, skipping duplicate call");
+    // preRenderRecaptcha already in progress, skipping duplicate call
     return;
   }
 
@@ -283,7 +282,7 @@ export async function sendPhoneVerificationCode(
 ): Promise<ConfirmationResult> {
   // Prevent concurrent calls (React Strict Mode double-fires)
   if (sendCodeInProgress) {
-    console.warn("[Firebase] sendPhoneVerificationCode already in progress, ignoring duplicate call");
+    // sendPhoneVerificationCode already in progress, ignoring duplicate call
     return new Promise(() => {}); // Never resolves — the first call will handle it
   }
   sendCodeInProgress = true;
@@ -300,34 +299,34 @@ export async function sendPhoneVerificationCode(
     throw new Error("Invalid phone number format");
   }
 
-  console.log("[Firebase] Sending SMS to:", formattedPhone, "(REST API approach)");
+  // Sending SMS via REST API approach
 
   try {
     // Step 1: Get the reCAPTCHA token (user should have already checked the box)
-    console.log("[Firebase] Step 1: Getting reCAPTCHA v2 token...");
+    // Step 1: Getting reCAPTCHA v2 token
     let recaptchaToken: string;
 
     // Check if we already have a token from the pre-rendered widget
     if (window.grecaptcha && recaptchaWidgetId !== null) {
       const existingToken = window.grecaptcha.getResponse(recaptchaWidgetId);
       if (existingToken) {
-        console.log("[Firebase] Using existing reCAPTCHA token from checkbox");
+        // Using existing reCAPTCHA token from checkbox
         recaptchaToken = existingToken;
       } else if (preRenderPromise) {
-        console.log("[Firebase] Waiting for user to complete reCAPTCHA checkbox...");
+        // Waiting for user to complete reCAPTCHA checkbox
         recaptchaToken = await preRenderPromise;
       } else {
         recaptchaToken = await getRecaptchaToken(containerId);
       }
     } else if (preRenderPromise) {
-      console.log("[Firebase] Waiting for pre-rendered reCAPTCHA...");
+      // Waiting for pre-rendered reCAPTCHA
       recaptchaToken = await preRenderPromise;
     } else {
       recaptchaToken = await getRecaptchaToken(containerId);
     }
 
     // Step 2: Call the REST API
-    console.log("[Firebase] Step 2: Calling sendVerificationCode REST API...");
+    // Step 2: Calling sendVerificationCode REST API
     const apiKey = firebaseConfig.apiKey;
     const url = `https://identitytoolkit.googleapis.com/v1/accounts:sendVerificationCode?key=${apiKey}`;
 
@@ -345,7 +344,7 @@ export async function sendPhoneVerificationCode(
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      console.error("[Firebase] sendVerificationCode API error:", errorData);
+      // sendVerificationCode API error — handled below
 
       const errorMessage = errorData?.error?.message || response.statusText;
 
@@ -365,17 +364,17 @@ export async function sendPhoneVerificationCode(
     const data = await response.json();
     currentSessionInfo = data.sessionInfo;
 
-    console.log("[Firebase] SMS sent successfully! sessionInfo obtained.");
+    // SMS sent successfully, sessionInfo obtained
 
     // Step 3: Return a ConfirmationResult-like object
     // that uses PhoneAuthProvider.credential + signInWithCredential
     const confirmationResult: ConfirmationResult = {
       verificationId: data.sessionInfo,
       confirm: async (verificationCode: string) => {
-        console.log("[Firebase] Verifying code with PhoneAuthProvider.credential...");
+        // Verifying code with PhoneAuthProvider.credential
         const credential = PhoneAuthProvider.credential(data.sessionInfo, verificationCode);
         const userCredential = await signInWithCredential(auth, credential);
-        console.log("[Firebase] Phone auth sign-in successful!");
+        // Phone auth sign-in successful
         return userCredential;
       },
     };

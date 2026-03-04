@@ -4,6 +4,11 @@ import crypto from "node:crypto";
 import { sendSambookingEmail } from "../email";
 import { requireSuperadmin } from "./admin";
 import ExcelJS from "exceljs";
+import { createModuleLogger } from "../lib/logger";
+import { zBody } from "../lib/validate";
+import { ImportExportPreviewSchema, ImportExportImportSchema } from "../schemas/adminImportExport";
+
+const log = createModuleLogger("adminImportExport");
 
 // Types
 type ImportRow = {
@@ -307,7 +312,7 @@ function parseHours(hoursStr: string): Record<string, unknown> | null {
   // Try to parse as JSON first
   try {
     return JSON.parse(hoursStr);
-  } catch {
+  } catch { /* intentional: hours string may not be valid JSON */
     // Simple format: "Lun-Ven: 9h-18h, Sam: 10h-16h"
     // For now, store as raw string in extra field
     return null;
@@ -332,7 +337,7 @@ async function sendProWelcomeEmail(args: {
 }): Promise<void> {
   const proSpaceUrl = process.env.PUBLIC_BASE_URL
     ? `${process.env.PUBLIC_BASE_URL}/pro`
-    : "https://sortiraumaroc.ma/pro";
+    : "https://sam.ma/pro";
 
   const greeting = args.proName ? `Bonjour ${args.proName},` : "Bonjour,";
 
@@ -387,7 +392,7 @@ const SUBCATEGORIES: Record<string, string[]> = {
     "Argentin", "Basque", "Brésilien", "Cambodgien", "Chinois", "Colombien", "Coréen",
     "Créole", "Crêperie", "Cubain", "Cuisine des îles", "Cuisine du monde", "Cuisine traditionnelle",
     "Égyptien", "Espagnol", "Éthiopien", "Fruits de mer", "Fusion", "Grec", "Hawaïen",
-    "Indien", "Iranien", "Israélien", "Latino", "Libanais", "Méditerranéen", "Mexicain",
+    "Indien", "Iranien", "Latino", "Libanais", "Méditerranéen", "Mexicain",
     "Pakistanais", "Péruvien", "Portugais", "Provençal", "Russe", "Scandinave", "Syrien",
     "Thaïlandais", "Tunisien", "Turc", "Vegan", "Végétarien", "Vietnamien"
   ],
@@ -476,7 +481,7 @@ const AMENITIES_BY_UNIVERSE: Record<string, string[]> = {
 
 const MOROCCAN_CITIES = [
   "Casablanca", "Rabat", "Marrakech", "Fès", "Tanger", "Agadir", "Meknès", "Oujda",
-  "Kénitra", "Tétouan", "Salé", "Nador", "Mohammedia", "El Jadida", "Béni Mellal",
+  "Kénitra", "Tétouan", "Salé", "Nador", "Mohammédia", "El Jadida", "Béni Mellal",
   "Taza", "Khémisset", "Taourirt", "Khouribga", "Safi", "Settat", "Larache",
   "Guelmim", "Berrechid", "Essaouira", "Ouarzazate", "Al Hoceïma", "Dakhla",
   "Laâyoune", "Ifrane", "Errachidia", "Tinghir", "Chefchaouen", "Asilah", "Oualidia"
@@ -803,7 +808,7 @@ export function registerAdminImportExportRoutes(router: Router): void {
       res.setHeader("Content-Disposition", 'attachment; filename="template_etablissements_sam.xlsx"');
       res.send(Buffer.from(buffer));
     } catch (error) {
-      console.error("[Excel Template] Error:", error);
+      log.error({ err: error }, "excel template error");
       res.status(500).json({ error: "Erreur lors de la génération du fichier Excel" });
     }
   }) as RequestHandler);
@@ -1013,7 +1018,7 @@ export function registerAdminImportExportRoutes(router: Router): void {
   }) as RequestHandler);
 
   // Preview import (validate without saving + check for existing establishments)
-  router.post("/api/admin/import-export/preview", (async (req, res) => {
+  router.post("/api/admin/import-export/preview", zBody(ImportExportPreviewSchema), (async (req, res) => {
     try {
       const { content, format } = req.body as { content: string; format?: "csv" | "json" };
 
@@ -1027,7 +1032,7 @@ export function registerAdminImportExportRoutes(router: Router): void {
         try {
           const parsed = JSON.parse(content);
           rows = Array.isArray(parsed) ? parsed : [parsed];
-        } catch {
+        } catch { /* intentional: user-provided JSON may be invalid */
           return res.status(400).json({ error: "JSON invalide" });
         }
       } else {
@@ -1135,13 +1140,13 @@ export function registerAdminImportExportRoutes(router: Router): void {
         preview: preview.slice(0, 100), // Return first 100 for preview
       });
     } catch (error) {
-      console.error("[Import] Preview error:", error);
+      log.error({ err: error }, "import preview error");
       return res.status(500).json({ error: "Erreur lors de l'analyse du fichier" });
     }
   }) as RequestHandler);
 
   // Execute import
-  router.post("/api/admin/import-export/import", (async (req, res) => {
+  router.post("/api/admin/import-export/import", zBody(ImportExportImportSchema), (async (req, res) => {
     try {
       const { content, format, sendEmails } = req.body as {
         content: string;
@@ -1190,9 +1195,9 @@ export function registerAdminImportExportRoutes(router: Router): void {
 
             if (!proInfo) {
               // Check if user exists
-              const { data: existingUsers } = await supabase.auth.admin.listUsers();
+              const { data: existingUsers } = await supabase.auth.admin.listUsers() as { data: { users: any[] } };
               const existingUser = existingUsers?.users?.find(
-                (u) => u.email?.toLowerCase() === normalized.pro_email!.toLowerCase()
+                (u: any) => u.email?.toLowerCase() === normalized.pro_email!.toLowerCase()
               );
 
               if (existingUser) {
@@ -1318,7 +1323,7 @@ export function registerAdminImportExportRoutes(router: Router): void {
                   proName: [normalized.pro_prenom, normalized.pro_nom].filter(Boolean).join(" ") || undefined,
                 });
               } catch (emailError) {
-                console.error("[Import] Email send error:", emailError);
+                log.error({ err: emailError }, "import email send error");
                 // Don't fail the import if email fails
               }
             }
@@ -1362,7 +1367,7 @@ export function registerAdminImportExportRoutes(router: Router): void {
               })),
       });
     } catch (error) {
-      console.error("[Import] Import error:", error);
+      log.error({ err: error }, "import error");
       return res.status(500).json({ error: "Erreur lors de l'import" });
     }
   }) as RequestHandler);
@@ -1415,7 +1420,7 @@ export function registerAdminImportExportRoutes(router: Router): void {
       const { data: establishments, error } = await query.order("created_at", { ascending: false });
 
       if (error) {
-        console.error("[Export] Query error:", error);
+        log.error({ err: error }, "export query error");
         return res.status(500).json({ error: "Erreur lors de la récupération des données" });
       }
 
@@ -1482,7 +1487,7 @@ export function registerAdminImportExportRoutes(router: Router): void {
       );
       res.send("\ufeff" + csv); // BOM for Excel UTF-8
     } catch (error) {
-      console.error("[Export] Export error:", error);
+      log.error({ err: error }, "export error");
       return res.status(500).json({ error: "Erreur lors de l'export" });
     }
   }) as RequestHandler);
@@ -1511,7 +1516,7 @@ export function registerAdminImportExportRoutes(router: Router): void {
         totalPros: totalPros || 0,
       });
     } catch (error) {
-      console.error("[Stats] Error:", error);
+      log.error({ err: error }, "stats error");
       return res.status(500).json({ error: "Erreur lors de la récupération des statistiques" });
     }
   }) as RequestHandler);

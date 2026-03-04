@@ -317,7 +317,7 @@ export function PartnerDashboard() {
           {isProfileIncomplete && (
             <Link
               to="/partners/profile"
-              className="text-[#a3001d] hover:underline font-medium ml-auto"
+              className="text-[#a3001d] hover:underline font-medium ms-auto"
             >
               Compléter mon profil →
             </Link>
@@ -533,7 +533,7 @@ function MissionRow({
         </div>
 
         {/* Next action */}
-        <div className="text-xs text-slate-600 sm:text-right whitespace-nowrap">
+        <div className="text-xs text-slate-600 sm:text-end whitespace-nowrap">
           {nextAction}
         </div>
       </div>

@@ -233,7 +233,7 @@ export function PhoneVerificationModal({
                   setVerificationCode("");
                   setError(null);
                 }}
-                className="p-2 -ml-2 hover:bg-slate-100 rounded-full transition-colors"
+                className="p-2 -ms-2 hover:bg-slate-100 rounded-full transition-colors"
               >
                 <ArrowLeft className="w-5 h-5 text-slate-600" />
               </button>
@@ -249,7 +249,7 @@ export function PhoneVerificationModal({
 
             <button
               onClick={onClose}
-              className="p-2 -mr-2 hover:bg-slate-100 rounded-full transition-colors"
+              className="p-2 -me-2 hover:bg-slate-100 rounded-full transition-colors"
             >
               <X className="w-5 h-5 text-slate-600" />
             </button>
@@ -307,7 +307,7 @@ export function PhoneVerificationModal({
                   <Loader2 className="w-5 h-5 animate-spin" />
                 ) : (
                   <>
-                    <Phone className="w-5 h-5 mr-2" />
+                    <Phone className="w-5 h-5 me-2" />
                     {t("auth.phone.send_code")}
                   </>
                 )}

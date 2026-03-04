@@ -15,7 +15,7 @@ import {
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
 import { AdminDataTable } from "@/components/admin/table/AdminDataTable";
 import { toast } from "@/hooks/use-toast";
-import { AdminMediaFactoryNav } from "./media-factory/AdminMediaFactoryNav";
+import { AdminVisibilityNav } from "@/pages/admin/visibility/AdminVisibilityNav";
 
 import {
   listAdminMediaFactoryJobs,
@@ -145,7 +145,7 @@ export function AdminMediaFactoryJobsPage() {
         description="Pilotage production (RC / Compta / Superadmin)."
       />
 
-      <AdminMediaFactoryNav />
+      <AdminVisibilityNav />
 
       <div className="flex flex-wrap items-center gap-2">
         <Select

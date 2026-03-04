@@ -32,11 +32,11 @@ export function LieuInput({ value, onChange, className = "" }: LieuInputProps) {
   return (
     <div className={className}>
       <div className="relative">
-        <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5 pointer-events-none" />
+        <MapPin className="absolute start-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5 pointer-events-none" />
         <Input
           type="text"
           placeholder="Lieu"
-          className="pl-10 w-full bg-white border-slate-200 focus:bg-slate-50"
+          className="ps-10 w-full bg-white border-slate-200 focus:bg-slate-50"
           value={value}
           onChange={(e) => {
             onChange(e.target.value);
@@ -54,7 +54,7 @@ export function LieuInput({ value, onChange, className = "" }: LieuInputProps) {
                   onChange(lieu);
                   setOpen(false);
                 }}
-                className="w-full text-left px-3 py-2 hover:bg-slate-100 text-sm"
+                className="w-full text-start px-3 py-2 hover:bg-slate-100 text-sm"
               >
                 📍 {lieu}
               </button>

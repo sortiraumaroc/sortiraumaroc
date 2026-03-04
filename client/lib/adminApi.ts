@@ -71,6 +71,7 @@ export type Establishment = {
   verified?: boolean;
   premium?: boolean;
   curated?: boolean;
+  is_online?: boolean;
   // Wizard fields
   admin_created_by_name?: string | null;
   admin_created_by_id?: string | null;
@@ -620,7 +621,7 @@ export function getAdminHeaders(): Record<string, string> {
 
   if (adminKey) headers["x-admin-key"] = adminKey;
   if (sessionToken) headers["x-admin-session"] = sessionToken;
-  if (session?.role) headers["x-admin-role"] = session.role;
+  if (session?.role) headers["x-admin-role"] = encodeURIComponent(session.role);
 
   return headers;
 }
@@ -1572,9 +1573,11 @@ export async function searchEstablishmentsByName(
 export async function listEstablishments(
   adminKey: string | undefined,
   status?: EstablishmentStatus,
+  search?: string,
 ): Promise<ListResponse<Establishment>> {
   const qs = new URLSearchParams();
   if (status) qs.set("status", status);
+  if (search) qs.set("search", search);
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
   return requestJson<ListResponse<Establishment>>(
     `/api/admin/establishments${suffix}`,
@@ -1634,7 +1637,7 @@ export async function batchEstablishmentsStatus(
 export async function updateEstablishmentFlags(
   adminKey: string | undefined,
   id: string,
-  flags: { verified?: boolean; premium?: boolean; curated?: boolean },
+  flags: { verified?: boolean; premium?: boolean; curated?: boolean; is_online?: boolean },
 ): Promise<{ ok: true }> {
   return requestJson<{ ok: true }>(
     `/api/admin/establishments/${encodeURIComponent(id)}/flags`,
@@ -1917,11 +1920,12 @@ export async function acceptAdminEstablishmentProfileChange(
   establishmentId: string,
   draftId: string,
   changeId: string,
+  correctedValue?: unknown,
 ): Promise<{ ok: true; finalized: boolean; status: string | null }> {
   return requestJson<{ ok: true; finalized: boolean; status: string | null }>(
     `/api/admin/establishments/${encodeURIComponent(establishmentId)}/profile-updates/${encodeURIComponent(draftId)}/changes/${encodeURIComponent(changeId)}/accept`,
     adminKey,
-    { method: "POST", body: JSON.stringify({}) },
+    { method: "POST", body: JSON.stringify(correctedValue !== undefined ? { correctedValue } : {}) },
   );
 }
 
@@ -2388,6 +2392,17 @@ export async function updateAdminContentPage(
   );
 }
 
+export async function deleteAdminContentPage(
+  adminKey: string | undefined,
+  id: string,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/content/pages/${encodeURIComponent(id)}`,
+    adminKey,
+    { method: "DELETE" },
+  );
+}
+
 export async function listAdminContentPageBlocks(
   adminKey: string | undefined,
   pageId: string,
@@ -2722,7 +2737,7 @@ export async function uploadAdminCmsBlogImage(
 ): Promise<{ ok: true; item: CmsUploadedImageAdmin }> {
   const headers: Record<string, string> = {
     "content-type": args.file.type || "application/octet-stream",
-    "x-file-name": args.fileName,
+    "x-file-name": encodeURIComponent(args.fileName),
   };
 
   if (adminKey) headers["x-admin-key"] = adminKey;
@@ -2760,7 +2775,7 @@ export async function uploadAdminCmsBlogDocument(
 ): Promise<{ ok: true; item: CmsUploadedDocumentAdmin }> {
   const headers: Record<string, string> = {
     "content-type": args.file.type || "application/pdf",
-    "x-file-name": args.fileName,
+    "x-file-name": encodeURIComponent(args.fileName),
   };
 
   if (adminKey) headers["x-admin-key"] = adminKey;
@@ -2930,11 +2945,13 @@ export async function adminUpsertSlots(
     ends_at: string;
     capacity: number;
     base_price?: number | null;
+    price_type?: string | null;
     service_label?: string | null;
     promo_type?: string | null;
     promo_value?: number | null;
     promo_label?: string | null;
     active?: boolean;
+    cover_url?: string | null;
   }>,
 ): Promise<{ ok: true; upserted: number }> {
   return requestJson<{ ok: true; upserted: number }>(
@@ -2943,6 +2960,87 @@ export async function adminUpsertSlots(
     {
       method: "PUT",
       body: JSON.stringify({ slots }),
+    },
+  );
+}
+
+export async function adminDeleteSlot(
+  adminKey: string | undefined,
+  establishmentId: string,
+  slotId: string,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/establishments/${encodeURIComponent(establishmentId)}/slots/${encodeURIComponent(slotId)}`,
+    adminKey,
+    { method: "DELETE" },
+  );
+}
+
+export async function adminBulkDeleteSlots(
+  adminKey: string | undefined,
+  establishmentId: string,
+  slotIds: string[],
+): Promise<{ ok: true; deleted: number; deactivated?: number }> {
+  return requestJson<{ ok: true; deleted: number; deactivated?: number }>(
+    `/api/admin/establishments/${encodeURIComponent(establishmentId)}/slots/bulk`,
+    adminKey,
+    { method: "DELETE", body: JSON.stringify({ slotIds }) },
+  );
+}
+
+// =============================================================================
+// Ftour Slots (cross-establishment listing)
+// =============================================================================
+
+export type FtourSlotWithEstablishment = {
+  id: string;
+  establishment_id: string;
+  starts_at: string;
+  ends_at: string | null;
+  capacity: number;
+  base_price: number | null;
+  price_type: string | null;
+  service_label: string | null;
+  promo_type: string | null;
+  promo_value: number | null;
+  promo_label: string | null;
+  active: boolean;
+  moderation_status: string | null;
+  cover_url: string | null;
+  created_at: string;
+  updated_at: string;
+  establishments: {
+    id: string;
+    name: string;
+    city: string | null;
+  };
+};
+
+export async function listAdminFtourSlots(
+  adminKey: string | undefined,
+  opts?: { from?: string; to?: string },
+): Promise<{ ok: true; slots: FtourSlotWithEstablishment[] }> {
+  const qs = new URLSearchParams();
+  if (opts?.from) qs.set("from", opts.from);
+  if (opts?.to) qs.set("to", opts.to);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return requestJson<{ ok: true; slots: FtourSlotWithEstablishment[] }>(
+    `/api/admin/ftour-slots${suffix}`,
+    adminKey,
+  );
+}
+
+/** POST /api/admin/ftour-slots/fix-price-types — Corrige price_type (global ou ciblé) */
+export async function fixFtourSlotPriceTypes(
+  adminKey: string | undefined,
+  opts?: { establishment_id: string; price_type: string },
+): Promise<{ ok: true; fixed: number }> {
+  return requestJson<{ ok: true; fixed: number }>(
+    "/api/admin/ftour-slots/fix-price-types",
+    adminKey,
+    {
+      method: "POST",
+      ...(opts ? { body: JSON.stringify(opts) } : {}),
     },
   );
 }
@@ -3162,24 +3260,33 @@ export type AdminNotification = {
   title: string;
   body: string;
   data: unknown;
+  category?: string;
+  severity?: string;
   created_at: string;
   read_at: string | null;
 };
 
 export async function listAdminNotifications(
   adminKey: string | undefined,
-  args?: { limit?: number; unread?: boolean; after?: string },
-): Promise<ListResponse<AdminNotification>> {
+  args?: { limit?: number; offset?: number; unread?: boolean; after?: string; category?: string; severity?: string },
+): Promise<ListResponse<AdminNotification> & { hasMore?: boolean }> {
   const params = new URLSearchParams();
   if (typeof args?.limit === "number" && Number.isFinite(args.limit))
     params.set("limit", String(Math.round(args.limit)));
+  if (typeof args?.offset === "number" && Number.isFinite(args.offset) && args.offset > 0)
+    params.set("offset", String(Math.round(args.offset)));
   if (args?.unread === true) params.set("unread", "true");
   if (typeof args?.after === "string" && args.after.trim())
     params.set("after", args.after.trim());
+  if (typeof args?.category === "string" && args.category.trim())
+    params.set("category", args.category.trim());
+  if (typeof args?.severity === "string" && args.severity.trim())
+    params.set("severity", args.severity.trim());
 
   const suffix = params.toString();
-  return requestJson<ListResponse<AdminNotification>>(
-    `/api/admin/alerts${suffix ? `?${suffix}` : ""}`,
+  return requestJson<ListResponse<AdminNotification> & { hasMore?: boolean }>(
+    // [FIX-NOTIF] Use /notifications path — /alerts conflicts with reservationV2Admin getAdminAlerts
+    `/api/admin/notifications${suffix ? `?${suffix}` : ""}`,
     adminKey,
   );
 }
@@ -3188,7 +3295,8 @@ export async function getAdminNotificationsUnreadCount(
   adminKey: string | undefined,
 ): Promise<{ ok: true; unread: number }> {
   return requestJson<{ ok: true; unread: number }>(
-    "/api/admin/alerts/unread-count",
+    // [FIX-NOTIF] Use /notifications path
+    "/api/admin/notifications/unread-count",
     adminKey,
   );
 }
@@ -3198,7 +3306,8 @@ export async function markAdminNotificationRead(
   id: string,
 ): Promise<{ ok: true }> {
   return requestJson<{ ok: true }>(
-    `/api/admin/alerts/${encodeURIComponent(id)}/read`,
+    // [FIX-NOTIF] Use /notifications path
+    `/api/admin/notifications/${encodeURIComponent(id)}/read`,
     adminKey,
     {
       method: "POST",
@@ -3211,7 +3320,8 @@ export async function markAllAdminNotificationsRead(
   adminKey: string | undefined,
 ): Promise<{ ok: true }> {
   return requestJson<{ ok: true }>(
-    "/api/admin/alerts/mark-all-read",
+    // [FIX-NOTIF] Use /notifications path
+    "/api/admin/notifications/mark-all-read",
     adminKey,
     {
       method: "POST",
@@ -3225,10 +3335,27 @@ export async function deleteAdminNotification(
   id: string,
 ): Promise<{ ok: true }> {
   return requestJson<{ ok: true }>(
-    `/api/admin/alerts/${encodeURIComponent(id)}`,
+    // [FIX-NOTIF] Use /notifications path
+    `/api/admin/notifications/${encodeURIComponent(id)}`,
     adminKey,
     {
       method: "DELETE",
+    },
+  );
+}
+
+export async function bulkAdminNotificationAction(
+  adminKey: string | undefined,
+  action: "read" | "delete",
+  ids: string[],
+): Promise<{ ok: true; affected: number }> {
+  return requestJson<{ ok: true; affected: number }>(
+    // [FIX-NOTIF] Use /notifications path
+    "/api/admin/notifications/bulk-action",
+    adminKey,
+    {
+      method: "POST",
+      body: JSON.stringify({ action, ids }),
     },
   );
 }
@@ -3552,7 +3679,7 @@ export async function uploadAdminEstablishmentBankDocument(
           ...(adminKey ? { "x-admin-key": adminKey } : {}),
           ...(sessionToken ? { "x-admin-session": sessionToken } : {}),
           "content-type": "application/pdf",
-          "x-file-name": file.name,
+          "x-file-name": encodeURIComponent(file.name),
         },
         body: await file.arrayBuffer(),
       },
@@ -3627,7 +3754,7 @@ export async function uploadAdminEstablishmentContract(
     ...(adminKey ? { "x-admin-key": adminKey } : {}),
     ...(sessionToken ? { "x-admin-session": sessionToken } : {}),
     "content-type": "application/pdf",
-    "x-file-name": file.name,
+    "x-file-name": encodeURIComponent(file.name),
   };
 
   if (metadata?.contractType) headers["x-contract-type"] = metadata.contractType;
@@ -6287,7 +6414,7 @@ export async function uploadAdminCategoryImage(
 
   const headers: Record<string, string> = {
     "content-type": args.file.type || "application/octet-stream",
-    "x-file-name": args.fileName,
+    "x-file-name": encodeURIComponent(args.fileName),
   };
 
   if (adminKey) headers["x-admin-key"] = adminKey;
@@ -6311,11 +6438,43 @@ export async function uploadAdminCategoryImage(
   return json as { ok: true; item: CategoryImageUploadResult };
 }
 
+export async function uploadAdminSlotImage(
+  adminKey: string | undefined,
+  args: { file: Blob; fileName: string },
+): Promise<{ ok: true; item: CategoryImageUploadResult }> {
+  const sessionToken = loadAdminSessionToken();
+
+  const headers: Record<string, string> = {
+    "content-type": args.file.type || "application/octet-stream",
+    "x-file-name": encodeURIComponent(args.fileName),
+  };
+
+  if (adminKey) headers["x-admin-key"] = adminKey;
+  if (sessionToken) headers["x-admin-session"] = sessionToken;
+
+  const res = await fetch("/api/admin/slot-images/upload", {
+    method: "POST",
+    headers,
+    body: args.file,
+  });
+
+  const json = (await res.json().catch(() => null)) as any;
+  if (!res.ok) {
+    const message =
+      json && typeof json.error === "string"
+        ? json.error
+        : `HTTP_${res.status}`;
+    throw new AdminApiError(message, res.status, json);
+  }
+
+  return json as { ok: true; item: CategoryImageUploadResult };
+}
+
 // ============================================
 // HOME CURATION (Homepage sections management)
 // ============================================
 
-export type HomeCurationKind = "best_deals" | "selected_for_you" | "near_you" | "most_booked";
+export type HomeCurationKind = "best_deals" | "selected_for_you" | "near_you" | "most_booked" | "open_now" | "trending" | "new_establishments" | "top_rated" | "deals" | "themed" | "by_service_buffet" | "by_service_table" | "by_service_carte";
 
 export type HomeCurationItemAdmin = {
   id: string;
@@ -6517,7 +6676,7 @@ export async function uploadAdminUniverseImage(
 
   const headers: Record<string, string> = {
     "content-type": args.file.type || "application/octet-stream",
-    "x-file-name": args.fileName,
+    "x-file-name": encodeURIComponent(args.fileName),
   };
 
   if (adminKey) headers["x-admin-key"] = adminKey;
@@ -6555,6 +6714,8 @@ export type HomeSettings = {
   hero: {
     background_image_url: string | null;
     overlay_opacity: number;
+    mobile_background_image_url?: string | null;
+    mobile_overlay_opacity?: number;
     title?: string | null;
     subtitle?: string | null;
   };
@@ -6562,6 +6723,7 @@ export type HomeSettings = {
     title: string;
     items: HowItWorksItem[];
   };
+  packs_section_title?: string;
 };
 
 export async function getAdminHomeSettings(
@@ -6602,6 +6764,28 @@ export async function deleteAdminHeroImage(
 ): Promise<{ ok: true }> {
   return requestJson<{ ok: true }>(
     "/api/admin/home-settings/hero-image/delete",
+    adminKey,
+    { method: "POST" },
+  );
+}
+
+export async function uploadAdminMobileHeroImage(
+  adminKey: string | undefined,
+  imageBase64: string,
+  mimeType: string,
+): Promise<{ ok: true; url: string }> {
+  return requestJson<{ ok: true; url: string }>(
+    "/api/admin/home-settings/hero-image-mobile",
+    adminKey,
+    { method: "POST", body: JSON.stringify({ image: imageBase64, mime_type: mimeType }) },
+  );
+}
+
+export async function deleteAdminMobileHeroImage(
+  adminKey: string | undefined,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    "/api/admin/home-settings/hero-image-mobile/delete",
     adminKey,
     { method: "POST" },
   );
@@ -6829,7 +7013,7 @@ export async function uploadAdminVideoThumbnail(
 
   const headers: Record<string, string> = {
     "content-type": args.file.type || "application/octet-stream",
-    "x-file-name": args.fileName,
+    "x-file-name": encodeURIComponent(args.fileName),
   };
 
   if (adminKey) headers["x-admin-key"] = adminKey;
@@ -7776,6 +7960,8 @@ export type ClaimRequestAdmin = {
   updated_at: string | null;
   processed_at: string | null;
   processed_by: string | null;
+  instagram_url: string | null;
+  google_maps_url: string | null;
 };
 
 export async function listAdminClaimRequests(
@@ -7827,6 +8013,17 @@ export async function updateAdminClaimRequest(
   );
 }
 
+export async function deleteAdminClaimRequest(
+  adminKey: string | undefined,
+  id: string,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/claim-requests/${encodeURIComponent(id)}`,
+    adminKey,
+    { method: "DELETE" },
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Establishment Leads (Demandes d'ajout d'établissement)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -7873,6 +8070,17 @@ export async function updateAdminEstablishmentLead(
       method: "POST",
       body: JSON.stringify(data),
     },
+  );
+}
+
+export async function deleteAdminEstablishmentLead(
+  adminKey: string | undefined,
+  id: string,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/establishment-leads/${encodeURIComponent(id)}`,
+    adminKey,
+    { method: "DELETE" },
   );
 }
 
@@ -8112,5 +8320,210 @@ export async function moderateAdminResponseV2(
     `/api/admin/v2/reviews/responses/${encodeURIComponent(responseId)}/moderate`,
     adminKey,
     { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+// =============================================================================
+// Conciergerie Admin
+// =============================================================================
+
+export type AdminConciergeRow = {
+  id: string;
+  name: string;
+  type: string;
+  city: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  commission_rate: number;
+  status: string;
+  establishment_id: string | null;
+  establishment_name?: string | null;
+  created_at: string;
+  user_count?: number;
+  journey_count?: number;
+};
+
+export type AdminConciergeUserRow = {
+  id: string;
+  concierge_id: string;
+  user_id: string;
+  role: string;
+  email: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  status: string;
+  created_at: string;
+};
+
+export async function listAdminConciergeries(
+  adminKey?: string,
+): Promise<{ ok: true; concierges: AdminConciergeRow[] }> {
+  return requestJson<{ ok: true; concierges: AdminConciergeRow[] }>(
+    "/api/admin/conciergeries",
+    adminKey,
+  );
+}
+
+export async function getAdminConciergerie(
+  adminKey: string | undefined,
+  id: string,
+): Promise<{ ok: true; concierge: AdminConciergeRow; users: AdminConciergeUserRow[] }> {
+  return requestJson<{ ok: true; concierge: AdminConciergeRow; users: AdminConciergeUserRow[] }>(
+    `/api/admin/conciergeries/${encodeURIComponent(id)}`,
+    adminKey,
+  );
+}
+
+export async function createAdminConciergerie(
+  adminKey: string | undefined,
+  payload: { establishment_id: string; commission_rate?: number },
+): Promise<{ ok: true; concierge: AdminConciergeRow }> {
+  return requestJson<{ ok: true; concierge: AdminConciergeRow }>(
+    "/api/admin/conciergeries",
+    adminKey,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+export async function updateAdminConciergerie(
+  adminKey: string | undefined,
+  id: string,
+  payload: { commission_rate?: number; status?: string },
+): Promise<{ ok: true; concierge: AdminConciergeRow }> {
+  return requestJson<{ ok: true; concierge: AdminConciergeRow }>(
+    `/api/admin/conciergeries/${encodeURIComponent(id)}`,
+    adminKey,
+    { method: "PUT", body: JSON.stringify(payload) },
+  );
+}
+
+export async function deleteAdminConciergerie(
+  adminKey: string | undefined,
+  id: string,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/conciergeries/${encodeURIComponent(id)}`,
+    adminKey,
+    { method: "DELETE" },
+  );
+}
+
+export async function addAdminConciergerieUser(
+  adminKey: string | undefined,
+  conciergeId: string,
+  payload: {
+    email: string;
+    password: string;
+    first_name?: string;
+    last_name?: string;
+    role?: string;
+  },
+): Promise<{ ok: true; user: AdminConciergeUserRow }> {
+  return requestJson<{ ok: true; user: AdminConciergeUserRow }>(
+    `/api/admin/conciergeries/${encodeURIComponent(conciergeId)}/users`,
+    adminKey,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+export async function removeAdminConciergerieUser(
+  adminKey: string | undefined,
+  conciergeId: string,
+  userId: string,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/conciergeries/${encodeURIComponent(conciergeId)}/users/${encodeURIComponent(userId)}`,
+    adminKey,
+    { method: "DELETE" },
+  );
+}
+
+// ── Conciergerie Allowed Cities ──────────────────────────────────────────
+
+export async function updateAdminConciergerieCities(
+  adminKey: string | undefined,
+  conciergeId: string,
+  cities: string[],
+): Promise<{ ok: true; allowed_cities: string[] }> {
+  return requestJson<{ ok: true; allowed_cities: string[] }>(
+    `/api/admin/conciergeries/${encodeURIComponent(conciergeId)}/cities`,
+    adminKey,
+    { method: "PUT", body: JSON.stringify({ cities }) },
+  );
+}
+
+// ── Conciergerie Partners ─────────────────────────────────────────────────
+
+export type AdminConciergePartnerRow = {
+  id: string;
+  concierge_id: string;
+  establishment_id: string;
+  establishment_name: string;
+  establishment_city: string | null;
+  commission_rate: number;
+  admin_share: number;
+  concierge_share: number;
+  status: string;
+  notes: string | null;
+  created_at: string;
+};
+
+export async function listAdminConciergeriePartners(
+  adminKey: string | undefined,
+  conciergeId: string,
+): Promise<{ ok: true; partners: AdminConciergePartnerRow[] }> {
+  return requestJson<{ ok: true; partners: AdminConciergePartnerRow[] }>(
+    `/api/admin/conciergeries/${encodeURIComponent(conciergeId)}/partners`,
+    adminKey,
+  );
+}
+
+export async function createAdminConciergeriePartner(
+  adminKey: string | undefined,
+  conciergeId: string,
+  payload: {
+    establishment_id: string;
+    commission_rate: number;
+    admin_share: number;
+    concierge_share: number;
+    notes?: string;
+  },
+): Promise<{ ok: true; partner: AdminConciergePartnerRow }> {
+  return requestJson<{ ok: true; partner: AdminConciergePartnerRow }>(
+    `/api/admin/conciergeries/${encodeURIComponent(conciergeId)}/partners`,
+    adminKey,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+export async function updateAdminConciergeriePartner(
+  adminKey: string | undefined,
+  conciergeId: string,
+  partnerId: string,
+  payload: {
+    commission_rate?: number;
+    admin_share?: number;
+    concierge_share?: number;
+    status?: string;
+    notes?: string;
+  },
+): Promise<{ ok: true; partner: AdminConciergePartnerRow }> {
+  return requestJson<{ ok: true; partner: AdminConciergePartnerRow }>(
+    `/api/admin/conciergeries/${encodeURIComponent(conciergeId)}/partners/${encodeURIComponent(partnerId)}`,
+    adminKey,
+    { method: "PUT", body: JSON.stringify(payload) },
+  );
+}
+
+export async function deleteAdminConciergeriePartner(
+  adminKey: string | undefined,
+  conciergeId: string,
+  partnerId: string,
+): Promise<{ ok: true }> {
+  return requestJson<{ ok: true }>(
+    `/api/admin/conciergeries/${encodeURIComponent(conciergeId)}/partners/${encodeURIComponent(partnerId)}`,
+    adminKey,
+    { method: "DELETE" },
   );
 }

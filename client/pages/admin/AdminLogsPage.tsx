@@ -38,6 +38,7 @@ type LogRow = {
   entityType: string;
   entityId: string;
   actorLabel: string;
+  actorEmail: string;
   details: unknown;
 };
 
@@ -46,7 +47,15 @@ function mapLogToRow(log: AdminLogEntry): LogRow {
   const entityType = log.entity_type == null ? "—" : String(log.entity_type);
   const entityId = log.entity_id == null ? "—" : String(log.entity_id);
 
-  const actorLabel = log.source === "admin" ? "Admin" : String(log.actor_role ?? log.actor_user_id ?? "Système");
+  const actorLabel = log.actor_name
+    ? log.actor_name
+    : log.actor_email
+      ? log.actor_email
+      : log.source === "admin"
+        ? "Admin"
+        : String(log.actor_role ?? log.actor_user_id ?? "Système");
+
+  const actorEmail = log.actor_email ?? "";
 
   return {
     id: String(log.id ?? ""),
@@ -57,6 +66,7 @@ function mapLogToRow(log: AdminLogEntry): LogRow {
     entityType,
     entityId,
     actorLabel,
+    actorEmail,
     details: log.details,
   };
 }
@@ -225,6 +235,20 @@ export function AdminLogsPage() {
                 <div className="rounded-lg border border-slate-200 p-3">
                   <div className="text-xs font-semibold text-slate-500">Action</div>
                   <div className="text-sm font-semibold text-slate-900 mt-1 break-all">{selected.action}</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="rounded-lg border border-slate-200 p-3">
+                  <div className="text-xs font-semibold text-slate-500">Acteur</div>
+                  <div className="text-sm font-semibold text-slate-900 mt-1">{selected.actorLabel}</div>
+                  {selected.actorEmail ? (
+                    <div className="text-xs text-slate-500 mt-0.5">{selected.actorEmail}</div>
+                  ) : null}
+                </div>
+                <div className="rounded-lg border border-slate-200 p-3">
+                  <div className="text-xs font-semibold text-slate-500">Source</div>
+                  <div className="text-sm font-semibold text-slate-900 mt-1">{selected.source === "admin" ? "Admin" : "Système"}</div>
                 </div>
               </div>
 

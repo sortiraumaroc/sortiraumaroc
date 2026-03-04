@@ -420,7 +420,7 @@ export function AdminEstablishmentBankDetailsCard(props: { establishmentId: stri
                 Rafraîchir
               </Button>
 
-              <div className="ml-auto text-[10px] text-slate-500">
+              <div className="ms-auto text-[10px] text-slate-500">
                 {item ? (
                   <>
                     MAJ : <span className="font-mono">{safeIsoToLocal(item.updated_at)}</span>

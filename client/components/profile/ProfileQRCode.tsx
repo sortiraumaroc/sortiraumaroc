@@ -127,7 +127,7 @@ export function ProfileQRCode({
         {/* Close button */}
         <button
           onClick={() => setIsFullscreen(false)}
-          className="absolute top-4 right-4 p-2 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors"
+          className="absolute top-4 end-4 p-2 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors"
         >
           <X className="h-6 w-6" />
         </button>
@@ -517,7 +517,7 @@ export function ProfileQRCodeCompact({
       />
       <div
         className={cn(
-          "absolute -top-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold",
+          "absolute -top-1 -end-1 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold",
           isExpiringSoon
             ? "bg-red-500 text-white animate-pulse"
             : "bg-[#a3001d] text-white"

@@ -127,7 +127,7 @@ export function ProAvatarEditor({ user, initials }: Props) {
               {saved ? <AvatarImage src={saved} alt="Photo de profil" /> : null}
               <AvatarFallback className="bg-primary text-white font-bold">{initials}</AvatarFallback>
             </Avatar>
-            <div className="absolute -bottom-1 -right-1 rounded-full border-2 border-white bg-primary text-white p-1 shadow-sm group-hover:bg-primary/90 transition-colors">
+            <div className="absolute -bottom-1 -end-1 rounded-full border-2 border-white bg-primary text-white p-1 shadow-sm group-hover:bg-primary/90 transition-colors">
               <Camera className="h-3.5 w-3.5" />
             </div>
           </div>

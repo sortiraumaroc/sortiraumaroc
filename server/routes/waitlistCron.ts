@@ -8,10 +8,16 @@
  */
 
 import type { Request, Response } from "express";
+import type { Express } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { emitAdminNotification } from "../adminNotifications";
 import { sendTemplateEmail } from "../emailService";
 import { sendPushNotification, sendPushToConsumerUser } from "../pushNotifications";
+import { sendTransactionalSms, isSmsConfigured } from "../smsService";
+import { sendWhatsAppMessage, isWhatsAppConfigured } from "../whatsappService";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("waitlistCron");
 import { formatLeJjMmAaAHeure } from "../../shared/datetime";
 
 const supabase = getAdminSupabase();
@@ -58,7 +64,7 @@ export async function cronWaitlistExpireAndPromote(req: Request, res: Response) 
       .lt("offer_expires_at", new Date().toISOString());
 
     if (fetchError) {
-      console.error("[cronWaitlistExpire] Error fetching expired entries:", fetchError);
+      log.error({ err: fetchError }, "Error fetching expired entries");
       return res.status(500).json({ ok: false, error: "Database error" });
     }
 
@@ -115,7 +121,7 @@ export async function cronWaitlistExpireAndPromote(req: Request, res: Response) 
 
         if (expiredUser?.email) {
           const dateLabel = startsAt ? formatLeJjMmAaAHeure(startsAt) : "";
-          const baseUrl = process.env.PUBLIC_BASE_URL || "https://sortiraumaroc.ma";
+          const baseUrl = process.env.PUBLIC_BASE_URL || "https://sam.ma";
 
           await sendTemplateEmail({
             templateKey: "user_waitlist_offer_expired",
@@ -143,8 +149,30 @@ export async function cronWaitlistExpireAndPromote(req: Request, res: Response) 
             reservationId: entry.reservation_id,
           },
         });
-      } catch {
-        // ignore notification errors
+
+        // SMS (best-effort)
+        if (isSmsConfigured()) {
+          try {
+            const { data: authUser } = await supabase.auth.admin.getUserById(entry.user_id);
+            const phone = authUser?.user?.phone;
+            if (phone) {
+              await sendTransactionalSms(phone, `SAM.ma — Votre offre pour ${establishmentName} a expiré. Vous pouvez tenter une nouvelle réservation.`);
+            }
+          } catch {}
+        }
+
+        // WhatsApp (best-effort)
+        if (isWhatsAppConfigured()) {
+          try {
+            const { data: authUser } = await supabase.auth.admin.getUserById(entry.user_id);
+            const phone = authUser?.user?.phone;
+            if (phone) {
+              await sendWhatsAppMessage(phone, `SAM.ma — Votre offre pour ${establishmentName} a expiré. Vous pouvez tenter une nouvelle réservation.`);
+            }
+          } catch {}
+        }
+      } catch (err) {
+        log.warn({ err }, "Best-effort: waitlist expired offer notification failed");
       }
 
       // Step 5: Find and promote the next person in queue
@@ -200,7 +228,7 @@ export async function cronWaitlistExpireAndPromote(req: Request, res: Response) 
 
           if (promotedUser?.email) {
             const dateLabel = startsAt ? formatLeJjMmAaAHeure(startsAt) : "";
-            const baseUrl = process.env.PUBLIC_BASE_URL || "https://sortiraumaroc.ma";
+            const baseUrl = process.env.PUBLIC_BASE_URL || "https://sam.ma";
             const ctaUrl = `${baseUrl}/profile/bookings/${encodeURIComponent(nextInQueue.reservation_id)}`;
 
             await sendTemplateEmail({
@@ -234,8 +262,38 @@ export async function cronWaitlistExpireAndPromote(req: Request, res: Response) 
           });
 
           notifications.push({ type: "push", userId: nextInQueue.user_id, success: pushResult.ok });
-        } catch {
-          // ignore notification errors
+
+          // SMS (best-effort)
+          if (isSmsConfigured()) {
+            try {
+              const { data: authUser } = await supabase.auth.admin.getUserById(nextInQueue.user_id);
+              const phone = authUser?.user?.phone;
+              if (phone) {
+                const smsResult = await sendTransactionalSms(
+                  phone,
+                  `SAM.ma — Une place s'est libérée chez ${establishmentName} ! Confirmez vite dans l'appli (expire dans 15 min).`,
+                );
+                notifications.push({ type: "sms", userId: nextInQueue.user_id, success: smsResult.ok });
+              }
+            } catch {}
+          }
+
+          // WhatsApp (best-effort)
+          if (isWhatsAppConfigured()) {
+            try {
+              const { data: authUser } = await supabase.auth.admin.getUserById(nextInQueue.user_id);
+              const phone = authUser?.user?.phone;
+              if (phone) {
+                const waResult = await sendWhatsAppMessage(
+                  phone,
+                  `SAM.ma — Une place s'est libérée chez ${establishmentName} ! Confirmez votre réservation dans l'application (expire dans 15 min).`,
+                );
+                notifications.push({ type: "whatsapp", userId: nextInQueue.user_id, success: waResult.ok });
+              }
+            } catch {}
+          }
+        } catch (err) {
+          log.warn({ err }, "Best-effort: waitlist promotion push notification failed");
         }
 
         // Log consumer event
@@ -282,8 +340,8 @@ export async function cronWaitlistExpireAndPromote(req: Request, res: Response) 
         if (proNotifications.length > 0) {
           await supabase.from("pro_notifications").insert(proNotifications);
         }
-      } catch {
-        // ignore
+      } catch (err) {
+        log.warn({ err }, "Best-effort: waitlist pro notification insert failed");
       }
     }
 
@@ -300,7 +358,7 @@ export async function cronWaitlistExpireAndPromote(req: Request, res: Response) 
       });
     }
 
-    console.log(`[cronWaitlistExpire] Processed ${expiredCount} expired, ${promotedCount} promoted`);
+    log.info({ expiredCount, promotedCount }, "Processed waitlist expirations");
 
     return res.json({
       ok: true,
@@ -309,7 +367,15 @@ export async function cronWaitlistExpireAndPromote(req: Request, res: Response) 
       notifications,
     });
   } catch (err) {
-    console.error("[cronWaitlistExpire] Unexpected error:", err);
+    log.error({ err }, "Unexpected error");
     return res.status(500).json({ ok: false, error: "Server error" });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerWaitlistCronRoutes(app: Express) {
+  app.post("/api/admin/cron/waitlist-expire-promote", cronWaitlistExpireAndPromote);
 }

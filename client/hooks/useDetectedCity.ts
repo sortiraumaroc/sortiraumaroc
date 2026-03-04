@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from "react";
 
 // Coordonnées des principales villes marocaines
-const CITY_COORDINATES: Array<{
+export const CITY_COORDINATES: Array<{
   name: string;
   lat: number;
   lng: number;
@@ -23,7 +23,7 @@ const CITY_COORDINATES: Array<{
   { name: "Kénitra", lat: 34.261, lng: -6.5802, radius: 12 },
   { name: "Tétouan", lat: 35.5889, lng: -5.3626, radius: 10 },
   { name: "Essaouira", lat: 31.5085, lng: -9.7595, radius: 10 },
-  { name: "Mohammedia", lat: 33.6861, lng: -7.3828, radius: 10 },
+  { name: "Mohammédia", lat: 33.6861, lng: -7.3828, radius: 10 },
   { name: "El Jadida", lat: 33.2316, lng: -8.5007, radius: 12 },
   { name: "Salé", lat: 34.0531, lng: -6.7985, radius: 10 },
   { name: "Nador", lat: 35.1681, lng: -2.9287, radius: 12 },
@@ -35,6 +35,15 @@ const CITY_COORDINATES: Array<{
   { name: "Dakhla", lat: 23.7147, lng: -15.9328, radius: 15 },
   { name: "Laâyoune", lat: 27.1253, lng: -13.1625, radius: 15 },
 ];
+
+/**
+ * Retourne les coordonnées d'une ville par son nom (case-insensitive)
+ */
+export function getCityCoordinates(cityName: string): { lat: number; lng: number } | null {
+  const lower = cityName.toLowerCase();
+  const match = CITY_COORDINATES.find((c) => c.name.toLowerCase() === lower);
+  return match ? { lat: match.lat, lng: match.lng } : null;
+}
 
 /**
  * Calcule la distance entre deux points GPS (formule de Haversine)
@@ -101,7 +110,32 @@ export interface UseDetectedCityResult {
   status: DetectedCityStatus;
   city: string | null;
   coordinates: { lat: number; lng: number } | null;
+  source: "gps" | "ip" | null;
   detect: () => void;
+}
+
+/**
+ * Fallback : détection de la ville via l'adresse IP (côté serveur)
+ * Appelé uniquement quand le GPS est refusé/indisponible.
+ */
+async function fetchCityFromIP(): Promise<{
+  city: string | null;
+  coordinates: { lat: number; lng: number } | null;
+}> {
+  try {
+    const resp = await fetch("/api/public/detect-city");
+    if (!resp.ok) return { city: null, coordinates: null };
+    const data = await resp.json();
+    if (data.ok && data.city) {
+      return {
+        city: data.city,
+        coordinates: data.coordinates ?? null,
+      };
+    }
+  } catch {
+    // Silently fail — IP detection is best-effort
+  }
+  return { city: null, coordinates: null };
 }
 
 /**
@@ -114,10 +148,24 @@ export function useDetectedCity(autoDetect: boolean = true): UseDetectedCityResu
   const [status, setStatus] = useState<DetectedCityStatus>("idle");
   const [city, setCity] = useState<string | null>(null);
   const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
+  const [source, setSource] = useState<"gps" | "ip" | null>(null);
+
+  // Fallback IP : appelé quand le GPS échoue
+  const fallbackToIP = useCallback(async () => {
+    const result = await fetchCityFromIP();
+    if (result.city) {
+      setCity(result.city);
+      setCoordinates(result.coordinates);
+      setSource("ip");
+      setStatus("detected");
+    }
+    // Si IP ne donne rien non plus, on laisse le status tel quel (denied/unavailable)
+  }, []);
 
   const detect = useCallback(() => {
     if (!navigator.geolocation) {
       setStatus("unavailable");
+      fallbackToIP();
       return;
     }
 
@@ -130,11 +178,19 @@ export function useDetectedCity(autoDetect: boolean = true): UseDetectedCityResu
 
         const detectedCity = findNearestCity(latitude, longitude);
         setCity(detectedCity);
+        setSource("gps");
         setStatus("detected");
       },
       (error) => {
-        console.warn("[useDetectedCity] Geolocation error:", error.message);
-        setStatus(error.code === 1 ? "denied" : "unavailable");
+        // Only warn once to avoid console spam on re-renders
+        if (!(window as any).__geoWarnLogged) {
+          // Geolocation error (logged once)
+          (window as any).__geoWarnLogged = true;
+        }
+        const geoStatus = error.code === 1 ? "denied" : "unavailable";
+        setStatus(geoStatus);
+        // GPS a échoué → tenter le fallback IP
+        fallbackToIP();
       },
       {
         enableHighAccuracy: false, // Pas besoin de haute précision pour détecter une ville
@@ -142,13 +198,14 @@ export function useDetectedCity(autoDetect: boolean = true): UseDetectedCityResu
         maximumAge: 5 * 60 * 1000, // Accepter une position mise en cache jusqu'à 5 minutes
       }
     );
-  }, []);
+  }, [fallbackToIP]);
 
   // Auto-détection au chargement si autoDetect est true
   useEffect(() => {
     if (!autoDetect) return;
     if (typeof navigator === "undefined" || !navigator.geolocation) {
       setStatus("unavailable");
+      fallbackToIP();
       return;
     }
 
@@ -162,6 +219,8 @@ export function useDetectedCity(autoDetect: boolean = true): UseDetectedCityResu
             detect();
           } else if (result.state === "denied") {
             setStatus("denied");
+            // GPS refusé → tenter le fallback IP
+            fallbackToIP();
           }
         })
         .catch(() => {
@@ -172,9 +231,9 @@ export function useDetectedCity(autoDetect: boolean = true): UseDetectedCityResu
       // Pas d'API permissions → tenter directement
       detect();
     }
-  }, [autoDetect, detect]);
+  }, [autoDetect, detect, fallbackToIP]);
 
-  return { status, city, coordinates, detect };
+  return { status, city, coordinates, source, detect };
 }
 
 /**

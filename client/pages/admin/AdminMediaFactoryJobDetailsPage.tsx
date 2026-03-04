@@ -794,8 +794,8 @@ export function AdminMediaFactoryJobDetailsPage() {
                   <TableHead>Rôle</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Statut</TableHead>
-                  <TableHead className="text-right">V</TableHead>
-                  <TableHead className="text-right">Action</TableHead>
+                  <TableHead className="text-end">V</TableHead>
+                  <TableHead className="text-end">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -813,10 +813,10 @@ export function AdminMediaFactoryJobDetailsPage() {
                           status={String(d.status ?? "")}
                         />
                       </TableCell>
-                      <TableCell className="text-xs text-right font-mono">
+                      <TableCell className="text-xs text-end font-mono">
                         {String(d.current_version ?? "0")}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-end">
                         <Button
                           size="sm"
                           variant="outline"
@@ -1379,7 +1379,7 @@ function PublishingSection(props: {
                       onChange={(e) =>
                         setLinks((p) => ({ ...p, cta: e.target.value }))
                       }
-                      placeholder="Réservez maintenant sur sortiraumaroc.ma"
+                      placeholder="Réservez maintenant sur sam.ma"
                       className="h-8 text-xs"
                     />
                   </div>

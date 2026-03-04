@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
 
 import { useI18n } from "@/lib/i18n";
+import { LOCALE_NAMES, SUPPORTED_APP_LOCALES, type AppLocale } from "@/lib/i18n/types";
 import { Button } from "@/components/ui/button";
 
 export function LanguageSuggestionBanner() {
@@ -17,23 +18,18 @@ export function LanguageSuggestionBanner() {
             <div className="text-xs text-slate-600">{t("language.suggestion.subtitle")}</div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="h-9"
-              onClick={() => setLocale("fr", { persist: true })}
-            >
-              {t("language.french")} (FR)
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-9"
-              onClick={() => setLocale("en", { persist: true })}
-            >
-              {t("language.english")} (EN)
-            </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {SUPPORTED_APP_LOCALES.map((loc: AppLocale) => (
+              <Button
+                key={loc}
+                type="button"
+                variant="outline"
+                className="h-9"
+                onClick={() => setLocale(loc, { persist: true })}
+              >
+                {LOCALE_NAMES[loc]} ({loc.toUpperCase()})
+              </Button>
+            ))}
             <button
               type="button"
               className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-100"

@@ -134,6 +134,7 @@ function getCampaignTypeLabel(type: string): string {
     home_takeover: "Home takeover",
     push_notification: "Push notification",
     email_campaign: "Campagne email",
+    display_banner: "Bannière Display IAB",
   };
   return labels[type] || type;
 }
@@ -473,7 +474,7 @@ function ModerationTab() {
           <p className="text-sm text-slate-500">{queue.length} campagne(s) en attente</p>
         </div>
         <Button variant="outline" size="sm" onClick={() => void refresh()} disabled={loading}>
-          <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+          <RefreshCcw className={`h-4 w-4 me-2 ${loading ? "animate-spin" : ""}`} />
           Rafraîchir
         </Button>
       </div>
@@ -487,7 +488,7 @@ function ModerationTab() {
               <TableHead>Titre</TableHead>
               <TableHead>Budget</TableHead>
               <TableHead>Soumis le</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead className="text-end">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -503,15 +504,15 @@ function ModerationTab() {
                 <TableCell>
                   <div className="flex items-center justify-end gap-2">
                     <Button size="sm" variant="outline" onClick={() => void viewDetails(item.id)}>
-                      <Eye className="h-4 w-4 mr-1" />
+                      <Eye className="h-4 w-4 me-1" />
                       Voir
                     </Button>
                     <Button size="sm" onClick={() => openModerationDialog(item.id, "approve")}>
-                      <CheckCircle2 className="h-4 w-4 mr-1" />
+                      <CheckCircle2 className="h-4 w-4 me-1" />
                       Approuver
                     </Button>
                     <Button size="sm" variant="destructive" onClick={() => openModerationDialog(item.id, "reject")}>
-                      <XCircle className="h-4 w-4 mr-1" />
+                      <XCircle className="h-4 w-4 me-1" />
                       Rejeter
                     </Button>
                   </div>
@@ -588,15 +589,15 @@ function ModerationTab() {
 
               <div className="flex gap-2 pt-4">
                 <Button onClick={() => openModerationDialog(selectedCampaign.id, "approve")}>
-                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                  <CheckCircle2 className="h-4 w-4 me-2" />
                   Approuver
                 </Button>
                 <Button variant="outline" onClick={() => openModerationDialog(selectedCampaign.id, "request_changes")}>
-                  <FileEdit className="h-4 w-4 mr-2" />
+                  <FileEdit className="h-4 w-4 me-2" />
                   Demander modifications
                 </Button>
                 <Button variant="destructive" onClick={() => openModerationDialog(selectedCampaign.id, "reject")}>
-                  <XCircle className="h-4 w-4 mr-2" />
+                  <XCircle className="h-4 w-4 me-2" />
                   Rejeter
                 </Button>
               </div>
@@ -739,12 +740,12 @@ function CampaignsTab() {
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <Search className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <Input
             placeholder="Rechercher..."
             value={filters.search}
             onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-            className="pl-9"
+            className="ps-9"
           />
         </div>
         <Select value={filters.status || "__all__"} onValueChange={(v) => setFilters({ ...filters, status: v === "__all__" ? "" : v })}>
@@ -779,6 +780,7 @@ function CampaignsTab() {
             <SelectItem value="sponsored_result">Résultat sponsorisé</SelectItem>
             <SelectItem value="featured_pack">Pack mise en avant</SelectItem>
             <SelectItem value="home_takeover">Home takeover</SelectItem>
+            <SelectItem value="display_banner">Bannière Display</SelectItem>
           </SelectContent>
         </Select>
         <Button variant="outline" size="sm" onClick={() => void refresh()} disabled={loading}>
@@ -798,7 +800,7 @@ function CampaignsTab() {
               <TableHead>Modération</TableHead>
               <TableHead>Budget</TableHead>
               <TableHead>Dépensé</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead className="text-end">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -977,7 +979,7 @@ function ConfigurationTab() {
           <p className="text-sm text-slate-500">Paramètres pour chaque type de produit publicitaire</p>
         </div>
         <Button variant="outline" size="sm" onClick={() => void refresh()}>
-          <RefreshCcw className="h-4 w-4 mr-2" />
+          <RefreshCcw className="h-4 w-4 me-2" />
           Rafraîchir
         </Button>
       </div>
@@ -1024,7 +1026,7 @@ function ConfigurationTab() {
               )}
               <div className="pt-2">
                 <Button variant="outline" size="sm" className="w-full" onClick={() => openEdit(config)}>
-                  <Settings2 className="h-4 w-4 mr-2" />
+                  <Settings2 className="h-4 w-4 me-2" />
                   Modifier
                 </Button>
               </div>
@@ -1140,23 +1142,23 @@ export function AdminAdsPanel() {
     <div className="space-y-6">
       <Tabs defaultValue="overview" className="w-full">
         <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">
-          <TabsTrigger value="overview" className="gap-2">
+          <TabsTrigger value="overview" className="gap-2 data-[state=active]:bg-sam-primary data-[state=active]:text-white data-[state=active]:shadow-none">
             <BarChart3 className="h-4 w-4" />
             <span className="hidden sm:inline">Vue d'ensemble</span>
           </TabsTrigger>
-          <TabsTrigger value="moderation" className="gap-2">
+          <TabsTrigger value="moderation" className="gap-2 data-[state=active]:bg-sam-primary data-[state=active]:text-white data-[state=active]:shadow-none">
             <Clock className="h-4 w-4" />
             <span className="hidden sm:inline">Modération</span>
           </TabsTrigger>
-          <TabsTrigger value="campaigns" className="gap-2">
+          <TabsTrigger value="campaigns" className="gap-2 data-[state=active]:bg-sam-primary data-[state=active]:text-white data-[state=active]:shadow-none">
             <TrendingUp className="h-4 w-4" />
             <span className="hidden sm:inline">Campagnes</span>
           </TabsTrigger>
-          <TabsTrigger value="home-takeover" className="gap-2">
+          <TabsTrigger value="home-takeover" className="gap-2 data-[state=active]:bg-sam-primary data-[state=active]:text-white data-[state=active]:shadow-none">
             <Home className="h-4 w-4" />
             <span className="hidden sm:inline">Home Takeover</span>
           </TabsTrigger>
-          <TabsTrigger value="config" className="gap-2">
+          <TabsTrigger value="config" className="gap-2 data-[state=active]:bg-sam-primary data-[state=active]:text-white data-[state=active]:shadow-none">
             <Settings2 className="h-4 w-4" />
             <span className="hidden sm:inline">Configuration</span>
           </TabsTrigger>

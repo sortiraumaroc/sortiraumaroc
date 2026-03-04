@@ -1,5 +1,5 @@
 import type { ColumnDef } from "@tanstack/react-table";
-
+import { AdminUsersNav } from "./users/AdminUsersNav";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Trash2 } from "lucide-react";
@@ -262,6 +262,7 @@ export function AdminUsersPage() {
 
   return (
     <div className="space-y-4">
+      <AdminUsersNav />
       <AdminPageHeader
         title="Utilisateurs"
         description="Gestion B2C: profils, statuts, fiabilité, exports."

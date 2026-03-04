@@ -3,8 +3,23 @@
 // =============================================================================
 
 import type { RequestHandler } from "express";
+import type { Express } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { randomUUID } from "crypto";
+import { createModuleLogger } from "../lib/logger";
+import { zBody, zParams } from "../lib/validate";
+import {
+  CreateLoyaltyProgramSchema,
+  UpdateLoyaltyProgramSchema,
+  AddLoyaltyStampSchema,
+  LoyaltyEstablishmentIdParams,
+  LoyaltyCardIdParams,
+  EstablishmentIdProgramIdParams,
+  EstablishmentIdUserIdParams,
+  EstablishmentIdRewardIdParams,
+} from "../schemas/loyalty";
+
+const log = createModuleLogger("loyalty");
 
 // =============================================================================
 // HELPERS
@@ -660,7 +675,7 @@ export const addLoyaltyStamp: RequestHandler = async (req, res) => {
         .single();
 
       if (createError) {
-        console.error("[addLoyaltyStamp] create card error:", createError);
+        log.error({ err: createError }, "addLoyaltyStamp create card error");
         continue;
       }
 
@@ -699,7 +714,7 @@ export const addLoyaltyStamp: RequestHandler = async (req, res) => {
       .single();
 
     if (stampError) {
-      console.error("[addLoyaltyStamp] stamp error:", stampError);
+      log.error({ err: stampError }, "addLoyaltyStamp stamp error");
       continue;
     }
 
@@ -998,7 +1013,7 @@ export const getMyLoyaltyCards: RequestHandler = async (req, res) => {
     .select(`
       *,
       program:loyalty_programs(*),
-      establishment:establishments(id, name, slug, cover_url, city),
+      establishment:establishments(id, name, slug, logo_url, cover_url, city),
       stamps:loyalty_stamps(*)
     `)
     .eq("user_id", userResult.user.id)
@@ -1050,7 +1065,7 @@ export const getMyLoyaltyCardDetails: RequestHandler = async (req, res) => {
     .select(`
       *,
       program:loyalty_programs(*),
-      establishment:establishments(id, name, slug, cover_url, city, address),
+      establishment:establishments(id, name, slug, logo_url, cover_url, city, address),
       stamps:loyalty_stamps(*)
     `)
     .eq("id", cardId)
@@ -1279,3 +1294,39 @@ export const applyRetroactiveStamps: RequestHandler = async (req, res) => {
     message: `${totalStampsAdded} tampons rétroactifs ajoutés pour ${userReservations.size} clients`,
   });
 };
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerLoyaltyRoutes(app: Express) {
+  // Public
+  app.get("/api/public/establishments/:establishmentId/loyalty/programs", zParams(LoyaltyEstablishmentIdParams), getPublicLoyaltyPrograms);
+
+  // Consumer
+  app.get("/api/consumer/loyalty/cards", getMyLoyaltyCards);
+  app.get("/api/consumer/loyalty/cards/:cardId", zParams(LoyaltyCardIdParams), getMyLoyaltyCardDetails);
+  app.get("/api/consumer/loyalty/rewards", getMyLoyaltyRewards);
+
+  // Pro: Programs CRUD
+  app.get("/api/pro/establishments/:establishmentId/loyalty/programs", zParams(LoyaltyEstablishmentIdParams), listLoyaltyPrograms);
+  app.post("/api/pro/establishments/:establishmentId/loyalty/programs", zParams(LoyaltyEstablishmentIdParams), zBody(CreateLoyaltyProgramSchema), createLoyaltyProgram);
+  app.patch("/api/pro/establishments/:establishmentId/loyalty/programs/:programId", zParams(EstablishmentIdProgramIdParams), zBody(UpdateLoyaltyProgramSchema), updateLoyaltyProgram);
+  app.delete("/api/pro/establishments/:establishmentId/loyalty/programs/:programId", zParams(EstablishmentIdProgramIdParams), deleteLoyaltyProgram);
+
+  // Pro: Dashboard & Stats
+  app.get("/api/pro/establishments/:establishmentId/loyalty/stats", zParams(LoyaltyEstablishmentIdParams), getLoyaltyDashboardStats);
+  app.get("/api/pro/establishments/:establishmentId/loyalty/members", zParams(LoyaltyEstablishmentIdParams), getLoyaltyMembers);
+
+  // Pro: Stamps (via scanner)
+  app.post("/api/pro/establishments/:establishmentId/loyalty/stamps", zParams(LoyaltyEstablishmentIdParams), zBody(AddLoyaltyStampSchema), addLoyaltyStamp);
+
+  // Pro: User info (for scanner display)
+  app.get("/api/pro/establishments/:establishmentId/loyalty/users/:userId", zParams(EstablishmentIdUserIdParams), getUserLoyaltyInfo);
+
+  // Pro: Reward redemption
+  app.post("/api/pro/establishments/:establishmentId/loyalty/rewards/:rewardId/redeem", zParams(EstablishmentIdRewardIdParams), redeemLoyaltyReward);
+
+  // Pro: Retroactive stamps
+  app.post("/api/pro/establishments/:establishmentId/loyalty/programs/:programId/retroactive", zParams(EstablishmentIdProgramIdParams), applyRetroactiveStamps);
+}

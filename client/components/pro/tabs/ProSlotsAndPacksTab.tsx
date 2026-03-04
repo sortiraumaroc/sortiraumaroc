@@ -129,8 +129,8 @@ export function ProSlotsAndPacksTab({ establishment, role }: Props) {
       return;
     }
 
-    if (![15, 30, 45, 60].includes(intervalMinutes)) {
-      setError("Intervalle invalide (15 / 30 / 45 / 60 min).");
+    if (![15, 30, 45, 60, 90, 120, 180].includes(intervalMinutes)) {
+      setError("Intervalle invalide.");
       return;
     }
 
@@ -308,10 +308,10 @@ export function ProSlotsAndPacksTab({ establishment, role }: Props) {
       <Tabs defaultValue="slots">
         <TabsList className="bg-slate-100">
           <TabsTrigger value="slots" className="font-bold">
-            Créneaux <span className="ml-2 text-xs text-slate-500">({slotsCount})</span>
+            Créneaux <span className="ms-2 text-xs text-slate-500">({slotsCount})</span>
           </TabsTrigger>
           <TabsTrigger value="packs" className="font-bold">
-            Packs <span className="ml-2 text-xs text-slate-500">({packs.length})</span>
+            Packs <span className="ms-2 text-xs text-slate-500">({packs.length})</span>
           </TabsTrigger>
         </TabsList>
 
@@ -343,7 +343,10 @@ export function ProSlotsAndPacksTab({ establishment, role }: Props) {
                   <option value="15">15 min</option>
                   <option value="30">30 min</option>
                   <option value="45">45 min</option>
-                  <option value="60">60 min</option>
+                  <option value="60">1h</option>
+                  <option value="90">1h30</option>
+                  <option value="120">2h</option>
+                  <option value="180">3h</option>
                 </select>
               </div>
               <div className="space-y-2">
@@ -444,7 +447,7 @@ export function ProSlotsAndPacksTab({ establishment, role }: Props) {
                               <div className="text-xs text-slate-500">Capacité</div>
                               <div className="font-semibold tabular-nums">{s.capacity}</div>
                             </div>
-                            <div className="text-right">
+                            <div className="text-end">
                               <div className="text-xs text-slate-500">Prix</div>
                               <div className="font-semibold tabular-nums whitespace-nowrap">{formatMoney(s.base_price, "MAD")}</div>
                             </div>
@@ -500,7 +503,7 @@ export function ProSlotsAndPacksTab({ establishment, role }: Props) {
                           <TableHead>WL</TableHead>
                           <TableHead>Service</TableHead>
                           <TableHead>Promo</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
+                          <TableHead className="text-end">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -532,7 +535,7 @@ export function ProSlotsAndPacksTab({ establishment, role }: Props) {
                                 "—"
                               )}
                             </TableCell>
-                            <TableCell className="text-right whitespace-nowrap">
+                            <TableCell className="text-end whitespace-nowrap">
                               <div className="flex items-center justify-end gap-2">
                                 <Button variant="outline" size="sm" className="gap-2" onClick={() => setSlotDetailsId(s.id)}>
                                   <Eye className="w-4 h-4" />
@@ -639,7 +642,7 @@ export function ProSlotsAndPacksTab({ establishment, role }: Props) {
                             <div className="text-xs text-slate-500">Prix</div>
                             <div className="font-semibold tabular-nums whitespace-nowrap">{formatMoney(p.price, "MAD")}</div>
                           </div>
-                          <div className="text-right">
+                          <div className="text-end">
                             <div className="text-xs text-slate-500">Stock</div>
                             <div className="font-semibold tabular-nums">{p.stock ?? "—"}</div>
                           </div>
@@ -652,7 +655,7 @@ export function ProSlotsAndPacksTab({ establishment, role }: Props) {
                               {p.valid_from || p.valid_to ? `${p.valid_from ?? ""} → ${p.valid_to ?? ""}` : "—"}
                             </div>
                           </div>
-                          <div className="text-right">
+                          <div className="text-end">
                             <div className="text-xs text-slate-500">Actif</div>
                             <div className="font-semibold">{p.active ? "Oui" : "Non"}</div>
                           </div>
@@ -670,7 +673,7 @@ export function ProSlotsAndPacksTab({ establishment, role }: Props) {
                           <TableHead>Stock</TableHead>
                           <TableHead>Validité</TableHead>
                           <TableHead>Actif</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
+                          <TableHead className="text-end">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -686,7 +689,7 @@ export function ProSlotsAndPacksTab({ establishment, role }: Props) {
                               {p.valid_from || p.valid_to ? `${p.valid_from ?? ""} → ${p.valid_to ?? ""}` : "—"}
                             </TableCell>
                             <TableCell>{p.active ? "Oui" : "Non"}</TableCell>
-                            <TableCell className="text-right whitespace-nowrap">
+                            <TableCell className="text-end whitespace-nowrap">
                               <Button variant="outline" size="sm" className="gap-2" disabled={!canWrite(role)} onClick={() => deletePack(p.id)}>
                                 <Trash2 className="w-4 h-4" />
                                 Supprimer

@@ -170,7 +170,7 @@ export default function Step1HotelSelection() {
                 type="button"
                 onClick={() => handleSelectRoom(r.name)}
                 className={cn(
-                  "rounded-2xl border-2 p-4 text-left transition",
+                  "rounded-2xl border-2 p-4 text-start transition",
                   active ? "border-primary bg-primary/5" : "border-slate-200 bg-white hover:border-primary/40",
                 )}
               >
@@ -180,7 +180,7 @@ export default function Step1HotelSelection() {
                     <div className="mt-1 text-sm text-slate-600">{r.occupancy}</div>
                   </div>
                   {typeof r.priceFromMad === "number" ? (
-                    <div className="shrink-0 text-right">
+                    <div className="shrink-0 text-end">
                       <div className="text-xs text-slate-500">À partir de</div>
                       <div className="text-sm font-extrabold text-primary tabular-nums">{new Intl.NumberFormat("fr-MA").format(Math.round(r.priceFromMad))} MAD</div>
                     </div>

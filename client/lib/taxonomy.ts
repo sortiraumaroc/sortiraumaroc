@@ -710,7 +710,6 @@ export const CUISINE_TYPES = [
   "Hawaïen",
   "Indien",
   "Iranien",
-  "Israélien",
   "Italien",
   "Japonais",
   "Latino",

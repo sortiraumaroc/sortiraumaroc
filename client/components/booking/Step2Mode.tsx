@@ -143,7 +143,7 @@ export default function Step2Mode() {
             {hasGuaranteedOption && (
               <button
                 onClick={() => handleSelectMode('guaranteed')}
-                className={`w-full p-4 rounded-lg border-2 transition-all text-left ${
+                className={`w-full p-4 rounded-lg border-2 transition-all text-start ${
                   reservationMode === 'guaranteed'
                     ? 'border-primary bg-primary/5'
                     : 'border-slate-300 bg-white hover:border-primary/50'
@@ -176,7 +176,7 @@ export default function Step2Mode() {
             {/* Non-Guaranteed */}
             <button
               onClick={() => handleSelectMode('non-guaranteed')}
-              className={`w-full p-4 rounded-lg border-2 transition-all text-left ${
+              className={`w-full p-4 rounded-lg border-2 transition-all text-start ${
                 reservationMode === 'non-guaranteed'
                   ? 'border-primary bg-primary/5'
                   : 'border-slate-300 bg-white hover:border-primary/50'
@@ -201,7 +201,7 @@ export default function Step2Mode() {
                         e.stopPropagation();
                         setShowInfo(!showInfo);
                       }}
-                      className="text-slate-500 hover:text-slate-700 ml-auto cursor-pointer transition-colors"
+                      className="text-slate-500 hover:text-slate-700 ms-auto cursor-pointer transition-colors"
                       role="button"
                       tabIndex={0}
                       onKeyDown={(e) => {

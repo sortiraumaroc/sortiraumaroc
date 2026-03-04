@@ -15,6 +15,7 @@ import {
   Youtube,
   GripVertical,
   X,
+  Store,
 } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -38,6 +39,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 import { fileToAvatarDataUrl } from "@/lib/profilePhoto";
 import { setProProfileAvatar, getProProfileAvatar } from "@/lib/pro/profile";
@@ -618,7 +629,7 @@ const MOROCCO_MAJOR_CITIES = [
   "Tétouan",
   "Safi",
   "El Jadida",
-  "Mohammedia",
+  "Mohammédia",
   "Nador",
   "Béni Mellal",
   "Khouribga",
@@ -949,7 +960,7 @@ function toE164(country: string, national: string): string | null {
   return `${cc}${normalized}`;
 }
 
-type SocialKey = "instagram" | "facebook" | "snapchat" | "tiktok" | "youtube" | "google_maps";
+type SocialKey = "instagram" | "facebook" | "snapchat" | "tiktok" | "youtube" | "tripadvisor";
 
 const SOCIAL_FIELDS: Array<{
   key: SocialKey;
@@ -962,7 +973,7 @@ const SOCIAL_FIELDS: Array<{
   { key: "snapchat", label: "Snapchat", placeholder: "https://snapchat.com/add/votrecompte", Icon: Ghost },
   { key: "youtube", label: "YouTube", placeholder: "https://youtube.com/@...", Icon: Youtube },
   { key: "tiktok", label: "TikTok", placeholder: "https://tiktok.com/@...", Icon: ImagePlus },
-  { key: "google_maps", label: "Google Maps", placeholder: "Lien Google Maps", Icon: HelpCircle },
+  { key: "tripadvisor", label: "TripAdvisor", placeholder: "https://tripadvisor.com/...", Icon: HelpCircle },
 ];
 
 function getSocialValue(input: unknown, key: SocialKey): string {
@@ -974,7 +985,7 @@ function getSocialValue(input: unknown, key: SocialKey): string {
 function buildSocialLinks(state: Record<SocialKey, string>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const { key } of SOCIAL_FIELDS) {
-    const v = state[key].trim();
+    const v = (state[key] ?? "").trim();
     if (v) out[key] = v;
   }
   return out;
@@ -1004,6 +1015,7 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
 
   const [pendingChanges, setPendingChanges] = useState<EstablishmentProfileDraftChange[]>([]);
   const [pendingChangesLoading, setPendingChangesLoading] = useState(false);
@@ -1037,6 +1049,7 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
   const regionListId = `establishment-region-${establishment.id}`;
   const cityListId = `establishment-city-${establishment.id}`;
 
+  const logoInputRef = useRef<HTMLInputElement | null>(null);
   const coverInputRef = useRef<HTMLInputElement | null>(null);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
   const profileAvatarInputRef = useRef<HTMLInputElement | null>(null);
@@ -1075,7 +1088,7 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
     return {
       name: establishment.name ?? "",
       universe: establishment.universe ?? "",
-      category: "", // Level 2 category (extracted from subcategory's category_slug if available)
+      category: establishment.category ?? "",
       subcategory: establishment.subcategory ?? "",
       specialtiesCsv: joinArray(establishment.specialties),
       companyContactLastName: company.contactLastName,
@@ -1103,21 +1116,42 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
       email: establishment.email ?? "",
       tagsCsv: joinLines(establishment.tags),
       amenitiesCsv: joinLines(establishment.amenities),
+      logoUrl: establishment.logo_url ?? "",
       coverUrl: establishment.cover_url ?? "",
       galleryUrls: (establishment.gallery_urls ?? []) as string[],
       ambianceCsv: joinLines(establishment.ambiance_tags),
+      serviceTypesCsv: joinLines(establishment.service_types),
       social: {
         instagram: getSocialValue(establishment.social_links, "instagram"),
         facebook: getSocialValue(establishment.social_links, "facebook"),
         snapchat: getSocialValue(establishment.social_links, "snapchat"),
         tiktok: getSocialValue(establishment.social_links, "tiktok"),
         youtube: getSocialValue(establishment.social_links, "youtube"),
-        google_maps: getSocialValue(establishment.social_links, "google_maps"),
-      } as Record<SocialKey, string>,
+        tripadvisor: getSocialValue(establishment.social_links, "tripadvisor"),
+        google_maps: getSocialValue(establishment.social_links, "google_maps" as any),
+      } as unknown as Record<SocialKey, string>,
       hoursEditor: hoursToEditorState(establishment.hours),
       mixRows: mixToRows(establishment.mix_experience),
     };
   });
+
+  // Hide Google reviews toggle — immediate save (no moderation needed)
+  const [hideGoogleReviews, setHideGoogleReviews] = useState(establishment.hide_google_reviews ?? false);
+
+  const toggleGoogleReviewsApi = useCallback(async (hide: boolean) => {
+    try {
+      const { requireProAccessToken } = await import("@/lib/pro/api");
+      const token = await requireProAccessToken();
+      await fetch(`/api/pro/establishments/${encodeURIComponent(establishment.id)}/toggle-google-reviews`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ hide_google_reviews: hide }),
+      });
+    } catch {
+      // Revert on error
+      setHideGoogleReviews(!hide);
+    }
+  }, [establishment.id]);
 
   // Load universes from database on mount
   useEffect(() => {
@@ -1138,7 +1172,29 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
     }
     setCategoriesLevel2Loading(true);
     getPublicCategories({ universe: universeSlug })
-      .then((res) => setCategoriesLevel2List(res.items))
+      .then((res) => {
+        setCategoriesLevel2List(res.items);
+
+        // ── Auto-fix legacy data ──
+        // Some establishments were created before the 3-level hierarchy existed.
+        // Their DB row may have category = <subcategory value> and subcategory = null.
+        // Detect this: if form.category doesn't match any level-2 slug,
+        // it probably holds a subcategory value → swap it.
+        const catVal = form.category?.toLowerCase().trim();
+        if (catVal && res.items.length > 0) {
+          const matchesLevel2 = res.items.some(
+            (c) => c.slug.toLowerCase() === catVal,
+          );
+          if (!matchesLevel2 && !form.subcategory) {
+            // category holds what should be subcategory – move it
+            setForm((prev) => ({
+              ...prev,
+              category: "",
+              subcategory: prev.category,
+            }));
+          }
+        }
+      })
       .catch(() => setCategoriesLevel2List([]))
       .finally(() => setCategoriesLevel2Loading(false));
   }, [form.universe]);
@@ -1271,17 +1327,20 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
       email: establishment.email ?? "",
       tagsCsv: joinLines(establishment.tags),
       amenitiesCsv: joinLines(establishment.amenities),
+      logoUrl: establishment.logo_url ?? "",
       coverUrl: establishment.cover_url ?? "",
       galleryUrls: (establishment.gallery_urls ?? []) as string[],
       ambianceCsv: joinLines(establishment.ambiance_tags),
+      serviceTypesCsv: joinLines(establishment.service_types),
       social: {
         instagram: getSocialValue(establishment.social_links, "instagram"),
         facebook: getSocialValue(establishment.social_links, "facebook"),
         snapchat: getSocialValue(establishment.social_links, "snapchat"),
         tiktok: getSocialValue(establishment.social_links, "tiktok"),
         youtube: getSocialValue(establishment.social_links, "youtube"),
-        google_maps: getSocialValue(establishment.social_links, "google_maps"),
-      } as Record<SocialKey, string>,
+        tripadvisor: getSocialValue(establishment.social_links, "tripadvisor"),
+        google_maps: getSocialValue(establishment.social_links, "google_maps" as any),
+      } as unknown as Record<SocialKey, string>,
       hoursEditor: hoursToEditorState(establishment.hours),
       mixRows: mixToRows(establishment.mix_experience),
     });
@@ -1635,6 +1694,19 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
     });
   };
 
+  const onPickLogo = async (file: File | null) => {
+    if (!file) return;
+    setError(null);
+
+    const res = await fileToAvatarDataUrl(file, { maxDim: 512, maxOutputChars: 400_000 });
+    if (res.ok === false) {
+      setError(res.message);
+      return;
+    }
+
+    setForm((p) => ({ ...p, logoUrl: res.dataUrl }));
+  };
+
   const onPickCover = async (file: File | null) => {
     if (!file) return;
     setError(null);
@@ -1713,9 +1785,11 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
         email: form.email.trim() || null,
         tags: splitListInput(form.tagsCsv),
         amenities: splitListInput(form.amenitiesCsv),
+        logo_url: form.logoUrl.trim() || null,
         cover_url: form.coverUrl.trim() || null,
         gallery_urls: form.galleryUrls.slice(),
         ambiance_tags: splitListInput(form.ambianceCsv),
+        service_types: splitListInput(form.serviceTypesCsv),
         social_links: buildSocialLinks(form.social),
         hours: editorStateToHours(form.hoursEditor),
         mix_experience: buildMixExperience(form.mixRows),
@@ -2190,7 +2264,7 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
                   <CardHeader className="pb-3">
                     <SectionHeader
                       title="Médias"
-                      description="Couverture et galerie (les images sont compressées automatiquement)."
+                      description="Logo, couverture et galerie (les images sont compressées automatiquement)."
                       titleClassName="text-sm"
                       actions={
                         <CollapsibleTrigger asChild>
@@ -2204,6 +2278,72 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
                   <CollapsibleContent>
                     <CardContent className="space-y-6">
                       <div className="space-y-6">
+                        {/* ---- Logo ---- */}
+                        <div className="space-y-3">
+                          <div className="space-y-2">
+                            <Label className="whitespace-nowrap">Logo <span className="font-normal text-slate-400">(recommandé)</span></Label>
+                            <p className="text-xs text-slate-500">
+                              Utilisé sur votre profil pro, les cartes de fidélité et la page publique.
+                            </p>
+                            <input
+                              ref={logoInputRef}
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp"
+                              className="hidden"
+                              onChange={(e) => {
+                                const f = e.currentTarget.files?.[0] ?? null;
+                                void onPickLogo(f);
+                                e.currentTarget.value = "";
+                              }}
+                            />
+                            <div className="flex items-center gap-4">
+                              {form.logoUrl ? (
+                                <div className="relative group">
+                                  <img
+                                    src={form.logoUrl}
+                                    alt="Logo"
+                                    className="h-20 w-20 rounded-xl object-cover border-2 border-slate-200 shadow-sm"
+                                  />
+                                  <div className="absolute inset-0 rounded-xl bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center gap-1.5 opacity-0 group-hover:opacity-100">
+                                    <button
+                                      type="button"
+                                      onClick={() => logoInputRef.current?.click()}
+                                      disabled={!canEdit}
+                                      className="flex h-7 w-7 items-center justify-center rounded-full bg-white/90 text-slate-700 hover:bg-white transition-colors"
+                                      aria-label="Changer le logo"
+                                    >
+                                      <Upload className="h-3.5 w-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setForm((p) => ({ ...p, logoUrl: "" }))}
+                                      disabled={!canEdit}
+                                      className="flex h-7 w-7 items-center justify-center rounded-full bg-white/90 text-red-600 hover:bg-white transition-colors"
+                                      aria-label="Supprimer le logo"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => logoInputRef.current?.click()}
+                                  disabled={!canEdit}
+                                  className="flex h-20 w-20 items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 hover:border-slate-400 hover:bg-slate-100 transition-colors"
+                                >
+                                  <Store className="h-6 w-6 text-slate-400" />
+                                </button>
+                              )}
+                              <div className="text-xs text-slate-500">
+                                <p>Format carré recommandé (200×200 px min)</p>
+                                <p>PNG transparent idéal · Max 8 MB</p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* ---- Couverture ---- */}
                         <div className="space-y-3">
                           <div className="space-y-2">
                             <Label className="whitespace-nowrap">Couverture</Label>
@@ -2307,7 +2447,7 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
 
                                   <button
                                     type="button"
-                                    className="absolute top-1 right-1 rounded-full bg-white/95 border border-slate-200 p-1 opacity-0 group-hover:opacity-100 transition"
+                                    className="absolute top-1 end-1 rounded-full bg-white/95 border border-slate-200 p-1 opacity-0 group-hover:opacity-100 transition"
                                     onClick={() => removeGalleryAt(idx)}
                                     disabled={!canEdit}
                                     aria-label="Supprimer"
@@ -2316,7 +2456,7 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
                                   </button>
 
                                   {canEdit ? (
-                                    <div className="absolute bottom-1 left-1 rounded-md bg-white/90 border border-slate-200 px-1.5 py-1 opacity-0 group-hover:opacity-100 transition">
+                                    <div className="absolute bottom-1 start-1 rounded-md bg-white/90 border border-slate-200 px-1.5 py-1 opacity-0 group-hover:opacity-100 transition">
                                       <GripVertical className="w-4 h-4 text-slate-600" />
                                     </div>
                                   ) : null}
@@ -2368,8 +2508,8 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
                                 </CarouselItem>
                               ))}
                             </CarouselContent>
-                            <CarouselPrevious className="left-2 bg-white/90 hover:bg-white" />
-                            <CarouselNext className="right-2 bg-white/90 hover:bg-white" />
+                            <CarouselPrevious className="start-2 bg-white/90 hover:bg-white" />
+                            <CarouselNext className="end-2 bg-white/90 hover:bg-white" />
                           </Carousel>
                         </div>
                       </div>
@@ -2410,6 +2550,23 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
                           words={quickSuggestions.ambiance}
                           disabled={!canEdit}
                           onAdd={(word) => setForm((p) => ({ ...p, ambianceCsv: addToLinesField(p.ambianceCsv, word) }))}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Type de service</Label>
+                        <Textarea
+                          value={form.serviceTypesCsv}
+                          onChange={(e) => setForm((p) => ({ ...p, serviceTypesCsv: e.target.value }))}
+                          disabled={!canEdit}
+                          className="min-h-[80px]"
+                          placeholder="Un type par ligne"
+                        />
+                        <QuickAddWords
+                          label="Suggestions"
+                          words={["Buffet à volonté", "Servi à table", "À la carte"]}
+                          disabled={!canEdit}
+                          onAdd={(word) => setForm((p) => ({ ...p, serviceTypesCsv: addToLinesField(p.serviceTypesCsv, word) }))}
                         />
                       </div>
 
@@ -2698,15 +2855,15 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
                   <CollapsibleContent>
                     <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {SOCIAL_FIELDS.map(({ key, label, placeholder, Icon }) => {
-                const value = form.social[key];
+                const value = form.social[key] ?? "";
                 return (
                   <div key={key} className="space-y-2">
                     <div className="flex items-center justify-between gap-3">
-                      <Label className="flex items-center gap-2">
+                      <Label className="flex items-center gap-2 shrink-0 whitespace-nowrap">
                         <Icon className={"w-4 h-4 " + (value.trim() ? "text-primary" : "text-slate-400")} />
                         {label}
                       </Label>
-                      {value.trim() ? <div className="text-xs text-slate-500">{formatUrlShort(value)}</div> : null}
+                      {value.trim() ? <div className="text-xs text-slate-500 truncate min-w-0">{formatUrlShort(value)}</div> : null}
                     </div>
                     <Input
                       value={value}
@@ -2720,6 +2877,34 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
                     </CardContent>
                   </CollapsibleContent>
                 </Collapsible>
+              </Card>
+
+              {/* Options d'affichage */}
+              <Card className="border-slate-200">
+                <CardHeader className="pb-3">
+                  <SectionHeader
+                    title="Options d'affichage"
+                    description="Contrôlez ce qui est visible sur votre page publique."
+                    titleClassName="text-sm"
+                  />
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      id="hide-google-reviews"
+                      checked={hideGoogleReviews}
+                      onCheckedChange={(v) => {
+                        const next = v === true;
+                        setHideGoogleReviews(next);
+                        toggleGoogleReviewsApi(next);
+                      }}
+                      disabled={!canEdit}
+                    />
+                    <Label htmlFor="hide-google-reviews" className="text-sm cursor-pointer">
+                      Masquer les avis Google sur la page publique
+                    </Label>
+                  </div>
+                </CardContent>
               </Card>
             </div>
 
@@ -2744,8 +2929,10 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
                       <CheckCircle2 className="w-4 h-4" />
                       Établissement vérifié
                     </div>
+                  ) : moderationLocked ? (
+                    <div className="text-sm text-amber-700">Modifications en attente de validation</div>
                   ) : (
-                    <div className="text-sm text-amber-700">Établissement en cours de validation</div>
+                    <div className="text-sm text-slate-500">Établissement en attente de vérification par SAM</div>
                   )}
 
                   {moderationLocked ? (
@@ -2763,10 +2950,30 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
 
                   {error ? <div className="text-sm text-red-600">{error}</div> : null}
 
-                  <Button className="bg-primary text-white hover:bg-primary/90 font-bold gap-2 w-full" disabled={!canSubmit} onClick={handleSubmit}>
+                  <Button className="bg-primary text-white hover:bg-primary/90 font-bold gap-2 w-full" disabled={!canSubmit} onClick={() => setShowSubmitConfirm(true)}>
                     {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                     Soumettre en modération
                   </Button>
+
+                  <AlertDialog open={showSubmitConfirm} onOpenChange={setShowSubmitConfirm}>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Confirmer la soumission</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Vos modifications vont être soumises à la modération. Elles seront examinées et validées prochainement par l'équipe SAM.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Annuler</AlertDialogCancel>
+                        <AlertDialogAction
+                          className="bg-primary text-white hover:bg-primary/90"
+                          onClick={() => { setShowSubmitConfirm(false); handleSubmit(); }}
+                        >
+                          Confirmer
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
 
                   {!canEdit ? <div className="text-sm text-slate-600">Votre rôle ne permet pas de modifier la fiche.</div> : null}
                 </CardContent>
@@ -2969,7 +3176,7 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
                       key={d.id}
                       type="button"
                       onClick={() => void openDraftDetail(d)}
-                      className="w-full text-left rounded-xl border bg-white p-4 space-y-2 hover:bg-slate-50 transition-colors cursor-pointer"
+                      className="w-full text-start rounded-xl border bg-white p-4 space-y-2 hover:bg-slate-50 transition-colors cursor-pointer"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
@@ -2997,7 +3204,7 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
                       <TableHead>Date</TableHead>
                       <TableHead>Statut</TableHead>
                       <TableHead>Motif</TableHead>
-                      <TableHead className="text-right">Action</TableHead>
+                      <TableHead className="text-end">Action</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -3014,7 +3221,7 @@ export function ProEstablishmentTab({ establishment, role, onUpdated, userId, us
                             <Badge className={st.className}>{st.label}</Badge>
                           </TableCell>
                           <TableCell className="text-sm text-slate-600">{d.reason ?? "—"}</TableCell>
-                          <TableCell className="text-right">
+                          <TableCell className="text-end">
                             <span className="text-xs text-primary font-medium">Voir détails →</span>
                           </TableCell>
                         </TableRow>

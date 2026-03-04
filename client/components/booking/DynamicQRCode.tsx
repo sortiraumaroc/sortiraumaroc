@@ -201,7 +201,7 @@ export function DynamicQRCode({
             {showTimer && (
               <div
                 className={cn(
-                  "absolute -top-2 -right-2 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold",
+                  "absolute -top-2 -end-2 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold",
                   isExpiringSoon
                     ? "bg-red-500 text-white animate-pulse"
                     : "bg-primary text-white"

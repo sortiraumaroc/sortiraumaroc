@@ -2,8 +2,14 @@
 
 import { emitAdminNotification } from "./adminNotifications";
 import { sendTemplateEmail } from "./emailService";
+import { sendTransactionalSms, isSmsConfigured } from "./smsService";
+import { sendWhatsAppMessage, isWhatsAppConfigured } from "./whatsappService";
+import { getAdminSupabase } from "./supabaseAdmin";
 import { NotificationEventType } from "../shared/notifications";
 import { formatLeJjMmAaAHeure } from "../shared/datetime";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("waitlist");
 
 type SupabaseLike = {
   from: (table: string) => any;
@@ -115,8 +121,8 @@ export async function triggerWaitlistPromotionForSlot(args: {
         },
       });
     }
-  } catch {
-    // ignore
+  } catch (err) {
+    log.warn({ err }, "Best-effort: waitlist push notification to consumer failed");
   }
 
   // Inform PROs (visibility only; no manual action required)
@@ -137,8 +143,8 @@ export async function triggerWaitlistPromotionForSlot(args: {
           offerExpiresAt: expiresAtIso,
         },
       });
-    } catch {
-      // ignore
+    } catch (err) {
+      log.warn({ err }, "Best-effort: waitlist pro notification failed");
     }
   }
 
@@ -176,8 +182,8 @@ export async function triggerWaitlistPromotionForSlot(args: {
         },
       });
     }
-  } catch {
-    // ignore
+  } catch (err) {
+    log.warn({ err }, "Best-effort: waitlist consumer event insert failed");
   }
 
   // Email consumer (best-effort)
@@ -206,7 +212,7 @@ export async function triggerWaitlistPromotionForSlot(args: {
       const startsAtIso = asIso(payload.starts_at);
       const dateLabel = startsAtIso ? formatLeJjMmAaAHeure(startsAtIso) : "";
 
-      const baseUrl = asString(process.env.PUBLIC_BASE_URL) || "https://sortiraumaroc.ma";
+      const baseUrl = asString(process.env.PUBLIC_BASE_URL) || "https://sam.ma";
       const ctaUrl = `${baseUrl}/profile/bookings/${encodeURIComponent(reservationId || "")}`;
 
       await sendTemplateEmail({
@@ -231,8 +237,40 @@ export async function triggerWaitlistPromotionForSlot(args: {
           position,
         },
       });
-    } catch {
-      // ignore
+    } catch (err) {
+      log.warn({ err }, "Best-effort: waitlist offer email to consumer failed");
+    }
+  })();
+
+  // SMS + WhatsApp consumer (best-effort, shared phone lookup)
+  void (async () => {
+    try {
+      const consumerUserId = asString(payload.user_id).trim();
+      if (!consumerUserId) return;
+      if (!isSmsConfigured() && !isWhatsAppConfigured()) return;
+
+      const adminSb = getAdminSupabase();
+      const { data: authUser } = await adminSb.auth.admin.getUserById(consumerUserId);
+      const phone = authUser?.user?.phone;
+      if (!phone) return;
+
+      const estName = asString(payload.establishment_name) || "";
+
+      if (isSmsConfigured()) {
+        await sendTransactionalSms(
+          phone,
+          `SAM.ma — Une place s'est libérée${estName ? ` chez ${estName}` : ""} ! Confirmez vite dans l'appli (expire dans 15 min).`,
+        );
+      }
+
+      if (isWhatsAppConfigured()) {
+        await sendWhatsAppMessage(
+          phone,
+          `SAM.ma — Une place s'est libérée${estName ? ` chez ${estName}` : ""} ! Confirmez votre réservation dans l'application (expire dans 15 min).`,
+        );
+      }
+    } catch (err) {
+      log.warn({ err }, "Best-effort: waitlist offer SMS/WhatsApp to consumer failed");
     }
   })();
 

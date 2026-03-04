@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, Mail, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Mail } from "lucide-react";
 import { useState } from "react";
 
 interface ForgotPasswordScreenProps {
@@ -54,7 +54,7 @@ export function ForgotPasswordScreen({
           <button
             type="button"
             onClick={onBack}
-            className="p-1.5 -ml-1.5 rounded-full hover:bg-slate-100 transition-colors"
+            className="p-1.5 -ms-1.5 rounded-full hover:bg-slate-100 transition-colors"
             aria-label="Retour"
           >
             <ArrowLeft className="w-4 h-4 text-slate-600" />
@@ -68,17 +68,17 @@ export function ForgotPasswordScreen({
         </div>
 
         <div className="text-center py-6">
-          <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
-            <CheckCircle2 className="w-7 h-7 text-green-600" />
+          <div className="w-14 h-14 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-3">
+            <Mail className="w-7 h-7 text-primary" />
           </div>
           <h3 className="text-base font-semibold text-slate-900 mb-2">
-            Email envoyé !
+            Vérifiez votre boîte mail
           </h3>
           <p className="text-sm text-slate-600 mb-3">
-            Si un compte existe avec cet email, vous recevrez un lien pour réinitialiser votre mot de passe.
+            Si un compte est associé à <strong>{email}</strong>, vous recevrez un lien pour réinitialiser votre mot de passe d'ici quelques minutes.
           </p>
           <p className="text-xs text-slate-500">
-            Email envoyé à <strong>{email}</strong>
+            Pensez à vérifier vos spams si vous ne trouvez rien.
           </p>
         </div>
 
@@ -101,7 +101,7 @@ export function ForgotPasswordScreen({
         <button
           type="button"
           onClick={onBack}
-          className="p-1.5 -ml-1.5 rounded-full hover:bg-slate-100 transition-colors"
+          className="p-1.5 -ms-1.5 rounded-full hover:bg-slate-100 transition-colors"
           aria-label="Retour"
         >
           <ArrowLeft className="w-4 h-4 text-slate-600" />

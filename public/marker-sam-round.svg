@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+  <!-- Red circle background with white border -->
+  <circle cx="24" cy="24" r="22" fill="#E53935" stroke="#fff" stroke-width="2"/>
+  <!-- White megaphone icon, scaled and centered -->
+  <g transform="translate(11, 9) scale(0.26)" fill="white">
+    <!-- Main megaphone body - tilted cone -->
+    <path d="M20 80 L45 20 L80 35 L55 95 Z" stroke="white" stroke-width="2" stroke-linejoin="round"/>
+    <!-- Rounded top edge -->
+    <circle cx="52" cy="22" r="8"/>
+    <!-- Rounded bottom-right -->
+    <ellipse cx="68" cy="68" rx="12" ry="8" transform="rotate(25 68 68)"/>
+    <!-- Handle at bottom-left -->
+    <path d="M8 72 L28 58 L28 78 L18 92 L8 92 Q2 82 8 72 Z"/>
+  </g>
+</svg>

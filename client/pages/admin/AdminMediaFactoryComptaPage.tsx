@@ -49,7 +49,7 @@ import {
   type AdminPartnerInvoiceRequest,
 } from "@/lib/adminApi";
 import { formatDateTimeShort } from "@/components/mediaFactory/mediaFactoryStatus";
-import { AdminMediaFactoryNav } from "./media-factory/AdminMediaFactoryNav";
+import { AdminVisibilityNav } from "@/pages/admin/visibility/AdminVisibilityNav";
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
 
 function shortId(id: string): string {
@@ -168,7 +168,7 @@ export function AdminMediaFactoryComptaPage() {
         description="Comptabilité - Factures Partenaires"
       />
 
-      <AdminMediaFactoryNav />
+      <AdminVisibilityNav />
 
       <div className="flex items-center justify-end gap-3">
         <div className="flex items-center gap-2">
@@ -267,7 +267,7 @@ export function AdminMediaFactoryComptaPage() {
                 <TableHead>Montant</TableHead>
                 <TableHead>Statut</TableHead>
                 <TableHead>Demandé</TableHead>
-                <TableHead className="text-right">Action</TableHead>
+                <TableHead className="text-end">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -277,7 +277,7 @@ export function AdminMediaFactoryComptaPage() {
                     colSpan={7}
                     className="py-8 text-center text-sm text-slate-600"
                   >
-                    <Loader2 className="inline h-4 w-4 animate-spin mr-2" />
+                    <Loader2 className="inline h-4 w-4 animate-spin me-2" />
                     Chargement…
                   </TableCell>
                 </TableRow>
@@ -307,7 +307,7 @@ export function AdminMediaFactoryComptaPage() {
                       <TableCell className="text-xs text-slate-600">
                         {formatDateTimeShort(req.requested_at)}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-end">
                         {req.status !== "paid" && req.status !== "rejected" ? (
                           <Button
                             size="sm"

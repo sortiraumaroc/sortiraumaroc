@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { AdminPaymentsNav } from "./payments/AdminPaymentsNav";
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -87,6 +88,7 @@ export function AdminPaymentsPage() {
 
   return (
     <div className="space-y-4">
+      <AdminPaymentsNav />
       <AdminPageHeader
         title="Paiements"
         description="Événements paiements/refunds détectés (webhook + notifications admin)."

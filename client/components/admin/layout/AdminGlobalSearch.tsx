@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  Award,
   BarChart3,
+  Bell,
   Building2,
   Calendar,
+  Car,
+  ClipboardCheck,
   ClipboardList,
   CreditCard,
   FileSpreadsheet,
@@ -11,16 +15,21 @@ import {
   Home,
   LayoutDashboard,
   LifeBuoy,
+  Link2,
   ListChecks,
   Mail,
+  Megaphone,
   MessageSquare,
+  Moon,
   Rocket,
   ScrollText,
   Search,
   Settings,
   Shield,
+  Sparkles,
   Star,
-  Tag,
+  Tags,
+  Timer,
   Users,
   UsersRound,
   Video,
@@ -36,7 +45,6 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
-import { Input } from "@/components/ui/input";
 
 type SearchItem = {
   label: string;
@@ -46,9 +54,8 @@ type SearchItem = {
   category: string;
 };
 
-// Toutes les rubriques et sous-rubriques de l'admin
 const SEARCH_ITEMS: SearchItem[] = [
-  // Tableau de bord
+  // ── Tableau de bord ──
   {
     label: "Tableau de bord",
     to: "/admin",
@@ -57,7 +64,7 @@ const SEARCH_ITEMS: SearchItem[] = [
     category: "Navigation principale",
   },
 
-  // Utilisateurs
+  // ── Utilisateurs ──
   {
     label: "Utilisateurs",
     to: "/admin/users",
@@ -66,14 +73,14 @@ const SEARCH_ITEMS: SearchItem[] = [
     category: "Navigation principale",
   },
   {
-    label: "Nettoyage comptes",
-    to: "/admin/users/cleanup",
+    label: "Comités d'Entreprise",
+    to: "/admin/ce",
     icon: Users,
-    keywords: ["cleanup", "nettoyage", "demo", "test", "fake", "suppression"],
+    keywords: ["ce", "comité", "entreprise", "salariés", "avantages"],
     category: "Navigation principale",
   },
 
-  // Professionnels
+  // ── Professionnels ──
   {
     label: "Professionnels",
     to: "/admin/pros",
@@ -82,28 +89,42 @@ const SEARCH_ITEMS: SearchItem[] = [
     category: "Navigation principale",
   },
 
-  // Établissements
+  // ── Établissements ──
   {
     label: "Établissements",
     to: "/admin/establishments",
     icon: Building2,
     keywords: ["lieux", "venues", "restaurants", "spas", "hammams", "activités"],
-    category: "Navigation principale",
+    category: "Établissements",
   },
   {
-    label: "Import / Export établissements",
+    label: "Revendications & Leads",
+    to: "/admin/claim-requests",
+    icon: Building2,
+    keywords: ["revendication", "claim", "leads", "nouveaux"],
+    category: "Établissements",
+  },
+  {
+    label: "Import / Export",
     to: "/admin/import-export",
     icon: FileSpreadsheet,
     keywords: ["csv", "excel", "import", "export", "masse", "bulk", "seeding"],
-    category: "Navigation principale",
+    category: "Établissements",
   },
 
-  // Réservations
+  // ── Réservations ──
   {
     label: "Réservations",
     to: "/admin/reservations",
     icon: ClipboardList,
     keywords: ["bookings", "commandes", "orders"],
+    category: "Réservations",
+  },
+  {
+    label: "Ramadan 2026",
+    to: "/admin/ramadan",
+    icon: Moon,
+    keywords: ["ramadan", "iftar", "ftour"],
     category: "Réservations",
   },
   {
@@ -116,12 +137,35 @@ const SEARCH_ITEMS: SearchItem[] = [
   {
     label: "Offres & packs",
     to: "/admin/deals",
-    icon: Tag,
-    keywords: ["deals", "promotions", "promos", "réductions"],
+    icon: Tags,
+    keywords: ["deals", "promotions", "promos", "réductions", "slots"],
     category: "Réservations",
   },
 
-  // Paiements & Finance
+  // ── Packs & Fidélité ──
+  {
+    label: "Packs (modération)",
+    to: "/admin/packs-moderation",
+    icon: Tags,
+    keywords: ["packs", "modération", "offres"],
+    category: "Packs & Fidélité",
+  },
+  {
+    label: "Finances packs",
+    to: "/admin/finances",
+    icon: CreditCard,
+    keywords: ["finances", "revenus", "packs"],
+    category: "Packs & Fidélité",
+  },
+  {
+    label: "Fidélité",
+    to: "/admin/loyalty-v2",
+    icon: Award,
+    keywords: ["fidélité", "loyalty", "points", "récompenses", "cartes"],
+    category: "Packs & Fidélité",
+  },
+
+  // ── Paiements & Finance ──
   {
     label: "Paiements",
     to: "/admin/payments",
@@ -136,49 +180,24 @@ const SEARCH_ITEMS: SearchItem[] = [
     keywords: ["payout", "versement", "virement", "transfert"],
     category: "Finance",
   },
-  {
-    label: "Écarts de paiement",
-    to: "/admin/finance/discrepancies",
-    icon: CreditCard,
-    keywords: ["discrepancies", "écarts", "différences", "anomalies"],
-    category: "Finance",
-  },
 
-  // Avis & signalements
+  // ── Page d'accueil & Contenu ──
   {
-    label: "Avis & signalements",
-    to: "/admin/reviews",
-    icon: Star,
-    keywords: ["reviews", "notes", "feedback", "modération", "signalements"],
-    category: "Navigation principale",
+    label: "Page d'accueil",
+    to: "/admin/homepage",
+    icon: Home,
+    keywords: ["homepage", "landing", "vitrine", "hero", "apparence"],
+    category: "Contenu",
   },
-
-  // Contenu
   {
-    label: "Contenu (Blog & Pages)",
+    label: "Pages & Blog",
     to: "/admin/content",
     icon: FileText,
     keywords: ["blog", "articles", "pages", "cms", "rédaction"],
     category: "Contenu",
   },
-  {
-    label: "Page d'accueil",
-    to: "/admin/homepage",
-    icon: Home,
-    keywords: ["homepage", "landing", "vitrine"],
-    category: "Contenu",
-  },
 
-  // Marketing
-  {
-    label: "Prospects marketing",
-    to: "/admin/marketing/prospects",
-    icon: Users,
-    keywords: ["prospects", "contacts", "leads", "marketing", "emailing", "liste"],
-    category: "Marketing",
-  },
-
-  // Emailing
+  // ── Emailing ──
   {
     label: "Templates emails",
     to: "/admin/emails/templates",
@@ -208,16 +227,53 @@ const SEARCH_ITEMS: SearchItem[] = [
     category: "Emailing",
   },
 
-  // Visibilité
+  // ── Visibilité ──
   {
-    label: "Visibilité",
+    label: "Visibilité (SAM Media)",
     to: "/admin/visibility",
     icon: Rocket,
-    keywords: ["boost", "promotion", "mise en avant", "featured"],
-    category: "Navigation principale",
+    keywords: ["boost", "promotion", "mise en avant", "featured", "offres", "devis", "factures", "commandes"],
+    category: "Visibilité",
+  },
+  {
+    label: "Publicités",
+    to: "/admin/ads",
+    icon: Sparkles,
+    keywords: ["ads", "publicités", "campagnes", "enchères"],
+    category: "Visibilité",
+  },
+  {
+    label: "Liens Perso",
+    to: "/admin/username-subscriptions",
+    icon: Link2,
+    keywords: ["liens", "username", "personnalisé", "book.sam.ma"],
+    category: "Visibilité",
   },
 
-  // Media Factory
+  // ── Marketing ──
+  {
+    label: "Campagnes Push",
+    to: "/admin/push-campaigns",
+    icon: Bell,
+    keywords: ["push", "notifications", "campagnes", "marketing"],
+    category: "Marketing",
+  },
+  {
+    label: "Bannières & Pop-ups",
+    to: "/admin/banners",
+    icon: Megaphone,
+    keywords: ["bannières", "pop-ups", "popups", "banners"],
+    category: "Marketing",
+  },
+  {
+    label: "Roue de la Chance",
+    to: "/admin/wheel",
+    icon: Star,
+    keywords: ["roue", "wheel", "fortune", "jeu", "concours"],
+    category: "Marketing",
+  },
+
+  // ── Media Factory ──
   {
     label: "Media Factory - Production",
     to: "/admin/production-media",
@@ -247,7 +303,7 @@ const SEARCH_ITEMS: SearchItem[] = [
     category: "Media Factory",
   },
 
-  // Support
+  // ── Support & Formulaires ──
   {
     label: "Support",
     to: "/admin/support",
@@ -255,8 +311,15 @@ const SEARCH_ITEMS: SearchItem[] = [
     keywords: ["aide", "help", "tickets", "assistance"],
     category: "Navigation principale",
   },
+  {
+    label: "Formulaires",
+    to: "/admin/contact-forms",
+    icon: ClipboardCheck,
+    keywords: ["formulaires", "contact", "soumissions"],
+    category: "Navigation principale",
+  },
 
-  // Paramètres
+  // ── Paramètres ──
   {
     label: "Paramètres",
     to: "/admin/settings",
@@ -265,10 +328,26 @@ const SEARCH_ITEMS: SearchItem[] = [
     category: "Configuration",
   },
   {
+    label: "Location véhicules",
+    to: "/admin/rental",
+    icon: Car,
+    keywords: ["location", "véhicules", "voiture", "rental", "assurances"],
+    category: "Configuration",
+  },
+
+  // ── Collaborateurs & Rôles ──
+  {
     label: "Collaborateurs",
     to: "/admin/collaborators",
     icon: Shield,
     keywords: ["team", "équipe", "membres", "staff"],
+    category: "Configuration",
+  },
+  {
+    label: "Suivi d'activité",
+    to: "/admin/activity-tracking",
+    icon: Timer,
+    keywords: ["activité", "tracking", "temps", "travail", "suivi"],
     category: "Configuration",
   },
   {
@@ -279,7 +358,7 @@ const SEARCH_ITEMS: SearchItem[] = [
     category: "Configuration",
   },
 
-  // Logs & Audit
+  // ── Logs & Audit ──
   {
     label: "Journaux (logs)",
     to: "/admin/logs",

@@ -292,7 +292,7 @@ export function AdminUserCleanupPage() {
             </div>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={() => fetchData()} disabled={loading}>
-                <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+                <RefreshCw className={`h-4 w-4 me-2 ${loading ? "animate-spin" : ""}`} />
                 Actualiser
               </Button>
               {accounts.length > 0 && (
@@ -306,7 +306,7 @@ export function AdminUserCleanupPage() {
                     disabled={selectedIds.size === 0 || !securityConfigured}
                     onClick={() => setConfirmDialogOpen(true)}
                   >
-                    <Trash2 className="h-4 w-4 mr-2" />
+                    <Trash2 className="h-4 w-4 me-2" />
                     Supprimer la sélection
                   </Button>
                 </>
@@ -331,7 +331,7 @@ export function AdminUserCleanupPage() {
               <table className="w-full">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left">
+                    <th className="px-4 py-3 text-start">
                       <input
                         type="checkbox"
                         checked={selectedIds.size === accounts.length}
@@ -339,10 +339,10 @@ export function AdminUserCleanupPage() {
                         className="rounded border-gray-300"
                       />
                     </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Email</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Nom</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Raison</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Date création</th>
+                    <th className="px-4 py-3 text-start text-sm font-medium text-gray-500">Email</th>
+                    <th className="px-4 py-3 text-start text-sm font-medium text-gray-500">Nom</th>
+                    <th className="px-4 py-3 text-start text-sm font-medium text-gray-500">Raison</th>
+                    <th className="px-4 py-3 text-start text-sm font-medium text-gray-500">Date création</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -487,12 +487,12 @@ export function AdminUserCleanupPage() {
             <Button variant="destructive" onClick={handleDelete} disabled={deleting || !securityPassword}>
               {deleting ? (
                 <>
-                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  <RefreshCw className="h-4 w-4 me-2 animate-spin" />
                   Suppression...
                 </>
               ) : (
                 <>
-                  <Trash2 className="h-4 w-4 mr-2" />
+                  <Trash2 className="h-4 w-4 me-2" />
                   Supprimer
                 </>
               )}

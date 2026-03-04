@@ -351,7 +351,7 @@ export function AdminDealsPage() {
 
       {error ? <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div> : null}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="space-y-6">
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <div className="text-sm font-bold text-slate-900">Offres (slots)</div>
@@ -367,9 +367,7 @@ export function AdminDealsPage() {
           </div>
           <AdminDataTable data={offersPacks} columns={packsColumns as any} searchPlaceholder="Rechercher…" />
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <div className="text-sm font-bold text-slate-900">Packs achetés</div>

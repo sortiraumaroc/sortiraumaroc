@@ -1,6 +1,18 @@
 import type { RequestHandler } from "express";
+import type { Express } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { emitAdminNotification } from "../adminNotifications";
+import { createModuleLogger } from "../lib/logger";
+import { zBody } from "../lib/validate";
+import { SubmitClaimRequestSchema } from "../schemas/claimRequests";
+import { createRateLimiter } from "../middleware/rateLimiter";
+
+const log = createModuleLogger("claimRequests");
+
+const claimRequestRateLimiter = createRateLimiter("claim-request", {
+  windowMs: 60 * 60 * 1000, // 1 heure
+  maxRequests: 5,
+});
 
 /**
  * Submit a claim request for an establishment
@@ -82,7 +94,7 @@ export const submitClaimRequest: RequestHandler = async (req, res) => {
       .single();
 
     if (insertError) {
-      console.error("[ClaimRequest] Insert error:", insertError);
+      log.error({ err: insertError }, "Insert error");
       throw insertError;
     }
 
@@ -107,7 +119,15 @@ export const submitClaimRequest: RequestHandler = async (req, res) => {
       claimRequestId: claimRequest.id,
     });
   } catch (error) {
-    console.error("[ClaimRequest] Error:", error);
+    log.error({ err: error }, "Claim request error");
     return res.status(500).json({ error: "Erreur lors de l'envoi de la demande" });
   }
 };
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerClaimRequestRoutes(app: Express) {
+  app.post("/api/public/claim-request", claimRequestRateLimiter, zBody(SubmitClaimRequestSchema), submitClaimRequest);
+}

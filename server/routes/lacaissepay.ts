@@ -18,9 +18,16 @@
  */
 
 import type { Request, Response } from "express";
+import type { Express } from "express";
 import { sendSuccess, errors } from "../lib/apiResponse";
 import { paymentRateLimiter } from "../middleware/rateLimiter";
 import { validateEmail, validatePhone } from "../lib/validation";
+import { resilientFetch } from "../lib/resilientFetch";
+import { createModuleLogger } from "../lib/logger";
+import { zBody } from "../lib/validate";
+import { CreateLacaissePaySessionSchema } from "../schemas/lacaissepayRoutes";
+
+const log = createModuleLogger("lacaissepay");
 
 // Re-export du rate limiter pour l'utiliser dans le router
 export { paymentRateLimiter };
@@ -47,10 +54,7 @@ function getLacaissePaySessionUrl(): string {
   // Permettre de forcer l'endpoint via variable d'environnement
   const forcedUrl = safeTrim(process.env.LACAISSEPAY_SESSION_URL);
   if (forcedUrl) {
-    console.log(
-      "[LacaissePay] Using forced endpoint from LACAISSEPAY_SESSION_URL:",
-      forcedUrl,
-    );
+    log.info({ url: forcedUrl }, "Using forced endpoint from LACAISSEPAY_SESSION_URL");
     return forcedUrl;
   }
 
@@ -58,11 +62,7 @@ function getLacaissePaySessionUrl(): string {
   const isProd = isProduction();
   const url = process.env.LACAISSEPAY_SESSION_URL; // DEV endpoint
 
-  console.log(
-    "[LacaissePay] Environment:",
-    isProd ? "PRODUCTION" : "DEVELOPMENT",
-  );
-  console.log("[LacaissePay] Using endpoint:", url);
+  log.info({ env: isProd ? "PRODUCTION" : "DEVELOPMENT", url }, "LacaissePay endpoint resolved");
 
   return url;
 }
@@ -88,8 +88,7 @@ function buildNotificationUrl(args: {
     if (origin && expected) {
       return `${origin}/api/payments/webhook?webhook_key=${encodeURIComponent(expected)}`;
     }
-  } catch {
-    // ignore
+  } catch { /* intentional: URL may be invalid */
   }
 
   // Fallback to whatever the client sent, if any.
@@ -207,11 +206,11 @@ export async function createLacaissePaySessionInternal(args: {
   };
 
   const sessionUrl = getLacaissePaySessionUrl();
-  const sessionResponse = await fetch(sessionUrl, {
+  const sessionResponse = await resilientFetch(sessionUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
-  });
+  }, { timeoutMs: 15_000, maxRetries: 2 });
 
   if (!sessionResponse.ok) {
     const errText = await sessionResponse.text();
@@ -242,14 +241,13 @@ export async function createLacaissePaySession(req: Request, res: Response) {
   // Log minimal en production
   const isProd = isProduction();
   if (!isProd) {
-    console.log("[LacaissePay] Session creation request received");
-    console.log("[LacaissePay] Body present:", !!req.body);
+    log.info({ bodyPresent: !!req.body }, "Session creation request received");
   }
 
   try {
     // Validation du body
     if (!isRecord(req.body)) {
-      console.error("[LacaissePay] Invalid request body");
+      log.error("Invalid request body");
       return errors.badRequest(res, "Corps de requête invalide");
     }
 
@@ -314,7 +312,7 @@ export async function createLacaissePaySession(req: Request, res: Response) {
     });
 
     if (!notificationUrl) {
-      console.error("[LacaissePay] PAYMENTS_WEBHOOK_KEY is missing");
+      log.error("PAYMENTS_WEBHOOK_KEY is missing");
       return errors.serviceUnavailable(res, "Configuration de paiement incomplète");
     }
 
@@ -335,7 +333,7 @@ export async function createLacaissePaySession(req: Request, res: Response) {
 
     return sendSuccess(res, session);
   } catch (e) {
-    console.error("[LacaissePay] Session creation error:", e);
+    log.error({ err: e }, "Session creation error");
 
     // Ne pas exposer les détails en production
     if (isProduction()) {
@@ -375,7 +373,7 @@ export function parseLacaissePayWebhook(body: unknown): {
   const createdAt = asString(body.CreatedAt);
 
   if (!externalId || !operationId || !createdAt) {
-    console.warn("LacaissePay webhook missing required fields");
+    log.warn("Webhook missing required fields");
     return null;
   }
 
@@ -395,4 +393,12 @@ export function parseLacaissePayWebhook(body: unknown): {
     createdAt: new Date(createdAt).toISOString(),
     rawPayload: body as Record<string, unknown>,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerLacaissePayRoutes(app: Express) {
+  app.post("/api/payments/lacaissepay/session", paymentRateLimiter, zBody(CreateLacaissePaySessionSchema), createLacaissePaySession);
 }

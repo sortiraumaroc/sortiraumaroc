@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
+import { AdminSettingsNav } from "@/pages/admin/settings/AdminSettingsNav";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -126,6 +127,7 @@ export function AdminSettingsPage() {
 
   return (
     <div className="space-y-4">
+      <AdminSettingsNav />
       <AdminPageHeader
         title={t("admin.settings.title")}
         description={t("admin.settings.description")}

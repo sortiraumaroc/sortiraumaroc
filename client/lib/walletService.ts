@@ -46,7 +46,7 @@ export const requestAppleWalletPass = async (data: PassGenerationRequest): Promi
     });
 
     if (!response.ok) {
-      console.warn('Apple Wallet: Backend error');
+      // Apple Wallet backend error
       return null;
     }
 
@@ -83,7 +83,7 @@ export const requestGoogleWalletPass = async (data: PassGenerationRequest): Prom
     });
 
     if (!response.ok) {
-      console.warn('Google Wallet: Backend not configured');
+      // Google Wallet backend not configured
       return null;
     }
 
@@ -260,7 +260,7 @@ export const requestUserAppleWalletPass = async (
     });
 
     if (!response.ok) {
-      console.warn("User Apple Wallet: Backend error");
+      // User Apple Wallet backend error
       return null;
     }
 
@@ -289,7 +289,7 @@ export const requestUserGoogleWalletPass = async (
     });
 
     if (!response.ok) {
-      console.warn("User Google Wallet: Backend error");
+      // User Google Wallet backend error
       return null;
     }
 

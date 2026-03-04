@@ -68,7 +68,7 @@ export function SessionConflictDialog({
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent className="max-w-lg border-2 border-primary">
         <AlertDialogHeader>
-          <AlertDialogTitle className="text-xl text-left">
+          <AlertDialogTitle className="text-xl text-start">
             Session active détectée
           </AlertDialogTitle>
           <AlertDialogDescription asChild>

@@ -97,7 +97,7 @@ export function DirectBookingEstablishmentCard({ establishment }: Props) {
 
           {/* Rating badge - top right */}
           {avg_rating != null && avg_rating > 0 && (
-            <div className="absolute top-3 right-3">
+            <div className="absolute top-3 end-3">
               <Badge className="bg-white/95 text-slate-900 backdrop-blur-sm flex items-center gap-1 shadow-sm px-2 py-1">
                 <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
                 <span className="font-bold text-sm">{avg_rating.toFixed(1)}</span>
@@ -114,7 +114,7 @@ export function DirectBookingEstablishmentCard({ establishment }: Props) {
               variant="secondary"
               className="mb-2 bg-white/95 text-slate-700 backdrop-blur-sm shadow-sm"
             >
-              <span className="mr-1">{getUniverseEmoji(universe)}</span>
+              <span className="me-1">{getUniverseEmoji(universe)}</span>
               {getUniverseLabel(universe)}
               {subcategory && <span className="text-slate-500"> · {subcategory}</span>}
             </Badge>
@@ -130,7 +130,7 @@ export function DirectBookingEstablishmentCard({ establishment }: Props) {
         {!coverImage && (
           <div className="pb-3 mb-3 border-b border-slate-100">
             <Badge variant="secondary" className="mb-2">
-              <span className="mr-1">{getUniverseEmoji(universe)}</span>
+              <span className="me-1">{getUniverseEmoji(universe)}</span>
               {getUniverseLabel(universe)}
               {subcategory && <span className="text-slate-500"> · {subcategory}</span>}
             </Badge>

@@ -10,7 +10,51 @@ Allow: /
 User-agent: facebookexternalhit
 Allow: /
 
+# --- AI Crawlers ---
+
+User-agent: OAI-SearchBot
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /pro/
+Disallow: /partners/
+
+User-agent: GPTBot
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /pro/
+Disallow: /partners/
+
+User-agent: ChatGPT-User
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /pro/
+Disallow: /partners/
+
+User-agent: anthropic-ai
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /pro/
+Disallow: /partners/
+
+User-agent: ClaudeBot
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /pro/
+Disallow: /partners/
+
+User-agent: PerplexityBot
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /pro/
+Disallow: /partners/
+
 User-agent: *
 Allow: /
 
-Sitemap: /sitemap.xml
+Sitemap: https://sam.ma/sitemap.xml

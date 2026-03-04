@@ -1,10 +1,13 @@
 import { Suspense, lazy, useEffect } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { BookingProvider } from "@/hooks/useBooking";
 import { PlatformSettingsProvider } from "@/hooks/usePlatformSettings";
 import { ScrollToTop } from "@/components/ScrollToTop";
-import { ScrollToTopButton } from "@/components/ScrollToTopButton";
+import { UnifiedFAB } from "@/components/UnifiedFAB";
+import { PushNotificationPrompt } from "@/components/PushNotificationPrompt";
+import { PushForegroundToast } from "@/components/PushForegroundToast";
 import { Footer } from "@/components/Footer";
 import { PageLoading } from "@/components/PageLoading";
 import { Toaster } from "@/components/ui/toaster";
@@ -14,6 +17,8 @@ import { useI18n } from "@/lib/i18n";
 import type { AppLocale } from "@/lib/i18n/types";
 import { ScrollProvider } from "@/lib/scrollContext";
 import { initNavigationStateTracking } from "@/lib/navigationState";
+import { startPageViewTracking, notifyRouteChange, stopPageViewTracking } from "@/lib/pageViewTracker";
+import { BannerProvider } from "@/components/banners/BannerProvider";
 
 const Index = lazy(() => import("./pages/Index"));
 const Results = lazy(() => import("./pages/Results"));
@@ -33,6 +38,7 @@ const BlogArticle = lazy(() => import("./pages/BlogArticle"));
 const BlogAuthor = lazy(() => import("./pages/BlogAuthor"));
 const Videos = lazy(() => import("./pages/Videos"));
 const Pro = lazy(() => import("./pages/Pro"));
+const Conciergerie = lazy(() => import("./pages/Conciergerie"));
 const Shopping = lazy(() => import("./pages/Shopping"));
 const Loisir = lazy(() => import("./pages/Loisir"));
 const Wellness = lazy(() => import("./pages/Wellness"));
@@ -47,11 +53,25 @@ const PublicMediaInvoice = lazy(() => import("./pages/PublicMediaInvoice"));
 const PublicMediaCheckin = lazy(() => import("./pages/PublicMediaCheckin"));
 const BookingConfirm = lazy(() => import("./pages/BookingConfirm"));
 const ReviewSubmission = lazy(() => import("./pages/ReviewSubmission"));
+const GestureResponse = lazy(() => import("./pages/GestureResponse"));
 const MyQRCodePage = lazy(() => import("./pages/MyQRCodePage"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 
 const Cities = lazy(() => import("./pages/Cities"));
 const CityDetail = lazy(() => import("./pages/CityDetail"));
+
+const PacksPage = lazy(() => import("./pages/Packs"));
+const PackDetailPage = lazy(() => import("./pages/PackDetail"));
+const RamadanOffersPage = lazy(() => import("./pages/RamadanOffers"));
+const OnboardingRamadanPage = lazy(() => import("./pages/OnboardingRamadan"));
+const WheelPage = lazy(() => import("./pages/WheelPage"));
+
+const LandingPage = lazy(() => import("./pages/LandingPage"));
+
+// Rental vehicle pages
+const VehicleDetail = lazy(() => import("./pages/VehicleDetail"));
+const RentalBooking = lazy(() => import("./pages/RentalBooking"));
+const RentalBookingConfirm = lazy(() => import("./pages/RentalBookingConfirm"));
 
 const UsernameRedirect = lazy(() =>
   import("./pages/UsernameRedirect").then((m) => ({
@@ -151,6 +171,11 @@ const AdminModerationPage = lazy(() =>
     default: m.AdminModerationPage,
   })),
 );
+const AdminActivityTrackingPage = lazy(() =>
+  import("./pages/admin/AdminActivityTrackingPage").then((m) => ({
+    default: m.AdminActivityTrackingPage,
+  })),
+);
 const AdminCollaboratorsPage = lazy(() =>
   import("./pages/admin/AdminCollaboratorsPage").then((m) => ({
     default: m.AdminCollaboratorsPage,
@@ -185,6 +210,9 @@ const AdminProductionCheckPage = lazy(() =>
   import("./pages/admin/AdminProductionCheckPage").then((m) => ({
     default: m.AdminProductionCheckPage,
   })),
+);
+const AdminRamadanModerationPage = lazy(() =>
+  import("./pages/admin/AdminRamadanModerationPage"),
 );
 
 const AdminReservationsPage = lazy(() =>
@@ -356,6 +384,60 @@ const AdminContactFormSubmissionsPage = lazy(() =>
 const AdminClaimRequestsPage = lazy(() =>
   import("./pages/admin/AdminClaimRequestsPage"),
 );
+const AdminPushCampaignsPage = lazy(() =>
+  import("./components/admin/AdminPushCampaignsDashboard"),
+);
+const AdminBannersPage = lazy(() =>
+  import("./components/admin/AdminBannersDashboard"),
+);
+const AdminWheelPage = lazy(() =>
+  import("./components/admin/AdminWheelDashboard"),
+);
+const AdminPacksModerationPage = lazy(() =>
+  import("./components/packs/AdminPacksModerationDashboard").then((m) => ({
+    default: m.AdminPacksModerationDashboard,
+  })),
+);
+const AdminFinancesPage = lazy(() =>
+  import("./components/packs/AdminFinancesDashboard").then((m) => ({
+    default: m.AdminFinancesDashboard,
+  })),
+);
+const AdminFtourPage = lazy(() =>
+  import("./components/packs/AdminFtourDashboard").then((m) => ({
+    default: m.AdminFtourDashboard,
+  })),
+);
+const AdminLoyaltyV2Page = lazy(() =>
+  import("./components/loyaltyV2/AdminLoyaltyV2Dashboard").then((m) => ({
+    default: m.AdminLoyaltyV2Dashboard,
+  })),
+);
+const AdminCePage = lazy(() =>
+  import("./pages/admin/AdminCePage").then((m) => ({
+    default: m.AdminCePage,
+  })),
+);
+const AdminPartnershipsPage = lazy(() =>
+  import("./pages/admin/AdminPartnershipsPage").then((m) => ({
+    default: m.AdminPartnershipsPage,
+  })),
+);
+const AdminConciergeriePage = lazy(() =>
+  import("./components/admin/AdminConciergerieDashboard").then((m) => ({
+    default: m.AdminConciergerieDashboard,
+  })),
+);
+const AdminRentalPage = lazy(() =>
+  import("./pages/admin/AdminRentalPage").then((m) => ({
+    default: m.AdminRentalPage,
+  })),
+);
+
+// CE (Comité d'Entreprise) pages
+const CeAdmin = lazy(() => import("./pages/CeAdmin"));
+const CeRegistration = lazy(() => import("./pages/CeRegistration"));
+const CeAdvantages = lazy(() => import("./pages/CeAdvantages"));
 
 // Public Contact Form
 const ContactFormPage = lazy(() =>
@@ -370,7 +452,7 @@ function LocaleLayout({ locale }: { locale: AppLocale }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locale]); // setLocale is stable (created with useCallback([], []))
 
-  const prefix = locale === "en" ? "/en" : "";
+  const prefix = locale === "fr" ? "" : `/${locale}`;
 
   return (
     <>
@@ -409,6 +491,7 @@ function LocaleLayout({ locale }: { locale: AppLocale }) {
         <Route path="blog/:slug" element={<BlogArticle />} />
         <Route path="videos" element={<Videos />} />
         <Route path="pro" element={<Pro />} />
+        <Route path="conciergerie" element={<Conciergerie />} />
         <Route path="partner" element={<Partner />} />
         <Route path="parrainage" element={<Parrainage />} />
         <Route
@@ -424,11 +507,31 @@ function LocaleLayout({ locale }: { locale: AppLocale }) {
         <Route path="wellness/:id" element={<Wellness />} />
         <Route path="culture/:id" element={<Culture />} />
 
+        {/* Packs pages */}
+        <Route path="packs" element={<PacksPage />} />
+        <Route path="packs/:id" element={<PackDetailPage />} />
+
+        {/* Ramadan offers listing */}
+        <Route path="ramadan-offers" element={<RamadanOffersPage />} />
+
+        {/* Rental vehicle pages */}
+        <Route path="vehicle/:id" element={<VehicleDetail />} />
+        <Route path="rental-booking/:vehicleId" element={<RentalBooking />} />
+        <Route path="rental-booking/confirm/:reservationId" element={<RentalBookingConfirm />} />
+
+        {/* Wheel of Fortune */}
+        <Route path="wheel" element={<WheelPage />} />
+
         {/* Cities pages */}
         <Route path="villes" element={<Cities />} />
         <Route path="villes/:slug" element={<CityDetail />} />
 
-        {/* Username short URLs (e.g., sortiraumaroc.ma/@monrestaurant) */}
+        {/* CE (Comité d'Entreprise) pages */}
+        <Route path="ce/:code" element={<CeRegistration />} />
+        <Route path="ce/avantages" element={<CeAdvantages />} />
+        <Route path="ce-admin/:slug" element={<CeAdmin />} />
+
+        {/* Username short URLs (e.g., sam.ma/@monrestaurant) */}
         <Route path="@:username" element={<UsernameRedirect />} />
 
         {/* Direct booking page (book.sam.ma/:username or sam.ma/book/:username) */}
@@ -440,10 +543,14 @@ function LocaleLayout({ locale }: { locale: AppLocale }) {
         <Route path="form/:slug" element={<ContactFormPage />} />
         <Route path="booking/confirm/:token" element={<BookingConfirm />} />
         <Route path="review/:token" element={<ReviewSubmission />} />
+        <Route path="review/gesture/:gestureId" element={<GestureResponse />} />
         <Route path="my-qr/:reservationId" element={<MyQRCodePage />} />
 
         {/* Avoid locale-prefixed admin routes */}
         <Route path="admin/*" element={<Navigate to="/admin" replace />} />
+
+        {/* SEO Landing pages (e.g., /restaurants-casablanca, /sushi-tanger) */}
+        <Route path=":landingSlug" element={<LandingPage />} />
 
         <Route path="*" element={<NotFound />} />
       </Routes>
@@ -451,6 +558,31 @@ function LocaleLayout({ locale }: { locale: AppLocale }) {
       <Footer />
     </>
   );
+}
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60_000, // 5 minutes
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
+
+function PageViewTracker() {
+  const location = useLocation();
+
+  useEffect(() => {
+    startPageViewTracking();
+    return () => stopPageViewTracking();
+  }, []);
+
+  useEffect(() => {
+    notifyRouteChange(location.pathname);
+  }, [location.pathname]);
+
+  return null;
 }
 
 function AppContent() {
@@ -462,8 +594,11 @@ function AppContent() {
   return (
     <>
       <ScrollToTop />
+      <PageViewTracker />
       <PlatformSettingsProvider>
         <BookingProvider>
+          <BannerProvider>
+          <PushNotificationPrompt />
           <Suspense fallback={<PageLoading />}>
           <Routes>
             {/* Partner Portal Routes */}
@@ -530,7 +665,15 @@ function AppContent() {
                 path="establishments/:id"
                 element={<AdminEstablishmentDetailsPage />}
               />
+              <Route
+                path="establishment-leads"
+                element={<AdminClaimRequestsPage defaultTab="leads" />}
+              />
               <Route path="moderation" element={<AdminModerationPage />} />
+              <Route
+                path="activity-tracking"
+                element={<AdminActivityTrackingPage />}
+              />
               <Route
                 path="collaborators"
                 element={<AdminCollaboratorsPage />}
@@ -561,6 +704,18 @@ function AppContent() {
               <Route path="contact-forms/:id" element={<AdminContactFormEditPage />} />
               <Route path="contact-forms/:id/submissions" element={<AdminContactFormSubmissionsPage />} />
               <Route path="claim-requests" element={<AdminClaimRequestsPage />} />
+              <Route path="push-campaigns" element={<AdminPushCampaignsPage />} />
+              <Route path="banners" element={<AdminBannersPage />} />
+              <Route path="wheel" element={<AdminWheelPage />} />
+              <Route path="packs-moderation" element={<AdminPacksModerationPage />} />
+              <Route path="ramadan" element={<AdminRamadanModerationPage />} />
+              <Route path="finances" element={<AdminFinancesPage />} />
+              <Route path="ftour" element={<AdminFtourPage />} />
+              <Route path="loyalty-v2" element={<AdminLoyaltyV2Page />} />
+              <Route path="ce" element={<AdminCePage />} />
+              <Route path="partnerships" element={<AdminPartnershipsPage />} />
+              <Route path="conciergeries" element={<AdminConciergeriePage />} />
+              <Route path="rental" element={<AdminRentalPage />} />
               <Route path="content" element={<AdminContentPage />} />
               <Route path="homepage" element={<AdminHomePage />} />
               <Route path="settings" element={<AdminSettingsPage />} />
@@ -600,7 +755,14 @@ function AppContent() {
               <Route path="logs" element={<AdminLogsPage />} />
             </Route>
 
+            {/* Standalone public onboarding (no Header/Footer) */}
+            <Route path="/onboarding/ramadan" element={<OnboardingRamadanPage />} />
+
+            <Route path="/fr/*" element={<LocaleLayout locale="fr" />} />
             <Route path="/en/*" element={<LocaleLayout locale="en" />} />
+            <Route path="/es/*" element={<LocaleLayout locale="es" />} />
+            <Route path="/it/*" element={<LocaleLayout locale="it" />} />
+            <Route path="/ar/*" element={<LocaleLayout locale="ar" />} />
             <Route path="/*" element={<LocaleLayout locale="fr" />} />
           </Routes>
         </Suspense>
@@ -608,7 +770,9 @@ function AppContent() {
           <Toaster />
           <NavigationResumeToast />
           <CookieConsent />
-          <ScrollToTopButton />
+          <PushForegroundToast />
+          <UnifiedFAB />
+          </BannerProvider>
         </BookingProvider>
       </PlatformSettingsProvider>
     </>
@@ -617,10 +781,12 @@ function AppContent() {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <ScrollProvider>
-        <AppContent />
-      </ScrollProvider>
-    </BrowserRouter>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <ScrollProvider>
+          <AppContent />
+        </ScrollProvider>
+      </BrowserRouter>
+    </QueryClientProvider>
   );
 }

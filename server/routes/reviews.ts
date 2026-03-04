@@ -4,8 +4,14 @@
  */
 
 import type { RequestHandler } from "express";
+import type { Express } from "express";
 import { consumerSupabase, adminSupabase } from "../supabase";
 import { emitAdminNotification } from "../adminNotifications";
+import { createModuleLogger } from "../lib/logger";
+import { zBody, zParams } from "../lib/validate";
+import { SubmitReviewSchema, SubmitReportSchema, EstablishmentReviewIdParams, ReviewInvitationTokenParams } from "../schemas/reviewsRoutes";
+
+const log = createModuleLogger("reviews");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -100,7 +106,7 @@ export const getReviewInvitation: RequestHandler = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("[reviews] getReviewInvitation exception:", err);
+    log.error({ err }, "getReviewInvitation exception");
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 };
@@ -179,7 +185,7 @@ export const submitReview: RequestHandler = async (req, res) => {
       .single();
 
     if (reviewError) {
-      console.error("[reviews] submitReview insert error:", reviewError);
+      log.error({ err: reviewError }, "submitReview insert error");
       if (reviewError.code === "23505") {
         return res.status(400).json({ ok: false, error: "You have already submitted a review for this reservation" });
       }
@@ -217,7 +223,7 @@ export const submitReview: RequestHandler = async (req, res) => {
       message: "Merci pour votre avis ! Il sera publié après modération.",
     });
   } catch (err) {
-    console.error("[reviews] submitReview exception:", err);
+    log.error({ err }, "submitReview exception");
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 };
@@ -299,7 +305,7 @@ export const submitReport: RequestHandler = async (req, res) => {
       .single();
 
     if (reportError) {
-      console.error("[reviews] submitReport insert error:", reportError);
+      log.error({ err: reportError }, "submitReport insert error");
       if (reportError.code === "23505") {
         return res.status(400).json({
           ok: false,
@@ -330,7 +336,7 @@ export const submitReport: RequestHandler = async (req, res) => {
       message: "Merci pour votre signalement. Notre équipe va l'examiner.",
     });
   } catch (err) {
-    console.error("[reviews] submitReport exception:", err);
+    log.error({ err }, "submitReport exception");
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 };
@@ -399,7 +405,7 @@ export const listPublicEstablishmentReviews: RequestHandler = async (req, res) =
       .range(Number(offset), Number(offset) + Number(limit) - 1);
 
     if (error) {
-      console.error("[reviews] listPublicEstablishmentReviews error:", error);
+      log.error({ err: error }, "listPublicEstablishmentReviews error");
       return res.status(500).json({ ok: false, error: error.message });
     }
 
@@ -447,7 +453,18 @@ export const listPublicEstablishmentReviews: RequestHandler = async (req, res) =
       },
     });
   } catch (err) {
-    console.error("[reviews] listPublicEstablishmentReviews exception:", err);
+    log.error({ err }, "listPublicEstablishmentReviews exception");
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 };
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerReviewRoutes(app: Express) {
+  app.get("/api/public/establishments/:id/reviews", zParams(EstablishmentReviewIdParams), listPublicEstablishmentReviews);
+  app.get("/api/consumer/reviews/invitation/:token", zParams(ReviewInvitationTokenParams), getReviewInvitation);
+  app.post("/api/consumer/reviews", zBody(SubmitReviewSchema), submitReview);
+  app.post("/api/consumer/reports", zBody(SubmitReportSchema), submitReport);
+}

@@ -1,6 +1,24 @@
 import type { RequestHandler } from "express";
+import type { Express } from "express";
+import multer from "multer";
+import { randomBytes } from "crypto";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { emitAdminNotification } from "../adminNotifications";
+import { zBody, zParams, zIdParam } from "../lib/validate";
+import {
+  CreateContactFormSchema,
+  UpdateContactFormSchema,
+  AddContactFormFieldSchema,
+  UpdateContactFormFieldSchema,
+  ReorderContactFormFieldsSchema,
+  UpdateContactFormSubmissionSchema,
+  BulkUpdateContactFormSubmissionsSchema,
+  FormIdParams,
+  FieldIdParams,
+  SubmissionIdParams,
+} from "../schemas/adminContactForms";
+import { createModuleLogger } from "../lib/logger";
+const log = createModuleLogger("adminContactForms");
 
 // Types
 export type ContactFormField = {
@@ -119,7 +137,7 @@ export const listAdminContactForms: RequestHandler = async (_req, res) => {
 
     res.json({ forms: data ?? [] });
   } catch (err) {
-    console.error("[listAdminContactForms]", err);
+    log.error({ err }, "listAdminContactForms failed");
     res.status(500).json({ error: "Failed to list contact forms" });
   }
 };
@@ -153,7 +171,7 @@ export const getAdminContactForm: RequestHandler = async (req, res) => {
 
     res.json({ form: { ...form, fields: fields ?? [] } });
   } catch (err) {
-    console.error("[getAdminContactForm]", err);
+    log.error({ err }, "getAdminContactForm failed");
     res.status(500).json({ error: "Failed to get contact form" });
   }
 };
@@ -191,7 +209,7 @@ export const createAdminContactForm: RequestHandler = async (req, res) => {
 
     res.json({ form });
   } catch (err) {
-    console.error("[createAdminContactForm]", err);
+    log.error({ err }, "createAdminContactForm failed");
     res.status(500).json({ error: "Failed to create contact form" });
   }
 };
@@ -230,7 +248,7 @@ export const updateAdminContactForm: RequestHandler = async (req, res) => {
 
     res.json({ form });
   } catch (err) {
-    console.error("[updateAdminContactForm]", err);
+    log.error({ err }, "updateAdminContactForm failed");
     res.status(500).json({ error: "Failed to update contact form" });
   }
 };
@@ -252,7 +270,7 @@ export const deleteAdminContactForm: RequestHandler = async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("[deleteAdminContactForm]", err);
+    log.error({ err }, "deleteAdminContactForm failed");
     res.status(500).json({ error: "Failed to delete contact form" });
   }
 };
@@ -312,7 +330,7 @@ export const duplicateAdminContactForm: RequestHandler = async (req, res) => {
 
     res.json({ form: newForm });
   } catch (err) {
-    console.error("[duplicateAdminContactForm]", err);
+    log.error({ err }, "duplicateAdminContactForm failed");
     res.status(500).json({ error: "Failed to duplicate contact form" });
   }
 };
@@ -353,7 +371,7 @@ export const addAdminContactFormField: RequestHandler = async (req, res) => {
 
     res.json({ field });
   } catch (err) {
-    console.error("[addAdminContactFormField]", err);
+    log.error({ err }, "addAdminContactFormField failed");
     res.status(500).json({ error: "Failed to add field" });
   }
 };
@@ -378,7 +396,7 @@ export const updateAdminContactFormField: RequestHandler = async (req, res) => {
 
     res.json({ field });
   } catch (err) {
-    console.error("[updateAdminContactFormField]", err);
+    log.error({ err }, "updateAdminContactFormField failed");
     res.status(500).json({ error: "Failed to update field" });
   }
 };
@@ -400,7 +418,7 @@ export const deleteAdminContactFormField: RequestHandler = async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("[deleteAdminContactFormField]", err);
+    log.error({ err }, "deleteAdminContactFormField failed");
     res.status(500).json({ error: "Failed to delete field" });
   }
 };
@@ -427,7 +445,7 @@ export const reorderAdminContactFormFields: RequestHandler = async (req, res) =>
 
     res.json({ success: true });
   } catch (err) {
-    console.error("[reorderAdminContactFormFields]", err);
+    log.error({ err }, "reorderAdminContactFormFields failed");
     res.status(500).json({ error: "Failed to reorder fields" });
   }
 };
@@ -466,7 +484,7 @@ export const listAdminContactFormSubmissions: RequestHandler = async (req, res) 
 
     res.json({ submissions: data ?? [], total: count ?? 0 });
   } catch (err) {
-    console.error("[listAdminContactFormSubmissions]", err);
+    log.error({ err }, "listAdminContactFormSubmissions failed");
     res.status(500).json({ error: "Failed to list submissions" });
   }
 };
@@ -503,7 +521,7 @@ export const listAllAdminContactFormSubmissions: RequestHandler = async (req, re
 
     res.json({ submissions: data ?? [], total: count ?? 0 });
   } catch (err) {
-    console.error("[listAllAdminContactFormSubmissions]", err);
+    log.error({ err }, "listAllAdminContactFormSubmissions failed");
     res.status(500).json({ error: "Failed to list submissions" });
   }
 };
@@ -542,7 +560,7 @@ export const getAdminContactFormSubmission: RequestHandler = async (req, res) =>
 
     res.json({ submission, fields: fields ?? [], files: files ?? [] });
   } catch (err) {
-    console.error("[getAdminContactFormSubmission]", err);
+    log.error({ err }, "getAdminContactFormSubmission failed");
     res.status(500).json({ error: "Failed to get submission" });
   }
 };
@@ -575,7 +593,7 @@ export const updateAdminContactFormSubmission: RequestHandler = async (req, res)
 
     res.json({ submission });
   } catch (err) {
-    console.error("[updateAdminContactFormSubmission]", err);
+    log.error({ err }, "updateAdminContactFormSubmission failed");
     res.status(500).json({ error: "Failed to update submission" });
   }
 };
@@ -597,7 +615,7 @@ export const bulkUpdateAdminContactFormSubmissions: RequestHandler = async (req,
 
     res.json({ success: true, updated: submissionIds.length });
   } catch (err) {
-    console.error("[bulkUpdateAdminContactFormSubmissions]", err);
+    log.error({ err }, "bulkUpdateAdminContactFormSubmissions failed");
     res.status(500).json({ error: "Failed to bulk update submissions" });
   }
 };
@@ -619,7 +637,7 @@ export const deleteAdminContactFormSubmission: RequestHandler = async (req, res)
 
     res.json({ success: true });
   } catch (err) {
-    console.error("[deleteAdminContactFormSubmission]", err);
+    log.error({ err }, "deleteAdminContactFormSubmission failed");
     res.status(500).json({ error: "Failed to delete submission" });
   }
 };
@@ -687,7 +705,7 @@ export const exportAdminContactFormSubmissions: RequestHandler = async (req, res
     res.setHeader("Content-Disposition", `attachment; filename="${form?.slug || 'submissions'}-export.csv"`);
     res.send("\uFEFF" + csv); // BOM for Excel
   } catch (err) {
-    console.error("[exportAdminContactFormSubmissions]", err);
+    log.error({ err }, "exportAdminContactFormSubmissions failed");
     res.status(500).json({ error: "Failed to export submissions" });
   }
 };
@@ -708,7 +726,126 @@ export const getAdminContactFormsUnreadCount: RequestHandler = async (_req, res)
 
     res.json({ count: count ?? 0 });
   } catch (err) {
-    console.error("[getAdminContactFormsUnreadCount]", err);
+    log.error({ err }, "getAdminContactFormsUnreadCount failed");
     res.status(500).json({ error: "Failed to get unread count" });
   }
 };
+
+// ============================================================================
+// ADMIN ROUTES - Generic image upload (contact form hero/logo images)
+// ============================================================================
+
+const CONTACT_FORM_IMAGES_BUCKET = "contact-form-images";
+
+/**
+ * Upload an image for contact form (hero or logo)
+ * Expects multipart/form-data with a "file" field
+ */
+export const uploadAdminContactFormImage: RequestHandler = async (req, res) => {
+  try {
+    const file = (req as any).file as
+      | { buffer: Buffer; mimetype: string; originalname: string; size: number }
+      | undefined;
+
+    if (!file) {
+      return res.status(400).json({ error: "No file provided" });
+    }
+
+    if (!file.mimetype.startsWith("image/")) {
+      return res.status(400).json({ error: "Only images are allowed" });
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      return res.status(413).json({ error: "File too large (max 5MB)" });
+    }
+
+    const supabase = getAdminSupabase();
+
+    // Determine extension
+    const mimeToExt: Record<string, string> = {
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+      "image/gif": "gif",
+      "image/svg+xml": "svg",
+    };
+    const ext = mimeToExt[file.mimetype] || "jpg";
+
+    const now = new Date();
+    const y = String(now.getUTCFullYear());
+    const m = String(now.getUTCMonth() + 1).padStart(2, "0");
+    const id = randomBytes(12).toString("hex");
+    const storagePath = `${y}/${m}/${id}.${ext}`;
+
+    // Ensure bucket exists
+    const { data: buckets } = await supabase.storage.listBuckets();
+    const bucketExists = buckets?.some((b) => b.name === CONTACT_FORM_IMAGES_BUCKET);
+    if (!bucketExists) {
+      await supabase.storage.createBucket(CONTACT_FORM_IMAGES_BUCKET, {
+        public: true,
+        fileSizeLimit: 5 * 1024 * 1024,
+        allowedMimeTypes: ["image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml"],
+      });
+    }
+
+    const { error: uploadError } = await supabase.storage
+      .from(CONTACT_FORM_IMAGES_BUCKET)
+      .upload(storagePath, file.buffer, {
+        contentType: file.mimetype,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      log.error({ err: uploadError }, "storage upload error");
+      return res.status(500).json({ error: uploadError.message });
+    }
+
+    const { data: urlData } = supabase.storage
+      .from(CONTACT_FORM_IMAGES_BUCKET)
+      .getPublicUrl(storagePath);
+
+    const publicUrl = urlData?.publicUrl ?? "";
+
+    res.json({ url: publicUrl });
+  } catch (err) {
+    log.error({ err }, "uploadAdminContactFormImage failed");
+    res.status(500).json({ error: "Failed to upload image" });
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerAdminContactFormRoutes(app: Express) {
+  // Admin generic image upload (contact form hero/logo)
+  const contactFormImageUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 },
+  });
+  app.post("/api/admin/upload", contactFormImageUpload.single("file"), uploadAdminContactFormImage);
+
+  // Admin routes
+  app.get("/api/admin/contact-forms", listAdminContactForms);
+  app.get("/api/admin/contact-forms/unread-count", getAdminContactFormsUnreadCount);
+  app.get("/api/admin/contact-forms/submissions", listAllAdminContactFormSubmissions);
+  app.post("/api/admin/contact-forms", zBody(CreateContactFormSchema), createAdminContactForm);
+  app.get("/api/admin/contact-forms/:id", zParams(zIdParam), getAdminContactForm);
+  app.post("/api/admin/contact-forms/:id/update", zParams(zIdParam), zBody(UpdateContactFormSchema), updateAdminContactForm);
+  app.delete("/api/admin/contact-forms/:id", zParams(zIdParam), deleteAdminContactForm);
+  app.post("/api/admin/contact-forms/:id/duplicate", zParams(zIdParam), duplicateAdminContactForm);
+
+  // Form fields
+  app.post("/api/admin/contact-forms/:formId/fields", zParams(FormIdParams), zBody(AddContactFormFieldSchema), addAdminContactFormField);
+  app.post("/api/admin/contact-forms/fields/:fieldId/update", zParams(FieldIdParams), zBody(UpdateContactFormFieldSchema), updateAdminContactFormField);
+  app.delete("/api/admin/contact-forms/fields/:fieldId", zParams(FieldIdParams), deleteAdminContactFormField);
+  app.post("/api/admin/contact-forms/:formId/fields/reorder", zParams(FormIdParams), zBody(ReorderContactFormFieldsSchema), reorderAdminContactFormFields);
+
+  // Form submissions
+  app.get("/api/admin/contact-forms/:formId/submissions", zParams(FormIdParams), listAdminContactFormSubmissions);
+  app.get("/api/admin/contact-forms/:formId/submissions/export", zParams(FormIdParams), exportAdminContactFormSubmissions);
+  app.get("/api/admin/contact-forms/submissions/:submissionId", zParams(SubmissionIdParams), getAdminContactFormSubmission);
+  app.post("/api/admin/contact-forms/submissions/:submissionId/update", zParams(SubmissionIdParams), zBody(UpdateContactFormSubmissionSchema), updateAdminContactFormSubmission);
+  app.post("/api/admin/contact-forms/submissions/bulk-update", zBody(BulkUpdateContactFormSubmissionsSchema), bulkUpdateAdminContactFormSubmissions);
+  app.delete("/api/admin/contact-forms/submissions/:submissionId", zParams(SubmissionIdParams), deleteAdminContactFormSubmission);
+}

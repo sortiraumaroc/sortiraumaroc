@@ -34,6 +34,7 @@ import {
   type ContactForm,
   type ContactFormSubmission,
   type ContactFormField,
+  isAdminSuperadmin,
 } from "@/lib/adminApi";
 import { useToast } from "@/hooks/use-toast";
 
@@ -90,6 +91,7 @@ export default function AdminContactFormSubmissionsPage() {
   const { id: formId } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
+  const isSuperAdmin = isAdminSuperadmin();
 
   const [form, setForm] = useState<ContactForm | null>(null);
   const [submissions, setSubmissions] = useState<ContactFormSubmission[]>([]);
@@ -260,21 +262,26 @@ export default function AdminContactFormSubmissionsPage() {
 
   const columns: ColumnDef<ContactFormSubmission>[] = useMemo(
     () => [
-      {
-        id: "select",
-        header: () => (
-          <Checkbox
-            checked={selected.size === submissions.length && submissions.length > 0}
-            onCheckedChange={toggleSelectAll}
-          />
-        ),
-        cell: ({ row }) => (
-          <Checkbox
-            checked={selected.has(row.original.id)}
-            onCheckedChange={() => toggleSelect(row.original.id)}
-          />
-        ),
-      },
+      // Checkbox de sélection uniquement pour super-admin
+      ...(isSuperAdmin
+        ? [
+            {
+              id: "select",
+              header: () => (
+                <Checkbox
+                  checked={selected.size === submissions.length && submissions.length > 0}
+                  onCheckedChange={toggleSelectAll}
+                />
+              ),
+              cell: ({ row }: { row: any }) => (
+                <Checkbox
+                  checked={selected.has(row.original.id)}
+                  onCheckedChange={() => toggleSelect(row.original.id)}
+                />
+              ),
+            } as ColumnDef<ContactFormSubmission>,
+          ]
+        : []),
       {
         accessorKey: "status",
         header: "Statut",
@@ -354,48 +361,52 @@ export default function AdminContactFormSubmissionsPage() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={() => handleView(row.original)}>
-                <Eye className="w-4 h-4 mr-2" />
+                <Eye className="w-4 h-4 me-2" />
                 Voir
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => handleStatusChange(row.original.id, "read")}
-              >
-                <CheckCircle className="w-4 h-4 mr-2" />
-                Marquer comme lu
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => handleStatusChange(row.original.id, "replied")}
-              >
-                <MessageSquare className="w-4 h-4 mr-2" />
-                Marquer comme répondu
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => handleStatusChange(row.original.id, "archived")}
-              >
-                <Archive className="w-4 h-4 mr-2" />
-                Archiver
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => handleStatusChange(row.original.id, "spam")}
-              >
-                <AlertTriangle className="w-4 h-4 mr-2" />
-                Marquer comme spam
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-destructive"
-                onClick={() => setDeleteSubmission(row.original)}
-              >
-                <Trash2 className="w-4 h-4 mr-2" />
-                Supprimer
-              </DropdownMenuItem>
+              {isSuperAdmin && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => handleStatusChange(row.original.id, "read")}
+                  >
+                    <CheckCircle className="w-4 h-4 me-2" />
+                    Marquer comme lu
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => handleStatusChange(row.original.id, "replied")}
+                  >
+                    <MessageSquare className="w-4 h-4 me-2" />
+                    Marquer comme répondu
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => handleStatusChange(row.original.id, "archived")}
+                  >
+                    <Archive className="w-4 h-4 me-2" />
+                    Archiver
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => handleStatusChange(row.original.id, "spam")}
+                  >
+                    <AlertTriangle className="w-4 h-4 me-2" />
+                    Marquer comme spam
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-destructive"
+                    onClick={() => setDeleteSubmission(row.original)}
+                  >
+                    <Trash2 className="w-4 h-4 me-2" />
+                    Supprimer
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         ),
       },
     ],
-    [selected, submissions]
+    [selected, submissions, isSuperAdmin]
   );
 
   return (
@@ -423,7 +434,7 @@ export default function AdminContactFormSubmissionsPage() {
       <div className="flex flex-col sm:flex-row gap-4 justify-between">
         <div className="flex flex-1 gap-2">
           <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               placeholder="Rechercher..."
               value={search}
@@ -431,7 +442,7 @@ export default function AdminContactFormSubmissionsPage() {
                 setSearch(e.target.value);
                 setPage(0);
               }}
-              className="pl-9"
+              className="ps-9"
             />
           </div>
 
@@ -443,7 +454,7 @@ export default function AdminContactFormSubmissionsPage() {
             }}
           >
             <SelectTrigger className="w-[180px]">
-              <Filter className="w-4 h-4 mr-2" />
+              <Filter className="w-4 h-4 me-2" />
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -457,7 +468,7 @@ export default function AdminContactFormSubmissionsPage() {
         </div>
 
         <div className="flex gap-2">
-          {selected.size > 0 && (
+          {isSuperAdmin && selected.size > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline">
@@ -487,7 +498,7 @@ export default function AdminContactFormSubmissionsPage() {
               target="_blank"
               rel="noreferrer"
             >
-              <Download className="w-4 h-4 mr-2" />
+              <Download className="w-4 h-4 me-2" />
               Exporter CSV
             </a>
           </Button>
@@ -499,8 +510,7 @@ export default function AdminContactFormSubmissionsPage() {
         <AdminDataTable
           columns={columns}
           data={submissions}
-          loading={loading}
-          emptyMessage="Aucune réponse"
+          isLoading={loading}
           onRowClick={(row) => handleView(row)}
         />
       </div>
@@ -541,7 +551,7 @@ export default function AdminContactFormSubmissionsPage() {
           </DialogHeader>
           {viewSubmission && (
             <ScrollArea className="max-h-[70vh]">
-              <div className="space-y-6 pr-4">
+              <div className="space-y-6 pe-4">
                 {/* Contact info */}
                 <div className="grid grid-cols-2 gap-4">
                   {viewSubmission.submission.full_name && (
@@ -602,11 +612,25 @@ export default function AdminContactFormSubmissionsPage() {
                     const value = viewSubmission.submission.data[field.id];
                     if (value === undefined || value === null || value === "") return null;
 
+                    // Pour les champs à options (select/radio/checkbox), afficher le label au lieu de la valeur brute
+                    const formatValue = (v: unknown): string => {
+                      const str = String(v);
+                      if (field.options && field.options.length > 0) {
+                        const opt = field.options.find((o: any) => o.value === str);
+                        return opt ? opt.label : str.replace(/_/g, " ");
+                      }
+                      return str;
+                    };
+
+                    const displayValue = Array.isArray(value)
+                      ? value.map(formatValue).join(", ")
+                      : formatValue(value);
+
                     return (
                       <div key={field.id}>
-                        <Label className="text-muted-foreground">{field.label}</Label>
+                        <Label className="text-red-600 font-semibold">{field.label}</Label>
                         <p className="font-medium whitespace-pre-wrap">
-                          {Array.isArray(value) ? value.join(", ") : String(value)}
+                          {displayValue}
                         </p>
                       </div>
                     );
@@ -670,35 +694,43 @@ export default function AdminContactFormSubmissionsPage() {
                   )}
                 </div>
 
-                {/* Status change */}
+                {/* Status change — super-admin uniquement */}
                 <Separator />
                 <div className="flex items-center gap-2">
                   <Label>Statut :</Label>
-                  <Select
-                    value={viewSubmission.submission.status}
-                    onValueChange={(v) => {
-                      handleStatusChange(viewSubmission.submission.id, v);
-                      setViewSubmission((prev) =>
-                        prev
-                          ? {
-                              ...prev,
-                              submission: { ...prev.submission, status: v as any },
-                            }
-                          : null
-                      );
-                    }}
-                  >
-                    <SelectTrigger className="w-[180px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {STATUS_OPTIONS.filter((o) => o.value !== "all").map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {isSuperAdmin ? (
+                    <Select
+                      value={viewSubmission.submission.status}
+                      onValueChange={(v) => {
+                        handleStatusChange(viewSubmission.submission.id, v);
+                        setViewSubmission((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                submission: { ...prev.submission, status: v as any },
+                              }
+                            : null
+                        );
+                      }}
+                    >
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {STATUS_OPTIONS.filter((o) => o.value !== "all").map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Badge
+                      className={`${STATUS_OPTIONS.find((o) => o.value === viewSubmission.submission.status)?.color || "bg-gray-500"} text-white`}
+                    >
+                      {STATUS_OPTIONS.find((o) => o.value === viewSubmission.submission.status)?.label || viewSubmission.submission.status}
+                    </Badge>
+                  )}
                 </div>
               </div>
             </ScrollArea>
@@ -707,10 +739,10 @@ export default function AdminContactFormSubmissionsPage() {
             <Button variant="outline" onClick={() => setViewSubmission(null)}>
               Fermer
             </Button>
-            {viewSubmission?.submission.email && (
+            {isSuperAdmin && viewSubmission?.submission.email && (
               <Button asChild>
                 <a href={`mailto:${viewSubmission.submission.email}`}>
-                  <Mail className="w-4 h-4 mr-2" />
+                  <Mail className="w-4 h-4 me-2" />
                   Répondre par email
                 </a>
               </Button>

@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, memo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Heart, MapPin, ChevronLeft, ChevronRight, BadgeCheck, Crown, Sparkles } from "lucide-react";
+import { Heart, MapPin, ChevronLeft, ChevronRight, BadgeCheck, Crown, Sparkles, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { IconButton } from "@/components/ui/icon-button";
 import { Button } from "@/components/ui/button";
@@ -60,6 +60,9 @@ export interface EstablishmentCardProps {
 
   // Universe type for styling
   universe?: string;
+
+  // Hide the fallback action button (e.g. on results page for visual consistency)
+  hideActionButton?: boolean;
 }
 
 export const EstablishmentCard = memo(function EstablishmentCard({
@@ -92,6 +95,7 @@ export const EstablishmentCard = memo(function EstablishmentCard({
   detailsHref,
   actionLabel,
   universe,
+  hideActionButton = false,
 }: EstablishmentCardProps) {
   const navigate = useNavigate();
   const { t } = useI18n();
@@ -157,23 +161,6 @@ export const EstablishmentCard = memo(function EstablishmentCard({
 
   const badge = getBadge();
 
-  // Get rating color based on score (TheFork style)
-  const getRatingColor = (r: number) => {
-    if (r >= 9) return "text-emerald-600";
-    if (r >= 8) return "text-teal-600";
-    if (r >= 7) return "text-amber-600";
-    return "text-slate-600";
-  };
-
-  // Get rating label
-  const getRatingLabel = (r: number) => {
-    if (r >= 9.5) return "Exceptionnel";
-    if (r >= 9) return "Excellent";
-    if (r >= 8) return "Très bien";
-    if (r >= 7) return "Bien";
-    return null;
-  };
-
   return (
     <article
       className={cn(
@@ -182,7 +169,7 @@ export const EstablishmentCard = memo(function EstablishmentCard({
         "hover:shadow-[0_8px_30px_rgba(0,0,0,0.12)]",
         "border",
         isSelected || isHighlighted
-          ? "border-primary ring-2 ring-primary/20 scale-[1.01]"
+          ? "border-primary ring-2 ring-primary/30 scale-[1.02] shadow-[0_8px_30px_rgba(163,0,29,0.15)]"
           : "border-slate-100/80 hover:border-slate-200",
         "cursor-pointer"
       )}
@@ -225,7 +212,7 @@ export const EstablishmentCard = memo(function EstablishmentCard({
         <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-black/10 pointer-events-none" />
 
         {/* Top-left badges */}
-        <div className="absolute top-3 left-3 flex flex-col gap-2">
+        <div className="absolute top-3 start-3 flex flex-col gap-2">
           {/* Premium/Verified/Curated badge */}
           {badge && (
             <div className={cn(
@@ -249,7 +236,7 @@ export const EstablishmentCard = memo(function EstablishmentCard({
         <button
           onClick={handleFavoriteClick}
           className={cn(
-            "absolute top-3 right-3 z-20",
+            "absolute top-3 end-3 z-20",
             "w-9 h-9 rounded-full flex items-center justify-center",
             "bg-white/95 backdrop-blur-sm shadow-lg",
             "hover:bg-white hover:scale-110",
@@ -275,7 +262,7 @@ export const EstablishmentCard = memo(function EstablishmentCard({
             <button
               onClick={handlePrevImage}
               className={cn(
-                "absolute left-3 top-1/2 -translate-y-1/2",
+                "absolute start-3 top-1/2 -translate-y-1/2",
                 "w-8 h-8 bg-white/95 backdrop-blur-sm rounded-full",
                 "flex items-center justify-center",
                 "opacity-0 group-hover:opacity-100 transition-opacity duration-200",
@@ -289,7 +276,7 @@ export const EstablishmentCard = memo(function EstablishmentCard({
             <button
               onClick={handleNextImage}
               className={cn(
-                "absolute right-3 top-1/2 -translate-y-1/2",
+                "absolute end-3 top-1/2 -translate-y-1/2",
                 "w-8 h-8 bg-white/95 backdrop-blur-sm rounded-full",
                 "flex items-center justify-center",
                 "opacity-0 group-hover:opacity-100 transition-opacity duration-200",
@@ -320,7 +307,7 @@ export const EstablishmentCard = memo(function EstablishmentCard({
                 />
               ))}
               {allImages.length > 5 && (
-                <span className="text-white/80 text-[10px] ml-1">+{allImages.length - 5}</span>
+                <span className="text-white/80 text-[10px] ms-1">+{allImages.length - 5}</span>
               )}
             </div>
           </>
@@ -330,37 +317,36 @@ export const EstablishmentCard = memo(function EstablishmentCard({
       {/* Content Section */}
       <div className="p-4">
         {/* Header: Name & Rating */}
-        <div className="flex items-start justify-between gap-3 mb-2">
-          <div className="flex-1 min-w-0">
-            <h3
-              className={cn(
-                "text-[17px] font-bold text-slate-900 leading-tight",
-                "line-clamp-2 hover:text-primary transition-colors cursor-pointer"
-              )}
-              onClick={handleNavigate}
-              style={{ fontFamily: "Circular Std, sans-serif" }}
-            >
-              {name}
-            </h3>
-          </div>
+        <div className="flex items-baseline justify-between gap-3 mb-1">
+          <h3
+            className={cn(
+              "text-[17px] font-bold text-slate-900 leading-tight flex-1 min-w-0",
+              "line-clamp-1 hover:text-primary transition-colors cursor-pointer"
+            )}
+            onClick={handleNavigate}
+            style={{ fontFamily: "Circular Std, sans-serif" }}
+          >
+            {name}
+          </h3>
 
-          {/* Rating - TheFork style with big number */}
+          {/* Rating - Google style with star */}
           {typeof rating === "number" && (
-            <div className="flex flex-col items-end flex-shrink-0">
-              <div className={cn("text-2xl font-bold leading-none", getRatingColor(rating))}>
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
+              <span className="text-sm font-bold text-slate-800 leading-none">
                 {rating.toFixed(1)}
-              </div>
+              </span>
               {typeof reviews === "number" && (
-                <div className="text-[11px] text-slate-500 mt-0.5">
-                  ({reviews.toLocaleString()})
-                </div>
+                <span className="text-xs text-slate-400">
+                  ({reviews.toLocaleString()} avis)
+                </span>
               )}
             </div>
           )}
         </div>
 
         {/* Location */}
-        <div className="flex items-center gap-1.5 text-sm text-slate-600 mb-2">
+        <div className="flex items-center gap-1.5 text-sm text-slate-600 mb-1">
           <MapPin className="w-4 h-4 text-slate-400 flex-shrink-0" />
           <span className="truncate">{neighborhood}</span>
           {distanceText && (
@@ -386,21 +372,7 @@ export const EstablishmentCard = memo(function EstablishmentCard({
           </p>
         )}
 
-        {/* Rating label if high enough */}
-        {typeof rating === "number" && getRatingLabel(rating) && (
-          <div className="mb-3">
-            <span className={cn(
-              "text-xs font-semibold px-2 py-1 rounded",
-              rating >= 9 ? "bg-emerald-50 text-emerald-700" :
-              rating >= 8 ? "bg-teal-50 text-teal-700" :
-              "bg-amber-50 text-amber-700"
-            )}>
-              {getRatingLabel(rating)}
-            </span>
-          </div>
-        )}
-
-        {/* Available time slots - TheFork style */}
+        {/* Available time slots */}
         {bookingEnabled && (availableSlots.length > 0 || nextSlot) && (
           <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-slate-100">
             {availableSlots.length > 0 ? (
@@ -450,8 +422,8 @@ export const EstablishmentCard = memo(function EstablishmentCard({
           </div>
         )}
 
-        {/* Action button - when no slots available */}
-        {!bookingEnabled && (
+        {/* Action button - when no slots available (hidden on results page for consistency) */}
+        {!bookingEnabled && !hideActionButton && (
           <Button
             onClick={handleNavigate}
             className="w-full mt-3 h-11 text-sm font-semibold rounded-xl"

@@ -191,7 +191,7 @@ export function ReportEstablishmentDialog({
               rows={4}
               maxLength={1000}
             />
-            <div className="text-xs text-slate-400 text-right">
+            <div className="text-xs text-slate-400 text-end">
               {reasonText.length}/1000
             </div>
           </div>
@@ -212,7 +212,7 @@ export function ReportEstablishmentDialog({
           >
             {submitting ? (
               <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                <Loader2 className="h-4 w-4 me-2 animate-spin" />
                 {t("report.submitting")}
               </>
             ) : (

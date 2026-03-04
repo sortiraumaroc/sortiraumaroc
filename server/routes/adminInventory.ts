@@ -5,20 +5,46 @@ import fs from "fs";
 import sharp from "sharp";
 import { parseCookies, getSessionCookieName, verifyAdminSessionToken, type AdminSessionPayload } from "../adminSession";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { getAuditActorInfo } from "./admin";
+import { transformWizardHoursToOpeningHours, openingHoursToWizardFormat } from "../lib/transformHours";
+import { createModuleLogger } from "../lib/logger";
+import { zBody } from "../lib/validate";
+import {
+  CreateCategorySchema,
+  UpdateCategorySchema,
+  CreateItemSchema,
+  UpdateItemSchema,
+  ReorderItemsSchema,
+  DeleteInventoryImageSchema,
+  UpdateGallerySchema,
+  UpdateContactInfoSchema,
+  ApprovePendingChangeSchema,
+  RejectPendingChangeSchema,
+  UpdateProfileSchema,
+  UpdateTagsServicesSchema,
+} from "../schemas/adminInventory";
+
+const log = createModuleLogger("adminInventory");
 
 // Image compression settings
 const IMAGE_COMPRESSION_CONFIG = {
+  logo: {
+    maxWidth: 512,
+    maxHeight: 512,
+    quality: 85,
+    targetSizeKb: 80,
+  },
   cover: {
     maxWidth: 1200,
     maxHeight: 800,
-    quality: 85,
-    targetSizeKb: 200,
+    quality: 80,
+    targetSizeKb: 150,
   },
   gallery: {
-    maxWidth: 1600,
-    maxHeight: 1200,
-    quality: 85,
-    targetSizeKb: 300,
+    maxWidth: 1400,
+    maxHeight: 1050,
+    quality: 80,
+    targetSizeKb: 200,
   },
 };
 
@@ -85,7 +111,7 @@ async function compressImage(
     finalHeight = newHeight;
   }
 
-  console.log(`[Image Compression] Original: ${(originalSize / 1024).toFixed(1)}KB -> Compressed: ${(compressedBuffer.length / 1024).toFixed(1)}KB (${finalWidth}x${finalHeight}, quality: ${quality})`);
+  log.info({ originalKB: (originalSize / 1024).toFixed(1), compressedKB: (compressedBuffer.length / 1024).toFixed(1), width: finalWidth, height: finalHeight, quality }, "Image compression complete");
 
   return {
     buffer: compressedBuffer,
@@ -124,6 +150,32 @@ const upload = multer({
   },
 });
 
+// Separate multer for gallery/image uploads — accepts all image types sharp can process
+const imageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB max
+  },
+  fileFilter: (_req, file, cb) => {
+    const allowedImageMimes = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "image/heic",
+      "image/heif",
+      "image/avif",
+      "image/gif",
+      "image/bmp",
+      "image/tiff",
+    ];
+    if (allowedImageMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Type de fichier non supporté. Formats acceptés: JPEG, PNG, WebP, HEIC, AVIF, GIF"));
+    }
+  },
+});
+
 function getAdminSessionToken(req: Parameters<RequestHandler>[0]): string | null {
   const cookies = parseCookies(req.header("cookie") ?? undefined);
   const cookieToken = cookies[getSessionCookieName()];
@@ -153,6 +205,11 @@ function requireAdminSession(req: Parameters<RequestHandler>[0]): AdminSessionPa
 
 function isSuperAdmin(session: AdminSessionPayload): boolean {
   return session.role === "superadmin";
+}
+
+/** Roles allowed to manage establishment media (gallery, contact-info, tags-services) */
+function canManageEstablishments(session: AdminSessionPayload): boolean {
+  return session.role === "superadmin" || session.role === "admin" || session.role === "marketing";
 }
 
 const AI_EXTRACTION_SYSTEM_PROMPT = `Tu es un assistant spécialisé dans l'extraction de données de menus et catalogues pour Sortir Au Maroc.
@@ -224,7 +281,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .order("sort_order", { ascending: true });
 
       if (catError) {
-        console.error("[Admin Inventory] Categories error:", catError);
+        log.error({ err: catError }, "Categories error");
         return res.status(500).json({ error: "Erreur lors de la récupération des catégories" });
       }
 
@@ -236,7 +293,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .order("sort_order", { ascending: true });
 
       if (itemsError) {
-        console.error("[Admin Inventory] Items error:", itemsError);
+        log.error({ err: itemsError }, "Items error");
         return res.status(500).json({ error: "Erreur lors de la récupération des produits" });
       }
 
@@ -246,13 +303,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
         items: items ?? [],
       });
     } catch (error) {
-      console.error("[Admin Inventory] List error:", error);
+      log.error({ err: error }, "List error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // Create category
-  router.post("/api/admin/establishments/:establishmentId/inventory/categories", (async (req, res) => {
+  router.post("/api/admin/establishments/:establishmentId/inventory/categories", zBody(CreateCategorySchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
@@ -304,19 +361,19 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .single();
 
       if (error) {
-        console.error("[Admin Inventory] Create category error:", error);
+        log.error({ err: error }, "Create category DB error");
         return res.status(500).json({ error: "Erreur lors de la création de la catégorie" });
       }
 
       return res.json({ ok: true, category });
     } catch (error) {
-      console.error("[Admin Inventory] Create category error:", error);
+      log.error({ err: error }, "Create category error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // Update category
-  router.post("/api/admin/establishments/:establishmentId/inventory/categories/:categoryId", (async (req, res) => {
+  router.post("/api/admin/establishments/:establishmentId/inventory/categories/:categoryId", zBody(UpdateCategorySchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
@@ -352,13 +409,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .single();
 
       if (error) {
-        console.error("[Admin Inventory] Update category error:", error);
+        log.error({ err: error }, "Update category DB error");
         return res.status(500).json({ error: "Erreur lors de la mise à jour de la catégorie" });
       }
 
       return res.json({ ok: true, category });
     } catch (error) {
-      console.error("[Admin Inventory] Update category error:", error);
+      log.error({ err: error }, "Update category error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -393,19 +450,19 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .eq("establishment_id", establishmentId);
 
       if (error) {
-        console.error("[Admin Inventory] Delete category error:", error);
+        log.error({ err: error }, "Delete category DB error");
         return res.status(500).json({ error: "Erreur lors de la suppression de la catégorie" });
       }
 
       return res.json({ ok: true });
     } catch (error) {
-      console.error("[Admin Inventory] Delete category error:", error);
+      log.error({ err: error }, "Delete category error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // Create item
-  router.post("/api/admin/establishments/:establishmentId/inventory/items", (async (req, res) => {
+  router.post("/api/admin/establishments/:establishmentId/inventory/items", zBody(CreateItemSchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
@@ -458,19 +515,19 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .single();
 
       if (error) {
-        console.error("[Admin Inventory] Create item error:", error);
+        log.error({ err: error }, "Create item DB error");
         return res.status(500).json({ error: "Erreur lors de la création du produit" });
       }
 
       return res.json({ ok: true, item });
     } catch (error) {
-      console.error("[Admin Inventory] Create item error:", error);
+      log.error({ err: error }, "Create item error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // Update item (full support for all fields like Pro)
-  router.post("/api/admin/establishments/:establishmentId/inventory/items/:itemId", (async (req, res) => {
+  router.post("/api/admin/establishments/:establishmentId/inventory/items/:itemId", zBody(UpdateItemSchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
@@ -529,7 +586,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .single();
 
       if (error) {
-        console.error("[Admin Inventory] Update item error:", error);
+        log.error({ err: error }, "Update item DB error");
         return res.status(500).json({ error: "Erreur lors de la mise à jour du produit" });
       }
 
@@ -559,7 +616,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
             .insert(variantsToInsert);
 
           if (variantsError) {
-            console.error("[Admin Inventory] Update variants error:", variantsError);
+            log.error({ err: variantsError }, "Update variants error");
             // Non-fatal, continue
           }
         }
@@ -574,7 +631,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
 
       return res.json({ ok: true, item: updatedItem || item });
     } catch (error) {
-      console.error("[Admin Inventory] Update item error:", error);
+      log.error({ err: error }, "Update item error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -608,19 +665,19 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .eq("establishment_id", establishmentId);
 
       if (error) {
-        console.error("[Admin Inventory] Delete item error:", error);
+        log.error({ err: error }, "Delete item DB error");
         return res.status(500).json({ error: "Erreur lors de la suppression du produit" });
       }
 
       return res.json({ ok: true });
     } catch (error) {
-      console.error("[Admin Inventory] Delete item error:", error);
+      log.error({ err: error }, "Delete item error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // Reorder items
-  router.post("/api/admin/establishments/:establishmentId/inventory/reorder", (async (req, res) => {
+  router.post("/api/admin/establishments/:establishmentId/inventory/reorder", zBody(ReorderItemsSchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
@@ -653,7 +710,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
 
       return res.json({ ok: true });
     } catch (error) {
-      console.error("[Admin Inventory] Reorder error:", error);
+      log.error({ err: error }, "Reorder error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -690,17 +747,17 @@ export function registerAdminInventoryRoutes(router: Router): void {
       }
 
       // Delete items
-      const { count: itemsDeleted } = await supabase
+      const { count: itemsDeleted } = await (supabase
         .from("pro_inventory_items")
         .delete()
-        .eq("establishment_id", establishmentId)
+        .eq("establishment_id", establishmentId) as any)
         .select("id", { count: "exact", head: true });
 
       // Delete categories
-      const { count: categoriesDeleted } = await supabase
+      const { count: categoriesDeleted } = await (supabase
         .from("pro_inventory_categories")
         .delete()
-        .eq("establishment_id", establishmentId)
+        .eq("establishment_id", establishmentId) as any)
         .select("id", { count: "exact", head: true });
 
       return res.json({
@@ -711,7 +768,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         },
       });
     } catch (error) {
-      console.error("[Admin Inventory] Clear error:", error);
+      log.error({ err: error }, "Clear error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -757,7 +814,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         });
 
       if (uploadError) {
-        console.error("[Admin Inventory] Upload error:", uploadError);
+        log.error({ err: uploadError }, "Upload storage error");
         return res.status(500).json({ error: "Erreur lors de l'upload de l'image" });
       }
 
@@ -770,13 +827,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
         path: storagePath,
       });
     } catch (error) {
-      console.error("[Admin Inventory] Upload error:", error);
+      log.error({ err: error }, "Upload error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // Delete inventory image (admin)
-  router.delete("/api/admin/establishments/:establishmentId/inventory/images", (async (req, res) => {
+  router.delete("/api/admin/establishments/:establishmentId/inventory/images", zBody(DeleteInventoryImageSchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
@@ -807,13 +864,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
       const { error: deleteError } = await supabase.storage.from("public").remove([storagePath]);
 
       if (deleteError) {
-        console.error("[Admin Inventory] Delete image error:", deleteError);
+        log.error({ err: deleteError }, "Delete image storage error");
         // Don't fail - the image might already be deleted or external
       }
 
       return res.json({ ok: true });
     } catch (error) {
-      console.error("[Admin Inventory] Delete image error:", error);
+      log.error({ err: error }, "Delete image error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -830,32 +887,32 @@ export function registerAdminInventoryRoutes(router: Router): void {
         return res.status(401).json({ error: "Unauthorized" });
       }
 
-      if (!isSuperAdmin(session)) {
-        return res.status(403).json({ error: "Forbidden", message: "Accès réservé aux super administrateurs" });
+      if (!canManageEstablishments(session)) {
+        return res.status(403).json({ error: "Forbidden", message: "Accès réservé aux administrateurs" });
       }
 
       const { establishmentId } = req.params;
       const supabase = getAdminSupabase();
 
-      console.log("[Admin Gallery] Fetching gallery for establishment:", establishmentId);
+      log.info({ establishmentId }, "Fetching gallery for establishment");
 
       const { data, error } = await supabase
         .from("establishments")
-        .select("id, name, cover_url, gallery_urls, extra")
+        .select("id, name, logo_url, cover_url, gallery_urls, extra")
         .eq("id", establishmentId)
         .single();
 
       if (error) {
-        console.error("[Admin Gallery] Get error:", error);
+        log.error({ err: error }, "Gallery get error");
         return res.status(500).json({ error: "Erreur lors de la récupération de la galerie" });
       }
 
       if (!data) {
-        console.error("[Admin Gallery] No establishment found for id:", establishmentId);
+        log.error({ establishmentId }, "No establishment found for gallery");
         return res.status(404).json({ error: "Établissement non trouvé" });
       }
 
-      console.log("[Admin Gallery] Found establishment:", data.name, "cover_url:", data.cover_url ? "YES" : "NO", "gallery_urls:", Array.isArray(data.gallery_urls) ? data.gallery_urls.length : 0);
+      log.info({ name: data.name, hasLogo: !!data.logo_url, hasCover: !!data.cover_url, galleryCount: Array.isArray(data.gallery_urls) ? data.gallery_urls.length : 0 }, "Found establishment for gallery");
 
       // Extract gallery metadata from extra field
       const extra = (data?.extra as Record<string, unknown>) || {};
@@ -864,31 +921,33 @@ export function registerAdminInventoryRoutes(router: Router): void {
 
       return res.json({
         ok: true,
+        logo_url: data?.logo_url || null,
         cover_url: data?.cover_url || null,
         cover_meta: coverMeta,
         gallery_urls: Array.isArray(data?.gallery_urls) ? data.gallery_urls : [],
         gallery_meta: galleryMeta,
       });
     } catch (error) {
-      console.error("[Admin Gallery] Get error:", error);
+      log.error({ err: error }, "Gallery get error (catch)");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // Update establishment gallery
-  router.patch("/api/admin/establishments/:establishmentId/gallery", (async (req, res) => {
+  router.patch("/api/admin/establishments/:establishmentId/gallery", zBody(UpdateGallerySchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
         return res.status(401).json({ error: "Unauthorized" });
       }
 
-      if (!isSuperAdmin(session)) {
-        return res.status(403).json({ error: "Forbidden", message: "Accès réservé aux super administrateurs" });
+      if (!canManageEstablishments(session)) {
+        return res.status(403).json({ error: "Forbidden", message: "Accès réservé aux administrateurs" });
       }
 
       const { establishmentId } = req.params;
       const body = req.body as {
+        logo_url?: string | null;
         cover_url?: string | null;
         cover_meta?: Record<string, unknown>;
         gallery_urls?: string[];
@@ -899,6 +958,10 @@ export function registerAdminInventoryRoutes(router: Router): void {
 
       // Build update object
       const updateData: Record<string, unknown> = {};
+
+      if (body.logo_url !== undefined) {
+        updateData.logo_url = body.logo_url;
+      }
 
       if (body.cover_url !== undefined) {
         updateData.cover_url = body.cover_url;
@@ -935,19 +998,100 @@ export function registerAdminInventoryRoutes(router: Router): void {
         return res.status(400).json({ error: "No data to update" });
       }
 
+      // Track who made the update
+      const actor = getAuditActorInfo(req);
+      updateData.admin_updated_by_name = actor.actor_name ?? null;
+      updateData.admin_updated_by_id = actor.actor_id ?? null;
+      updateData.updated_at = new Date().toISOString();
+
       const { error } = await supabase
         .from("establishments")
         .update(updateData)
         .eq("id", establishmentId);
 
       if (error) {
-        console.error("[Admin Gallery] Update error:", error);
+        log.error({ err: error }, "Gallery update DB error");
         return res.status(500).json({ error: "Erreur lors de la mise à jour de la galerie" });
       }
 
       return res.json({ ok: true });
     } catch (error) {
-      console.error("[Admin Gallery] Update error:", error);
+      log.error({ err: error }, "Gallery update error");
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }) as RequestHandler);
+
+  // Backfill cover_url from Storage for establishments missing it
+  router.post("/api/admin/establishments/backfill-covers", (async (req, res) => {
+    try {
+      const session = requireAdminSession(req);
+      if (!session) return res.status(401).json({ error: "Unauthorized" });
+      if (!isSuperAdmin(session)) return res.status(403).json({ error: "Forbidden" });
+
+      const supabase = getAdminSupabase();
+
+      // Get establishments with no cover_url
+      const { data: establishments, error: fetchErr } = await supabase
+        .from("establishments")
+        .select("id, name")
+        .or("cover_url.is.null,cover_url.eq.")
+        .limit(500);
+
+      if (fetchErr) {
+        log.error({ err: fetchErr }, "Backfill covers fetch error");
+        return res.status(500).json({ error: fetchErr.message });
+      }
+
+      let updated = 0;
+      let skipped = 0;
+      const details: Array<{ id: string; name: string; cover_url: string }> = [];
+
+      for (const est of establishments ?? []) {
+        // List files in the covers folder for this establishment
+        const { data: files } = await supabase.storage
+          .from("public")
+          .list(`establishments/${est.id}/covers`, { limit: 10, sortBy: { column: "created_at", order: "desc" } });
+
+        // Also list gallery files
+        const { data: galleryFiles } = await supabase.storage
+          .from("public")
+          .list(`establishments/${est.id}/gallery`, { limit: 50, sortBy: { column: "created_at", order: "desc" } });
+
+        const updateData: Record<string, unknown> = {};
+
+        if (files && files.length > 0) {
+          const storagePath = `establishments/${est.id}/covers/${files[0].name}`;
+          const { data: urlData } = supabase.storage.from("public").getPublicUrl(storagePath);
+          updateData.cover_url = urlData.publicUrl;
+        }
+
+        if (galleryFiles && galleryFiles.length > 0) {
+          const galleryUrls = galleryFiles.map((f) => {
+            const path = `establishments/${est.id}/gallery/${f.name}`;
+            return supabase.storage.from("public").getPublicUrl(path).data.publicUrl;
+          });
+          updateData.gallery_urls = galleryUrls;
+        }
+
+        if (Object.keys(updateData).length > 0) {
+          const { error: updateErr } = await supabase
+            .from("establishments")
+            .update(updateData)
+            .eq("id", est.id);
+
+          if (!updateErr) {
+            updated++;
+            details.push({ id: est.id, name: est.name, cover_url: (updateData.cover_url as string) ?? "" });
+          }
+        } else {
+          skipped++;
+        }
+      }
+
+      log.info({ updated, skipped }, "Backfill covers completed");
+      return res.json({ ok: true, updated, skipped, total: (establishments ?? []).length, details });
+    } catch (error) {
+      log.error({ err: error }, "Backfill covers error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -970,13 +1114,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
       // First try with email column
       const result1 = await supabase
         .from("establishments")
-        .select("lat, lng, phone, whatsapp, website, email, social_links, hours, extra")
+        .select("lat, lng, phone, whatsapp, website, email, social_links, hours, extra, google_rating, google_review_count, google_rating_updated_at, hide_google_reviews")
         .eq("id", establishmentId)
         .single();
 
       if (result1.error && result1.error.message.includes("email")) {
         // Email column doesn't exist yet, try without it
-        console.log("[Admin Contact Info] Email column not found, falling back to query without email");
+        log.info("Contact info email column not found, falling back to query without email");
         const result2 = await supabase
           .from("establishments")
           .select("lat, lng, phone, whatsapp, website, social_links, hours, extra")
@@ -995,7 +1139,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
       }
 
       if (fetchError) {
-        console.error("[Admin Contact Info] Fetch error:", fetchError);
+        log.error({ err: fetchError }, "Contact info fetch error");
         return res.status(500).json({ error: "Erreur lors de la récupération" });
       }
 
@@ -1025,24 +1169,32 @@ export function registerAdminInventoryRoutes(router: Router): void {
         email: data.email ?? extra.email ?? null,
         website: data.website ?? null,
         social_links: data.social_links || {},
-        hours: data.hours || {},
+        // Convert openingHours (array intervals) back to DaySchedule for admin form
+        hours: data.hours && typeof data.hours === "object"
+          ? openingHoursToWizardFormat(data.hours as Record<string, unknown>)
+          : {},
+        // Google rating metadata
+        google_rating: data.google_rating ?? null,
+        google_review_count: data.google_review_count ?? null,
+        google_rating_updated_at: data.google_rating_updated_at ?? null,
+        hide_google_reviews: data.hide_google_reviews ?? false,
       });
     } catch (error) {
-      console.error("[Admin Contact Info] Error:", error);
+      log.error({ err: error }, "Contact info get error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // Update contact info for establishment
-  router.patch("/api/admin/establishments/:establishmentId/contact-info", (async (req, res) => {
+  router.patch("/api/admin/establishments/:establishmentId/contact-info", zBody(UpdateContactInfoSchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
         return res.status(401).json({ error: "Unauthorized" });
       }
 
-      if (!isSuperAdmin(session)) {
-        return res.status(403).json({ error: "Forbidden", message: "Accès réservé aux super administrateurs" });
+      if (!canManageEstablishments(session)) {
+        return res.status(403).json({ error: "Forbidden", message: "Accès réservé aux administrateurs" });
       }
 
       const { establishmentId } = req.params;
@@ -1067,7 +1219,16 @@ export function registerAdminInventoryRoutes(router: Router): void {
       if (body.whatsapp !== undefined) updateData.whatsapp = body.whatsapp;
       if (body.website !== undefined) updateData.website = body.website;
       if (body.social_links !== undefined) updateData.social_links = body.social_links;
-      if (body.hours !== undefined) updateData.hours = body.hours;
+      if (body.hours !== undefined) {
+        // Transform DaySchedule (wizard/admin form) → openingHours (array of intervals) for public display
+        updateData.hours =
+          body.hours && typeof body.hours === "object" && !Array.isArray(body.hours)
+            ? transformWizardHoursToOpeningHours(body.hours as Record<string, unknown>)
+            : body.hours;
+      }
+
+      // hide_google_reviews toggle
+      if (body.hide_google_reviews !== undefined) updateData.hide_google_reviews = body.hide_google_reviews;
 
       // Store mobile in extra field
       // For email: try direct column first, fallback to extra field if column doesn't exist
@@ -1093,7 +1254,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
       if (result.error) {
         // If email column doesn't exist, retry without it
         if (result.error.message.includes("email")) {
-          console.log("[Admin Contact Info] Email column not found, storing in extra field only");
+          log.info("Contact info email column not found, storing in extra field only");
           delete updateData.email;
           const retryResult = await supabase
             .from("establishments")
@@ -1106,32 +1267,32 @@ export function registerAdminInventoryRoutes(router: Router): void {
       }
 
       if (updateError) {
-        console.error("[Admin Contact Info] Update error:", updateError);
+        log.error({ err: updateError }, "Contact info update DB error");
         return res.status(500).json({ error: "Erreur lors de la mise à jour" });
       }
 
       return res.json({ ok: true });
     } catch (error) {
-      console.error("[Admin Contact Info] Error:", error);
+      log.error({ err: error }, "Contact info update error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // Upload gallery image with automatic compression
-  router.post("/api/admin/establishments/:establishmentId/gallery/upload", upload.single("image"), (async (req, res) => {
+  router.post("/api/admin/establishments/:establishmentId/gallery/upload", imageUpload.single("image"), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
         return res.status(401).json({ error: "Unauthorized" });
       }
 
-      if (!isSuperAdmin(session)) {
-        return res.status(403).json({ error: "Forbidden", message: "Accès réservé aux super administrateurs" });
+      if (!canManageEstablishments(session)) {
+        return res.status(403).json({ error: "Forbidden", message: "Accès réservé aux administrateurs" });
       }
 
       const { establishmentId } = req.params;
       const file = req.file;
-      const imageType = (req.body.type || "gallery") as "cover" | "gallery";
+      const imageType = (req.body.type || "gallery") as "logo" | "cover" | "gallery";
 
       if (!file) {
         return res.status(400).json({ error: "image is required" });
@@ -1142,21 +1303,21 @@ export function registerAdminInventoryRoutes(router: Router): void {
         return res.status(400).json({ error: "Le fichier doit être une image" });
       }
 
-      // Allow larger files since we'll compress them (max 10MB)
-      if (file.size > 10 * 1024 * 1024) {
-        return res.status(400).json({ error: "L'image est trop volumineuse (max 10 MB)" });
+      // Allow files up to 5 MB — they will be compressed to WebP
+      if (file.size > 5 * 1024 * 1024) {
+        return res.status(400).json({ error: "L'image est trop volumineuse (max 5 MB)" });
       }
 
-      console.log(`[Admin Gallery] Uploading ${imageType} image for ${establishmentId}, original size: ${(file.size / 1024).toFixed(1)}KB, mimetype: ${file.mimetype}`);
+      log.info({ imageType, establishmentId, sizeKB: (file.size / 1024).toFixed(1), mimetype: file.mimetype }, "Uploading gallery image");
 
       // Compress the image
       const compressionConfig = IMAGE_COMPRESSION_CONFIG[imageType];
       let compressed;
       try {
         compressed = await compressImage(file.buffer, file.mimetype, compressionConfig);
-        console.log(`[Admin Gallery] Compression successful: ${(compressed.originalSize / 1024).toFixed(1)}KB -> ${(compressed.compressedSize / 1024).toFixed(1)}KB`);
+        log.info({ originalKB: (compressed.originalSize / 1024).toFixed(1), compressedKB: (compressed.compressedSize / 1024).toFixed(1) }, "Gallery compression successful");
       } catch (compressionError) {
-        console.error("[Admin Gallery] Compression error:", compressionError);
+        log.error({ err: compressionError }, "Gallery compression error");
         return res.status(500).json({
           error: "Erreur de compression",
           details: compressionError instanceof Error ? compressionError.message : "Unknown compression error"
@@ -1166,7 +1327,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
       const supabase = getAdminSupabase();
 
       // Generate unique filename - always use .webp since we convert to WebP
-      const folder = imageType === "cover" ? "covers" : "gallery";
+      const folder = imageType === "logo" ? "logos" : imageType === "cover" ? "covers" : "gallery";
       const filename = `${establishmentId}/${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.webp`;
       const storagePath = `establishments/${filename}`;
 
@@ -1180,7 +1341,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         });
 
       if (uploadError) {
-        console.error("[Admin Gallery] Supabase upload error:", uploadError);
+        log.error({ err: uploadError }, "Gallery Supabase upload error");
         return res.status(500).json({
           error: "Erreur lors de l'upload de l'image",
           details: uploadError.message || JSON.stringify(uploadError)
@@ -1203,7 +1364,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         },
       });
     } catch (error) {
-      console.error("[Admin Gallery] Upload error:", error);
+      log.error({ err: error }, "Gallery upload error");
       return res.status(500).json({
         error: "Erreur serveur",
         details: error instanceof Error ? error.message : "Unknown error"
@@ -1334,7 +1495,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        console.error("[AI File Extraction] Anthropic API error:", response.status, errorData);
+        log.error({ status: response.status, errorData }, "AI file extraction Anthropic API error");
         return res.status(500).json({ error: "ai_error", message: "Erreur du service IA" });
       }
 
@@ -1369,7 +1530,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         }
         extraction = JSON.parse(jsonMatch[0]);
       } catch (parseError) {
-        console.error("[AI File Extraction] Parse error:", parseError, generatedText);
+        log.error({ err: parseError, rawResponse: generatedText?.slice(0, 200) }, "AI file extraction parse error");
         return res.status(500).json({
           error: "parse_error",
           message: "Impossible de parser la réponse de l'IA",
@@ -1473,7 +1634,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         },
       });
     } catch (error) {
-      console.error("[AI File Extraction] Error:", error);
+      log.error({ err: error }, "AI file extraction error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -1510,13 +1671,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .limit(limit);
 
       if (error) {
-        console.error("[Admin Inventory Moderation] List error:", error);
+        log.error({ err: error }, "Moderation list DB error");
         return res.status(500).json({ error: "Erreur lors de la récupération des demandes" });
       }
 
       return res.json({ ok: true, pendingChanges: data ?? [] });
     } catch (error) {
-      console.error("[Admin Inventory Moderation] List error:", error);
+      log.error({ err: error }, "Moderation list error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -1547,19 +1708,19 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .limit(100);
 
       if (error) {
-        console.error("[Admin Inventory Moderation] List by establishment error:", error);
+        log.error({ err: error }, "Moderation list by establishment DB error");
         return res.status(500).json({ error: "Erreur lors de la récupération des demandes" });
       }
 
       return res.json({ ok: true, pendingChanges: data ?? [] });
     } catch (error) {
-      console.error("[Admin Inventory Moderation] List by establishment error:", error);
+      log.error({ err: error }, "Moderation list by establishment error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // Approve a pending change
-  router.post("/api/admin/inventory/pending-changes/:changeId/approve", (async (req, res) => {
+  router.post("/api/admin/inventory/pending-changes/:changeId/approve", zBody(ApprovePendingChangeSchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
@@ -1851,18 +2012,18 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .eq("id", changeId);
 
       if (updateErr) {
-        console.error("[Admin Inventory Moderation] Update status error:", updateErr);
+        log.error({ err: updateErr }, "Moderation update status error");
       }
 
       return res.json({ ok: true, applied: result.data ?? null });
     } catch (error) {
-      console.error("[Admin Inventory Moderation] Approve error:", error);
+      log.error({ err: error }, "Moderation approve error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // Reject a pending change
-  router.post("/api/admin/inventory/pending-changes/:changeId/reject", (async (req, res) => {
+  router.post("/api/admin/inventory/pending-changes/:changeId/reject", zBody(RejectPendingChangeSchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
@@ -1892,7 +2053,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .single();
 
       if (error) {
-        console.error("[Admin Inventory Moderation] Reject error:", error);
+        log.error({ err: error }, "Moderation reject DB error");
         return res.status(500).json({ error: "Erreur lors du rejet de la demande" });
       }
 
@@ -1902,7 +2063,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
 
       return res.json({ ok: true, pendingChange: data });
     } catch (error) {
-      console.error("[Admin Inventory Moderation] Reject error:", error);
+      log.error({ err: error }, "Moderation reject error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -1912,7 +2073,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
   // ============================================================================
 
   // Update establishment profile (name, city, universe, subcategory)
-  router.patch("/api/admin/establishments/:establishmentId/profile", (async (req, res) => {
+  router.patch("/api/admin/establishments/:establishmentId/profile", zBody(UpdateProfileSchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
@@ -1932,17 +2093,37 @@ export function registerAdminInventoryRoutes(router: Router): void {
         name?: string;
         city?: string;
         universe?: string;
+        category?: string;
         subcategory?: string;
       };
 
       const supabase = getAdminSupabase();
+
+      // Map UI universe values to valid DB enum values
+      const UNIVERSE_TO_DB: Record<string, string> = {
+        restaurants: "restaurant",
+        restaurant: "restaurant",
+        loisirs: "loisir",
+        loisir: "loisir",
+        sport: "wellness",
+        hebergement: "hebergement",
+        hotels: "hebergement",
+        hotel: "hebergement",
+        wellness: "wellness",
+        culture: "culture",
+        shopping: "loisir",
+        rentacar: "loisir",
+      };
 
       // Build update object
       const updateData: Record<string, unknown> = {};
 
       if (body.name !== undefined) updateData.name = body.name;
       if (body.city !== undefined) updateData.city = body.city;
-      if (body.universe !== undefined) updateData.universe = body.universe;
+      if (body.universe !== undefined) {
+        updateData.universe = UNIVERSE_TO_DB[body.universe.toLowerCase()] ?? body.universe;
+      }
+      if (body.category !== undefined) updateData.category = body.category;
       if (body.subcategory !== undefined) updateData.subcategory = body.subcategory;
 
       if (Object.keys(updateData).length === 0) {
@@ -1955,21 +2136,23 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .eq("id", establishmentId);
 
       if (error) {
-        console.error("[Admin Profile] Update error:", error);
+        log.error({ err: error }, "Admin profile update error");
         return res.status(500).json({ error: "Erreur lors de la mise à jour" });
       }
 
       // Log the action
+      const actor = getAuditActorInfo(req);
       await supabase.from("admin_audit_log").insert({
         action: "establishment.profile_update",
         entity_type: "establishment",
         entity_id: establishmentId,
-        metadata: updateData,
+        actor_id: actor.actor_id,
+        metadata: { ...updateData, actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
       });
 
       return res.json({ ok: true });
     } catch (error) {
-      console.error("[Admin Profile] Error:", error);
+      log.error({ err: error }, "Admin profile error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -1991,64 +2174,67 @@ export function registerAdminInventoryRoutes(router: Router): void {
 
       const { data, error } = await supabase
         .from("establishments")
-        .select("specialties, tags, amenities, ambiance_tags, booking_enabled, menu_digital_enabled, verified, extra")
+        .select("specialties, tags, amenities, ambiance_tags, highlights, booking_enabled, menu_digital_enabled, verified, extra")
         .eq("id", establishmentId)
         .single();
 
       if (error) {
-        console.error("[Admin Tags Services] Fetch error:", error);
+        log.error({ err: error }, "Tags services fetch error");
         return res.status(500).json({ error: "Erreur lors de la récupération" });
       }
 
       if (!data) {
-        console.log("[Admin Tags Services] No data found for establishment:", establishmentId);
+        log.info({ establishmentId }, "Tags services no data found for establishment");
         return res.json({
           specialties: [],
           tags: [],
           amenities: [],
           ambiance_tags: [],
+          highlights: [],
           booking_enabled: false,
           menu_digital_enabled: false,
           verified: false,
         });
       }
 
-      console.log("[Admin Tags Services] Data found:", {
+      log.info({
         establishmentId,
         specialties: data.specialties,
         tags: data.tags,
         amenities: data.amenities,
         ambiance_tags: data.ambiance_tags,
+        highlights: data.highlights,
         booking_enabled: data.booking_enabled,
         menu_digital_enabled: data.menu_digital_enabled,
         verified: data.verified,
-      });
+      }, "Tags services data found");
 
       return res.json({
         specialties: Array.isArray(data.specialties) ? data.specialties : [],
         tags: Array.isArray(data.tags) ? data.tags : [],
         amenities: Array.isArray(data.amenities) ? data.amenities : [],
         ambiance_tags: Array.isArray(data.ambiance_tags) ? data.ambiance_tags : [],
+        highlights: Array.isArray(data.highlights) ? data.highlights : [],
         booking_enabled: data.booking_enabled ?? false,
         menu_digital_enabled: data.menu_digital_enabled ?? false,
         verified: data.verified ?? false,
       });
     } catch (error) {
-      console.error("[Admin Tags Services] Error:", error);
+      log.error({ err: error }, "Tags services get error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
 
   // Update tags and services for establishment
-  router.patch("/api/admin/establishments/:establishmentId/tags-services", (async (req, res) => {
+  router.patch("/api/admin/establishments/:establishmentId/tags-services", zBody(UpdateTagsServicesSchema), (async (req, res) => {
     try {
       const session = requireAdminSession(req);
       if (!session) {
         return res.status(401).json({ error: "Unauthorized" });
       }
 
-      if (!isSuperAdmin(session)) {
-        return res.status(403).json({ error: "Forbidden", message: "Accès réservé aux super administrateurs" });
+      if (!canManageEstablishments(session)) {
+        return res.status(403).json({ error: "Forbidden", message: "Accès réservé aux administrateurs" });
       }
 
       const { establishmentId } = req.params;
@@ -2062,6 +2248,7 @@ export function registerAdminInventoryRoutes(router: Router): void {
       if (body.tags !== undefined) updateData.tags = body.tags;
       if (body.amenities !== undefined) updateData.amenities = body.amenities;
       if (body.ambiance_tags !== undefined) updateData.ambiance_tags = body.ambiance_tags;
+      if (body.highlights !== undefined) updateData.highlights = body.highlights;
       if (body.booking_enabled !== undefined) updateData.booking_enabled = body.booking_enabled;
       if (body.menu_digital_enabled !== undefined) updateData.menu_digital_enabled = body.menu_digital_enabled;
       if (body.verified !== undefined) updateData.verified = body.verified;
@@ -2072,13 +2259,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .eq("id", establishmentId);
 
       if (error) {
-        console.error("[Admin Tags Services] Update error:", error);
+        log.error({ err: error }, "Tags services update DB error");
         return res.status(500).json({ error: "Erreur lors de la mise à jour" });
       }
 
       return res.json({ ok: true });
     } catch (error) {
-      console.error("[Admin Tags Services] Error:", error);
+      log.error({ err: error }, "Tags services update error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);
@@ -2099,13 +2286,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
         .eq("status", "pending");
 
       if (error) {
-        console.error("[Admin Inventory Moderation] Count error:", error);
+        log.error({ err: error }, "Moderation count DB error");
         return res.status(500).json({ error: "Erreur lors du comptage" });
       }
 
       return res.json({ ok: true, count: count ?? 0 });
     } catch (error) {
-      console.error("[Admin Inventory Moderation] Count error:", error);
+      log.error({ err: error }, "Moderation count error");
       return res.status(500).json({ error: "Internal server error" });
     }
   }) as RequestHandler);

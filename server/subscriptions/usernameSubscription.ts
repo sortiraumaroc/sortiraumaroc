@@ -8,6 +8,9 @@
 import { getAdminSupabase } from "../supabaseAdmin";
 import { sendTemplateEmail } from "../emailService";
 import type { FinanceActor } from "../finance/types";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("usernameSubscription");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -86,7 +89,7 @@ export async function getSubscription(
   // Handle case where table doesn't exist yet (migration not run)
   if (error) {
     if (error.code === "42P01" || error.message?.includes("does not exist")) {
-      console.warn("[usernameSubscription] Table username_subscriptions does not exist yet");
+      log.warn("Table username_subscriptions does not exist yet");
       return null;
     }
     throw error;
@@ -123,7 +126,7 @@ export async function getSubscriptionWithDetails(
   // Handle case where table doesn't exist yet (migration not run)
   if (error) {
     if (error.code === "42P01" || error.message?.includes("does not exist")) {
-      console.warn("[usernameSubscription] Table username_subscriptions does not exist yet");
+      log.warn("Table username_subscriptions does not exist yet");
       return null;
     }
     throw error;
@@ -175,7 +178,7 @@ export async function isUsernameAccessAllowed(
   });
 
   if (error) {
-    console.error("Error checking username access:", error);
+    log.error({ err: error }, "Error checking username access");
     return false;
   }
 
@@ -195,7 +198,7 @@ export async function isUsernameReserved(
   });
 
   if (error) {
-    console.error("Error checking username reservation:", error);
+    log.error({ err: error }, "Error checking username reservation");
     return false;
   }
 
@@ -707,7 +710,7 @@ async function sendTrialStartedEmail(
       },
     });
   } catch (err) {
-    console.error("Failed to send trial started email:", err);
+    log.error({ err }, "Failed to send trial started email");
   }
 }
 
@@ -731,7 +734,7 @@ async function sendTrialEndedEmail(
       },
     });
   } catch (err) {
-    console.error("Failed to send trial ended email:", err);
+    log.error({ err }, "Failed to send trial ended email");
   }
 }
 
@@ -761,7 +764,7 @@ async function sendSubscriptionActivatedEmail(
       },
     });
   } catch (err) {
-    console.error("Failed to send subscription activated email:", err);
+    log.error({ err }, "Failed to send subscription activated email");
   }
 }
 
@@ -794,7 +797,7 @@ async function sendSubscriptionExpiredEmail(
       },
     });
   } catch (err) {
-    console.error("Failed to send subscription expired email:", err);
+    log.error({ err }, "Failed to send subscription expired email");
   }
 }
 
@@ -837,7 +840,7 @@ export async function sendRenewalReminderEmail(
       },
     });
   } catch (err) {
-    console.error(`Failed to send ${daysRemaining}d renewal reminder email:`, err);
+    log.error({ err, daysRemaining }, "Failed to send renewal reminder email");
   }
 }
 

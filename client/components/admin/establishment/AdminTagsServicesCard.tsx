@@ -20,6 +20,7 @@ import {
   Palette,
   Settings2,
   Search,
+  Star,
 } from "lucide-react";
 import { loadAdminSessionToken } from "@/lib/adminApi";
 
@@ -41,7 +42,8 @@ const TAG_CONFIG: Record<string, {
       "Nouveau", "Tendance", "Incontournable", "Bon plan", "Coup de cœur", "Premium",
       "Brunch", "Déjeuner", "Dîner", "Afterwork", "Rooftop", "Shisha",
       "Live music", "DJ", "Idéal en couple", "Entre amis", "Familial",
-      "Business", "Groupe", "Anniversaire", "Terrasse", "Vue", "Instagrammable"
+      "Business", "Groupe", "Anniversaire", "Terrasse", "Vue", "Instagrammable",
+      "Ftour", "Ramadan", "Iftar", "Shour"
     ],
     amenities: [
       "Wi-Fi", "Parking", "Valet", "Climatisation", "Accès PMR", "Paiement carte",
@@ -104,7 +106,8 @@ const TAG_CONFIG: Record<string, {
     tags: [
       "Nouveau", "Tendance", "Premium", "Coup de cœur", "Week-end",
       "Séjour romantique", "Voyage d'affaires", "All inclusive", "Vue mer",
-      "Vue montagne", "Plage", "Piscine", "Spa", "Kids club", "Pet friendly"
+      "Vue montagne", "Plage", "Piscine", "Spa", "Kids club", "Pet friendly",
+      "Ftour", "Ramadan", "Iftar", "Shour"
     ],
     amenities: [
       "Wi-Fi", "Parking", "Climatisation", "Accès PMR", "Paiement carte",
@@ -156,6 +159,14 @@ const TAG_CONFIG: Record<string, {
 // Universal tags that apply to all universes
 const UNIVERSAL_TAGS = [
   "Accessible", "Ouvert tard", "Réservation conseillée", "Calme", "Festif"
+];
+
+// Highlights suggestions (Points forts)
+const HIGHLIGHTS_SUGGESTIONS = [
+  "Vue exceptionnelle", "Chef réputé", "Terrasse panoramique", "Cadre intimiste",
+  "Service personnalisé", "Produits locaux", "Décor authentique", "Ambiance romantique",
+  "Pâtisseries succulentes", "Espace dédié aux enfants", "Salle de réunion équipée",
+  "Cuisine ouverte", "Cave à vins", "Brunch", "Rooftop",
 ];
 
 type Props = {
@@ -244,12 +255,12 @@ function TagSection({
           </Badge>
         </h4>
         <div className="relative">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
+          <Search className="absolute start-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Filtrer..."
-            className="h-7 w-32 pl-7 text-xs"
+            className="h-7 w-32 ps-7 text-xs"
           />
         </div>
       </div>
@@ -265,7 +276,7 @@ function TagSection({
               onClick={() => onToggle(tag)}
             >
               {tag}
-              <X className="w-3 h-3 ml-1" />
+              <X className="w-3 h-3 ms-1" />
             </Badge>
           ))}
         </div>
@@ -280,7 +291,7 @@ function TagSection({
             className={`cursor-pointer text-xs ${colors.unselected}`}
             onClick={() => onToggle(tag)}
           >
-            <Plus className="w-2.5 h-2.5 mr-0.5" />
+            <Plus className="w-2.5 h-2.5 me-0.5" />
             {tag}
           </Badge>
         ))}
@@ -320,6 +331,7 @@ export function AdminTagsServicesCard({ establishmentId, universe = "restaurants
   const [tags, setTags] = useState<string[]>([]);
   const [amenities, setAmenities] = useState<string[]>([]);
   const [ambianceTags, setAmbianceTags] = useState<string[]>([]);
+  const [highlights, setHighlights] = useState<string[]>([]);
 
   // Services
   const [bookingEnabled, setBookingEnabled] = useState(false);
@@ -328,7 +340,7 @@ export function AdminTagsServicesCard({ establishmentId, universe = "restaurants
 
   // Custom tag input
   const [customTag, setCustomTag] = useState("");
-  const [customTagType, setCustomTagType] = useState<"specialties" | "tags" | "amenities" | "ambiance">("tags");
+  const [customTagType, setCustomTagType] = useState<"specialties" | "tags" | "amenities" | "ambiance" | "highlights">("tags");
 
   // Get universe-specific tags
   const config = TAG_CONFIG[universe] || TAG_CONFIG.restaurants;
@@ -349,6 +361,7 @@ export function AdminTagsServicesCard({ establishmentId, universe = "restaurants
       setTags(data.tags || []);
       setAmenities(data.amenities || []);
       setAmbianceTags(data.ambiance_tags || []);
+      setHighlights(data.highlights || []);
       setBookingEnabled(data.booking_enabled ?? false);
       setMenuDigitalEnabled(data.menu_digital_enabled ?? false);
       setVerified(data.verified ?? false);
@@ -379,6 +392,7 @@ export function AdminTagsServicesCard({ establishmentId, universe = "restaurants
             tags,
             amenities,
             ambiance_tags: ambianceTags,
+            highlights,
             booking_enabled: bookingEnabled,
             menu_digital_enabled: menuDigitalEnabled,
             verified,
@@ -398,12 +412,13 @@ export function AdminTagsServicesCard({ establishmentId, universe = "restaurants
     }
   };
 
-  const toggleTag = (type: "specialties" | "tags" | "amenities" | "ambiance", tag: string) => {
+  const toggleTag = (type: "specialties" | "tags" | "amenities" | "ambiance" | "highlights", tag: string) => {
     const setter = {
       specialties: setSpecialties,
       tags: setTags,
       amenities: setAmenities,
       ambiance: setAmbianceTags,
+      highlights: setHighlights,
     }[type];
 
     const current = {
@@ -411,6 +426,7 @@ export function AdminTagsServicesCard({ establishmentId, universe = "restaurants
       tags,
       amenities,
       ambiance: ambianceTags,
+      highlights,
     }[type];
 
     if (current.includes(tag)) {
@@ -429,6 +445,7 @@ export function AdminTagsServicesCard({ establishmentId, universe = "restaurants
       tags: setTags,
       amenities: setAmenities,
       ambiance: setAmbianceTags,
+      highlights: setHighlights,
     }[customTagType];
 
     const current = {
@@ -436,6 +453,7 @@ export function AdminTagsServicesCard({ establishmentId, universe = "restaurants
       tags,
       amenities,
       ambiance: ambianceTags,
+      highlights,
     }[customTagType];
 
     if (!current.includes(tag)) {
@@ -461,7 +479,7 @@ export function AdminTagsServicesCard({ establishmentId, universe = "restaurants
           <CardTitle className="text-base flex items-center gap-2">
             <Tags className="w-4 h-4 text-primary" />
             Tags et Services
-            <Badge variant="outline" className="text-[10px] ml-2">
+            <Badge variant="outline" className="text-[10px] ms-2">
               {universe}
             </Badge>
           </CardTitle>
@@ -470,7 +488,7 @@ export function AdminTagsServicesCard({ establishmentId, universe = "restaurants
               <RefreshCw className="w-3.5 h-3.5" />
             </Button>
             <Button size="sm" onClick={handleSave} disabled={saving}>
-              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Save className="w-3.5 h-3.5 mr-1" />}
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin me-1" /> : <Save className="w-3.5 h-3.5 me-1" />}
               Enregistrer
             </Button>
           </div>
@@ -509,6 +527,7 @@ export function AdminTagsServicesCard({ establishmentId, universe = "restaurants
           >
             <option value="specialties">Spécialité</option>
             <option value="tags">Tag</option>
+            <option value="highlights">Point fort</option>
             <option value="amenities">Équipement</option>
             <option value="ambiance">Ambiance</option>
           </select>
@@ -542,6 +561,16 @@ export function AdminTagsServicesCard({ establishmentId, universe = "restaurants
           selectedTags={tags}
           onToggle={(tag) => toggleTag("tags", tag)}
           color="blue"
+        />
+
+        {/* Points forts (Highlights) */}
+        <TagSection
+          title="Points forts"
+          icon={Star}
+          availableTags={HIGHLIGHTS_SUGGESTIONS}
+          selectedTags={highlights}
+          onToggle={(tag) => toggleTag("highlights", tag)}
+          color="red"
         />
 
         {/* Amenities */}

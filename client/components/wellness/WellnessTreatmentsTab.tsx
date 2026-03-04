@@ -186,7 +186,7 @@ function TreatmentRow({ treatment }: { treatment: WellnessTreatment }) {
         </div>
       </div>
 
-      <div className="shrink-0 text-right">
+      <div className="shrink-0 text-end">
         <div className="text-sm sm:text-base font-bold text-primary tabular-nums whitespace-nowrap">{formatMad(treatment.priceMad)}</div>
       </div>
     </div>
@@ -210,7 +210,7 @@ function CategoryNavButton({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "w-full text-left px-4 py-3 rounded-xl border text-sm font-semibold transition",
+        "w-full text-start px-4 py-3 rounded-xl border text-sm font-semibold transition",
         active ? "bg-primary text-white border-primary" : "bg-white text-slate-800 border-slate-200 hover:bg-slate-50",
         disabled ? "opacity-50 cursor-not-allowed hover:bg-white" : "",
       )}

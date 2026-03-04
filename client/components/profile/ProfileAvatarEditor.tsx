@@ -118,7 +118,7 @@ export function ProfileAvatarEditor({ initials, avatarDataUrl, size = "md" }: Pr
             {avatarDataUrl ? <AvatarImage src={avatarDataUrl} alt="Photo de profil" /> : null}
             <AvatarFallback className="bg-primary text-white font-bold">{initials}</AvatarFallback>
           </Avatar>
-          <div className={`absolute -bottom-1 -right-1 rounded-full border-2 border-white bg-primary text-white ${cameraBadgeSize[size]} shadow-sm group-hover:bg-primary/90 transition-colors`}>
+          <div className={`absolute -bottom-1 -end-1 rounded-full border-2 border-white bg-primary text-white ${cameraBadgeSize[size]} shadow-sm group-hover:bg-primary/90 transition-colors`}>
             <Camera className={cameraIconSize[size]} />
           </div>
         </button>

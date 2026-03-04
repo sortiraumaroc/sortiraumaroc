@@ -335,6 +335,7 @@ const META_CONFIG_BY_UNIVERSE: Record<string, UniverseMetaConfig> = {
   culture: CULTURE_META_CONFIG,
   shopping: SHOPPING_META_CONFIG,
   location: LOCATION_META_CONFIG,
+  rentacar: LOCATION_META_CONFIG,
 };
 
 /**

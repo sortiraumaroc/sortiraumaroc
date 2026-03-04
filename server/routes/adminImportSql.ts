@@ -1,7 +1,16 @@
 import express from "express";
 import type { RequestHandler, Express } from "express";
-import { requireAdminKey, computeCompletenessScore, normalizeEstName } from "./admin";
+import { createModuleLogger } from "../lib/logger";
+import { requireAdminKey, computeCompletenessScore, normalizeEstName, getAuditActorInfo } from "./admin";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { zBody } from "../lib/validate";
+import {
+  ImportSqlParseSchema,
+  ImportSqlPreviewSchema,
+  ImportSqlExecuteSchema,
+} from "../schemas/adminImportSql";
+
+const log = createModuleLogger("adminImportSql");
 
 // ─── SQL Parser ─────────────────────────────────────────────────────────
 
@@ -277,7 +286,7 @@ const parseSql: RequestHandler = async (req, res) => {
       rows: allRows,
     });
   } catch (e) {
-    console.error("[import-sql/parse] Error:", e);
+    log.error({ err: e }, "parse error");
     res.status(400).json({
       error: `Erreur de parsing SQL: ${e instanceof Error ? e.message : "Erreur inconnue"}`,
     });
@@ -465,7 +474,7 @@ const previewSql: RequestHandler = async (req, res) => {
     },
   });
   } catch (e) {
-    console.error("[import-sql/preview] Error:", e);
+    log.error({ err: e }, "preview error");
     res.status(500).json({ error: `Erreur preview: ${e instanceof Error ? e.message : "Erreur inconnue"}` });
   }
 };
@@ -480,12 +489,18 @@ const executeSql: RequestHandler = async (req, res) => {
 
   const imports = Array.isArray(req.body?.imports) ? req.body.imports : [];
   const deleteIds = Array.isArray(req.body?.deleteIds) ? req.body.deleteIds : [];
+  const actor = getAuditActorInfo(req);
 
-  console.log(`[import-sql/execute] Received ${imports.length} rows to import, ${deleteIds.length} to delete`);
+  log.info({ importCount: imports.length, deleteCount: deleteIds.length }, "Execute import received");
   if (imports.length > 0) {
     const sample = imports[0];
-    console.log("[import-sql/execute] Sample row keys:", Object.keys(sample).join(", "));
-    console.log("[import-sql/execute] Sample row.name:", sample.name, "| row.slug:", sample.slug, "| row.city:", JSON.stringify(sample.city), "| row.type_blog:", sample.type_blog);
+    log.debug({
+      sampleKeys: Object.keys(sample).join(", "),
+      name: sample.name,
+      slug: sample.slug,
+      city: sample.city,
+      type_blog: sample.type_blog,
+    }, "Sample row");
   }
 
   const supabase = getAdminSupabase();
@@ -520,7 +535,8 @@ const executeSql: RequestHandler = async (req, res) => {
         action: "establishment.delete",
         entity_type: "establishment",
         entity_id: id,
-        metadata: { source: "sql_import_dedup", deleted_at: new Date().toISOString() },
+        actor_id: actor.actor_id,
+        metadata: { source: "sql_import_dedup", deleted_at: new Date().toISOString(), actor_email: actor.actor_email, actor_name: actor.actor_name, actor_role: actor.actor_role },
       });
     }
   }
@@ -606,7 +622,7 @@ const executeSql: RequestHandler = async (req, res) => {
     for (const af of ["tags", "amenities", "specialties", "gallery_urls", "ambiance_tags", "cuisine_types"]) {
       const val = asStr(row[af]);
       if (val) {
-        try { establishment[af] = JSON.parse(val); } catch {
+        try { establishment[af] = JSON.parse(val); } catch { /* intentional: fallback to CSV split */
           establishment[af] = val.split(",").map((s) => s.trim()).filter(Boolean);
         }
       }
@@ -616,7 +632,7 @@ const executeSql: RequestHandler = async (req, res) => {
     for (const jf of ["hours", "social_links", "extra", "mix_experience"]) {
       const val = asStr(row[jf]);
       if (val) {
-        try { establishment[jf] = JSON.parse(val); } catch { /* skip malformed */ }
+        try { establishment[jf] = JSON.parse(val); } catch { /* intentional: skip malformed JSON */ }
       }
     }
 
@@ -664,9 +680,9 @@ const executeSql: RequestHandler = async (req, res) => {
     mappedRows.push(clean);
   }
 
-  console.log(`[import-sql/execute] Mapped ${mappedRows.length} rows (${errorCount} skipped without name)`);
+  log.info({ mappedCount: mappedRows.length, skipped: errorCount }, "Rows mapped");
   if (mappedRows.length > 0) {
-    console.log("[import-sql/execute] Sample mapped:", JSON.stringify(mappedRows[0]).slice(0, 500));
+    log.debug({ sampleMapped: JSON.stringify(mappedRows[0]).slice(0, 500) }, "Sample mapped row");
   }
 
   // Batch insert in chunks of 50 rows for speed (instead of 1-by-1)
@@ -683,7 +699,7 @@ const executeSql: RequestHandler = async (req, res) => {
       importedCount += batch.length;
     } else {
       // Batch insert failed — fall back to individual inserts for this chunk
-      console.warn(`[import-sql/execute] Batch ${i}-${i + batch.length} failed: ${batchErr.message} (code: ${batchErr.code}). Falling back to individual inserts.`);
+      log.warn({ batchStart: i, batchEnd: i + batch.length, err: batchErr }, "Batch insert failed, falling back to individual inserts");
 
       for (const row of batch) {
         let insertError = null;
@@ -713,8 +729,7 @@ const executeSql: RequestHandler = async (req, res) => {
           const errDetail = `Import "${row.name}" (slug: ${row.slug}): ${(insertError as any).message} (code: ${(insertError as any).code ?? "?"}, details: ${(insertError as any).details ?? "none"}, hint: ${(insertError as any).hint ?? "none"})`;
           errors.push(errDetail);
           if (errorCount <= 20) {
-            console.error("[import-sql/execute] Insert error #" + errorCount + ":", errDetail);
-            console.error("[import-sql/execute] Data keys:", Object.keys(row).join(", "));
+            log.error({ errorNumber: errorCount, detail: errDetail, dataKeys: Object.keys(row).join(", ") }, "Insert error");
           }
         }
       }
@@ -727,11 +742,15 @@ const executeSql: RequestHandler = async (req, res) => {
       action: "establishment.sql_import",
       entity_type: "establishment",
       entity_id: null,
+      actor_id: actor.actor_id,
       metadata: {
         importedCount,
         deletedCount,
         errorCount,
         timestamp: new Date().toISOString(),
+        actor_email: actor.actor_email,
+        actor_name: actor.actor_name,
+        actor_role: actor.actor_role,
       },
     });
   }
@@ -744,7 +763,7 @@ const executeSql: RequestHandler = async (req, res) => {
     errors: errors.slice(0, 50), // Limit errors in response
   });
   } catch (e) {
-    console.error("[import-sql/execute] Error:", e);
+    log.error({ err: e }, "execute error");
     res.status(500).json({ error: `Erreur exécution: ${e instanceof Error ? e.message : "Erreur inconnue"}` });
   }
 };
@@ -755,7 +774,7 @@ export function registerAdminImportSqlRoutes(app: Express): void {
   // SQL files can be very large (30+ MB) — use a dedicated body parser with higher limit
   const bigJson = express.json({ limit: "50mb" });
 
-  app.post("/api/admin/import-sql/parse", bigJson, parseSql);
-  app.post("/api/admin/import-sql/preview", bigJson, previewSql);
-  app.post("/api/admin/import-sql/execute", bigJson, executeSql);
+  app.post("/api/admin/import-sql/parse", bigJson, zBody(ImportSqlParseSchema), parseSql);
+  app.post("/api/admin/import-sql/preview", bigJson, zBody(ImportSqlPreviewSchema), previewSql);
+  app.post("/api/admin/import-sql/execute", bigJson, zBody(ImportSqlExecuteSchema), executeSql);
 }

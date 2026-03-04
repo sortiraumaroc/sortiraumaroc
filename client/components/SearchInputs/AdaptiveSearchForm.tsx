@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bed, Landmark, ShoppingBag, Sliders, Tag, Car, MapPin, Clock } from "lucide-react";
+import { Bed, Landmark, ShoppingBag, Sliders, Tag, Car, Clock, ChevronDown, User } from "lucide-react";
 
 import { CityInput } from "./CityInput";
 import { CityInputWithHistory } from "./CityInputWithHistory";
@@ -107,10 +107,17 @@ export function AdaptiveSearchForm({ selectedUniverse, onUniverseChange, onSearc
   // Rentacar specific states
   const [pickupLocation, setPickupLocation] = useState(() => readSearchState(selectedUniverse).pickupLocation ?? "");
   const [dropoffLocation, setDropoffLocation] = useState(() => readSearchState(selectedUniverse).dropoffLocation ?? "");
-  const [sameDropoff, setSameDropoff] = useState(true);
   const [pickupTime, setPickupTime] = useState(() => readSearchState(selectedUniverse).pickupTime ?? "10:00");
   const [dropoffTime, setDropoffTime] = useState(() => readSearchState(selectedUniverse).dropoffTime ?? "10:00");
   const [vehicleType, setVehicleType] = useState(() => readSearchState(selectedUniverse).vehicleType ?? "");
+  const [driverAge, setDriverAge] = useState(() => readSearchState(selectedUniverse).driverAge ?? "");
+  const [isYoungOrSenior, setIsYoungOrSenior] = useState(false);
+  const [promoCode, setPromoCode] = useState(() => readSearchState(selectedUniverse).promoCode ?? "");
+  const [showPromoInput, setShowPromoInput] = useState(false);
+
+  // Coordinate rentacar date pickers: only one open at a time
+  // Single state: null = none open, "checkin" or "checkout"
+  const [openPicker, setOpenPicker] = useState<"checkin" | "checkout" | null>(null);
 
   const [selectedDate, setSelectedDate] = useState(() => readSearchState(selectedUniverse).date ?? "");
   const [selectedCheckInDate, setSelectedCheckInDate] = useState(() => readSearchState(selectedUniverse).checkInDate ?? "");
@@ -177,6 +184,15 @@ export function AdaptiveSearchForm({ selectedUniverse, onUniverseChange, onSearc
     setSelectedCheckOutDate(stored.checkOutDate ?? "");
     setSelectedTime(stored.time ?? "");
 
+    // Restore rentacar fields
+    setPickupLocation(stored.pickupLocation ?? "");
+    setDropoffLocation(stored.dropoffLocation ?? "");
+    setPickupTime(stored.pickupTime ?? "10:00");
+    setDropoffTime(stored.dropoffTime ?? "10:00");
+    setVehicleType(stored.vehicleType ?? "");
+    setDriverAge(stored.driverAge ?? "");
+    setPromoCode(stored.promoCode ?? "");
+
     const n = Number(stored.numPeople ?? 2);
     const normalized = Number.isFinite(n) && n > 0 ? String(Math.round(n)) : "2";
     setNumPeople(normalized);
@@ -198,6 +214,14 @@ export function AdaptiveSearchForm({ selectedUniverse, onUniverseChange, onSearc
       checkOutDate: selectedCheckOutDate,
       time: selectedTime,
       numPeople,
+      // Rentacar fields
+      pickupLocation,
+      dropoffLocation,
+      pickupTime,
+      dropoffTime,
+      vehicleType,
+      driverAge,
+      promoCode,
     });
   }, [
     selectedUniverse,
@@ -211,6 +235,13 @@ export function AdaptiveSearchForm({ selectedUniverse, onUniverseChange, onSearc
     selectedCheckOutDate,
     selectedTime,
     numPeople,
+    pickupLocation,
+    dropoffLocation,
+    pickupTime,
+    dropoffTime,
+    vehicleType,
+    driverAge,
+    promoCode,
   ]);
 
   useEffect(() => {
@@ -245,59 +276,228 @@ export function AdaptiveSearchForm({ selectedUniverse, onUniverseChange, onSearc
     const inputs: React.ReactNode[] = [];
 
     if (config.fields.city) {
-      // For rentacar, use "Prise en charge" and "Lieu de restitution"
+      // For rentacar, render the full comparator-style form as a single block
       if (selectedUniverse === "rentacar") {
-        // Prise en charge
         inputs.push(
-          wrap(
-            "pickup-location",
-            "flex-1 min-w-[130px] max-w-[160px]",
-            "col-span-2",
-            <CityInput
-              value={pickupLocation || selectedCity}
-              onChange={(value, cityId) => {
-                setPickupLocation(value);
-                setSelectedCity(value);
-                setSelectedCityId(cityId);
-                if (sameDropoff) setDropoffLocation(value);
-              }}
-              placeholder={t("search.rentacar.pickup_location")}
-            />,
-          ),
+          <div key="rentacar-form" className={mobile ? "col-span-2 space-y-3" : "w-full space-y-3"}>
+            {/* Row 1: Main search fields */}
+            {mobile ? (
+              <div className="space-y-2">
+                {/* Prise en charge */}
+                <CityInput
+                  value={pickupLocation || selectedCity}
+                  onChange={(value, cityId) => {
+                    setPickupLocation(value);
+                    setSelectedCity(value);
+                    setSelectedCityId(cityId);
+                  }}
+                  placeholder="Prise en charge"
+                />
+                {/* Restitution */}
+                <CityInput
+                  value={dropoffLocation}
+                  onChange={(value) => { setDropoffLocation(value); }}
+                  placeholder="Même ville"
+                />
+                {/* Dates — side by side with labels */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] font-medium text-slate-500 mb-1 block ps-1">Départ</label>
+                    <DatePickerInput
+                      key={`m-checkin-${openPicker === "checkout" ? "closed" : "open"}`}
+                      value={selectedCheckInDate}
+                      onChange={(d) => {
+                        setSelectedCheckInDate(d);
+                        if (d) setTimeout(() => setOpenPicker("checkout"), 150);
+                      }}
+                      onOpenChange={(v) => setOpenPicker(v ? "checkin" : null)}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-medium text-slate-500 mb-1 block ps-1">Retour</label>
+                    <DatePickerInput
+                      key={`m-checkout-${openPicker === "checkin" ? "closed" : "open"}`}
+                      value={selectedCheckOutDate}
+                      onChange={(d) => { setSelectedCheckOutDate(d); setOpenPicker(null); }}
+                      onOpenChange={(v) => setOpenPicker(v ? "checkout" : null)}
+                    />
+                  </div>
+                </div>
+                {/* Times */}
+                <div className="relative">
+                  <span className="absolute left-3 top-0 text-[10px] text-slate-400 leading-none pt-1 pointer-events-none">Prise en charge</span>
+                  <select value={pickupTime} onChange={(e) => setPickupTime(e.target.value)} className="w-full h-10 ps-3 pe-7 pt-3 text-sm border border-slate-200 rounded-lg bg-white appearance-none cursor-pointer hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-primary/20">
+                    {GENERIC_TIME_SLOTS.map((time) => (<option key={time} value={time}>{time.replace(":", " h ")}</option>))}
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                </div>
+                <div className="relative">
+                  <span className="absolute left-3 top-0 text-[10px] text-slate-400 leading-none pt-1 pointer-events-none">Restitution</span>
+                  <select value={dropoffTime} onChange={(e) => setDropoffTime(e.target.value)} className="w-full h-10 ps-3 pe-7 pt-3 text-sm border border-slate-200 rounded-lg bg-white appearance-none cursor-pointer hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-primary/20">
+                    {GENERIC_TIME_SLOTS.map((time) => (<option key={time} value={time}>{time.replace(":", " h ")}</option>))}
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-end gap-2">
+                {/* Champs centrés dans l'espace disponible */}
+                <div className="flex-1 flex justify-center">
+                  <div className="flex gap-2 items-end">
+                    {/* Prise en charge */}
+                    <div className="min-w-[150px] max-w-[180px] flex-1">
+                      <CityInput
+                        value={pickupLocation || selectedCity}
+                        onChange={(value, cityId) => {
+                          setPickupLocation(value);
+                          setSelectedCity(value);
+                          setSelectedCityId(cityId);
+                        }}
+                        placeholder="Prise en charge"
+                      />
+                    </div>
+                    {/* Restitution */}
+                    <div className="min-w-[150px] max-w-[180px] flex-1">
+                      <CityInput
+                        value={dropoffLocation}
+                        onChange={(value) => { setDropoffLocation(value); }}
+                        placeholder="Même ville"
+                      />
+                    </div>
+                    {/* Dates — key forces unmount/remount to guarantee only one popover open */}
+                    <div className="flex-none w-[135px]">
+                      <DatePickerInput
+                        key={`checkin-${openPicker === "checkout" ? "closed" : "open"}`}
+                        value={selectedCheckInDate}
+                        onChange={(d) => {
+                          setSelectedCheckInDate(d);
+                          if (d) setTimeout(() => setOpenPicker("checkout"), 150);
+                        }}
+                        onOpenChange={(v) => setOpenPicker(v ? "checkin" : null)}
+                      />
+                    </div>
+                    <div className="flex-none w-[135px]">
+                      <DatePickerInput
+                        key={`checkout-${openPicker === "checkin" ? "closed" : "open"}`}
+                        value={selectedCheckOutDate}
+                        onChange={(d) => {
+                          setSelectedCheckOutDate(d);
+                          setOpenPicker(null);
+                        }}
+                        onOpenChange={(v) => setOpenPicker(v ? "checkout" : null)}
+                      />
+                    </div>
+                    {/* Prise en charge time */}
+                    <div className="flex-none w-[125px]">
+                      <div className="relative">
+                        <span className="absolute left-3 top-0 text-[10px] text-slate-400 leading-none pt-1 pointer-events-none">Prise en charge</span>
+                        <select value={pickupTime} onChange={(e) => setPickupTime(e.target.value)} className="w-full h-10 md:h-11 ps-3 pe-7 pt-3 text-sm border border-slate-200 rounded-lg bg-white appearance-none cursor-pointer hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-primary/20">
+                          {GENERIC_TIME_SLOTS.map((time) => (<option key={time} value={time}>{time.replace(":", " h ")}</option>))}
+                        </select>
+                        <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                      </div>
+                    </div>
+                    {/* Restitution time */}
+                    <div className="flex-none w-[125px]">
+                      <div className="relative">
+                        <span className="absolute left-3 top-0 text-[10px] text-slate-400 leading-none pt-1 pointer-events-none">Restitution</span>
+                        <select value={dropoffTime} onChange={(e) => setDropoffTime(e.target.value)} className="w-full h-10 md:h-11 ps-3 pe-7 pt-3 text-sm border border-slate-200 rounded-lg bg-white appearance-none cursor-pointer hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-primary/20">
+                          {GENERIC_TIME_SLOTS.map((time) => (<option key={time} value={time}>{time.replace(":", " h ")}</option>))}
+                        </select>
+                        <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                {/* Boutons à droite */}
+                <div className="flex gap-2 flex-shrink-0">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsFilterOpen(true)}
+                    className="h-10 md:h-11 px-4 bg-white hover:bg-slate-50 border-slate-200 text-slate-700 whitespace-nowrap [font-family:Circular_Std,_sans-serif]"
+                  >
+                    <Sliders className="w-4 h-4" />
+                    <span>{t("results.filters")}</span>
+                  </Button>
+                  <Button
+                    onClick={handleSearch}
+                    disabled={!canSearch}
+                    className="h-10 md:h-11 px-6 text-white text-sm md:text-base font-semibold tracking-[0.2px] whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed [font-family:Circular_Std,_sans-serif]"
+                    type="button"
+                  >
+                    {t("results.search")}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Row 2: Driver age + Promo code */}
+            <div className={mobile ? "space-y-2" : "flex gap-4 items-center"}>
+              {/* Âge du conducteur */}
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-sm font-medium text-slate-700">Âge du conducteur</span>
+                <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer hover:text-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={isYoungOrSenior}
+                    onChange={(e) => setIsYoungOrSenior(e.target.checked)}
+                    className="w-3.5 h-3.5 text-primary border-slate-300 rounded focus:ring-primary"
+                  />
+                  <span>Conducteur de moins de 30 ans ou de plus de 70 ans</span>
+                </label>
+                {isYoungOrSenior && (
+                  <div className="relative">
+                    <User className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                    <input
+                      type="number"
+                      min={18}
+                      max={99}
+                      value={driverAge}
+                      onChange={(e) => setDriverAge(e.target.value)}
+                      placeholder="Âge"
+                      className="w-20 h-9 ps-8 pe-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                )}
+                {isYoungOrSenior && (
+                  <span className="text-xs text-slate-400">Les jeunes conducteurs et les conducteurs séniors peuvent devoir payer des frais supplémentaires.</span>
+                )}
+              </div>
+
+              <div className="flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowPromoInput(!showPromoInput)}
+                  className="flex items-center gap-1 text-sm text-slate-600 hover:text-slate-800 border border-slate-200 rounded-lg px-3 h-9"
+                >
+                  <Tag className="w-3.5 h-3.5" />
+                  <span>Codes de réduction</span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showPromoInput ? "rotate-180" : ""}`} />
+                </button>
+              </div>
+            </div>
+
+            {/* Promo code input (collapsible) */}
+            {showPromoInput && (
+              <div className="flex gap-2 items-center">
+                <input
+                  type="text"
+                  value={promoCode}
+                  onChange={(e) => setPromoCode(e.target.value)}
+                  placeholder="Entrez votre code de réduction"
+                  className="w-64 h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+                {promoCode && (
+                  <Button type="button" variant="outline" size="sm" onClick={() => setPromoCode("")}>
+                    Effacer
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>,
         );
-        // Lieu de restitution
-        inputs.push(
-          wrap(
-            "dropoff-location",
-            "flex-1 min-w-[130px] max-w-[160px]",
-            "col-span-2",
-            <CityInput
-              value={sameDropoff ? pickupLocation : dropoffLocation}
-              onChange={(value) => {
-                setDropoffLocation(value);
-              }}
-              placeholder={t("search.rentacar.dropoff_location")}
-              disabled={sameDropoff}
-            />,
-          ),
-        );
-        // Checkbox restitution identique
-        inputs.push(
-          wrap(
-            "same-dropoff",
-            "flex items-center",
-            "col-span-2",
-            <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer hover:text-slate-800 whitespace-nowrap">
-              <input
-                type="checkbox"
-                checked={sameDropoff}
-                onChange={(e) => setSameDropoff(e.target.checked)}
-                className="w-3.5 h-3.5 text-primary border-slate-300 rounded focus:ring-primary"
-              />
-              <span>{t("search.rentacar.same_dropoff")}</span>
-            </label>,
-          ),
-        );
+        return inputs;
       } else {
         inputs.push(
           wrap(
@@ -426,7 +626,7 @@ export function AdaptiveSearchForm({ selectedUniverse, onUniverseChange, onSearc
       );
     }
 
-    if (config.fields.checkin_date) {
+    if (config.fields.checkin_date && selectedUniverse !== "rentacar") {
       inputs.push(
         wrap(
           "checkin",
@@ -450,7 +650,7 @@ export function AdaptiveSearchForm({ selectedUniverse, onUniverseChange, onSearc
       );
     }
 
-    if (config.fields.checkout_date) {
+    if (config.fields.checkout_date && selectedUniverse !== "rentacar") {
       inputs.push(
         wrap(
           "checkout",
@@ -555,7 +755,22 @@ export function AdaptiveSearchForm({ selectedUniverse, onUniverseChange, onSearc
     const params = new URLSearchParams();
     params.set("universe", selectedUniverse);
     if (filters.promotionsOnly) params.set("promo", "1");
-    navigate(`/results?${params.toString()}`);
+
+    // Pass rental-specific params in URL for Results page
+    if (selectedUniverse === "rentacar") {
+      if (pickupLocation) params.set("pickup_city", pickupLocation);
+      // If dropoff city is empty, it defaults to the pickup city
+      params.set("dropoff_city", dropoffLocation || pickupLocation);
+      if (selectedCheckInDate) params.set("pickup_date", selectedCheckInDate);
+      if (selectedCheckOutDate) params.set("dropoff_date", selectedCheckOutDate);
+      if (pickupTime) params.set("pickup_time", pickupTime);
+      if (dropoffTime) params.set("dropoff_time", dropoffTime);
+      if (vehicleType) params.set("category", vehicleType);
+      if (driverAge) params.set("driver_age", driverAge);
+      if (promoCode) params.set("promo_code", promoCode);
+    }
+
+    navigate(`/results?${params.toString()}`, { state: { fromSearch: true } });
   };
 
   // Handle history item selection - fill all fields from history
@@ -592,7 +807,7 @@ export function AdaptiveSearchForm({ selectedUniverse, onUniverseChange, onSearc
             }}
             universe={selectedUniverse}
             onHistorySelect={handleHistorySelect}
-            inputClassName="w-full pl-10 pr-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 placeholder:text-slate-500 placeholder:font-normal border-0 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 [font-family:Circular_Std,_sans-serif]"
+            inputClassName="w-full ps-10 pe-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 placeholder:text-slate-500 placeholder:font-normal border-0 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 [font-family:Circular_Std,_sans-serif]"
           />
 
           {/* Type/Category Input - full width with white background */}
@@ -608,7 +823,7 @@ export function AdaptiveSearchForm({ selectedUniverse, onUniverseChange, onSearc
                 label: t(opt.labelKey),
               }))}
               maxHeightClassName="max-h-72"
-              triggerClassName="w-full pl-10 pr-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 text-left flex items-center justify-between border-0 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 [font-family:Circular_Std,_sans-serif]"
+              triggerClassName="w-full ps-10 pe-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 text-start flex items-center justify-between border-0 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 [font-family:Circular_Std,_sans-serif]"
             />
           )}
 
@@ -616,7 +831,7 @@ export function AdaptiveSearchForm({ selectedUniverse, onUniverseChange, onSearc
             <PrestationInput
               value={selectedTypeValue}
               onChange={setSelectedTypeValue}
-              triggerClassName="w-full pl-10 pr-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 text-left flex items-center justify-between border-0 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 [font-family:Circular_Std,_sans-serif]"
+              triggerClassName="w-full ps-10 pe-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 text-start flex items-center justify-between border-0 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 [font-family:Circular_Std,_sans-serif]"
             />
           )}
 
@@ -624,7 +839,7 @@ export function AdaptiveSearchForm({ selectedUniverse, onUniverseChange, onSearc
             <ActivityTypeInput
               value={selectedTypeValue}
               onChange={setSelectedTypeValue}
-              triggerClassName="w-full pl-10 pr-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 text-left flex items-center justify-between border-0 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 [font-family:Circular_Std,_sans-serif]"
+              triggerClassName="w-full ps-10 pe-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 text-start flex items-center justify-between border-0 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 [font-family:Circular_Std,_sans-serif]"
             />
           )}
 
@@ -637,7 +852,7 @@ export function AdaptiveSearchForm({ selectedUniverse, onUniverseChange, onSearc
               title={t("search.title.choose_accommodation_type")}
               options={hebergementOptions}
               maxHeightClassName="max-h-72"
-              triggerClassName="w-full pl-10 pr-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 text-left flex items-center justify-between border-0 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 [font-family:Circular_Std,_sans-serif]"
+              triggerClassName="w-full ps-10 pe-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 text-start flex items-center justify-between border-0 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 [font-family:Circular_Std,_sans-serif]"
             />
           )}
 
@@ -650,7 +865,7 @@ export function AdaptiveSearchForm({ selectedUniverse, onUniverseChange, onSearc
               title={t("search.title.choose_culture_type")}
               options={cultureOptions}
               maxHeightClassName="max-h-72"
-              triggerClassName="w-full pl-10 pr-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 text-left flex items-center justify-between border-0 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 [font-family:Circular_Std,_sans-serif]"
+              triggerClassName="w-full ps-10 pe-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 text-start flex items-center justify-between border-0 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 [font-family:Circular_Std,_sans-serif]"
             />
           )}
 
@@ -666,7 +881,7 @@ export function AdaptiveSearchForm({ selectedUniverse, onUniverseChange, onSearc
                 label: t(opt.labelKey),
               }))}
               maxHeightClassName="max-h-72"
-              triggerClassName="w-full pl-10 pr-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 text-left flex items-center justify-between border-0 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 [font-family:Circular_Std,_sans-serif]"
+              triggerClassName="w-full ps-10 pe-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 text-start flex items-center justify-between border-0 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 [font-family:Circular_Std,_sans-serif]"
             />
           )}
 
@@ -678,90 +893,101 @@ export function AdaptiveSearchForm({ selectedUniverse, onUniverseChange, onSearc
                 value={pickupLocation}
                 onChange={(value) => {
                   setPickupLocation(value);
-                  if (sameDropoff) setDropoffLocation(value);
+                  setSelectedCity(value);
                 }}
-                placeholder={t("search.rentacar.pickup_location")}
-                inputClassName="w-full pl-10 pr-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 placeholder:text-slate-500 placeholder:font-normal border-0 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 [font-family:Circular_Std,_sans-serif]"
+                placeholder="Prise en charge"
+                inputClassName="w-full ps-10 pe-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 placeholder:text-slate-500 placeholder:font-normal border-0 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 [font-family:Circular_Std,_sans-serif]"
               />
 
               {/* Dropoff Location */}
-              <div className="relative">
-                <CityInput
-                  value={sameDropoff ? pickupLocation : dropoffLocation}
-                  onChange={(value) => {
-                    setDropoffLocation(value);
-                    setSameDropoff(false);
-                  }}
-                  placeholder={sameDropoff ? t("search.rentacar.same_dropoff") : t("search.rentacar.dropoff_location")}
-                  inputClassName="w-full pl-10 pr-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 placeholder:text-slate-500 placeholder:font-normal border-0 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 [font-family:Circular_Std,_sans-serif]"
-                  disabled={sameDropoff}
-                />
-                <label className="flex items-center gap-2 mt-2 text-sm text-white/90">
-                  <input
-                    type="checkbox"
-                    checked={sameDropoff}
-                    onChange={(e) => setSameDropoff(e.target.checked)}
-                    className="rounded border-white/30"
-                  />
-                  {t("search.rentacar.same_dropoff_checkbox")}
-                </label>
-              </div>
+              <CityInput
+                value={dropoffLocation}
+                onChange={(value) => {
+                  setDropoffLocation(value);
+                }}
+                placeholder="Même ville"
+                inputClassName="w-full ps-10 pe-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 placeholder:text-slate-500 placeholder:font-normal border-0 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 [font-family:Circular_Std,_sans-serif]"
+              />
 
               {/* Dates (Check-in / Check-out) */}
               <div className="grid grid-cols-2 gap-2">
-                <DatePickerInput
-                  value={selectedCheckInDate}
-                  onChange={setSelectedCheckInDate}
-                  placeholder={t("search.rentacar.pickup_date")}
-                  inputClassName="w-full pl-10 pr-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 placeholder:text-slate-500 border-0 shadow-sm [font-family:Circular_Std,_sans-serif]"
-                />
-                <DatePickerInput
-                  value={selectedCheckOutDate}
-                  onChange={setSelectedCheckOutDate}
-                  placeholder={t("search.rentacar.dropoff_date")}
-                  inputClassName="w-full pl-10 pr-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 placeholder:text-slate-500 border-0 shadow-sm [font-family:Circular_Std,_sans-serif]"
-                />
+                <div>
+                  <label className="text-[10px] font-medium text-white/60 mb-1 block ps-1">Départ</label>
+                  <DatePickerInput
+                    key={`stacked-checkin-${openPicker === "checkout" ? "closed" : "open"}`}
+                    value={selectedCheckInDate}
+                    onChange={(d) => {
+                      setSelectedCheckInDate(d);
+                      if (d) setTimeout(() => setOpenPicker("checkout"), 150);
+                    }}
+                    onOpenChange={(v) => setOpenPicker(v ? "checkin" : null)}
+                    className="w-full ps-10 pe-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 placeholder:text-slate-500 border-0 shadow-sm [font-family:Circular_Std,_sans-serif]"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-medium text-white/60 mb-1 block ps-1">Retour</label>
+                  <DatePickerInput
+                    key={`stacked-checkout-${openPicker === "checkin" ? "closed" : "open"}`}
+                    value={selectedCheckOutDate}
+                    onChange={(d) => {
+                      setSelectedCheckOutDate(d);
+                      setOpenPicker(null);
+                    }}
+                    onOpenChange={(v) => setOpenPicker(v ? "checkout" : null)}
+                    className="w-full ps-10 pe-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 placeholder:text-slate-500 border-0 shadow-sm [font-family:Circular_Std,_sans-serif]"
+                  />
+                </div>
               </div>
 
               {/* Times */}
               <div className="grid grid-cols-2 gap-2">
                 <div className="relative">
-                  <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 pointer-events-none z-10" />
+                  <Clock className="absolute start-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 pointer-events-none z-10" />
                   <select
                     value={pickupTime}
                     onChange={(e) => setPickupTime(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 border-0 shadow-sm appearance-none cursor-pointer [font-family:Circular_Std,_sans-serif]"
+                    className="w-full ps-10 pe-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 border-0 shadow-sm appearance-none cursor-pointer [font-family:Circular_Std,_sans-serif]"
                   >
                     {GENERIC_TIME_SLOTS.map((time) => (
-                      <option key={time} value={time}>{time.replace(":", " h ")}</option>
+                      <option key={`p${time}`} value={time}>{time.replace(":", " h ")}</option>
                     ))}
                   </select>
                 </div>
                 <div className="relative">
-                  <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 pointer-events-none z-10" />
+                  <Clock className="absolute start-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 pointer-events-none z-10" />
                   <select
                     value={dropoffTime}
                     onChange={(e) => setDropoffTime(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 border-0 shadow-sm appearance-none cursor-pointer [font-family:Circular_Std,_sans-serif]"
+                    className="w-full ps-10 pe-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 border-0 shadow-sm appearance-none cursor-pointer [font-family:Circular_Std,_sans-serif]"
                   >
                     {GENERIC_TIME_SLOTS.map((time) => (
-                      <option key={time} value={time}>{time.replace(":", " h ")}</option>
+                      <option key={`d${time}`} value={time}>{time.replace(":", " h ")}</option>
                     ))}
                   </select>
                 </div>
               </div>
 
-              {/* Vehicle Type */}
-              <AnchoredSelect
-                icon={Car}
-                value={vehicleType}
-                onChange={setVehicleType}
-                placeholder={t("search.placeholder.vehicle_type")}
-                title={t("search.title.choose_vehicle_type")}
-                options={RENTACAR_VEHICLE_TYPES}
-                maxHeightClassName="max-h-72"
-                triggerClassName="w-full pl-10 pr-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 text-left flex items-center justify-between border-0 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 [font-family:Circular_Std,_sans-serif]"
-              />
+              {/* Driver age */}
+              <label className="flex items-center gap-2 text-sm text-white/90">
+                <input
+                  type="checkbox"
+                  checked={isYoungOrSenior}
+                  onChange={(e) => setIsYoungOrSenior(e.target.checked)}
+                  className="rounded border-white/30"
+                />
+                Moins de 30 ans ou plus de 70 ans
+              </label>
+              {isYoungOrSenior && (
+                <input
+                  type="number"
+                  min={18}
+                  max={99}
+                  value={driverAge}
+                  onChange={(e) => setDriverAge(e.target.value)}
+                  placeholder="Âge"
+                  className="w-full ps-10 pe-4 py-3 h-12 rounded-lg bg-white text-base text-slate-900 placeholder:text-slate-500 border-0 shadow-sm [font-family:Circular_Std,_sans-serif]"
+                />
+              )}
             </>
           )}
 
@@ -788,30 +1014,36 @@ export function AdaptiveSearchForm({ selectedUniverse, onUniverseChange, onSearc
   }
 
   return (
-    <div className="bg-white/95 rounded-2xl shadow-xl shadow-black/10 ring-1 ring-white/20 max-w-7xl mx-auto pt-[14px] px-5 pb-4 transition-shadow focus-within:shadow-2xl focus-within:shadow-black/10">
-      <div className="hidden sm:flex gap-2 md:gap-3 w-full">
-        <div className="flex gap-2 md:gap-3 flex-1 flex-wrap">{renderSearchInputs({ mobile: false })}</div>
-
-        <div className="flex gap-2 md:gap-3 flex-shrink-0">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setIsFilterOpen(true)}
-            className="h-10 md:h-11 px-4 bg-white hover:bg-slate-50 border-slate-200 text-slate-700 whitespace-nowrap [font-family:Circular_Std,_sans-serif]"
-          >
-            <Sliders className="w-4 h-4" />
-            <span className="hidden sm:inline">{t("results.filters")}</span>
-          </Button>
-
-          <Button
-            onClick={handleSearch}
-            disabled={!canSearch}
-            className="h-10 md:h-11 px-6 text-white text-sm md:text-base font-semibold tracking-[0.2px] whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed [font-family:Circular_Std,_sans-serif]"
-            type="button"
-          >
-            {t("results.search")}
-          </Button>
-        </div>
+    <div className="bg-white/95 rounded-2xl shadow-xl shadow-black/10 ring-1 ring-white/20 max-w-7xl mx-auto pt-[14px] px-8 pb-4 transition-shadow focus-within:shadow-2xl focus-within:shadow-black/10">
+      <div className="hidden sm:block w-full">
+        {selectedUniverse === "rentacar" ? (
+          /* Rentacar: formulaire pleine largeur, boutons intégrés dans Row 1 */
+          <div className="w-full">{renderSearchInputs({ mobile: false })}</div>
+        ) : (
+          /* Autres univers: inputs + boutons côte à côte */
+          <div className="flex items-center gap-2 md:gap-3 w-full">
+            <div className="flex gap-2 md:gap-3 flex-1 flex-wrap">{renderSearchInputs({ mobile: false })}</div>
+            <div className="flex gap-2 md:gap-3 flex-shrink-0">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsFilterOpen(true)}
+                className="h-10 md:h-11 px-4 bg-white hover:bg-slate-50 border-slate-200 text-slate-700 whitespace-nowrap [font-family:Circular_Std,_sans-serif]"
+              >
+                <Sliders className="w-4 h-4" />
+                <span className="hidden sm:inline">{t("results.filters")}</span>
+              </Button>
+              <Button
+                onClick={handleSearch}
+                disabled={!canSearch}
+                className="h-10 md:h-11 px-6 text-white text-sm md:text-base font-semibold tracking-[0.2px] whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed [font-family:Circular_Std,_sans-serif]"
+                type="button"
+              >
+                {t("results.search")}
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="sm:hidden space-y-2">

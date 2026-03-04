@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, Copy, Plus, BadgeCheck, Crown, Star, Trash2, Power, Eye, GitCompareArrows } from "lucide-react";
+import { ArrowRight, Copy, Plus, BadgeCheck, Crown, Star, Trash2, Power, Eye, GitCompareArrows, Loader2, CheckCircle, XCircle, PauseCircle, Sparkles, UtensilsCrossed, Utensils, BookOpen, Moon, Wifi, WifiOff, Download, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { RefreshIconButton } from "@/components/ui/refresh-icon-button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -33,20 +34,29 @@ import {
   AdminApiError,
   Establishment,
   EstablishmentStatus,
+  batchEstablishmentsStatus,
   createEstablishment,
   listEstablishments,
   updateEstablishmentStatus,
   updateEstablishmentFlags,
+  updateEstablishmentCity,
   listAdminUniverses,
   UniverseAdmin,
   deleteEstablishment,
   isAdminSuperadmin,
   getAdminUserRole,
+  getAdminHeaders,
+  listAdminHomeCurationItems,
+  createAdminHomeCurationItem,
+  deleteAdminHomeCurationItem,
+  type HomeCurationKind,
 } from "@/lib/adminApi";
+import { MOROCCAN_CITIES } from "@/components/admin/wizard/wizardConstants";
 import { useToast } from "@/hooks/use-toast";
 import { DynamicLucideIcon } from "@/components/admin/LucideIconPicker";
 import { DuplicateEstablishmentsDialog } from "@/components/admin/DuplicateEstablishmentsDialog";
 import { PaginationControls } from "@/components/admin/table/PaginationControls";
+import { EstablishmentCreationWizard } from "@/components/admin/wizard/EstablishmentCreationWizard";
 
 const STATUS_OPTIONS: Array<{ value: EstablishmentStatus; label: string; badge: "default" | "secondary" | "destructive" | "outline" }> = [
   { value: "pending", label: "En attente", badge: "secondary" },
@@ -64,6 +74,15 @@ const FALLBACK_UNIVERSES: Array<{ value: string; label: string }> = [
   { value: "hebergement", label: "Hébergement" },
   { value: "shopping", label: "Shopping" },
 ];
+
+const FTOUR_SECTIONS: Array<{ kind: HomeCurationKind; Icon: typeof Sparkles; activeColor: string; label: string }> = [
+  { kind: "best_deals", Icon: Sparkles, activeColor: "bg-green-100 text-green-600 hover:bg-green-200", label: "Meilleures offres" },
+  { kind: "by_service_buffet", Icon: UtensilsCrossed, activeColor: "bg-orange-100 text-orange-600 hover:bg-orange-200", label: "Buffet" },
+  { kind: "by_service_table", Icon: Utensils, activeColor: "bg-violet-100 text-violet-600 hover:bg-violet-200", label: "Servi à table" },
+  { kind: "by_service_carte", Icon: BookOpen, activeColor: "bg-rose-100 text-rose-600 hover:bg-rose-200", label: "À la carte" },
+];
+
+const FTOUR_STORAGE_KEY = "admin_show_ftour_sections";
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "";
@@ -142,6 +161,49 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Multi-sélection & actions en masse
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      if (prev.size === paginatedItems.length) return new Set();
+      return new Set(paginatedItems.map((e) => e.id));
+    });
+  };
+
+  const handleBulkAction = async (status: EstablishmentStatus) => {
+    if (!selectedIds.size || bulkActionLoading) return;
+    setBulkActionLoading(true);
+    setError(null);
+
+    try {
+      const ids = Array.from(selectedIds);
+      await batchEstablishmentsStatus(props.adminKey, { ids, status });
+      const labels: Record<string, string> = { active: "activé(s)", suspended: "suspendu(s)", rejected: "rejeté(s)", pending: "en attente" };
+      toast({
+        title: "Mise à jour en masse",
+        description: `${ids.length} établissement(s) ${labels[status] ?? status}.`,
+      });
+      setSelectedIds(new Set());
+      await refresh();
+    } catch (e) {
+      if (e instanceof AdminApiError) setError(e.message);
+      else setError("Erreur lors de l'action en masse");
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
   // Univers dynamiques depuis la base de données
   const [universes, setUniverses] = useState<UniverseAdmin[]>([]);
   const [universesLoading, setUniversesLoading] = useState(false);
@@ -154,6 +216,7 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
   }, [universes]);
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
   const [createSaving, setCreateSaving] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createDraft, setCreateDraft] = useState<{
@@ -183,12 +246,24 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
     return createDraft.name.trim().length >= 2 && createDraft.city.trim().length >= 2 && email.includes("@");
   }, [createDraft.city, createDraft.name, createDraft.owner_email]);
 
-  const refresh = async () => {
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  // Debounce search input (300ms)
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const refresh = async (serverSearch?: string) => {
     setLoading(true);
     setError(null);
 
     try {
-      const res = await listEstablishments(props.adminKey, statusFilter === "all" ? undefined : statusFilter);
+      const res = await listEstablishments(
+        props.adminKey,
+        statusFilter === "all" ? undefined : statusFilter,
+        serverSearch || undefined,
+      );
       setItems(res.items);
       setDraftStatus({});
     } catch (e) {
@@ -212,11 +287,93 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
     }
   };
 
+  // ── Ftour Sections toggle + curation state ──
+  const [showFtourSections, setShowFtourSections] = useState(() => {
+    try { return localStorage.getItem(FTOUR_STORAGE_KEY) !== "false"; } catch { return true; }
+  });
+
+  type CurationMap = Record<string, Record<string, string>>;
+  const [curationMap, setCurationMap] = useState<CurationMap>({});
+  const [curationLoading, setCurationLoading] = useState(false);
+
+  const toggleFtourSections = (val: boolean) => {
+    setShowFtourSections(val);
+    try { localStorage.setItem(FTOUR_STORAGE_KEY, String(val)); } catch { /* noop */ }
+  };
+
+  const loadCurationState = async () => {
+    if (!showFtourSections) return;
+    setCurationLoading(true);
+    try {
+      const results = await Promise.all(
+        FTOUR_SECTIONS.map((s) => listAdminHomeCurationItems(props.adminKey, { kind: s.kind })),
+      );
+      const map: CurationMap = {};
+      for (let i = 0; i < FTOUR_SECTIONS.length; i++) {
+        const kind = FTOUR_SECTIONS[i].kind;
+        for (const item of results[i].items) {
+          if (!map[item.establishment_id]) map[item.establishment_id] = {};
+          map[item.establishment_id][kind] = item.id;
+        }
+      }
+      setCurationMap(map);
+    } catch {
+      // Silently fail — badges show as inactive
+    } finally {
+      setCurationLoading(false);
+    }
+  };
+
+  const handleToggleCuration = async (establishmentId: string, kind: HomeCurationKind, universe: string, city?: string | null) => {
+    const existingId = curationMap[establishmentId]?.[kind];
+    setSavingIds((prev) => new Set(prev).add(establishmentId));
+    const sectionLabel = FTOUR_SECTIONS.find((s) => s.kind === kind)?.label ?? kind;
+
+    try {
+      if (existingId) {
+        await deleteAdminHomeCurationItem(props.adminKey, existingId);
+        setCurationMap((prev) => {
+          const next = { ...prev };
+          if (next[establishmentId]) {
+            const kinds = { ...next[establishmentId] };
+            delete kinds[kind];
+            if (Object.keys(kinds).length === 0) delete next[establishmentId];
+            else next[establishmentId] = kinds;
+          }
+          return next;
+        });
+        toast({ title: "Retiré", description: `Retiré de "${sectionLabel}".` });
+      } else {
+        const res = await createAdminHomeCurationItem(props.adminKey, {
+          universe: universe || "restaurants",
+          kind,
+          establishment_id: establishmentId,
+          city: city || null,
+        });
+        setCurationMap((prev) => ({
+          ...prev,
+          [establishmentId]: { ...(prev[establishmentId] ?? {}), [kind]: res.item.id },
+        }));
+        toast({ title: "Ajouté", description: `Ajouté à "${sectionLabel}"${city ? ` (${city})` : ""}.` });
+      }
+    } catch (e) {
+      if (e instanceof AdminApiError) setError(e.message);
+      else setError("Erreur inattendue");
+    } finally {
+      setSavingIds((prev) => { const c = new Set(prev); c.delete(establishmentId); return c; });
+    }
+  };
+
   useEffect(() => {
-    void refresh();
+    void refresh(debouncedSearch);
     void loadUniverses();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.adminKey, statusFilter]);
+  }, [props.adminKey, statusFilter, debouncedSearch]);
+
+  useEffect(() => {
+    if (showFtourSections) void loadCurationState();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.adminKey, showFtourSections]);
 
   const handleCreate = async () => {
     if (!canCreate || createSaving) return;
@@ -279,7 +436,7 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
     }
   };
 
-  const handleToggleFlag = async (id: string, flag: "verified" | "premium" | "curated", currentValue: boolean) => {
+  const handleToggleFlag = async (id: string, flag: "verified" | "premium" | "curated" | "is_online", currentValue: boolean) => {
     setSavingIds((prev) => new Set(prev).add(id));
     setError(null);
 
@@ -291,7 +448,7 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
         item.id === id ? { ...item, [flag]: !currentValue } : item
       ));
 
-      const flagLabels = { verified: "Vérifié", premium: "Premium", curated: "Sélection" };
+      const flagLabels: Record<string, string> = { verified: "Vérifié", premium: "Premium", curated: "Sélection", is_online: "En ligne" };
       toast({
         title: !currentValue ? `${flagLabels[flag]} activé` : `${flagLabels[flag]} désactivé`,
         description: `L'établissement a été mis à jour.`
@@ -321,6 +478,110 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
     return role === "superadmin" || role === "admin";
   }, []);
 
+  // Export XLSX — superadmin only
+  const isSuperAdmin = useMemo(() => isAdminSuperadmin(), []);
+  const [exporting, setExporting] = useState(false);
+
+  const handleExportXlsx = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const headers = getAdminHeaders();
+      delete headers["Content-Type"]; // laisser le browser gérer
+      const res = await fetch("/api/admin/establishments/export-xlsx", { headers });
+      if (!res.ok) throw new Error(`Erreur ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `etablissements_sam_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast({ title: "Export terminé", description: "Le fichier Excel a été téléchargé." });
+    } catch (e) {
+      toast({ title: "Erreur", description: "Impossible de télécharger le fichier.", variant: "destructive" });
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // Import XLSX — superadmin only
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImportXlsx = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || importing) return;
+    // Reset input pour pouvoir re-sélectionner le même fichier
+    e.target.value = "";
+
+    setImporting(true);
+    try {
+      const headers = getAdminHeaders();
+      delete headers["Content-Type"]; // laisser le browser mettre multipart/form-data
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/admin/establishments/import-xlsx", {
+        method: "POST",
+        headers,
+        body: formData,
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `Erreur ${res.status}`);
+
+      const parts: string[] = [];
+      if (json.created > 0) parts.push(`${json.created} créé(s)`);
+      if (json.updated > 0) parts.push(`${json.updated} mis à jour`);
+      if (json.errors?.length > 0) parts.push(`${json.errors.length} erreur(s)`);
+
+      toast({
+        title: "Import terminé",
+        description: parts.join(", ") || "Aucune modification.",
+        variant: json.errors?.length > 0 ? "destructive" : "default",
+      });
+
+      // Refresh la liste
+      void refresh();
+    } catch (err: any) {
+      toast({ title: "Erreur", description: err.message || "Import échoué", variant: "destructive" });
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  // Vérifier si l'utilisateur peut modifier la ville inline (admin ou superadmin)
+  const canEditCity = canDelete; // même condition
+
+  const handleCitySave = async (id: string, newCity: string) => {
+    setSavingIds((prev) => new Set(prev).add(id));
+    setError(null);
+
+    try {
+      await updateEstablishmentCity(props.adminKey, id, newCity);
+
+      // Optimistic update
+      setItems((prev) => prev.map((item) =>
+        item.id === id ? { ...item, city: newCity } : item
+      ));
+
+      toast({
+        title: "Ville mise à jour",
+        description: `La ville a été changée en "${newCity}".`,
+      });
+    } catch (e) {
+      if (e instanceof AdminApiError) setError(e.message);
+      else setError("Erreur inattendue");
+    } finally {
+      setSavingIds((prev) => {
+        const copy = new Set(prev);
+        copy.delete(id);
+        return copy;
+      });
+    }
+  };
+
   const handleDelete = async () => {
     if (!deleteConfirm || deleting) return;
 
@@ -340,6 +601,45 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
       else setError("Erreur lors de la suppression");
     } finally {
       setDeleting(false);
+    }
+  };
+
+  // Suppression en masse
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  const handleBulkDelete = async () => {
+    if (!selectedIds.size || bulkDeleting) return;
+    setBulkDeleting(true);
+    setError(null);
+
+    try {
+      const ids = Array.from(selectedIds);
+      let deleted = 0;
+      let failed = 0;
+      for (const id of ids) {
+        try {
+          await deleteEstablishment(props.adminKey, id);
+          deleted++;
+        } catch {
+          failed++;
+        }
+      }
+      toast({
+        title: "Suppression en masse",
+        description: failed
+          ? `${deleted} supprimé(s), ${failed} erreur(s).`
+          : `${deleted} établissement(s) supprimé(s).`,
+        variant: failed ? "destructive" : undefined,
+      });
+      setSelectedIds(new Set());
+      setBulkDeleteConfirm(false);
+      await refresh();
+    } catch (e) {
+      if (e instanceof AdminApiError) setError(e.message);
+      else setError("Erreur lors de la suppression en masse");
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -376,7 +676,7 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
   }, [items]);
 
   const visibleItems = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    // Text search is now done server-side; only apply local city/universe filters
     return items.filter((e) => {
       if (cityFilter !== "all") {
         const c = typeof e.city === "string" ? e.city.trim() : "";
@@ -388,15 +688,14 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
         if (u !== universeFilter) return false;
       }
 
-      if (!q) return true;
-      const hay = `${e.id ?? ""} ${e.name ?? ""} ${e.title ?? ""} ${e.city ?? ""} ${String((e as any).universe ?? "")}`.toLowerCase();
-      return hay.includes(q);
+      return true;
     });
-  }, [cityFilter, items, search, universeFilter]);
+  }, [cityFilter, items, universeFilter]);
 
-  // Reset page when filters change
+  // Reset page & selection when filters change
   useEffect(() => {
     setCurrentPage(0);
+    setSelectedIds(new Set());
   }, [search, statusFilter, cityFilter, universeFilter]);
 
   const paginatedItems = useMemo(() => {
@@ -417,19 +716,7 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
             <Button
               variant="outline"
               className="px-3"
-              onClick={() => {
-                setCreateError(null);
-                setCreatedCredentials(null);
-                setCreateDraft({
-                  name: "",
-                  city: "",
-                  universe: universeOptions[0]?.value || "restaurants",
-                  owner_email: "",
-                  contact_name: "",
-                  contact_phone: "",
-                });
-                setCreateOpen(true);
-              }}
+              onClick={() => setWizardOpen(true)}
               aria-label="Créer un nouvel établissement"
               title="Créer un nouvel établissement"
             >
@@ -448,7 +735,42 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
               </Button>
             )}
 
-            <RefreshIconButton className="h-9 w-9" loading={loading} label="Rafraîchir" onClick={() => void refresh()} />
+            {isSuperAdmin && (
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={handleExportXlsx}
+                disabled={exporting}
+                title="Télécharger la base en Excel"
+              >
+                {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                <span className="hidden sm:inline">.xlsx</span>
+              </Button>
+            )}
+
+            {isSuperAdmin && (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx"
+                  className="hidden"
+                  onChange={handleImportXlsx}
+                />
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={importing}
+                  title="Importer un fichier Excel"
+                >
+                  {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  <span className="hidden sm:inline">Import</span>
+                </Button>
+              </>
+            )}
+
+            <RefreshIconButton className="h-9 w-9" loading={loading} label="Rafraîchir" onClick={() => { void refresh(); if (showFtourSections) void loadCurationState(); }} />
           </div>
         </div>
 
@@ -512,6 +834,17 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
 
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-xs text-slate-500">{visibleItems.length} résultat(s)</div>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <Moon className="h-3.5 w-3.5 text-amber-500" />
+              <span className="text-xs font-medium text-slate-600">Sections Ftour</span>
+              <Switch
+                checked={showFtourSections}
+                onCheckedChange={toggleFtourSections}
+                className="scale-75"
+              />
+            </label>
+          </div>
           <Button
             variant="outline"
             size="sm"
@@ -527,7 +860,78 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
         </div>
       </div>
 
+      {/* Barre d'actions en masse */}
+      {selectedIds.size > 0 && (
+        <div className="px-4 md:px-6 py-3 border-b border-slate-200 bg-blue-50/60 flex flex-wrap items-center gap-3">
+          <span className="text-sm font-medium text-blue-800">
+            {selectedIds.size} sélectionné{selectedIds.size > 1 ? "s" : ""}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-blue-600 hover:text-blue-800"
+            onClick={() => setSelectedIds(new Set())}
+            disabled={bulkActionLoading}
+          >
+            Tout désélectionner
+          </Button>
+          <div className="flex gap-2 ms-auto">
+            {bulkActionLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin text-slate-500" />
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 text-emerald-700 border-emerald-300 hover:bg-emerald-50"
+                  onClick={() => void handleBulkAction("active")}
+                >
+                  <CheckCircle className="h-3.5 w-3.5" />
+                  Activer
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 text-amber-700 border-amber-300 hover:bg-amber-50"
+                  onClick={() => void handleBulkAction("suspended")}
+                >
+                  <PauseCircle className="h-3.5 w-3.5" />
+                  Suspendre
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 text-red-700 border-red-300 hover:bg-red-50"
+                  onClick={() => void handleBulkAction("rejected")}
+                >
+                  <XCircle className="h-3.5 w-3.5" />
+                  Rejeter
+                </Button>
+                {canDelete && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 text-red-800 border-red-400 hover:bg-red-100 font-semibold"
+                    onClick={() => setBulkDeleteConfirm(true)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Supprimer
+                  </Button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {error && <div className="px-4 md:px-6 py-3 text-sm text-destructive">{error}</div>}
+
+      <EstablishmentCreationWizard
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        onCreated={() => void refresh()}
+        onSelectExisting={(id) => navigate(`/admin/establishments/${encodeURIComponent(id)}`)}
+      />
 
       <Dialog
         open={createOpen}
@@ -768,17 +1172,61 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
         </DialogContent>
       </Dialog>
 
+      {/* Dialog de confirmation de suppression en masse */}
+      <Dialog open={bulkDeleteConfirm} onOpenChange={(open) => !open && setBulkDeleteConfirm(false)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Suppression en masse</DialogTitle>
+            <DialogDescription>
+              Êtes-vous sûr de vouloir supprimer définitivement <strong>{selectedIds.size} établissement(s)</strong> ?
+              <br /><br />
+              Cette action est irréversible et supprimera toutes les données associées (réservations, avis, memberships, etc.).
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setBulkDeleteConfirm(false)}
+              disabled={bulkDeleting}
+            >
+              Annuler
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void handleBulkDelete()}
+              disabled={bulkDeleting}
+              className="gap-2"
+            >
+              <Trash2 className="h-4 w-4" />
+              {bulkDeleting ? "Suppression..." : `Supprimer ${selectedIds.size} établissement(s)`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="p-4 md:p-6 overflow-x-auto">
         <TooltipProvider>
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={paginatedItems.length > 0 && selectedIds.size === paginatedItems.length}
+                    onCheckedChange={() => toggleSelectAll()}
+                    aria-label="Tout sélectionner"
+                  />
+                </TableHead>
                 <TableHead>Nom</TableHead>
                 <TableHead>Ville</TableHead>
                 <TableHead>Statut</TableHead>
                 <TableHead className="text-center">Badges</TableHead>
-                <TableHead>Créé</TableHead>
-                <TableHead className="text-right">Action</TableHead>
+                {showFtourSections && <TableHead className="text-center">Sections</TableHead>}
+                <TableHead>Date</TableHead>
+                <TableHead className="text-xs">Créé par</TableHead>
+                <TableHead className="text-xs">Modifié par</TableHead>
+                <TableHead className="text-end">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -789,15 +1237,69 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
                 const hasChanged = draft && draft.toString() !== current;
 
                 return (
-                  <TableRow key={item.id}>
+                  <TableRow key={item.id} className={selectedIds.has(item.id) ? "bg-blue-50/40" : ""}>
+                    <TableCell>
+                      <Checkbox
+                        checked={selectedIds.has(item.id)}
+                        onCheckedChange={() => toggleSelect(item.id)}
+                        aria-label={`Sélectionner ${getLabel(item)}`}
+                      />
+                    </TableCell>
                     <TableCell className="font-semibold">{getLabel(item)}</TableCell>
-                    <TableCell className="text-sm text-slate-600">{item.city ?? ""}</TableCell>
+                    <TableCell className="text-sm text-slate-600">
+                      {canEditCity ? (
+                        (() => {
+                          const currentCity = (item.city ?? "").trim();
+                          const cityInList = MOROCCAN_CITIES.includes(currentCity);
+                          return (
+                            <Select
+                              value={currentCity || "__empty__"}
+                              onValueChange={(v) => {
+                                const newVal = v === "__empty__" ? "" : v;
+                                if (newVal !== currentCity) {
+                                  void handleCitySave(item.id, newVal);
+                                }
+                              }}
+                              disabled={savingIds.has(item.id)}
+                            >
+                              <SelectTrigger className="w-full sm:w-[150px] h-8 text-sm">
+                                <SelectValue placeholder="Ville…" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {/* Show current city at top if not in standard list */}
+                                {currentCity && !cityInList && (
+                                  <SelectItem key={`__current__${currentCity}`} value={currentCity}>
+                                    {currentCity} ⚠️
+                                  </SelectItem>
+                                )}
+                                {!currentCity && (
+                                  <SelectItem value="__empty__">
+                                    <span className="text-slate-400 italic">Non définie</span>
+                                  </SelectItem>
+                                )}
+                                {MOROCCAN_CITIES.map((c) => (
+                                  <SelectItem key={c} value={c}>
+                                    {c}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          );
+                        })()
+                      ) : (
+                        item.city ?? ""
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Select
                         value={draft?.toString() ?? ""}
-                        onValueChange={(v) =>
-                          setDraftStatus((prev) => ({ ...prev, [item.id]: v as EstablishmentStatus }))
-                        }
+                        onValueChange={(v) => {
+                          const next = v as EstablishmentStatus;
+                          setDraftStatus((prev) => ({ ...prev, [item.id]: next }));
+                          if (next !== current) {
+                            void handleSave(item.id, next);
+                          }
+                        }}
                       >
                         <SelectTrigger className="w-full sm:w-[140px]">
                           <SelectValue placeholder="Choisir" />
@@ -875,10 +1377,72 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
                             <p>{item.curated ? "Sélection SAM ✓" : "Non sélectionné"}</p>
                           </TooltipContent>
                         </Tooltip>
+
+                        {/* En ligne / Hors ligne */}
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={() => void handleToggleFlag(item.id, "is_online", item.is_online !== false)}
+                              disabled={isSaving}
+                              className={`p-1.5 rounded-md transition ${
+                                item.is_online !== false
+                                  ? "bg-green-100 text-green-600 hover:bg-green-200"
+                                  : "bg-red-100 text-red-600 hover:bg-red-200"
+                              } disabled:opacity-50`}
+                            >
+                              {item.is_online !== false ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{item.is_online !== false ? "En ligne ✓" : "Hors ligne"}</p>
+                          </TooltipContent>
+                        </Tooltip>
                       </div>
                     </TableCell>
-                    <TableCell className="text-sm text-slate-600">{formatDate(item.created_at ?? null)}</TableCell>
-                    <TableCell className="text-right">
+                    {showFtourSections && (
+                      <TableCell>
+                        <div className="flex items-center gap-1.5 justify-center">
+                          {FTOUR_SECTIONS.map(({ kind, Icon, activeColor, label }) => {
+                            const isActive = !!curationMap[item.id]?.[kind];
+                            return (
+                              <Tooltip key={kind}>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleToggleCuration(item.id, kind, (item as any).universe ?? "restaurants")}
+                                    disabled={isSaving || curationLoading}
+                                    className={`p-1 rounded-md transition ${
+                                      isActive ? activeColor : "bg-slate-100 text-slate-400 hover:bg-slate-200"
+                                    } disabled:opacity-50`}
+                                  >
+                                    <Icon className="h-3.5 w-3.5" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{isActive ? `${label} ✓` : label}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            );
+                          })}
+                        </div>
+                      </TableCell>
+                    )}
+                    <TableCell className="text-xs text-slate-600">
+                      <div>{formatDate(item.updated_at ?? item.created_at ?? null)}</div>
+                      {item.updated_at && item.updated_at !== item.created_at ? (
+                        <span className="text-[10px] text-slate-400">modifié</span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400">créé</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs text-slate-500">
+                      {item.admin_created_by_name || "\u2014"}
+                    </TableCell>
+                    <TableCell className="text-xs text-slate-500">
+                      {item.admin_updated_by_name || "\u2014"}
+                    </TableCell>
+                    <TableCell className="text-end">
                       <div className="flex gap-1.5 justify-end">
                         {/* Bouton Voir */}
                         <Tooltip>
@@ -946,7 +1510,7 @@ export function EstablishmentsPanel(props: { adminKey?: string }) {
 
               {!visibleItems.length && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-sm text-slate-600">
+                  <TableCell colSpan={showFtourSections ? 10 : 9} className="text-center text-sm text-slate-600">
                     Aucun établissement.
                   </TableCell>
                 </TableRow>

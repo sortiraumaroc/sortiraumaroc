@@ -23,7 +23,8 @@ import {
   type AdminNotificationPreferences,
 } from "@/lib/adminNotificationPreferences";
 import { playAdminNotificationSound } from "@/lib/adminNotificationSound";
-import { decodeAdminSessionToken, getAdminMyProfile, getAdminNotificationsUnreadCount, listAdminNotifications, type AdminNotification, type AdminMyProfile } from "@/lib/adminApi";
+import { decodeAdminSessionToken, getAdminMyProfile, listAdminNotifications, type AdminNotification, type AdminMyProfile } from "@/lib/adminApi";
+import { useAdminNotificationsStore } from "@/lib/useAdminNotificationsStore";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 import { AdminSidebar } from "@/components/admin/layout/AdminSidebar";
@@ -31,6 +32,7 @@ import { AdminBreadcrumbs } from "@/components/admin/layout/AdminBreadcrumbs";
 import { AdminGlobalSearch } from "@/components/admin/layout/AdminGlobalSearch";
 
 import { normalizeNotificationEventType } from "@shared/notifications";
+import { getNotificationCategory } from "@/lib/notificationHelpers";
 
 function getMaxCreatedAt(items: AdminNotification[]): string | null {
   let max: string | null = null;
@@ -70,7 +72,9 @@ export function AdminTopbar(props: { onSignOut: () => void }) {
   const displayName = sessionPayload?.name || sessionPayload?.sub || "Admin";
   const roleLabel = getRoleLabel(sessionPayload?.role);
 
-  const [unread, setUnread] = useState(0);
+  // Store centralisé — polling + état partagé avec AdminNotificationsSheet
+  const adminStore = useAdminNotificationsStore(adminKey);
+
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [userProfile, setUserProfile] = useState<AdminMyProfile | null>(null);
 
@@ -114,22 +118,14 @@ export function AdminTopbar(props: { onSignOut: () => void }) {
     });
   }, []);
 
-  const refreshUnread = useCallback(async () => {
-    try {
-      const res = await getAdminNotificationsUnreadCount(adminKey);
-      setUnread(res.unread ?? 0);
-    } catch {
-      setUnread(0);
-    }
-  }, [adminKey]);
+  // Le polling du unreadCount est géré par le store centralisé (useAdminNotificationsStore).
+  // Ici on garde seulement le système de toasts pour les nouvelles notifications.
 
   const openFromToast = useCallback(() => {
     navigate("/admin/notifications");
   }, [navigate]);
 
   const pollNewNotifications = useCallback(async () => {
-    await refreshUnread();
-
     let res: { items: AdminNotification[] };
     try {
       res = await listAdminNotifications(adminKey, { after: lastSeenAtRef.current, limit: 25 });
@@ -158,9 +154,17 @@ export function AdminTopbar(props: { onSignOut: () => void }) {
     const pref = preferencesRef.current;
     if (!pref.popupsEnabled) return;
 
+    // Filter out muted categories
+    const mutedCats = pref.mutedCategories ?? [];
+    const toastable = mutedCats.length > 0
+      ? unseen.filter((n) => !mutedCats.includes(getNotificationCategory(n.type ?? "")))
+      : unseen;
+
+    if (!toastable.length) return;
+
     if (pref.soundEnabled) playAdminNotificationSound();
 
-    const itemsToToast = [...unseen].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    const itemsToToast = [...toastable].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
     const windowMs = 10_000;
     const groups: AdminNotification[][] = [];
@@ -212,11 +216,9 @@ export function AdminTopbar(props: { onSignOut: () => void }) {
         ),
       });
     }
-  }, [adminKey, openFromToast, refreshUnread]);
+  }, [adminKey, openFromToast]);
 
   useEffect(() => {
-    void refreshUnread();
-
     const tick = window.setInterval(() => {
       void pollNewNotifications();
     }, 8000);
@@ -224,7 +226,7 @@ export function AdminTopbar(props: { onSignOut: () => void }) {
     return () => {
       window.clearInterval(tick);
     };
-  }, [pollNewNotifications, refreshUnread]);
+  }, [pollNewNotifications]);
 
   return (
     <div className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
@@ -252,22 +254,18 @@ export function AdminTopbar(props: { onSignOut: () => void }) {
           <div className="flex items-center gap-2">
             <AdminGlobalSearch />
 
-            <AdminNotificationsSheet
-              adminKey={adminKey}
-              unreadCount={unread}
-              onUnreadCountChange={setUnread}
-            />
+            <AdminNotificationsSheet />
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="hidden sm:flex items-center gap-2 pl-2 border-l border-slate-200 hover:bg-slate-50 rounded-md px-2 py-1 -my-1 transition-colors">
+                <button className="hidden sm:flex items-center gap-2 ps-2 border-s border-slate-200 hover:bg-slate-50 rounded-md px-2 py-1 -my-1 transition-colors">
                   <Avatar className="w-8 h-8">
                     {avatarUrl ? <AvatarImage src={avatarUrl} alt={profileDisplayName} /> : null}
                     <AvatarFallback className="bg-[#a3001d]/10 text-[#a3001d] font-bold text-xs">
                       {profileDisplayName.charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
-                  <div className="hidden md:block text-left">
+                  <div className="hidden md:block text-start">
                     <div className="text-sm font-semibold text-slate-900 leading-none">
                       {profileDisplayName}
                     </div>

@@ -12,12 +12,20 @@ export type EstablishmentUniverse =
   | "wellness"
   | "culture"
   | "shopping"
+  | "rentacar"
   | "default";
 
-type TabConfigItem = {
+export type TabConfigItem = {
   id: string;
   labelKey: string;
   sectionId: string;
+  /** If provided, the tab label will be rendered as-is (not via t()) */
+  rawLabel?: string;
+  /** Custom icon (React node) rendered before the label */
+  icon?: React.ReactNode;
+  /** Custom class name overrides for this specific tab */
+  activeClassName?: string;
+  inactiveClassName?: string;
 };
 
 const UNIVERSE_TABS: Record<EstablishmentUniverse, TabConfigItem[]> = {
@@ -69,6 +77,12 @@ const UNIVERSE_TABS: Record<EstablishmentUniverse, TabConfigItem[]> = {
     { id: "avis", labelKey: "establishment.tabs.reviews", sectionId: "section-avis" },
     { id: "carte", labelKey: "establishment.tabs.map", sectionId: "section-carte" },
   ],
+  rentacar: [
+    { id: "menu", labelKey: "establishment.tabs.vehicles", sectionId: "section-menu" },
+    { id: "avis", labelKey: "establishment.tabs.reviews", sectionId: "section-avis" },
+    { id: "infos", labelKey: "establishment.tabs.info", sectionId: "section-infos" },
+    { id: "carte", labelKey: "establishment.tabs.map", sectionId: "section-carte" },
+  ],
   default: [
     { id: "prestations", labelKey: "establishment.tabs.pricing", sectionId: "section-prestations" },
     { id: "avis", labelKey: "establishment.tabs.reviews", sectionId: "section-avis" },
@@ -96,6 +110,10 @@ export function EstablishmentTabs(props: {
   universe: EstablishmentUniverse;
   /** Optional override list of tabs */
   tabs?: TabConfigItem[];
+  /** Tab ids to hide (e.g. ["menu"] when no menu/pack content) */
+  hideTabs?: string[];
+  /** Extra tabs to append (e.g. Ramadan special tab) */
+  extraTabs?: TabConfigItem[];
   /** Sticky top offset in px (defaults to 64px for the header) */
   stickyTopPx?: number;
   /** Use to adjust rootMargin of the IntersectionObserver */
@@ -104,7 +122,19 @@ export function EstablishmentTabs(props: {
   containerClassName?: string;
 }) {
   const { t } = useI18n();
-  const tabs = React.useMemo(() => getTabsForUniverse(props.universe, props.tabs), [props.universe, props.tabs]);
+  const allTabs = React.useMemo(() => getTabsForUniverse(props.universe, props.tabs), [props.universe, props.tabs]);
+  const tabs = React.useMemo(() => {
+    let result = allTabs;
+    if (props.hideTabs?.length) {
+      const hidden = new Set(props.hideTabs);
+      result = result.filter((tab) => !hidden.has(tab.id));
+    }
+    if (props.extraTabs?.length) {
+      // Insert extra tabs at the beginning (first position)
+      result = [...props.extraTabs, ...result];
+    }
+    return result;
+  }, [allTabs, props.hideTabs, props.extraTabs]);
 
   const [activeTab, setActiveTab] = React.useState<string>(() => tabs[0]?.id ?? "");
   const tabsNavRef = React.useRef<HTMLDivElement | null>(null);
@@ -230,11 +260,11 @@ export function EstablishmentTabs(props: {
                   "border-b-[3px]",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a3001d]/30 focus-visible:ring-offset-2",
                   active
-                    ? "bg-[#a3001d]/10 text-[#a3001d] border-[#a3001d] font-extrabold"
-                    : "text-slate-600 border-transparent hover:text-slate-900 hover:bg-slate-50 font-semibold",
+                    ? (tab.activeClassName ?? "bg-[#a3001d]/10 text-[#a3001d] border-[#a3001d] font-extrabold")
+                    : (tab.inactiveClassName ?? "text-slate-600 border-transparent hover:text-slate-900 hover:bg-slate-50 font-semibold"),
                 )}
               >
-                {t(tab.labelKey)}
+                {tab.icon ? <span className="inline-flex items-center gap-1.5">{tab.icon}{tab.rawLabel ?? t(tab.labelKey)}</span> : (tab.rawLabel ?? t(tab.labelKey))}
               </button>
             );
           })}

@@ -1,6 +1,9 @@
 import { getAdminSupabase } from "../supabaseAdmin";
 
 import { isUniqueViolation } from "./errors";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("financeInvoices");
 import type { FinanceActor } from "./types";
 
 export type FinanceInvoice = {
@@ -232,7 +235,8 @@ export async function ensureInvoiceForPackPurchase(args: {
 
     establishment = (estRes as any).data ?? null;
     pack = (packRes as any).data ?? null;
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "Failed to fetch establishment/pack for invoice snapshot");
     establishment = null;
     pack = null;
   }
@@ -324,7 +328,8 @@ export async function ensureInvoiceForVisibilityOrder(args: {
       const { data } = await supabase.from("establishments").select("id,name,city,address").eq("id", establishmentId).maybeSingle();
       establishment = (data as any) ?? null;
     }
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "Failed to fetch establishment for visibility order invoice");
     establishment = null;
   }
 
@@ -340,7 +345,8 @@ export async function ensureInvoiceForVisibilityOrder(args: {
       .limit(500);
     if (itemsErr) throw itemsErr;
     items = (data ?? []) as Array<Record<string, unknown>>;
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "Failed to fetch visibility order items for invoice");
     items = [];
   }
 
@@ -404,7 +410,8 @@ export async function ensureInvoiceForProInvoice(args: {
       const { data } = await supabase.from("establishments").select("id,name").eq("id", establishmentId).maybeSingle();
       establishment = (data as any) ?? null;
     }
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "Failed to fetch establishment for pro invoice");
     establishment = null;
   }
 

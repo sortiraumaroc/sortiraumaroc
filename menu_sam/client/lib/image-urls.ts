@@ -1,12 +1,12 @@
 /**
  * Build image URLs from SortirAuMaroc CDN
  * Base URLs:
- * - Menu items: https://www.sortiraumaroc.ma/assets/uploads/menu/{image}
- * - Logo: https://www.sortiraumaroc.ma/image/round_thumb/{slug}?image={logo}
- * - Banner: https://www.sortiraumaroc.ma/assets/uploads/banners/{image}
+ * - Menu items: https://www.sam.ma/assets/uploads/menu/{image}
+ * - Logo: https://www.sam.ma/image/round_thumb/{slug}?image={logo}
+ * - Banner: https://www.sam.ma/assets/uploads/banners/{image}
  */
 
-const BASE_URL = "https://www.sortiraumaroc.ma";
+const BASE_URL = "https://www.sam.ma";
 
 /**
  * Build menu item image URL

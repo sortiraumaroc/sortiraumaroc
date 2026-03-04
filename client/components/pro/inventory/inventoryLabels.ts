@@ -117,6 +117,7 @@ const LABELS_BY_UNIVERSE: Record<string, InventoryLabel[]> = {
   culture: CULTURE_LABELS,
   shopping: SHOPPING_LABELS,
   location: LOCATION_LABELS,
+  rentacar: LOCATION_LABELS,
 };
 
 /**

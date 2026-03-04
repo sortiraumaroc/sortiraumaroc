@@ -22,18 +22,18 @@ export function UsernameRedirect() {
 
       try {
         // Fetch the establishment using the username
-        const establishment = await getPublicEstablishment(username);
+        const response = await getPublicEstablishment({ ref: username });
 
-        if (!establishment) {
+        if (!response?.establishment) {
           setError("Établissement non trouvé");
           return;
         }
 
         // Build the correct URL and redirect
         const url = buildEstablishmentUrl({
-          id: establishment.id,
-          slug: establishment.slug,
-          universe: establishment.universe,
+          id: response.establishment.id,
+          slug: response.establishment.slug,
+          universe: response.establishment.universe,
         });
 
         // Replace the current URL to avoid back-button issues

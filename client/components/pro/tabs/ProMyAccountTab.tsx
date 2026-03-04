@@ -243,12 +243,12 @@ export function ProMyAccountTab({ user }: Props) {
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 placeholder="Entrez votre mot de passe actuel"
-                className="pr-10"
+                className="pe-10"
               />
               <button
                 type="button"
                 onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
               >
                 {showCurrentPassword ? (
                   <EyeOff className="h-4 w-4" />
@@ -271,12 +271,12 @@ export function ProMyAccountTab({ user }: Props) {
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="Minimum 6 caractères"
-                className="pr-10"
+                className="pe-10"
               />
               <button
                 type="button"
                 onClick={() => setShowNewPassword(!showNewPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
               >
                 {showNewPassword ? (
                   <EyeOff className="h-4 w-4" />

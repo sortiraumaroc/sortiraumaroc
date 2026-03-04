@@ -4,7 +4,13 @@
  */
 
 import type { Request, Response } from "express";
+import type { Express } from "express";
 import { createClient } from "@supabase/supabase-js";
+import { createModuleLogger } from "../lib/logger";
+import { zBody, zParams } from "../lib/validate";
+import { ValidateTotpSchema, ReservationIdParams } from "../schemas/totpRoutes";
+
+const log = createModuleLogger("totp");
 import {
   generateTOTP,
   validateTOTP,
@@ -128,7 +134,7 @@ export async function getTOTPSecret(req: Request, res: Response): Promise<void> 
         .single();
 
       if (insertError) {
-        console.error("[totp] Error creating secret:", insertError);
+        log.error({ err: insertError }, "error creating secret");
         res.status(500).json({ error: "Failed to generate TOTP secret" });
         return;
       }
@@ -148,7 +154,7 @@ export async function getTOTPSecret(req: Request, res: Response): Promise<void> 
       secondsRemaining: getSecondsUntilNextPeriod(secretRow.period),
     });
   } catch (error) {
-    console.error("[totp] Error in getTOTPSecret:", error);
+    log.error({ err: error }, "error in getTOTPSecret");
     res.status(500).json({ error: "Internal server error" });
   }
 }
@@ -229,7 +235,7 @@ export async function generateTOTPCode(req: Request, res: Response): Promise<voi
       period: secretRow.period,
     });
   } catch (error) {
-    console.error("[totp] Error in generateTOTPCode:", error);
+    log.error({ err: error }, "error in generateTOTPCode");
     res.status(500).json({ error: "Internal server error" });
   }
 }
@@ -522,7 +528,7 @@ export async function validateTOTPCode(req: Request, res: Response): Promise<voi
       },
     });
   } catch (error) {
-    console.error("[totp] Error in validateTOTPCode:", error);
+    log.error({ err: error }, "error in validateTOTPCode");
     res.status(500).json({ error: "Internal server error" });
   }
 }
@@ -558,7 +564,7 @@ async function logValidation(
       validated_by_user_id: data.userId || null,
     });
   } catch (error) {
-    console.error("[totp] Error logging validation:", error);
+    log.error({ err: error }, "error logging validation");
     // Don't throw - logging failure shouldn't break validation
   }
 }
@@ -627,7 +633,7 @@ export async function regenerateTOTPSecret(req: Request, res: Response): Promise
       .single();
 
     if (insertError) {
-      console.error("[totp] Error regenerating secret:", insertError);
+      log.error({ err: insertError }, "error regenerating secret");
       res.status(500).json({ error: "Failed to regenerate secret" });
       return;
     }
@@ -640,7 +646,18 @@ export async function regenerateTOTPSecret(req: Request, res: Response): Promise
       digits: 6,
     });
   } catch (error) {
-    console.error("[totp] Error in regenerateTOTPSecret:", error);
+    log.error({ err: error }, "error in regenerateTOTPSecret");
     res.status(500).json({ error: "Internal server error" });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Register routes
+// ---------------------------------------------------------------------------
+
+export function registerTotpRoutes(app: Express) {
+  app.get("/api/totp/secret/:reservationId", zParams(ReservationIdParams), getTOTPSecret);
+  app.get("/api/totp/code/:reservationId", zParams(ReservationIdParams), generateTOTPCode);
+  app.post("/api/totp/validate", zBody(ValidateTotpSchema), validateTOTPCode);
+  app.post("/api/totp/regenerate/:reservationId", zParams(ReservationIdParams), regenerateTOTPSecret);
 }

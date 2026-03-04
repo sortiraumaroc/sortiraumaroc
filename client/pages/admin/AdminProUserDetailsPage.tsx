@@ -520,11 +520,11 @@ export function AdminProUserDetailsPage() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditDialogOpen(false)} disabled={saving}>
-              <X className="h-4 w-4 mr-2" />
+              <X className="h-4 w-4 me-2" />
               Annuler
             </Button>
             <Button onClick={handleSave} disabled={saving}>
-              <Save className="h-4 w-4 mr-2" />
+              <Save className="h-4 w-4 me-2" />
               {saving ? "Enregistrement..." : "Enregistrer"}
             </Button>
           </DialogFooter>
@@ -682,7 +682,7 @@ export function AdminProUserDetailsPage() {
             >
               {suspendLoading ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  <Loader2 className="h-4 w-4 animate-spin me-2" />
                   {isSuspended ? "Réactivation..." : "Suspension..."}
                 </>
               ) : isSuspended ? (

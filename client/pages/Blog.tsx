@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
 import { useI18n } from "@/lib/i18n";
-import { applySeo } from "@/lib/seo";
+import { applySeo, buildI18nSeoFields } from "@/lib/seo";
 import { isPublicBlogListItemV2, listPublicBlogArticles, type PublicBlogListItem } from "@/lib/blog";
 
 // Default blog hero settings
@@ -221,7 +221,7 @@ function ArticleCard({ item, locale }: { item: PublicBlogListItem; locale: strin
           </div>
         )}
         {category && (
-          <Badge className="absolute top-3 left-3 bg-white/90 text-foreground text-xs backdrop-blur-sm">
+          <Badge className="absolute top-3 start-3 bg-white/90 text-foreground text-xs backdrop-blur-sm">
             {category}
           </Badge>
         )}
@@ -269,6 +269,7 @@ export default function Blog() {
       title: `${heroSettings.title || t("blog.index.title")} — Sortir Au Maroc`,
       description: heroSettings.subtitle || t("blog.index.subtitle"),
       ogType: "website",
+      ...buildI18nSeoFields(locale),
     });
   }, [t, locale, heroSettings]);
 
@@ -338,7 +339,7 @@ export default function Blog() {
 
         {/* Content */}
         <div className="container mx-auto px-4 relative z-10">
-          <div className="text-left max-w-3xl">
+          <div className="text-start max-w-3xl">
             <h1 className="text-3xl md:text-5xl font-bold mb-4 tracking-tight">
               {heroSettings.title || t("blog.index.title")}
             </h1>

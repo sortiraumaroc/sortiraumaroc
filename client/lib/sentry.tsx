@@ -6,6 +6,7 @@
  * 2. Add to .env: VITE_SENTRY_DSN=https://xxx@xxx.ingest.sentry.io/xxx
  */
 
+
 let Sentry: any = null;
 let initialized = false;
 
@@ -19,11 +20,12 @@ export async function initSentry(): Promise<void> {
   const dsn = import.meta.env.VITE_SENTRY_DSN;
 
   if (!dsn) {
-    console.warn("[Sentry] VITE_SENTRY_DSN not configured. Client error monitoring disabled.");
+    // Sentry DSN not configured — client error monitoring disabled
     return;
   }
 
   try {
+    // @ts-ignore -- @sentry/react is an optional peer dependency, loaded dynamically at runtime
     Sentry = await import("@sentry/react");
 
     Sentry.init({
@@ -77,9 +79,9 @@ export async function initSentry(): Promise<void> {
     });
 
     initialized = true;
-    console.log("[Sentry] Client error monitoring initialized");
+    // Sentry client error monitoring initialized
   } catch (err) {
-    console.warn("[Sentry] @sentry/react not installed or initialization failed:", err);
+    // @sentry/react not installed or initialization failed
   }
 }
 
@@ -128,7 +130,7 @@ export function captureMessage(
   level: "fatal" | "error" | "warning" | "info" | "debug" = "info"
 ): void {
   if (!Sentry || !initialized) {
-    console.log(`[${level.toUpperCase()}]`, message);
+    // Sentry not initialized, message not captured
     return;
   }
 

@@ -137,6 +137,7 @@ export function usePartnerNotifications(): {
   refresh: () => Promise<void>;
   markAsRead: (id: string) => Promise<void>;
   markAllAsRead: () => Promise<void>;
+  deleteNotification: (id: string) => Promise<void>;
 } {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -211,6 +212,24 @@ export function usePartnerNotifications(): {
     return () => window.clearInterval(interval);
   }, [refresh]);
 
+  const deleteNotification = useCallback(
+    async (id: string) => {
+      const token = await getToken();
+      if (!token) return;
+
+      // Suppression optimiste
+      setNotifications((prev) => prev.filter((n: any) => n.id !== id));
+
+      await fetch(`/api/partners/media/notifications/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      await refresh();
+    },
+    [getToken, refresh],
+  );
+
   return {
     notifications,
     unreadCount,
@@ -218,5 +237,6 @@ export function usePartnerNotifications(): {
     refresh,
     markAsRead,
     markAllAsRead,
+    deleteNotification,
   };
 }

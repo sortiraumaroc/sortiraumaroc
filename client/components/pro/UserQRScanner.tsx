@@ -219,6 +219,10 @@ function vibrate(pattern: number | number[]) {
 // API Functions
 // ============================================================================
 
+function isCeQrPayload(payload: string): boolean {
+  return payload.startsWith("SAM:CE:v1:");
+}
+
 async function validateUserQRCode(
   establishmentId: string,
   qrPayload: string
@@ -238,6 +242,40 @@ async function validateUserQRCode(
   }
 
   return response.json();
+}
+
+async function validateCeQRCode(
+  establishmentId: string,
+  qrPayload: string,
+): Promise<ValidationResult> {
+  const { getConsumerAccessToken } = await import("@/lib/auth");
+  const token = await getConsumerAccessToken();
+  const response = await fetch("/api/pro/ce/scan", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      qr_payload: qrPayload,
+      establishment_id: establishmentId,
+    }),
+  });
+
+  const json = await response.json();
+  if (!response.ok) throw new Error(json.error || "Erreur de validation CE");
+
+  const d = json.data;
+  return {
+    ok: true,
+    valid: d?.valid ?? false,
+    reason: d?.refusal_reason ?? (d?.valid ? "CE validé" : "CE refusé"),
+    message: d?.valid
+      ? `Avantage CE : ${d.advantage?.description || d.advantage?.type || "Validé"} — ${d.employee_name || "Salarié"} (${d.company_name || "Entreprise"})`
+      : d?.refusal_reason || "Scan CE refusé",
+    userId: undefined,
+    userInfo: null,
+  };
 }
 
 async function fetchUserInfo(userId: string): Promise<ConsumerUserInfo | null> {
@@ -270,7 +308,7 @@ function UserInfoCard({ userInfo, onClose }: { userInfo: ConsumerUserInfo; onClo
             <div>
               <h3 className="font-bold text-lg">{userInfo.userName}</h3>
               <Badge className={cn("mt-1", reliability.className)}>
-                <Star className="h-3 w-3 mr-1" />
+                <Star className="h-3 w-3 me-1" />
                 {reliability.label}
               </Badge>
             </div>
@@ -476,12 +514,15 @@ export function UserQRScanner({ establishment, role }: UserQRScannerProps) {
     setError(null);
 
     try {
-      const result = await validateUserQRCode(establishment.id, trimmed);
+      // Route CE QR codes to the CE scan endpoint
+      const result = isCeQrPayload(trimmed)
+        ? await validateCeQRCode(establishment.id, trimmed)
+        : await validateUserQRCode(establishment.id, trimmed);
 
       setLastResult(result);
       setShowResultOverlay(true);
 
-      // If valid, fetch full user info
+      // If valid, fetch full user info (not applicable for CE scans)
       let userInfo: ConsumerUserInfo | null = null;
       if (result.valid && result.userId) {
         userInfo = await fetchUserInfo(result.userId);
@@ -718,7 +759,7 @@ export function UserQRScanner({ establishment, role }: UserQRScannerProps) {
               <div className="text-2xl font-bold text-slate-900">{todayScans.length}</div>
               <div className="text-xs text-slate-500">Scans aujourd'hui</div>
             </div>
-            <div className="text-center border-l border-slate-200">
+            <div className="text-center border-s border-slate-200">
               <div className="text-2xl font-bold text-emerald-600">
                 {todayScans.filter((s) => s.result === "accepted").length}
               </div>
@@ -766,10 +807,10 @@ export function UserQRScanner({ establishment, role }: UserQRScannerProps) {
 
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div className="w-64 h-64 relative">
-                    <div className="absolute top-0 left-0 w-12 h-12 border-t-4 border-l-4 border-[#a3001d] rounded-tl-xl" />
-                    <div className="absolute top-0 right-0 w-12 h-12 border-t-4 border-r-4 border-[#a3001d] rounded-tr-xl" />
-                    <div className="absolute bottom-0 left-0 w-12 h-12 border-b-4 border-l-4 border-[#a3001d] rounded-bl-xl" />
-                    <div className="absolute bottom-0 right-0 w-12 h-12 border-b-4 border-r-4 border-[#a3001d] rounded-br-xl" />
+                    <div className="absolute top-0 start-0 w-12 h-12 border-t-4 border-s-4 border-[#a3001d] rounded-tl-xl" />
+                    <div className="absolute top-0 end-0 w-12 h-12 border-t-4 border-e-4 border-[#a3001d] rounded-tr-xl" />
+                    <div className="absolute bottom-0 start-0 w-12 h-12 border-b-4 border-s-4 border-[#a3001d] rounded-bl-xl" />
+                    <div className="absolute bottom-0 end-0 w-12 h-12 border-b-4 border-e-4 border-[#a3001d] rounded-br-xl" />
 
                     <div className="absolute left-4 right-4 h-1 bg-gradient-to-r from-transparent via-[#a3001d] to-transparent animate-pulse top-1/2 -translate-y-1/2 rounded-full" />
                   </div>
@@ -852,7 +893,7 @@ export function UserQRScanner({ establishment, role }: UserQRScannerProps) {
           {showManualInput && (
             <div className="space-y-3 p-4 bg-slate-50 rounded-lg animate-in slide-in-from-top-2 duration-200">
               <div>
-                <Label className="text-xs">Code QR (format: SAM:USER:v1:...)</Label>
+                <Label className="text-xs">Code QR (format: SAM:USER:v1:... ou SAM:CE:v1:...)</Label>
                 <Input
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
@@ -910,7 +951,7 @@ export function UserQRScanner({ establishment, role }: UserQRScannerProps) {
         <button
           type="button"
           onClick={() => setShowHistory(!showHistory)}
-          className="w-full flex items-center justify-between p-4 text-left hover:bg-slate-50 transition-colors"
+          className="w-full flex items-center justify-between p-4 text-start hover:bg-slate-50 transition-colors"
         >
           <div className="flex items-center gap-3">
             <div className="p-2 bg-slate-100 rounded-lg">

@@ -1,8 +1,20 @@
-import nodemailer from "nodemailer";
-import type { Transporter } from "nodemailer";
+import sgMail from "@sendgrid/mail";
 
 import { getBillingCompanyProfile } from "./billing/companyProfile";
 import { getAdminSupabase } from "./supabaseAdmin";
+import { createModuleLogger } from "./lib/logger";
+
+const log = createModuleLogger("email");
+
+// Initialize SendGrid API key
+let sgInitialized = false;
+function ensureSgInit() {
+  if (sgInitialized) return;
+  const apiKey = asString(process.env.SENDGRID_API_KEY);
+  if (!apiKey) throw new Error("SENDGRID_API_KEY is missing");
+  sgMail.setApiKey(apiKey);
+  sgInitialized = true;
+}
 
 export type SAMSenderKey = "hello" | "support" | "pro" | "finance" | "noreply";
 /** @deprecated Use SAMSenderKey instead */
@@ -12,6 +24,7 @@ export type SAMEmailInput = {
   emailId: string;
   fromKey: SambookingSenderKey;
   to: string[];
+  bcc?: string[];
   subject: string;
   bodyText: string;
   ctaLabel?: string | null;
@@ -31,13 +44,11 @@ type ResolvedSender = {
   fromEmail: string;
   fromName: string;
   replyTo?: string;
-  smtpUser?: string;
-  smtpPass?: string;
 };
 
 const DEFAULT_BRAND_COLOR = "#a3001d";
 // Logo URL for emails - white logo on red header background
-const DEFAULT_LOGO_URL = "https://sam.ma/logo-white.png";
+const DEFAULT_LOGO_URL = "https://sam.ma/api/public/assets/email-logo.png";
 
 type EmailBrandingSettings = {
   logo_url: string | null;
@@ -53,10 +64,8 @@ type EmailBrandingSettings = {
 
 let brandingCache: { at: number; value: EmailBrandingSettings } | null = null;
 
-function getPublicBaseUrl(): string {
-  const v = asString(process.env.PUBLIC_BASE_URL);
-  return v || "https://sortiraumaroc.ma";
-}
+import { getPublicBaseUrl } from "./lib/publicBaseUrl";
+export { getPublicBaseUrl };
 
 async function getEmailBrandingSettings(): Promise<EmailBrandingSettings> {
   const now = Date.now();
@@ -68,11 +77,11 @@ async function getEmailBrandingSettings(): Promise<EmailBrandingSettings> {
     secondary_color: "#000000",
     background_color: "#FFFFFF",
     from_name: asString(process.env.EMAIL_FROM_NAME) || "Sortir Au Maroc",
-    contact_email: `hello@${asString(process.env.EMAIL_DOMAIN) || "sortiraumaroc.ma"}`,
+    contact_email: `hello@${asString(process.env.EMAIL_DOMAIN) || "sam.ma"}`,
     legal_links: {
-      legal: "https://sortiraumaroc.ma/mentions-legales",
-      terms: "https://sortiraumaroc.ma/cgu",
-      privacy: "https://sortiraumaroc.ma/politique-de-confidentialite",
+      legal: "https://sam.ma/mentions-legales",
+      terms: "https://sam.ma/cgu",
+      privacy: "https://sam.ma/politique-de-confidentialite",
     },
     signature_fr: "L'équipe Sortir Au Maroc",
     signature_en: "The Sortir Au Maroc team",
@@ -105,7 +114,8 @@ async function getEmailBrandingSettings(): Promise<EmailBrandingSettings> {
 
     brandingCache = { at: now, value: v };
     return v;
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "Failed to load email branding, using fallback");
     brandingCache = { at: now, value: fallback };
     return fallback;
   }
@@ -135,7 +145,7 @@ function normalizeEmailAddressList(items: string[]): string[] {
 }
 
 function resolveSender(fromKey: SAMSenderKey): ResolvedSender {
-  const domain = asString(process.env.EMAIL_DOMAIN) || "sortiraumaroc.ma";
+  const domain = asString(process.env.EMAIL_DOMAIN) || "sam.ma";
 
   const name = asString(process.env.EMAIL_FROM_NAME) || "Sortir Au Maroc";
 
@@ -158,46 +168,9 @@ function resolveSender(fromKey: SAMSenderKey): ResolvedSender {
 
   const replyTo = fromKey === "noreply" ? `support@${domain}` : undefined;
 
-  const smtpUser = asString(process.env[`SMTP_USER_${fromKey.toUpperCase().replace(/-/g, "_")}`]) || asString(process.env.SMTP_USER);
-  const smtpPass = asString(process.env[`SMTP_PASS_${fromKey.toUpperCase().replace(/-/g, "_")}`]) || asString(process.env.SMTP_PASS);
-
-  return { fromEmail, fromName: name, replyTo, smtpUser: smtpUser || undefined, smtpPass: smtpPass || undefined };
+  return { fromEmail, fromName: name, replyTo };
 }
 
-type TransportKey = string;
-
-let transporterCache: Map<TransportKey, Transporter> | null = null;
-
-function getTransporter(sender: ResolvedSender): Transporter {
-  const host = asString(process.env.SMTP_HOST);
-  const portRaw = asString(process.env.SMTP_PORT) || "587";
-  const secureRaw = asString(process.env.SMTP_SECURE);
-
-  const port = Number(portRaw);
-  const secure = secureRaw ? secureRaw === "1" || secureRaw.toLowerCase() === "true" : port === 465;
-
-  const user = sender.smtpUser;
-  const pass = sender.smtpPass;
-
-  if (!host) throw new Error("SMTP_HOST is missing");
-  if (!Number.isFinite(port) || port < 1) throw new Error("SMTP_PORT is invalid");
-  if (!user) throw new Error(`SMTP_USER (or SMTP_USER_${String(sender.fromEmail).toUpperCase()}) is missing`);
-  if (!pass) throw new Error(`SMTP_PASS (or SMTP_PASS_${String(sender.fromEmail).toUpperCase()}) is missing`);
-
-  const key: TransportKey = `${host}|${port}|${secure ? "1" : "0"}|${user}`;
-  if (!transporterCache) transporterCache = new Map();
-  const existing = transporterCache.get(key);
-  if (existing) return existing;
-
-  const t = nodemailer.createTransport({
-    host,
-    port,
-    secure,
-    auth: { user, pass },
-  });
-  transporterCache.set(key, t);
-  return t;
-}
 
 function escapeHtml(text: string): string {
   return text
@@ -246,9 +219,9 @@ export async function renderSAMEmail(
   const openPixelUrl = `${baseUrl}/api/public/email/open?email_id=${encodeURIComponent(input.emailId)}${input.tracking?.campaignId ? `&campaign_id=${encodeURIComponent(String(input.tracking.campaignId))}` : ""}${input.tracking?.recipientId ? `&recipient_id=${encodeURIComponent(String(input.tracking.recipientId))}` : ""}`;
 
   const legalLinks = (branding.legal_links ?? {}) as any;
-  const legalUrl = asString(legalLinks.legal) || "https://sortiraumaroc.ma/mentions-legales";
-  const termsUrl = asString(legalLinks.terms) || "https://sortiraumaroc.ma/cgu";
-  const privacyUrl = asString(legalLinks.privacy) || "https://sortiraumaroc.ma/politique-de-confidentialite";
+  const legalUrl = asString(legalLinks.legal) || "https://sam.ma/mentions-legales";
+  const termsUrl = asString(legalLinks.terms) || "https://sam.ma/cgu";
+  const privacyUrl = asString(legalLinks.privacy) || "https://sam.ma/politique-de-confidentialite";
 
   const footerLines = [
     `Sortir Au Maroc (SAM)`,
@@ -257,7 +230,7 @@ export async function renderSAMEmail(
     // Only show ICE if it's not N/A or empty
     ...(profile.ice && profile.ice !== "N/A" ? [`ICE : ${profile.ice}`] : []),
     `Adresse : ${address}`,
-    `Email : ${branding.contact_email || "hello@sortiraumaroc.ma"}`,
+    `Email : ${branding.contact_email || "hello@sam.ma"}`,
   ];
 
   const html = `<!doctype html>
@@ -333,32 +306,40 @@ export async function renderSAMEmail(
 }
 
 export async function sendSAMEmail(input: SAMEmailInput): Promise<{ messageId: string }> {
+  ensureSgInit();
+
   const sender = resolveSender(input.fromKey);
   const { html, text, subject } = await renderSAMEmail(input);
-
-  const transporter = getTransporter(sender);
 
   const to = normalizeEmailAddressList(input.to);
   if (!to.length) throw new Error("Recipient is missing");
 
-  const info = await transporter.sendMail({
-    from: `${sender.fromName} <${sender.fromEmail}>`,
-    to,
-    replyTo: sender.replyTo,
+  const bcc = input.bcc?.length
+    ? input.bcc.map((email) => ({ email }))
+    : undefined;
+
+  const msg: sgMail.MailDataRequired = {
+    from: { email: sender.fromEmail, name: sender.fromName },
+    to: to.map((email) => ({ email })),
+    bcc,
+    replyTo: sender.replyTo ? { email: sender.replyTo } : undefined,
     subject,
     html,
     text,
+    headers: { "X-SAM-Email-Id": input.emailId },
     attachments: input.attachments?.map((a) => ({
       filename: a.filename,
-      content: a.content,
-      contentType: a.contentType,
+      content: a.content.toString("base64"),
+      type: a.contentType || "application/octet-stream",
+      disposition: "attachment" as const,
     })),
-    headers: {
-      "X-SAM-Email-Id": input.emailId,
-    },
-  });
+  };
 
-  return { messageId: String((info as any)?.messageId ?? "") };
+  const [response] = await sgMail.send(msg);
+
+  // SendGrid returns x-message-id in response headers
+  const messageId = response?.headers?.["x-message-id"] ?? "";
+  return { messageId: String(messageId) };
 }
 
 // Backward compatibility aliases (deprecated)

@@ -1,5 +1,8 @@
 import { getAdminSupabase } from "../supabaseAdmin";
+import { createModuleLogger } from "../lib/logger";
 import { getOrCreateAccount } from "./accounts";
+
+const log = createModuleLogger("financePacks");
 import { computePackCommissionSnapshotForEstablishment } from "./commissions";
 import { openDiscrepancy } from "./discrepancies";
 import { insertLedgerEntry, insertLedgerTransfer } from "./ledger";
@@ -138,7 +141,7 @@ export async function ensureEscrowHoldForPackPurchase(args: {
     });
 
   if (insErr) {
-    console.error("ensureEscrowHoldForPackPurchase insert escrow_holds failed", insErr);
+    log.error({ err: insErr }, "ensureEscrowHoldForPackPurchase insert escrow_holds failed");
   }
 }
 

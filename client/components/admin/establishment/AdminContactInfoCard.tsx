@@ -19,8 +19,10 @@ import {
   MessageCircle,
   Video,
   Linkedin,
-  Camera,
   RefreshCw,
+  Share2,
+  Navigation,
+  Map,
 } from "lucide-react";
 import { loadAdminSessionToken } from "@/lib/adminApi";
 
@@ -35,6 +37,13 @@ const TikTokIcon = ({ className }: { className?: string }) => (
 const SnapchatIcon = ({ className }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" fill="currentColor">
     <path d="M12.206.793c.99 0 4.347.276 5.93 3.821.529 1.193.403 3.219.299 4.847l-.003.06c-.012.18-.022.345-.03.51.075.045.203.09.401.09.3-.016.659-.12 1.033-.301.165-.088.344-.104.464-.104.182 0 .359.029.509.09.45.149.734.479.734.838.015.449-.39.839-1.213 1.168-.089.029-.209.075-.344.119-.45.135-1.139.36-1.333.81-.09.224-.061.524.12.868l.015.015c.06.136 1.526 3.475 4.791 4.014.255.044.435.27.42.509 0 .075-.015.149-.045.225-.24.569-1.273.988-3.146 1.271-.059.091-.12.375-.164.57-.029.179-.074.36-.134.553-.076.271-.27.405-.555.405h-.03a3.27 3.27 0 01-.614-.06 5.87 5.87 0 00-1.213-.135c-.615 0-1.12.074-1.545.255-.39.164-.748.404-1.108.674-.449.336-.929.691-1.65.871a3.635 3.635 0 01-.922.12c-.061 0-.121 0-.195-.015a3.423 3.423 0 01-.899-.121c-.72-.165-1.185-.525-1.635-.856-.375-.284-.72-.524-1.124-.689-.39-.18-.886-.255-1.545-.255a5.78 5.78 0 00-1.213.135 3.27 3.27 0 01-.614.06h-.03c-.255 0-.449-.119-.554-.404a2.1 2.1 0 01-.135-.554 6.807 6.807 0 00-.164-.569c-1.873-.284-2.906-.702-3.146-1.271a.495.495 0 01-.045-.225c-.015-.239.165-.465.42-.509 3.264-.54 4.73-3.879 4.791-4.02l.016-.029c.18-.345.224-.645.119-.869-.195-.434-.884-.659-1.332-.809a3.547 3.547 0 01-.344-.119c-.823-.33-1.228-.72-1.213-1.168 0-.36.284-.689.734-.838.15-.061.33-.09.509-.09.12 0 .3.016.465.104.33.165.704.284 1.018.301.119 0 .24-.03.3-.075l-.03-.51-.004-.06c-.104-1.628-.225-3.654.299-4.848C7.86 1.069 11.216.793 12.206.793z" />
+  </svg>
+);
+
+// TripAdvisor icon (not in lucide)
+const TripAdvisorIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2.5 14.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5zm5 0c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5zm-5-5.5c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm5 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
   </svg>
 );
 
@@ -58,6 +67,10 @@ type SocialLinks = {
   snapchat?: string;
   linkedin?: string;
   twitter?: string;
+  youtube?: string;
+  tripadvisor?: string;
+  google_maps?: string;
+  waze?: string;
 };
 
 type ContactInfo = {
@@ -140,6 +153,16 @@ export function AdminContactInfoCard({ establishmentId }: Props) {
   const [snapchat, setSnapchat] = useState("");
   const [linkedin, setLinkedin] = useState("");
   const [youtube, setYoutube] = useState("");
+  const [tripadvisor, setTripadvisor] = useState("");
+  const [googleMaps, setGoogleMaps] = useState("");
+  const [waze, setWaze] = useState("");
+
+  // Google reviews
+  const [hideGoogleReviews, setHideGoogleReviews] = useState(false);
+  const [googleRating, setGoogleRating] = useState<number | null>(null);
+  const [googleReviewCount, setGoogleReviewCount] = useState<number | null>(null);
+  const [googleRatingUpdatedAt, setGoogleRatingUpdatedAt] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   // Opening hours
   const [hours, setHours] = useState<OpeningHours>(() => {
@@ -176,6 +199,15 @@ export function AdminContactInfoCard({ establishmentId }: Props) {
       setSnapchat(social.snapchat || "");
       setLinkedin(social.linkedin || "");
       setYoutube(social.youtube || "");
+      setTripadvisor(social.tripadvisor || "");
+      setGoogleMaps(social.google_maps || "");
+      setWaze(social.waze || "");
+
+      // Google rating metadata
+      setHideGoogleReviews(data.hide_google_reviews ?? false);
+      setGoogleRating(data.google_rating ?? null);
+      setGoogleReviewCount(data.google_review_count ?? null);
+      setGoogleRatingUpdatedAt(data.google_rating_updated_at ?? null);
 
       if (data.hours && Object.keys(data.hours).length > 0) {
         setHours(data.hours);
@@ -217,8 +249,12 @@ export function AdminContactInfoCard({ establishmentId }: Props) {
               snapchat: snapchat || null,
               linkedin: linkedin || null,
               youtube: youtube || null,
+              tripadvisor: tripadvisor || null,
+              google_maps: googleMaps || null,
+              waze: waze || null,
             },
             hours,
+            hide_google_reviews: hideGoogleReviews,
           }),
         }
       );
@@ -243,6 +279,45 @@ export function AdminContactInfoCard({ establishmentId }: Props) {
         [field]: value,
       },
     }));
+  };
+
+  const handleSyncGoogleRating = async () => {
+    if (!googleMaps && !googleRating) {
+      toast({ title: "Ajoutez d'abord un lien Google Maps", variant: "destructive" });
+      return;
+    }
+    setSyncing(true);
+    try {
+      const data = await adminApiFetch(
+        `/api/admin/google-rating-sync/${encodeURIComponent(establishmentId)}`,
+        { method: "POST" },
+      );
+      if (data.ok) {
+        setGoogleRating(data.rating);
+        setGoogleReviewCount(data.reviewCount);
+        setGoogleRatingUpdatedAt(data.updatedAt);
+        toast({ title: `Note Google mise à jour : ${data.rating}/5 (${data.reviewCount} avis)` });
+      }
+    } catch (err) {
+      toast({
+        title: "Erreur sync Google",
+        description: err instanceof Error ? err.message : "Erreur",
+        variant: "destructive",
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const formatSyncDate = (dateStr: string | null): string => {
+    if (!dateStr) return "";
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    if (diffDays === 0) return "aujourd'hui";
+    if (diffDays === 1) return "hier";
+    return `il y a ${diffDays}j`;
   };
 
   const applyToAllDays = (sourceDay: string) => {
@@ -280,7 +355,7 @@ export function AdminContactInfoCard({ establishmentId }: Props) {
               <RefreshCw className="w-3.5 h-3.5" />
             </Button>
             <Button size="sm" onClick={handleSave} disabled={saving}>
-              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Save className="w-3.5 h-3.5 mr-1" />}
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin me-1" /> : <Save className="w-3.5 h-3.5 me-1" />}
               Enregistrer
             </Button>
           </div>
@@ -375,7 +450,7 @@ export function AdminContactInfoCard({ establishmentId }: Props) {
               <Label className="text-xs flex items-center gap-1 font-semibold">
                 <Mail className="w-3 h-3" />
                 Email (Réservation)
-                {!email && <span className="text-red-600 text-[10px] font-normal ml-1">REQUIS</span>}
+                {!email && <span className="text-red-600 text-[10px] font-normal ms-1">REQUIS</span>}
               </Label>
               <Input
                 type="email"
@@ -407,8 +482,8 @@ export function AdminContactInfoCard({ establishmentId }: Props) {
         {/* Réseaux sociaux */}
         <div>
           <h4 className="text-sm font-medium text-slate-700 mb-3 flex items-center gap-2">
-            <Instagram className="w-4 h-4 text-pink-500" />
-            Réseaux sociaux
+            <Share2 className="w-4 h-4 text-indigo-500" />
+            Réseaux sociaux & liens
           </h4>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             <div>
@@ -483,6 +558,85 @@ export function AdminContactInfoCard({ establishmentId }: Props) {
                 className="h-9 text-sm"
               />
             </div>
+            <div>
+              <Label className="text-xs flex items-center gap-1">
+                <TripAdvisorIcon className="w-3 h-3 text-green-600" />
+                TripAdvisor
+              </Label>
+              <Input
+                value={tripadvisor}
+                onChange={(e) => setTripadvisor(e.target.value)}
+                placeholder="URL TripAdvisor"
+                className="h-9 text-sm"
+              />
+            </div>
+            <div>
+              <Label className="text-xs flex items-center gap-1">
+                <Map className="w-3 h-3 text-blue-500" />
+                Google Maps
+              </Label>
+              <Input
+                value={googleMaps}
+                onChange={(e) => setGoogleMaps(e.target.value)}
+                placeholder="URL Google Maps"
+                className="h-9 text-sm"
+              />
+            </div>
+            <div>
+              <Label className="text-xs flex items-center gap-1">
+                <Navigation className="w-3 h-3 text-cyan-500" />
+                Waze
+              </Label>
+              <Input
+                value={waze}
+                onChange={(e) => setWaze(e.target.value)}
+                placeholder="URL Waze"
+                className="h-9 text-sm"
+              />
+            </div>
+          </div>
+
+          {/* Google Reviews Toggle + Sync */}
+          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={!hideGoogleReviews}
+                  onCheckedChange={(checked) => setHideGoogleReviews(!checked)}
+                />
+                <Label className="text-xs font-medium cursor-pointer">
+                  Afficher les avis/note Google sur la fiche publique
+                </Label>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1.5"
+                onClick={handleSyncGoogleRating}
+                disabled={syncing}
+              >
+                {syncing ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3 h-3" />
+                )}
+                Synchroniser
+              </Button>
+            </div>
+            {googleRating != null && (
+              <div className="flex items-center gap-2 text-xs text-slate-600">
+                <span className="font-medium text-amber-600">⭐ {googleRating}/5</span>
+                <span>({googleReviewCount ?? 0} avis)</span>
+                {googleRatingUpdatedAt && (
+                  <span className="text-slate-400">— Sync : {formatSyncDate(googleRatingUpdatedAt)}</span>
+                )}
+              </div>
+            )}
+            {googleRating == null && (
+              <p className="text-[10px] text-slate-400">
+                Aucune note Google synchronisée. Cliquez "Synchroniser" pour récupérer la note.
+              </p>
+            )}
           </div>
         </div>
 

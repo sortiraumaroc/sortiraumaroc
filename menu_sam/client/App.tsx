@@ -32,6 +32,7 @@ import ProPromos from "@/pages/pro/Promos";
 import ProReviews from "@/pages/pro/Reviews";
 import ProSettings from "@/pages/pro/Settings";
 import ProTables from "@/pages/pro/Tables";
+import ProVisibility from "@/pages/pro/Visibility";
 
 import SuperadminDashboard from "@/pages/superadmin/Dashboard";
 import SuperadminForcePassword from "@/pages/superadmin/ForcePassword";
@@ -42,6 +43,7 @@ import SuperadminSupport from "@/pages/superadmin/Support";
 import SuperadminFaq from "@/pages/superadmin/Faq";
 import SuperadminLogs from "@/pages/superadmin/Logs";
 import SuperadminSettings from "@/pages/superadmin/Settings";
+import SuperadminConciergerie from "@/pages/superadmin/Conciergerie";
 
 const queryClient = new QueryClient();
 
@@ -144,6 +146,14 @@ export default function App() {
                       </ProProtectedRoute>
                     }
                   />
+                  <Route
+                    path="/pro/visibility"
+                    element={
+                      <ProProtectedRoute>
+                        <ProVisibility />
+                      </ProProtectedRoute>
+                    }
+                  />
 
                   <Route path="/superadmin" element={<Navigate to="/superadmin/dashboard" replace />} />
                   <Route path="/superadmin/login" element={<SuperadminLogin />} />
@@ -200,6 +210,14 @@ export default function App() {
                     element={
                       <SuperadminProtectedRoute>
                         <SuperadminLogs />
+                      </SuperadminProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/superadmin/conciergerie"
+                    element={
+                      <SuperadminProtectedRoute>
+                        <SuperadminConciergerie />
                       </SuperadminProtectedRoute>
                     }
                   />

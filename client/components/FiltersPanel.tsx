@@ -67,6 +67,15 @@ export interface FilterState {
   shoppingStoreType?: string[];
   shoppingBudget?: string[];
   shoppingServices?: string[];
+
+  rentalCategory?: string[];
+  rentalTransmission?: string[];
+  rentalFuelType?: string[];
+  rentalMinSeats?: number;
+  rentalDoors?: number;
+  rentalAc?: boolean;
+  rentalMileagePolicy?: string;
+  rentalOptions?: string[];
 }
 
 const RESTAURANT_SPECIALTIES = [
@@ -84,8 +93,20 @@ const RESTAURANT_SPECIALTIES = [
   "Autres",
 ];
 
+const RENTAL_CATEGORIES = [
+  "Citadine", "Compacte", "Berline", "SUV", "4x4", "Monospace",
+  "Utilitaire", "Luxe", "Cabriolet", "Électrique", "Sport", "Moto",
+];
+const RENTAL_TRANSMISSIONS = ["Automatique", "Manuelle"];
+const RENTAL_FUEL_TYPES = ["Essence", "Diesel", "Électrique", "Hybride"];
+const RENTAL_SEATS = [2, 4, 5, 7, 9];
+const RENTAL_OPTIONS = [
+  "Annulation gratuite", "Assurance de base incluse", "Kilométrage illimité",
+  "GPS", "Siège bébé", "Conducteur additionnel",
+];
+
 const RESTAURANT_OFFERS = ["Avec packs", "Happy hour / heure creuse"];
-const RESTAURANT_OPTIONS = ["Terrasse", "Vue mer", "Parking", "Salle privée", "Climatisation"];
+const RESTAURANT_OPTIONS = ["Terrasse", "Vue mer", "Parking", "Salle privée", "Climatisation", "Wi-Fi", "Adapté enfants"];
 const RESTAURANT_AMBIANCE = ["Romantique", "En famille", "Déjeuner business", "Tendance", "Halal", "Sain"];
 
 const LOISIRS_TYPES = [
@@ -406,6 +427,19 @@ function getDefaultFilters(category: ActivityCategory): FilterState {
         shoppingBudget: [],
         shoppingServices: [],
       };
+    case "rentacar":
+      return {
+        ...base,
+        priceRange: [0, 5000],
+        rentalCategory: [],
+        rentalTransmission: [],
+        rentalFuelType: [],
+        rentalMinSeats: undefined,
+        rentalDoors: undefined,
+        rentalAc: undefined,
+        rentalMileagePolicy: undefined,
+        rentalOptions: [],
+      };
     default:
       return base;
   }
@@ -425,6 +459,8 @@ function getDefaultOpenSection(category: ActivityCategory): string {
       return "type";
     case "shopping":
       return "type";
+    case "rentacar":
+      return "category";
     default:
       return "type";
   }
@@ -481,7 +517,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
   const restaurantFilters = accordion(
     <>
       <AccordionItem value="specialites">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.restaurant.specialties")}
         </AccordionTrigger>
         <AccordionContent>
@@ -513,7 +549,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="prix">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.price")}
         </AccordionTrigger>
         <AccordionContent>
@@ -536,7 +572,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="disponibilite">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.availability")}
         </AccordionTrigger>
         <AccordionContent>
@@ -577,7 +613,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="offres">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.packs_offers")}
         </AccordionTrigger>
         <AccordionContent>
@@ -595,7 +631,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="options">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.options")}
         </AccordionTrigger>
         <AccordionContent>
@@ -613,7 +649,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="ambiance">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.ambience")}
         </AccordionTrigger>
         <AccordionContent>
@@ -635,7 +671,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
   const loisirsFilters = accordion(
     <>
       <AccordionItem value="type">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.activity_type")}
         </AccordionTrigger>
         <AccordionContent>
@@ -653,7 +689,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="duree">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.duration")}
         </AccordionTrigger>
         <AccordionContent>
@@ -671,7 +707,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="public">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.audience")}
         </AccordionTrigger>
         <AccordionContent>
@@ -689,7 +725,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="niveau">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.level")}
         </AccordionTrigger>
         <AccordionContent>
@@ -707,7 +743,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="options">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.options")}
         </AccordionTrigger>
         <AccordionContent>
@@ -725,7 +761,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="contraintes">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.constraints")}
         </AccordionTrigger>
         <AccordionContent>
@@ -763,7 +799,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
   const sportFilters = accordion(
     <>
       <AccordionItem value="type">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.type")}
         </AccordionTrigger>
         <AccordionContent>
@@ -781,7 +817,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="format">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.format")}
         </AccordionTrigger>
         <AccordionContent>
@@ -799,7 +835,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="duree">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.duration_minutes")}
         </AccordionTrigger>
         <AccordionContent>
@@ -817,7 +853,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="public">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.audience")}
         </AccordionTrigger>
         <AccordionContent>
@@ -835,7 +871,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="equipements">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.equipment")}
         </AccordionTrigger>
         <AccordionContent>
@@ -855,7 +891,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="offres">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.offers")}
         </AccordionTrigger>
         <AccordionContent>
@@ -873,7 +909,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="contraintes">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.constraints")}
         </AccordionTrigger>
         <AccordionContent>
@@ -917,7 +953,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
   const hebergementFilters = accordion(
     <>
       <AccordionItem value="type">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.type")}
         </AccordionTrigger>
         <AccordionContent>
@@ -935,7 +971,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="budget">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.budget_per_night")}
         </AccordionTrigger>
         <AccordionContent>
@@ -955,7 +991,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="notes">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.ratings")}
         </AccordionTrigger>
         <AccordionContent>
@@ -973,7 +1009,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="equipements">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.equipment")}
         </AccordionTrigger>
         <AccordionContent>
@@ -996,7 +1032,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="conditions">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.conditions")}
         </AccordionTrigger>
         <AccordionContent>
@@ -1023,7 +1059,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
   const cultureFilters = accordion(
     <>
       <AccordionItem value="type">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.type")}
         </AccordionTrigger>
         <AccordionContent>
@@ -1041,7 +1077,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="langue">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.language")}
         </AccordionTrigger>
         <AccordionContent>
@@ -1059,7 +1095,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="public">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.audience")}
         </AccordionTrigger>
         <AccordionContent>
@@ -1077,7 +1113,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="acces">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.access")}
         </AccordionTrigger>
         <AccordionContent>
@@ -1095,7 +1131,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="format">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.format")}
         </AccordionTrigger>
         <AccordionContent>
@@ -1113,7 +1149,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="duree">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.duration")}
         </AccordionTrigger>
         <AccordionContent>
@@ -1131,7 +1167,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="contraintes">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.constraints")}
         </AccordionTrigger>
         <AccordionContent>
@@ -1159,7 +1195,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
   const shoppingFilters = accordion(
     <>
       <AccordionItem value="type">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.store_type")}
         </AccordionTrigger>
         <AccordionContent>
@@ -1182,7 +1218,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="budget">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.budget")}
         </AccordionTrigger>
         <AccordionContent>
@@ -1200,7 +1236,7 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
       </AccordionItem>
 
       <AccordionItem value="services">
-        <AccordionTrigger className="text-left" >
+        <AccordionTrigger className="text-start" >
           {t("filters.section.services")}
         </AccordionTrigger>
         <AccordionContent>
@@ -1225,6 +1261,108 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
     </>
   );
 
+  const rentacarFilters = accordion(
+    <>
+      <AccordionItem value="category">
+        <AccordionTrigger className="text-start">Catégorie de véhicule</AccordionTrigger>
+        <AccordionContent>
+          <div className="flex flex-wrap gap-2">
+            {RENTAL_CATEGORIES.map((c) => (
+              <Chip
+                key={c}
+                label={c}
+                selected={(filters.rentalCategory || []).includes(c)}
+                onClick={() => setFilters((p) => ({ ...p, rentalCategory: toggleInArray(p.rentalCategory, c) }))}
+              />
+            ))}
+          </div>
+        </AccordionContent>
+      </AccordionItem>
+
+      <AccordionItem value="transmission">
+        <AccordionTrigger className="text-start">Transmission</AccordionTrigger>
+        <AccordionContent>
+          <div className="flex flex-wrap gap-2">
+            {RENTAL_TRANSMISSIONS.map((t) => (
+              <Chip
+                key={t}
+                label={t}
+                selected={(filters.rentalTransmission || []).includes(t)}
+                onClick={() => setFilters((p) => ({ ...p, rentalTransmission: toggleInArray(p.rentalTransmission, t) }))}
+              />
+            ))}
+          </div>
+        </AccordionContent>
+      </AccordionItem>
+
+      <AccordionItem value="fuel">
+        <AccordionTrigger className="text-start">Carburant</AccordionTrigger>
+        <AccordionContent>
+          <div className="flex flex-wrap gap-2">
+            {RENTAL_FUEL_TYPES.map((f) => (
+              <Chip
+                key={f}
+                label={f}
+                selected={(filters.rentalFuelType || []).includes(f)}
+                onClick={() => setFilters((p) => ({ ...p, rentalFuelType: toggleInArray(p.rentalFuelType, f) }))}
+              />
+            ))}
+          </div>
+        </AccordionContent>
+      </AccordionItem>
+
+      <AccordionItem value="seats">
+        <AccordionTrigger className="text-start">Places minimum</AccordionTrigger>
+        <AccordionContent>
+          <div className="flex flex-wrap gap-2">
+            {RENTAL_SEATS.map((s) => (
+              <Chip
+                key={s}
+                label={`${s}+`}
+                selected={filters.rentalMinSeats === s}
+                onClick={() => setFilters((p) => ({ ...p, rentalMinSeats: p.rentalMinSeats === s ? undefined : s }))}
+              />
+            ))}
+          </div>
+        </AccordionContent>
+      </AccordionItem>
+
+      <AccordionItem value="options">
+        <AccordionTrigger className="text-start">Options & avantages</AccordionTrigger>
+        <AccordionContent>
+          <div className="flex flex-wrap gap-2">
+            {RENTAL_OPTIONS.map((o) => (
+              <Chip
+                key={o}
+                label={o}
+                selected={(filters.rentalOptions || []).includes(o)}
+                onClick={() => setFilters((p) => ({ ...p, rentalOptions: toggleInArray(p.rentalOptions, o) }))}
+              />
+            ))}
+          </div>
+        </AccordionContent>
+      </AccordionItem>
+
+      <AccordionItem value="mileage">
+        <AccordionTrigger className="text-start">Kilométrage</AccordionTrigger>
+        <AccordionContent>
+          <div className="flex flex-wrap gap-2">
+            <Chip
+              label="Illimité"
+              selected={filters.rentalMileagePolicy === "unlimited"}
+              onClick={() => setFilters((p) => ({ ...p, rentalMileagePolicy: p.rentalMileagePolicy === "unlimited" ? undefined : "unlimited" }))}
+            />
+            <Chip
+              label="Limité"
+              selected={filters.rentalMileagePolicy === "limited"}
+              onClick={() => setFilters((p) => ({ ...p, rentalMileagePolicy: p.rentalMileagePolicy === "limited" ? undefined : "limited" }))}
+            />
+          </div>
+        </AccordionContent>
+      </AccordionItem>
+    </>
+  );
+
   const categoryFilters =
     category === "restaurants"
       ? restaurantFilters
@@ -1238,7 +1376,9 @@ export function FiltersPanel({ isOpen, onClose, category, onApplyFilters, initia
               ? cultureFilters
               : category === "shopping"
                 ? shoppingFilters
-                : null;
+                : category === "rentacar"
+                  ? rentacarFilters
+                  : null;
 
   const content = (
     <div className="flex min-h-0 flex-col h-full font-[Circular_Std,_sans-serif]">

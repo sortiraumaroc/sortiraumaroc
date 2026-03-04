@@ -204,7 +204,7 @@ export function SqlImportTab({ adminKey }: Props) {
         id: crypto.randomUUID(),
         fileName: fileName,
         date: new Date(),
-        status: "parsed",
+        status: "parsed" as const,
         totalRows: result.totalRows,
       }, ...prev].slice(0, 20));
 
@@ -220,7 +220,7 @@ export function SqlImportTab({ adminKey }: Props) {
         id: crypto.randomUUID(),
         fileName: fileName,
         date: new Date(),
-        status: "error",
+        status: "error" as const,
         totalRows: 0,
         errorMessage: msg,
       }, ...prev].slice(0, 20));
@@ -372,7 +372,7 @@ export function SqlImportTab({ adminKey }: Props) {
         id: crypto.randomUUID(),
         fileName: fileName ?? "unknown.sql",
         date: new Date(),
-        status: "imported",
+        status: "imported" as const,
         totalRows: idsToDelete.length + indicesToSkip.length,
         importedCount: 0,
         deletedCount: result.deletedCount,
@@ -385,7 +385,7 @@ export function SqlImportTab({ adminKey }: Props) {
       });
 
       if (result.errors.length > 0) {
-        console.warn("SQL Import delete errors:", result.errors);
+        // SQL Import had some delete errors (non-blocking)
       }
     } catch (e) {
       toast({
@@ -433,7 +433,7 @@ export function SqlImportTab({ adminKey }: Props) {
         id: crypto.randomUUID(),
         fileName: fileName ?? "unknown.sql",
         date: new Date(),
-        status: "imported",
+        status: "imported" as const,
         totalRows: rowsToImport.length,
         importedCount: result.importedCount,
         deletedCount: 0,
@@ -441,8 +441,7 @@ export function SqlImportTab({ adminKey }: Props) {
       }, ...prev.filter((h) => !(h.fileName === fileName && (h.status === "parsed" || h.status === "previewed")))].slice(0, 20));
 
       if (result.errorCount > 0 && result.errors.length > 0) {
-        // Log first errors for debugging
-        console.error("[SQL Import] Errors:", result.errors.slice(0, 10));
+        // Import had errors (shown in toast below)
         toast({
           title: `Import SQL : ${result.importedCount} importée(s), ${result.errorCount} erreur(s)`,
           description: result.errors.slice(0, 3).join("\n"),
@@ -615,11 +614,11 @@ export function SqlImportTab({ adminKey }: Props) {
               {previewResult && !previewOpen && (
                 <div className="flex flex-wrap gap-2 items-center">
                   <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">
-                    <CheckCircle2 className="h-3 w-3 mr-1" />
+                    <CheckCircle2 className="h-3 w-3 me-1" />
                     {previewResult.stats.new} nouvelles
                   </Badge>
                   <Badge className="bg-amber-50 text-amber-700 border-amber-200">
-                    <AlertTriangle className="h-3 w-3 mr-1" />
+                    <AlertTriangle className="h-3 w-3 me-1" />
                     {previewResult.stats.duplicates} doublons
                   </Badge>
                   <Button variant="outline" size="sm" onClick={() => setPreviewOpen(true)}>
@@ -714,7 +713,7 @@ export function SqlImportTab({ adminKey }: Props) {
                 )}
               </div>
 
-              <div className="flex-1 min-h-0 overflow-y-auto pr-1" style={{ maxHeight: "calc(90vh - 240px)" }}>
+              <div className="flex-1 min-h-0 overflow-y-auto pe-1" style={{ maxHeight: "calc(90vh - 240px)" }}>
                 <div className="space-y-6 pb-2">
 
                   {/* Duplicate Groups */}

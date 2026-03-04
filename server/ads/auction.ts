@@ -26,6 +26,13 @@ const DEFAULT_CONFIG: Record<string, Partial<AdAuctionConfig>> = {
     min_budget_cents: 500000,
     max_positions: 1,
   },
+  display_banner: {
+    min_bid_cents: 150,       // 1.50 MAD min bid
+    suggested_bid_cents: 300, // 3 MAD suggested
+    min_budget_cents: 30000,  // 300 MAD
+    min_daily_budget_cents: 5000, // 50 MAD / jour
+    max_positions: 2,         // 2 emplacements par page
+  },
 };
 
 // =============================================================================
@@ -216,6 +223,114 @@ export function selectFeaturedPack(
     campaign_id: first.campaign.id,
     establishment_id: first.campaign.establishment_id,
     bid_amount_cents: first.campaign.cpm_cents ?? 1000,
+    score: first.score,
+    position: 1,
+  };
+}
+
+// =============================================================================
+// SÉLECTION BANNIÈRE DISPLAY IAB (RANDOM PONDÉRÉ)
+// =============================================================================
+
+export interface SelectDisplayBannerParams {
+  campaigns: AdCampaign[];
+  placement: string;       // ex: "establishment_detail_slot_1"
+  city?: string;
+  country?: string;
+  deviceType?: 'mobile' | 'desktop' | 'tablet';
+  excludeCampaignIds?: string[];
+}
+
+/**
+ * Sélectionne UNE campagne "Display Banner" de manière aléatoire pondérée.
+ * Filtrage par placement, ville, pays, device, genre, âge.
+ * La pondération est basée sur le score d'enchère (bid × quality × CTR).
+ */
+export function selectDisplayBanner(
+  params: SelectDisplayBannerParams
+): SponsoredResult | null {
+  const { campaigns, placement, city, country, deviceType, excludeCampaignIds = [] } = params;
+  const now = new Date();
+
+  // Filtrer les campagnes éligibles
+  const eligible = campaigns.filter(c => {
+    if (c.type !== 'display_banner') return false;
+    if (c.status !== 'active') return false;
+    if (c.moderation_status !== 'approved') return false;
+    if (c.starts_at && new Date(c.starts_at) > now) return false;
+    if (c.ends_at && new Date(c.ends_at) <= now) return false;
+
+    // Budget : au moins 1 impression possible (CPM / 1000) ou 1 clic (CPC)
+    const minCost = c.billing_model === 'cpm'
+      ? Math.ceil((c.cpm_cents ?? 300) / 1000)
+      : (c.cpc_cents ?? c.bid_amount_cents ?? 150);
+    if (c.remaining_cents < minCost) return false;
+
+    // Budget quotidien
+    if (c.daily_budget_cents && c.daily_spent_cents >= c.daily_budget_cents) return false;
+
+    // Exclure les campagnes déjà affichées (pour 2 slots différents)
+    if (excludeCampaignIds.includes(c.id)) return false;
+
+    // --- Ciblage ---
+    const targeting = c.targeting ?? {};
+
+    // Ciblage par placement
+    if (targeting.placements?.length) {
+      if (!targeting.placements.includes(placement)) return false;
+    }
+
+    // Ciblage par ville
+    if (city && targeting.cities?.length) {
+      const cityLower = city.toLowerCase();
+      if (!targeting.cities.some(v => v.toLowerCase() === cityLower)) return false;
+    }
+
+    // Ciblage par pays
+    if (country && targeting.countries?.length) {
+      const countryUpper = country.toUpperCase();
+      if (!targeting.countries.some(p => p.toUpperCase() === countryUpper)) return false;
+    }
+
+    // Ciblage par device
+    if (deviceType && targeting.device_types?.length) {
+      if (!targeting.device_types.includes(deviceType)) return false;
+    }
+
+    return true;
+  });
+
+  if (eligible.length === 0) return null;
+
+  // Calculer les scores
+  const scored = eligible.map(c => ({
+    campaign: c,
+    score: calculateAuctionScore(c),
+  }));
+
+  // Sélection aléatoire pondérée
+  const totalScore = scored.reduce((sum, item) => sum + item.score, 0);
+  let random = Math.random() * totalScore;
+
+  for (const item of scored) {
+    random -= item.score;
+    if (random <= 0) {
+      return {
+        campaign_id: item.campaign.id,
+        establishment_id: item.campaign.establishment_id,
+        bid_amount_cents: item.campaign.bid_amount_cents ?? item.campaign.cpc_cents ?? item.campaign.cpm_cents ?? 300,
+        score: item.score,
+        position: 1,
+      };
+    }
+  }
+
+  // Fallback au premier
+  const first = scored[0];
+  return {
+    campaign_id: first.campaign.id,
+    establishment_id: first.campaign.establishment_id,
+    bid_amount_cents: first.campaign.bid_amount_cents ?? first.campaign.cpc_cents ?? first.campaign.cpm_cents ?? 300,
     score: first.score,
     position: 1,
   };

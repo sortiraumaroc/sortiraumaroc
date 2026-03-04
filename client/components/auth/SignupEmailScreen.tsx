@@ -139,7 +139,7 @@ export function SignupEmailScreen({
         <button
           type="button"
           onClick={onBack}
-          className="p-1.5 -ml-1.5 rounded-full hover:bg-slate-100 transition-colors"
+          className="p-1.5 -ms-1.5 rounded-full hover:bg-slate-100 transition-colors"
           aria-label="Retour"
         >
           <ArrowLeft className="w-4 h-4 text-slate-600" />
@@ -197,12 +197,12 @@ export function SignupEmailScreen({
               placeholder="••••••••"
               disabled={loading}
               autoComplete="new-password"
-              className="h-10 rounded-lg text-sm pr-10"
+              className="h-10 rounded-lg text-sm pe-10"
             />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-600"
+              className="absolute end-3 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-600"
               tabIndex={-1}
             >
               {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -243,7 +243,7 @@ export function SignupEmailScreen({
               disabled={loading}
               autoComplete="new-password"
               className={cn(
-                "h-10 rounded-lg text-sm pr-10",
+                "h-10 rounded-lg text-sm pe-10",
                 confirmPassword && !passwordsMatch && "border-red-400",
                 passwordsMatch && "border-green-500"
               )}
@@ -251,7 +251,7 @@ export function SignupEmailScreen({
             <button
               type="button"
               onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-600"
+              className="absolute end-3 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-600"
               tabIndex={-1}
             >
               {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -266,7 +266,7 @@ export function SignupEmailScreen({
         <div className="space-y-1.5">
           <Label htmlFor="signup-referral" className="text-sm font-medium text-slate-900">
             Code parrain
-            <span className="text-slate-400 font-normal ml-1">
+            <span className="text-slate-400 font-normal ms-1">
               (optionnel)
             </span>
           </Label>
@@ -280,19 +280,19 @@ export function SignupEmailScreen({
               disabled={loading}
               className={cn(
                 "h-10 rounded-lg text-sm uppercase",
-                referralStatus.valid === true && "border-green-500 pr-10",
-                referralStatus.valid === false && "border-red-500 pr-10"
+                referralStatus.valid === true && "border-green-500 pe-10",
+                referralStatus.valid === false && "border-red-500 pe-10"
               )}
               maxLength={20}
             />
             {referralStatus.checking && (
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 animate-spin">⏳</span>
+              <span className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 animate-spin">⏳</span>
             )}
             {!referralStatus.checking && referralStatus.valid === true && (
-              <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
+              <CheckCircle2 className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
             )}
             {!referralStatus.checking && referralStatus.valid === false && (
-              <XCircle className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-red-500" />
+              <XCircle className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-red-500" />
             )}
           </div>
           {referralStatus.valid && referralStatus.partnerName && (

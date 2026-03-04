@@ -66,7 +66,7 @@ export async function sendPasswordResetEmail(
   resetCode: string,
   establishmentName: string
 ): Promise<boolean> {
-  const resetUrl = `${process.env.PUBLIC_APP_URL || "https://sortiraumaroc.ma"}/pro/reset-password?code=${resetCode}`;
+  const resetUrl = `${process.env.PUBLIC_APP_URL || "https://sam.ma"}/pro/reset-password?code=${resetCode}`;
 
   const html = `
     <!DOCTYPE html>

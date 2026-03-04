@@ -2,6 +2,10 @@
  * reCAPTCHA v2 server-side verification
  */
 
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("recaptcha");
+
 const RECAPTCHA_SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY;
 const RECAPTCHA_VERIFY_URL = "https://www.google.com/recaptcha/api/siteverify";
 
@@ -22,14 +26,14 @@ export async function verifyRecaptchaToken(
   token: string,
   remoteip?: string
 ): Promise<boolean> {
-  // If reCAPTCHA is not configured, skip verification (development mode)
-  if (!RECAPTCHA_SECRET_KEY) {
-    console.warn("[recaptcha] RECAPTCHA_SECRET_KEY not configured, skipping verification");
+  // Skip verification in development or if not configured
+  if (!RECAPTCHA_SECRET_KEY || process.env.NODE_ENV === "development") {
+    log.warn("RECAPTCHA_SECRET_KEY not configured or development mode, skipping verification");
     return true;
   }
 
   if (!token) {
-    console.warn("[recaptcha] No token provided");
+    log.warn("no token provided");
     return false;
   }
 
@@ -52,20 +56,20 @@ export async function verifyRecaptchaToken(
     });
 
     if (!response.ok) {
-      console.error("[recaptcha] Verification request failed:", response.status);
+      log.error({ status: response.status }, "verification request failed");
       return false;
     }
 
     const result: RecaptchaVerifyResult = await response.json();
 
     if (!result.success) {
-      console.warn("[recaptcha] Verification failed:", result["error-codes"]);
+      log.warn({ errorCodes: result["error-codes"] }, "verification failed");
       return false;
     }
 
     return true;
   } catch (error) {
-    console.error("[recaptcha] Verification error:", error);
+    log.error({ err: error }, "verification error");
     return false;
   }
 }
@@ -74,5 +78,6 @@ export async function verifyRecaptchaToken(
  * Check if reCAPTCHA is configured
  */
 export function isRecaptchaConfigured(): boolean {
+  if (process.env.NODE_ENV === "development") return false;
   return Boolean(RECAPTCHA_SECRET_KEY);
 }

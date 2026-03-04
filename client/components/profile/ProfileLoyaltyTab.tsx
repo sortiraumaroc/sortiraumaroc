@@ -88,7 +88,7 @@ export function ProfileLoyaltyTab() {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-6 h-6 animate-spin text-primary" />
-        <span className="ml-2 text-slate-600">Chargement de vos cartes...</span>
+        <span className="ms-2 text-slate-600">Chargement de vos cartes...</span>
       </div>
     );
   }
@@ -104,10 +104,37 @@ export function ProfileLoyaltyTab() {
     );
   }
 
-  const activeCards = cardsData?.active_cards ?? [];
+  const activeCardsRaw = cardsData?.active_cards ?? [];
   const completedCards = cardsData?.completed_cards ?? [];
   const pendingRewards = cardsData?.pending_rewards ?? [];
   const usedRewards = rewardsData?.used ?? [];
+
+  // Smart sorting: recently scanned first, then "one stamp away" cards, then the rest
+  const activeCards = [...activeCardsRaw].sort((a, b) => {
+    const aRemaining = (a.program?.stamps_required ?? 10) - (a.stamps_count ?? 0);
+    const bRemaining = (b.program?.stamps_required ?? 10) - (b.stamps_count ?? 0);
+    const aIsOneAway = aRemaining === 1;
+    const bIsOneAway = bRemaining === 1;
+
+    // 1. Most recently scanned first
+    const aTime = a.last_stamp_at ? new Date(a.last_stamp_at).getTime() : 0;
+    const bTime = b.last_stamp_at ? new Date(b.last_stamp_at).getTime() : 0;
+
+    // Recent = scanned in the last 24h
+    const now = Date.now();
+    const aRecent = now - aTime < 24 * 60 * 60 * 1000;
+    const bRecent = now - bTime < 24 * 60 * 60 * 1000;
+
+    if (aRecent && !bRecent) return -1;
+    if (!aRecent && bRecent) return 1;
+
+    // 2. One stamp away cards come next
+    if (aIsOneAway && !bIsOneAway) return -1;
+    if (!aIsOneAway && bIsOneAway) return 1;
+
+    // 3. Then by last stamp date (most recent first)
+    return bTime - aTime;
+  });
 
   const hasAnyCards = activeCards.length > 0 || completedCards.length > 0;
   const hasAnyRewards = pendingRewards.length > 0 || usedRewards.length > 0;
@@ -165,11 +192,11 @@ export function ProfileLoyaltyTab() {
                       </p>
                     </div>
                   </div>
-                  <div className="text-right">
+                  <div className="text-end">
                     <p className="text-xs text-amber-600 font-medium">
                       Expire le {new Date(reward.expires_at).toLocaleDateString("fr-FR")}
                     </p>
-                    <ChevronRight className="w-4 h-4 text-slate-400 ml-auto mt-1" />
+                    <ChevronRight className="w-4 h-4 text-slate-400 ms-auto mt-1" />
                   </div>
                 </div>
               ))}
@@ -218,20 +245,31 @@ export function ProfileLoyaltyTab() {
                 </CardContent>
               </Card>
             ) : (
-              <div className="space-y-4">
-                {activeCards.map((card) => (
-                  <div
-                    key={card.id}
-                    className="cursor-pointer"
-                    onClick={() => openCardDetail(card)}
-                  >
-                    <LoyaltyCardVisual
-                      card={card}
-                      size="md"
-                      className="shadow-lg hover:shadow-xl transition-shadow"
-                    />
-                  </div>
-                ))}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {activeCards.map((card) => {
+                  const remaining = (card.program?.stamps_required ?? 10) - (card.stamps_count ?? 0);
+                  const isOneAway = remaining === 1;
+
+                  return (
+                    <div
+                      key={card.id}
+                      className="relative cursor-pointer"
+                      onClick={() => openCardDetail(card)}
+                    >
+                      {isOneAway && (
+                        <div className="absolute -top-2 start-4 z-10 bg-amber-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-md flex items-center gap-1 animate-pulse">
+                          <Sparkles className="w-3 h-3" />
+                          Plus qu'un passage !
+                        </div>
+                      )}
+                      <LoyaltyCardVisual
+                        card={card}
+                        size="md"
+                        className="shadow-lg hover:shadow-xl transition-shadow"
+                      />
+                    </div>
+                  );
+                })}
               </div>
             )}
           </TabsContent>
@@ -334,7 +372,7 @@ export function ProfileLoyaltyTab() {
               <div className="p-3 border rounded-lg">
                 <h4 className="font-medium mb-2">{cardDetail.program?.name}</h4>
                 <p className="text-sm text-slate-600">
-                  <Gift className="w-4 h-4 inline mr-1 text-amber-500" />
+                  <Gift className="w-4 h-4 inline me-1 text-amber-500" />
                   {cardDetail.program?.reward_description}
                 </p>
                 {cardDetail.program?.conditions && (

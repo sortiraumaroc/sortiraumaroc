@@ -2,22 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
-  Aperture,
   ChevronLeft,
-  ExternalLink,
-  Facebook,
-  Globe,
-  Instagram,
   Clock,
-  Linkedin,
+  ExternalLink,
+  Globe,
   MapPin,
-  Music,
   Share2,
   Star,
   Tag,
-  Twitter,
-  Youtube,
 } from "lucide-react";
+import { getSocialIcon } from "@/components/ui/SocialIcons";
 
 import { Header } from "@/components/Header";
 import { ReservationBanner } from "@/components/booking/ReservationBanner";
@@ -26,12 +20,13 @@ import { Button } from "@/components/ui/button";
 import { isAuthed, openAuthModal } from "@/lib/auth";
 import { HotelGallery } from "@/components/hotel/HotelGallery";
 import { EstablishmentTabs } from "@/components/establishment/EstablishmentTabs";
-import { AmenitiesGrid, RatingStars, RoomsList, hotelAmenityPresets } from "@/components/hotel/HotelSections";
+import { CeAdvantageSection } from "@/components/ce/CeAdvantageSection";
+import { AmenitiesGrid, RatingStars, RoomsList, hotelAmenityPresets, type HotelAmenity } from "@/components/hotel/HotelSections";
 import { getHotelById, type HotelData } from "@/lib/hotels";
 import { getPublicEstablishment, type PublicEstablishment } from "@/lib/publicApi";
 import { buildEstablishmentUrl } from "@/lib/establishmentUrl";
 import { GOOGLE_MAPS_LOGO_URL, WAZE_LOGO_URL } from "@/lib/mapAppLogos";
-import { applySeo, clearJsonLd, setJsonLd, generateLocalBusinessSchema } from "@/lib/seo";
+import { applySeo, clearJsonLd, setJsonLd, generateLocalBusinessSchema, generateBreadcrumbSchema, buildI18nSeoFields } from "@/lib/seo";
 import { useGeocodedQuery } from "@/hooks/useGeocodedQuery";
 import { useUserLocation } from "@/hooks/useUserLocation";
 import { useTrackEstablishmentVisit } from "@/hooks/useTrackEstablishmentVisit";
@@ -39,7 +34,8 @@ import { formatDistanceBetweenCoords } from "@/lib/geo";
 import { createRng, makeImageSet, makePhoneMa, makeWebsiteUrl, nextDaysYmd, pickMany, pickOne } from "@/lib/mockData";
 import { useI18n } from "@/lib/i18n";
 import { ReportEstablishmentDialog } from "@/components/ReportEstablishmentDialog";
-import { EstablishmentReviewsSection } from "@/components/EstablishmentReviewsSection";
+import { EstablishmentReviewsSection, useHasReviews } from "@/components/EstablishmentReviewsSection";
+import { InlineBanner } from "@/components/banners/InlineBanner";
 import { isUuid } from "@/lib/pro/visits";
 
 type HotelReview = {
@@ -51,31 +47,7 @@ type HotelReview = {
   helpful: number;
 };
 
-type SocialPlatform = "facebook" | "instagram" | "x" | "twitter" | "tiktok" | "snapchat" | "youtube" | "linkedin" | "website";
-
-function getSocialIcon(platform: string) {
-  const iconProps = "w-6 h-6 text-primary hover:text-primary/70 transition";
-  switch (platform as SocialPlatform) {
-    case "facebook":
-      return <Facebook className={iconProps} />;
-    case "instagram":
-      return <Instagram className={iconProps} />;
-    case "x":
-    case "twitter":
-      return <Twitter className={iconProps} />;
-    case "tiktok":
-      return <Music className={iconProps} />;
-    case "snapchat":
-      return <Aperture className={iconProps} />;
-    case "youtube":
-      return <Youtube className={iconProps} />;
-    case "linkedin":
-      return <Linkedin className={iconProps} />;
-    case "website":
-    default:
-      return <Globe className={iconProps} />;
-  }
-}
+const SOCIAL_ICON_CLASS = "w-6 h-6 text-primary hover:text-primary/70 transition";
 
 function buildMapsUrl(query: string): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
@@ -259,12 +231,12 @@ function buildHotelFromApi(establishment: PublicEstablishment): HotelData {
 
   // Parse amenities
   const amenitiesArr = Array.isArray(establishment.amenities) ? establishment.amenities : [];
-  const amenities = amenitiesArr.map((a) => {
+  const amenities: HotelAmenity[] = amenitiesArr.map((a) => {
     if (typeof a === "string") {
       const preset = hotelAmenityPresets[a as keyof typeof hotelAmenityPresets];
-      return preset ?? { label: a, icon: null };
+      return preset ?? { label: a, icon: null as any };
     }
-    return a as { label: string; icon: unknown };
+    return a as HotelAmenity;
   });
 
   // Images (using snake_case from API)
@@ -343,7 +315,7 @@ function buildHotelFromApi(establishment: PublicEstablishment): HotelData {
 }
 
 export default function Hotel() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -396,6 +368,10 @@ export default function Hotel() {
 
   // Build hotel data: from API first, then static fallback, then generated
   const hotelId = canonicalEstablishmentId ?? id ?? "304";
+  // Reviews: hide "avis" tab when no reviews exist
+  const hasReviews = useHasReviews(hotelId);
+  // Hide Google reviews if pro toggled it off
+  const hideGoogleReviews = (publicEstablishment as any)?.hide_google_reviews === true;
   // Booking is only enabled if the establishment has an email address registered
   const hasEstablishmentEmail = Boolean(publicEstablishment?.email);
   const hotel = useMemo(() => {
@@ -421,27 +397,17 @@ export default function Hotel() {
     const description = (hotel?.description ?? "").trim() || undefined;
     const ogImageUrl = Array.isArray(hotel?.images) && hotel.images.length ? String(hotel.images[0]) : undefined;
 
-    const canonicalUrl = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}` : "";
-    const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
-    const pathname = typeof window !== "undefined" ? window.location.pathname : "/";
-
     applySeo({
       title,
       description,
       ogType: "hotel",
       ogImageUrl,
-      canonicalUrl,
       canonicalStripQuery: true,
-      hreflangs: baseUrl
-        ? {
-            fr: `${baseUrl}${pathname}`,
-            en: `${baseUrl}/en${pathname}`,
-            "x-default": `${baseUrl}${pathname}`,
-          }
-        : undefined,
+      ...buildI18nSeoFields(locale),
     });
 
     const canonicalUrlForSchema = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}` : undefined;
+    const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
 
     const priceRange = (() => {
       const prices = (hotel?.rooms ?? [])
@@ -455,7 +421,7 @@ export default function Hotel() {
 
     setJsonLd("hotel", {
       "@context": "https://schema.org",
-      "@type": "Hotel",
+      "@type": "LodgingBusiness",
       name,
       url: canonicalUrlForSchema,
       telephone: hotel?.phone ?? undefined,
@@ -464,6 +430,7 @@ export default function Hotel() {
         "@type": "PostalAddress",
         streetAddress: hotel?.address ?? undefined,
         addressLocality: hotel?.city ?? undefined,
+        addressCountry: "MA",
       },
       ...(priceRange ? { priceRange } : {}),
       ...(hotel?.rating && typeof (hotel as any).rating?.value === "number" && typeof (hotel as any).rating?.reviewCount === "number"
@@ -477,7 +444,19 @@ export default function Hotel() {
         : {}),
     });
 
-    return () => clearJsonLd("hotel");
+    setJsonLd(
+      "breadcrumb",
+      generateBreadcrumbSchema([
+        { name: "Accueil", url: `${baseUrl}/` },
+        { name: "Hébergement", url: `${baseUrl}/results?universe=hebergement` },
+        { name, url: canonicalUrlForSchema || "" },
+      ]),
+    );
+
+    return () => {
+      clearJsonLd("hotel");
+      clearJsonLd("breadcrumb");
+    };
   }, [hotelId, hotel.name]);
 
   const [authOpen, setAuthOpen] = useState(false);
@@ -624,6 +603,7 @@ export default function Hotel() {
 
               <h1 className="mt-2 text-2xl md:text-3xl font-bold text-foreground truncate">{hotel.name}</h1>
 
+              {!hideGoogleReviews && hotel.rating.value > 0 && (
               <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                 <div className="inline-flex items-center gap-2">
                   <RatingStars rating={hotel.rating.value} />
@@ -631,6 +611,7 @@ export default function Hotel() {
                   <span className="text-slate-500">({hotel.rating.reviewCount} avis · {hotel.rating.source})</span>
                 </div>
               </div>
+              )}
 
               <div className="mt-3 flex flex-wrap gap-3 text-sm text-slate-600">
                 <span className="px-3 py-1 bg-slate-100 rounded">Hôtel {hotel.stars}★</span>
@@ -675,9 +656,11 @@ export default function Hotel() {
         </div>
       </div>
 
-      <EstablishmentTabs universe="hotel" />
+      <EstablishmentTabs universe="hotel" hideTabs={hasReviews ? undefined : ["avis"]} />
 
       <main className="container mx-auto px-4 pt-6 pb-8 space-y-10">
+        <CeAdvantageSection establishmentId={hotelId} />
+
         <section id="section-chambres" data-tab="chambres" className="scroll-mt-28 space-y-6">
           <div>
             <h2 className="text-xl font-bold mb-2">Chambres</h2>
@@ -694,6 +677,7 @@ export default function Hotel() {
           </div>
         </section>
 
+        {hasReviews && (
         <section id="section-avis" data-tab="avis" className="scroll-mt-28 space-y-6">
           {/* Published reviews from the database */}
           <EstablishmentReviewsSection establishmentId={hotelId} />
@@ -707,6 +691,7 @@ export default function Hotel() {
             </Button>
           </div>
         </section>
+        )}
 
         <section id="section-infos" data-tab="infos" className="scroll-mt-28 space-y-8">
           <section className="space-y-4">
@@ -725,6 +710,8 @@ export default function Hotel() {
             </div>
           </section>
 
+          <InlineBanner slot="establishment_slot_1" />
+
           <section className="space-y-4">
             <h2 className="text-xl font-bold mb-2">Infos pratiques</h2>
             <div className="space-y-4">
@@ -732,7 +719,7 @@ export default function Hotel() {
                 <MapPin className="w-5 h-5 text-primary flex-shrink-0 mt-1" />
                 <div>
                   <p className="text-sm text-slate-600">Adresse</p>
-                  <a href={buildWazeUrl(hotel.address)} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:text-primary/70 transition">
+                  <a href={(publicEstablishment?.social_links as Record<string, string> | null)?.waze || buildWazeUrl(hotel.address)} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:text-primary/70 transition">
                     {hotel.address}
                   </a>
                 </div>
@@ -792,7 +779,7 @@ export default function Hotel() {
                         className="p-2 hover:bg-slate-100 rounded-lg transition"
                         title={social.platform}
                       >
-                        {getSocialIcon(social.platform)}
+                        {getSocialIcon(social.platform, SOCIAL_ICON_CLASS)}
                       </a>
                     ))}
                     <a
@@ -802,7 +789,7 @@ export default function Hotel() {
                       className="p-2 hover:bg-slate-100 rounded-lg transition"
                       title="Site officiel"
                     >
-                      {getSocialIcon("website")}
+                      {getSocialIcon("website", SOCIAL_ICON_CLASS)}
                     </a>
                   </div>
                 </div>
@@ -820,6 +807,9 @@ export default function Hotel() {
           <AmenitiesGrid amenities={hotel.amenities} />
         </section>
 
+        {/* Bannière interne — entre Horaires et Carte */}
+        <InlineBanner slot="establishment_slot_2" />
+
         <section id="section-carte" data-tab="carte" className="scroll-mt-28 space-y-4">
           <div>
             <h2 className="text-xl font-bold mb-2">Carte</h2>
@@ -827,7 +817,7 @@ export default function Hotel() {
 
           <div className="flex gap-3 flex-wrap">
             <a
-              href={buildWazeUrl(hotel.address)}
+              href={(publicEstablishment?.social_links as Record<string, string> | null)?.waze || buildWazeUrl(hotel.address)}
               target="_blank"
               rel="noopener noreferrer"
               className="flex-1 min-w-32 px-4 py-3 bg-white border-2 border-slate-300 rounded-lg font-semibold hover:bg-slate-50 transition text-center flex items-center justify-center gap-2"

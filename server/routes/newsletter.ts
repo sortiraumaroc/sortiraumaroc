@@ -1,7 +1,24 @@
 import { Router, Request, Response } from "express";
 import { adminSupabase } from "../supabase";
+import { createRateLimiter } from "../middleware/rateLimiter";
+import { createModuleLogger } from "../lib/logger";
+import { zBody } from "../lib/validate";
+import { NewsletterSubscribeSchema, NewsletterUnsubscribeSchema } from "../schemas/newsletter";
+
+const log = createModuleLogger("newsletter");
 
 const router = Router();
+
+// Rate limiter: max 5 subscribe requests per IP per hour
+const newsletterSubscribeRateLimiter = createRateLimiter("newsletter_subscribe", {
+  windowMs: 60 * 60 * 1000, // 1 hour
+  maxRequests: 5,
+  message: "Trop de tentatives d'inscription. Veuillez réessayer plus tard.",
+});
+
+// In-memory cache for subscriber count (30s TTL)
+let countCache: { value: number; expiresAt: number } | null = null;
+const COUNT_CACHE_TTL_MS = 30_000;
 
 interface GeoIPResponse {
   status: string;
@@ -29,7 +46,7 @@ async function getGeoLocation(ip: string): Promise<{ city: string | null; countr
 
     return { city: null, country: null };
   } catch (error) {
-    console.error("Geolocation error:", error);
+    log.error({ err: error }, "Geolocation error");
     return { city: null, country: null };
   }
 }
@@ -44,9 +61,9 @@ function getClientIP(req: Request): string {
 }
 
 // POST /api/newsletter/subscribe - Public endpoint for newsletter signup
-router.post("/subscribe", async (req: Request, res: Response) => {
+router.post("/subscribe", newsletterSubscribeRateLimiter, zBody(NewsletterSubscribeSchema), async (req: Request, res: Response) => {
   try {
-    const { email } = req.body;
+    const { email, source } = req.body;
 
     if (!email || typeof email !== "string") {
       return res.status(400).json({ error: "Email is required" });
@@ -57,6 +74,10 @@ router.post("/subscribe", async (req: Request, res: Response) => {
     if (!emailRegex.test(email)) {
       return res.status(400).json({ error: "Invalid email format" });
     }
+
+    // Sanitize source (allow known values only, default to "footer")
+    const allowedSources = ["footer", "coming_soon_page"];
+    const sanitizedSource = typeof source === "string" && allowedSources.includes(source) ? source : "footer";
 
     // Get client IP and geolocation
     const ip = getClientIP(req);
@@ -77,6 +98,7 @@ router.post("/subscribe", async (req: Request, res: Response) => {
           .update({
             status: "active",
             unsubscribed_at: null,
+            source: sanitizedSource,
             updated_at: new Date().toISOString(),
             ...(geo.city && { city: geo.city }),
             ...(geo.country && { country: geo.country }),
@@ -84,14 +106,17 @@ router.post("/subscribe", async (req: Request, res: Response) => {
           .eq("id", existing.id);
 
         if (updateError) {
-          console.error("Error reactivating subscription:", updateError);
+          log.error({ err: updateError }, "Error reactivating subscription");
           return res.status(500).json({ error: "Failed to reactivate subscription" });
         }
 
-        return res.json({ success: true, message: "Subscription reactivated" });
+        // Invalidate count cache
+        countCache = null;
+
+        return res.status(201).json({ success: true, message: "Inscrit avec succès" });
       }
 
-      return res.json({ success: true, message: "Already subscribed" });
+      return res.status(409).json({ message: "Email already exists" });
     }
 
     // Insert new subscriber
@@ -99,28 +124,61 @@ router.post("/subscribe", async (req: Request, res: Response) => {
       email: email.toLowerCase().trim(),
       ip_address: ip,
       city: geo.city,
-      country: geo.country,
-      source: "footer",
+      country: geo.country || "MA",
+      source: sanitizedSource,
       status: "active",
     });
 
     if (insertError) {
-      console.error("Error inserting subscriber:", insertError);
+      log.error({ err: insertError }, "Error inserting subscriber");
       if (insertError.code === "23505") {
-        return res.json({ success: true, message: "Already subscribed" });
+        return res.status(409).json({ message: "Email already exists" });
       }
       return res.status(500).json({ error: "Failed to subscribe" });
     }
 
-    return res.json({ success: true, message: "Successfully subscribed" });
+    // Invalidate count cache
+    countCache = null;
+
+    return res.status(201).json({ success: true, message: "Inscrit avec succès" });
   } catch (error) {
-    console.error("Newsletter subscribe error:", error);
+    log.error({ err: error }, "Newsletter subscribe error");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// GET /api/newsletter/count - Public endpoint for active subscriber count
+router.get("/count", async (_req: Request, res: Response) => {
+  try {
+    // Return cached value if still valid
+    if (countCache && Date.now() < countCache.expiresAt) {
+      return res.json({ count: countCache.value, success: true });
+    }
+
+    const { count, error } = await adminSupabase
+      .from("newsletter_subscribers")
+      .select("*", { count: "exact", head: true })
+      .eq("status", "active");
+
+    if (error) {
+      log.error({ err: error }, "Error fetching subscriber count");
+      return res.status(500).json({ error: "Failed to fetch count" });
+    }
+
+    const total = count ?? 0;
+
+    // Cache for 30 seconds
+    countCache = { value: total, expiresAt: Date.now() + COUNT_CACHE_TTL_MS };
+
+    return res.json({ count: total, success: true });
+  } catch (error) {
+    log.error({ err: error }, "Newsletter count error");
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
 // POST /api/newsletter/unsubscribe - Public endpoint to unsubscribe
-router.post("/unsubscribe", async (req: Request, res: Response) => {
+router.post("/unsubscribe", createRateLimiter("newsletter-unsubscribe", { windowMs: 15 * 60 * 1000, maxRequests: 5 }), zBody(NewsletterUnsubscribeSchema), async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
 
@@ -138,13 +196,13 @@ router.post("/unsubscribe", async (req: Request, res: Response) => {
       .eq("email", email.toLowerCase().trim());
 
     if (error) {
-      console.error("Error unsubscribing:", error);
+      log.error({ err: error }, "Error unsubscribing");
       return res.status(500).json({ error: "Failed to unsubscribe" });
     }
 
     return res.json({ success: true, message: "Successfully unsubscribed" });
   } catch (error) {
-    console.error("Newsletter unsubscribe error:", error);
+    log.error({ err: error }, "Newsletter unsubscribe error");
     return res.status(500).json({ error: "Internal server error" });
   }
 });

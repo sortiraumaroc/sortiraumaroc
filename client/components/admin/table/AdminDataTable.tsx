@@ -119,7 +119,7 @@ export function AdminDataTable<TData>(props: {
       </div>
 
       <div className="overflow-x-auto">
-        <Table className="min-w-[960px] lg:min-w-[1280px]">
+        <Table className="w-full min-w-[960px] lg:min-w-[1280px]">
           <TableHeader>
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>
@@ -127,8 +127,10 @@ export function AdminDataTable<TData>(props: {
                   const canSort = h.column.getCanSort();
                   const sort = h.column.getIsSorted();
 
+                  const colMeta = h.column.columnDef.meta as { className?: string; style?: React.CSSProperties } | undefined;
+
                   return (
-                    <TableHead key={h.id} className={canSort ? "cursor-pointer select-none" : undefined}>
+                    <TableHead key={h.id} className={[canSort ? "cursor-pointer select-none" : undefined, colMeta?.className].filter(Boolean).join(" ") || undefined} style={colMeta?.style}>
                       <div
                         className="flex items-center gap-2"
                         onClick={canSort ? h.column.getToggleSortingHandler() : undefined}
@@ -169,9 +171,12 @@ export function AdminDataTable<TData>(props: {
                         : undefined
                     }
                   >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
-                    ))}
+                    {row.getVisibleCells().map((cell) => {
+                      const cellMeta = cell.column.columnDef.meta as { className?: string; style?: React.CSSProperties } | undefined;
+                      return (
+                        <TableCell key={cell.id} className={cellMeta?.className} style={cellMeta?.style}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
+                      );
+                    })}
                   </TableRow>
                 );
               })

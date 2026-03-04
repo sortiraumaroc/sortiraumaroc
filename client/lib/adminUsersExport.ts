@@ -1,5 +1,3 @@
-import { jsPDF } from "jspdf";
-
 export type AdminUserExportRow = {
   id: string;
   name: string;
@@ -99,7 +97,8 @@ export function downloadAdminUsersCsv(args: { users: AdminUserExportRow[]; title
   });
 }
 
-export function downloadAdminUsersPdf(args: { users: AdminUserExportRow[]; title?: string }): void {
+export async function downloadAdminUsersPdf(args: { users: AdminUserExportRow[]; title?: string }): Promise<void> {
+  const { jsPDF } = await import("jspdf");
   const rows = args.users.slice();
   const title = (args.title ?? "Utilisateurs").trim() || "Utilisateurs";
 

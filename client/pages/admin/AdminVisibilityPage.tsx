@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import {
   AlertCircle,
@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
+import { AdminVisibilityNav } from "@/pages/admin/visibility/AdminVisibilityNav";
 import { AdminDataTable } from "@/components/admin/table/AdminDataTable";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -476,7 +477,7 @@ function OfferEditorDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[65vh] overflow-y-auto pr-1">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[65vh] overflow-y-auto pe-1">
           <div className="space-y-2 md:col-span-2">
             <Label>Titre</Label>
             <Input value={title} onChange={(e) => setTitle(e.target.value)} />
@@ -882,7 +883,7 @@ function OrderDialog({
                               <button
                                 key={`${it.id}-step-${stepIndex}`}
                                 className={
-                                  "flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-left text-sm transition " +
+                                  "flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-start text-sm transition " +
                                   (done
                                     ? "border-emerald-200 bg-emerald-50 text-emerald-800"
                                     : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50")
@@ -1174,7 +1175,7 @@ function EditProProfileDialog({
             Annuler
           </Button>
           <Button onClick={handleSave} disabled={saving}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            {saving ? <Loader2 className="h-4 w-4 animate-spin me-2" /> : null}
             Enregistrer
           </Button>
         </div>
@@ -1534,7 +1535,7 @@ function CreateQuoteDialog({
                           key={p.user_id}
                           role="button"
                           tabIndex={0}
-                          className="w-full cursor-pointer select-none text-left px-3 py-2 hover:bg-slate-50 border-b last:border-b-0 focus:outline-none focus:bg-slate-50"
+                          className="w-full cursor-pointer select-none text-start px-3 py-2 hover:bg-slate-50 border-b last:border-b-0 focus:outline-none focus:bg-slate-50"
                           onMouseDown={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -2010,7 +2011,7 @@ function QuoteDialog({
               <span className="font-semibold">{clientLabel}</span>
             ) : null}
             {quote?.issued_at ? (
-              <span className="ml-2">
+              <span className="ms-2">
                 · {formatLocalYmdHm(quote.issued_at)}
               </span>
             ) : null}
@@ -2521,7 +2522,7 @@ function InvoiceDialog({
               <span className="font-semibold">{clientLabel}</span>
             ) : null}
             {invoice?.issued_at ? (
-              <span className="ml-2">
+              <span className="ms-2">
                 · {formatLocalYmdHm(invoice.issued_at)}
               </span>
             ) : null}
@@ -3299,6 +3300,7 @@ export function AdminVisibilityPage() {
 
   return (
     <div className="space-y-6">
+      <AdminVisibilityNav />
       <AdminPageHeader
         title="Visibilité (SAM Media)"
         description="Catalogue unique (offres) + devis + factures + commandes (workflow vidéo)."
@@ -3324,6 +3326,12 @@ export function AdminVisibilityPage() {
           <TabsTrigger value="quotes">Devis</TabsTrigger>
           <TabsTrigger value="invoices">Factures</TabsTrigger>
           <TabsTrigger value="orders">Commandes</TabsTrigger>
+          <Link
+            to="/admin/username-subscriptions"
+            className="inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium text-muted-foreground ring-offset-background transition-all hover:bg-background/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            Liens Perso
+          </Link>
         </TabsList>
 
         <TabsContent value="offers" className="space-y-4">

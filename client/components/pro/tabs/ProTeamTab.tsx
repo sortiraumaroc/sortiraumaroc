@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Calendar, Edit2, Key, Loader2, MoreHorizontal, Plus, Power, PowerOff, Shield, Trash2 } from "lucide-react";
+import { Calendar, Edit2, Key, Loader2, MoreHorizontal, Plus, Power, PowerOff, RotateCcw, Shield, Trash2 } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   AlertDialog,
@@ -49,13 +50,28 @@ import {
   updateProTeamMemberEmail,
   toggleProTeamMemberActive,
   resetProTeamMemberPassword,
+  updateEstablishmentPermissions,
+  resetEstablishmentPermissions,
 } from "@/lib/pro/api";
 import type { Establishment, ProMembership, ProRole } from "@/lib/pro/types";
+import {
+  ALL_PERMISSION_KEYS,
+  CUSTOMIZABLE_ROLES,
+  OWNER_ONLY_PERMISSIONS,
+  PERMISSION_LABELS,
+  PERMISSION_DESCRIPTIONS,
+  ROLE_LABELS,
+  type PermissionKey,
+  type PermissionMatrix,
+} from "../../../../shared/permissionTypes";
 
 type Props = {
   establishment: Establishment;
   role: ProRole;
   user: User;
+  can: (permission: PermissionKey) => boolean;
+  permissionMatrix: PermissionMatrix;
+  refetchPermissions: () => void;
 };
 
 function roleBadge(role: string) {
@@ -95,7 +111,7 @@ function formatDate(isoDate: string): string {
   }
 }
 
-export function ProTeamTab({ establishment, role, user }: Props) {
+export function ProTeamTab({ establishment, role, user, can, permissionMatrix, refetchPermissions }: Props) {
   const [items, setItems] = useState<ProMembership[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -129,6 +145,9 @@ export function ProTeamTab({ establishment, role, user }: Props) {
   const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
   const [memberToResetPassword, setMemberToResetPassword] = useState<ProMembership | null>(null);
   const [resettingPassword, setResettingPassword] = useState(false);
+
+  // Permission editing state
+  const [savingPermission, setSavingPermission] = useState<string | null>(null);
 
   // Success message
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -352,23 +371,23 @@ export function ProTeamTab({ establishment, role, user }: Props) {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={() => openEditEmail(m)}>
-              <Edit2 className="w-4 h-4 mr-2" />
+              <Edit2 className="w-4 h-4 me-2" />
               Modifier l'email
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => openResetPassword(m)}>
-              <Key className="w-4 h-4 mr-2" />
+              <Key className="w-4 h-4 me-2" />
               Réinitialiser le mot de passe
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => openToggleActive(m)}>
               {m.is_banned ? (
                 <>
-                  <Power className="w-4 h-4 mr-2 text-green-600" />
+                  <Power className="w-4 h-4 me-2 text-green-600" />
                   <span className="text-green-600">Réactiver le compte</span>
                 </>
               ) : (
                 <>
-                  <PowerOff className="w-4 h-4 mr-2 text-amber-600" />
+                  <PowerOff className="w-4 h-4 me-2 text-amber-600" />
                   <span className="text-amber-600">Désactiver le compte</span>
                 </>
               )}
@@ -381,7 +400,7 @@ export function ProTeamTab({ establishment, role, user }: Props) {
                 setDeleteDialogOpen(true);
               }}
             >
-              <Trash2 className="w-4 h-4 mr-2" />
+              <Trash2 className="w-4 h-4 me-2" />
               Supprimer
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -417,9 +436,27 @@ export function ProTeamTab({ establishment, role, user }: Props) {
             <CardHeader className="pb-2">
               <CardTitle className="text-sm text-slate-600">Permissions</CardTitle>
             </CardHeader>
-            <CardContent className="text-sm text-slate-600 flex items-start gap-2">
-              <Shield className="w-4 h-4 mt-0.5 text-primary" />
-              Gestion fine par rôle: fiche, réservations, factures, campagnes.
+            <CardContent className="text-sm text-slate-600">
+              {role === "owner" ? (
+                <div className="flex items-start gap-2">
+                  <Shield className="w-4 h-4 mt-0.5 text-primary shrink-0" />
+                  <span>Vous avez toutes les permissions. Personnalisez les permissions des autres rôles ci-dessous.</span>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="text-xs text-slate-500 mb-2">Vos permissions actives :</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {ALL_PERMISSION_KEYS.filter((p) => can(p)).map((p) => (
+                      <Badge key={p} className="bg-green-50 text-green-700 border-green-200 text-xs">
+                        {PERMISSION_LABELS[p]}
+                      </Badge>
+                    ))}
+                    {ALL_PERMISSION_KEYS.filter((p) => can(p)).length === 0 && (
+                      <span className="text-xs text-slate-400">Aucune permission spécifique</span>
+                    )}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -476,6 +513,138 @@ export function ProTeamTab({ establishment, role, user }: Props) {
         ) : (
           <div className="text-sm text-slate-600">Seul le Owner peut créer de nouveaux comptes.</div>
         )}
+
+        {/* Permission Matrix — Owner only */}
+        {role === "owner" ? (
+          <Card>
+            <CardHeader>
+              <div className="flex items-start justify-between gap-4">
+                <SectionHeader
+                  title="Personnalisation des permissions"
+                  description="Configurez les permissions de chaque rôle. Le owner a toujours toutes les permissions."
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 shrink-0"
+                  onClick={async () => {
+                    try {
+                      await resetEstablishmentPermissions(establishment.id);
+                      refetchPermissions();
+                      setSuccessMessage("Permissions réinitialisées par défaut");
+                    } catch {
+                      setError("Erreur lors de la réinitialisation");
+                    }
+                  }}
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  Réinitialiser
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {/* Desktop table */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-start py-2 px-3 font-semibold text-slate-600">Permission</th>
+                      {CUSTOMIZABLE_ROLES.map((r) => (
+                        <th key={r} className="text-center py-2 px-3">
+                          <Badge className={roleBadge(r)}>{ROLE_LABELS[r]}</Badge>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ALL_PERMISSION_KEYS.map((perm) => {
+                      const isOwnerOnly = OWNER_ONLY_PERMISSIONS.has(perm);
+                      return (
+                        <tr key={perm} className="border-b last:border-0">
+                          <td className="py-3 px-3">
+                            <div className="font-medium text-slate-700">{PERMISSION_LABELS[perm]}</div>
+                            <div className="text-xs text-slate-500 mt-0.5">{PERMISSION_DESCRIPTIONS[perm]}</div>
+                            {isOwnerOnly ? (
+                              <span className="text-[10px] text-slate-400 font-medium">(owner uniquement)</span>
+                            ) : null}
+                          </td>
+                          {CUSTOMIZABLE_ROLES.map((r) => (
+                            <td key={r} className="text-center py-3 px-3">
+                              <Switch
+                                checked={permissionMatrix[r]?.[perm] ?? false}
+                                disabled={isOwnerOnly || savingPermission === `${r}:${perm}`}
+                                onCheckedChange={async (checked) => {
+                                  setSavingPermission(`${r}:${perm}`);
+                                  try {
+                                    await updateEstablishmentPermissions({
+                                      establishmentId: establishment.id,
+                                      role: r,
+                                      permissions: { [perm]: checked },
+                                    });
+                                    refetchPermissions();
+                                  } catch {
+                                    setError("Erreur lors de la mise à jour");
+                                  } finally {
+                                    setSavingPermission(null);
+                                  }
+                                }}
+                              />
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile: cards per role */}
+              <div className="md:hidden space-y-4">
+                {CUSTOMIZABLE_ROLES.map((r) => (
+                  <div key={r} className="border rounded-lg p-3">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Badge className={roleBadge(r)}>{ROLE_LABELS[r]}</Badge>
+                    </div>
+                    <div className="space-y-2">
+                      {ALL_PERMISSION_KEYS.map((perm) => {
+                        const isOwnerOnly = OWNER_ONLY_PERMISSIONS.has(perm);
+                        return (
+                          <div key={perm} className="flex items-center justify-between py-1">
+                            <div className="min-w-0 me-3">
+                              <div className="text-sm text-slate-700">{PERMISSION_LABELS[perm]}</div>
+                              {isOwnerOnly ? (
+                                <span className="text-[10px] text-slate-400">(owner)</span>
+                              ) : null}
+                            </div>
+                            <Switch
+                              checked={permissionMatrix[r]?.[perm] ?? false}
+                              disabled={isOwnerOnly || savingPermission === `${r}:${perm}`}
+                              onCheckedChange={async (checked) => {
+                                setSavingPermission(`${r}:${perm}`);
+                                try {
+                                  await updateEstablishmentPermissions({
+                                    establishmentId: establishment.id,
+                                    role: r,
+                                    permissions: { [perm]: checked },
+                                  });
+                                  refetchPermissions();
+                                } catch {
+                                  setError("Erreur lors de la mise à jour");
+                                } finally {
+                                  setSavingPermission(null);
+                                }
+                              }}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
 
         <Card>
           <CardHeader>
@@ -551,7 +720,7 @@ export function ProTeamTab({ establishment, role, user }: Props) {
                         <TableHead>Rôle</TableHead>
                         <TableHead>Statut</TableHead>
                         <TableHead>Ajouté le</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
+                        <TableHead className="text-end">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -599,7 +768,7 @@ export function ProTeamTab({ establishment, role, user }: Props) {
                             <TableCell className="text-sm text-slate-500">
                               {formatDate(m.created_at)}
                             </TableCell>
-                            <TableCell className="text-right">
+                            <TableCell className="text-end">
                               {renderMemberActions(m, isOwner)}
                             </TableCell>
                           </TableRow>
@@ -633,7 +802,7 @@ export function ProTeamTab({ establishment, role, user }: Props) {
                 disabled={deleting}
                 className="bg-red-600 hover:bg-red-700"
               >
-                {deleting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                {deleting ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : null}
                 Supprimer
               </AlertDialogAction>
             </AlertDialogFooter>
@@ -665,7 +834,7 @@ export function ProTeamTab({ establishment, role, user }: Props) {
                 Annuler
               </Button>
               <Button onClick={handleUpdateEmail} disabled={savingEmail || !newEmail.includes("@")}>
-                {savingEmail ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                {savingEmail ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : null}
                 Enregistrer
               </Button>
             </DialogFooter>
@@ -700,7 +869,7 @@ export function ProTeamTab({ establishment, role, user }: Props) {
                 disabled={togglingActive}
                 className={memberToToggle?.is_banned ? "bg-green-600 hover:bg-green-700" : "bg-amber-600 hover:bg-amber-700"}
               >
-                {togglingActive ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                {togglingActive ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : null}
                 {memberToToggle?.is_banned ? "Réactiver" : "Désactiver"}
               </AlertDialogAction>
             </AlertDialogFooter>
@@ -724,7 +893,7 @@ export function ProTeamTab({ establishment, role, user }: Props) {
                 onClick={handleResetPassword}
                 disabled={resettingPassword}
               >
-                {resettingPassword ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                {resettingPassword ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : null}
                 Réinitialiser
               </AlertDialogAction>
             </AlertDialogFooter>

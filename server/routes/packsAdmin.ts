@@ -53,12 +53,32 @@ import type { Router, RequestHandler } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { notifyProMembers } from "../proNotifications";
 import { requireAdminKey } from "./admin";
+import { zBody, zParams, zIdParam } from "../lib/validate";
+import {
+  RejectPackSchema,
+  RequestPackModificationSchema,
+  ToggleModuleSchema,
+  UpdateCommissionSchema,
+  CreateCustomCommissionSchema,
+  UpdateCustomCommissionSchema,
+  ContestInvoiceSchema,
+  BatchExecutePaymentsSchema,
+  RespondToDisputeSchema,
+  CreatePlatformPromoSchema,
+  UpdatePlatformPromoSchema,
+  RejectRefundSchema,
+  ModuleToggleParams,
+  ModuleParams,
+} from "../schemas/packsAdmin";
 import {
   approvePack,
   rejectPack,
   requestPackModification,
   featurePack,
+  adminUpdatePack,
+  adminDeletePack,
 } from "../packLifecycleLogic";
+import { UpdatePackSchema } from "../schemas/packsPro";
 import { processRefund } from "../packRefundLogic";
 import { validateInvoice, executePayment, respondToDispute } from "../billingPeriodLogic";
 import {
@@ -70,6 +90,9 @@ import type { PlatformModule } from "../../shared/packsBillingTypes";
 import { sanitizeText, sanitizePlain, isValidUUID } from "../sanitizeV2";
 import { auditAdminAction } from "../auditLogV2";
 import { getClientIp } from "../middleware/rateLimiter";
+import { createModuleLogger } from "../lib/logger";
+
+const log = createModuleLogger("packsAdmin");
 
 // =============================================================================
 // Helpers
@@ -88,8 +111,8 @@ function asNumber(v: unknown): number | undefined {
   return undefined;
 }
 
-function getAdminUserId(req: Parameters<RequestHandler>[0]): string {
-  return (req as any).adminSession?.sub ?? "admin";
+function getAdminUserId(req: Parameters<RequestHandler>[0]): string | null {
+  return (req as any).adminSession?.sub ?? null;
 }
 
 // =============================================================================
@@ -131,7 +154,7 @@ const getModerationQueue: RequestHandler = async (req, res) => {
     }
     res.json({ packs: data ?? [] });
   } catch (err) {
-    console.error("[PacksAdmin] getModerationQueue error:", err);
+    log.error({ err }, "getModerationQueue error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -157,7 +180,7 @@ const approvePackRoute: RequestHandler = async (req, res) => {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PacksAdmin] approvePack error:", err);
+    log.error({ err }, "approvePack error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -192,7 +215,7 @@ const rejectPackRoute: RequestHandler = async (req, res) => {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PacksAdmin] rejectPack error:", err);
+    log.error({ err }, "rejectPack error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -227,7 +250,7 @@ const requestModificationRoute: RequestHandler = async (req, res) => {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PacksAdmin] requestModification error:", err);
+    log.error({ err }, "requestModification error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -252,7 +275,7 @@ const featurePackRoute: RequestHandler = async (req, res) => {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PacksAdmin] featurePack error:", err);
+    log.error({ err }, "featurePack error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -278,7 +301,7 @@ const unfeaturePackRoute: RequestHandler = async (req, res) => {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PacksAdmin] unfeaturePack error:", err);
+    log.error({ err }, "unfeaturePack error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -295,7 +318,7 @@ const listModules: RequestHandler = async (req, res) => {
     const modules = await getGlobalModuleInfos();
     res.json({ modules });
   } catch (err) {
-    console.error("[PacksAdmin] listModules error:", err);
+    log.error({ err }, "listModules error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -329,7 +352,7 @@ const toggleGlobalModuleRoute: RequestHandler = async (req, res) => {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PacksAdmin] toggleGlobalModule error:", err);
+    log.error({ err }, "toggleGlobalModule error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -364,7 +387,7 @@ const toggleEstablishmentModuleRoute: RequestHandler = async (req, res) => {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PacksAdmin] toggleEstablishmentModule error:", err);
+    log.error({ err }, "toggleEstablishmentModule error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -394,7 +417,7 @@ const listCommissions: RequestHandler = async (req, res) => {
       custom: customRes.data ?? [],
     });
   } catch (err) {
-    console.error("[PacksAdmin] listCommissions error:", err);
+    log.error({ err }, "listCommissions error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -432,7 +455,7 @@ const updateCommission: RequestHandler = async (req, res) => {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PacksAdmin] updateCommission error:", err);
+    log.error({ err }, "updateCommission error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -468,7 +491,7 @@ const createCustomCommission: RequestHandler = async (req, res) => {
     }
     res.status(201).json(data);
   } catch (err) {
-    console.error("[PacksAdmin] createCustomCommission error:", err);
+    log.error({ err }, "createCustomCommission error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -500,7 +523,7 @@ const updateCustomCommission: RequestHandler = async (req, res) => {
     }
     res.json(data);
   } catch (err) {
-    console.error("[PacksAdmin] updateCustomCommission error:", err);
+    log.error({ err }, "updateCustomCommission error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -524,7 +547,7 @@ const deleteCustomCommission: RequestHandler = async (req, res) => {
     }
     res.json({ ok: true });
   } catch (err) {
-    console.error("[PacksAdmin] deleteCustomCommission error:", err);
+    log.error({ err }, "deleteCustomCommission error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -556,7 +579,7 @@ const listAdminInvoices: RequestHandler = async (req, res) => {
     }
     res.json({ invoices: data ?? [] });
   } catch (err) {
-    console.error("[PacksAdmin] listAdminInvoices error:", err);
+    log.error({ err }, "listAdminInvoices error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -582,7 +605,7 @@ const validateInvoiceRoute: RequestHandler = async (req, res) => {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PacksAdmin] validateInvoice error:", err);
+    log.error({ err }, "validateInvoice error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -626,7 +649,7 @@ const contestInvoiceRoute: RequestHandler = async (req, res) => {
 
     res.json({ ok: true });
   } catch (err) {
-    console.error("[PacksAdmin] contestInvoice error:", err);
+    log.error({ err }, "contestInvoice error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -654,7 +677,7 @@ const listPayments: RequestHandler = async (req, res) => {
     }
     res.json({ payments: data ?? [] });
   } catch (err) {
-    console.error("[PacksAdmin] listPayments error:", err);
+    log.error({ err }, "listPayments error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -680,7 +703,7 @@ const executePaymentRoute: RequestHandler = async (req, res) => {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PacksAdmin] executePayment error:", err);
+    log.error({ err }, "executePayment error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -708,7 +731,7 @@ const batchExecutePayments: RequestHandler = async (req, res) => {
 
     res.json({ succeeded, failed, total: period_ids.length });
   } catch (err) {
-    console.error("[PacksAdmin] batchExecutePayments error:", err);
+    log.error({ err }, "batchExecutePayments error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -743,7 +766,7 @@ const listAdminDisputes: RequestHandler = async (req, res) => {
     }
     res.json({ disputes: data ?? [] });
   } catch (err) {
-    console.error("[PacksAdmin] listAdminDisputes error:", err);
+    log.error({ err }, "listAdminDisputes error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -784,7 +807,7 @@ const respondToDisputeRoute: RequestHandler = async (req, res) => {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PacksAdmin] respondToDispute error:", err);
+    log.error({ err }, "respondToDispute error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -827,7 +850,7 @@ const getReconciliation: RequestHandler = async (req, res) => {
 
     res.json(summary);
   } catch (err) {
-    console.error("[PacksAdmin] getReconciliation error:", err);
+    log.error({ err }, "getReconciliation error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -854,7 +877,7 @@ const listPlatformPromos: RequestHandler = async (req, res) => {
     }
     res.json({ promos: data ?? [] });
   } catch (err) {
-    console.error("[PacksAdmin] listPlatformPromos error:", err);
+    log.error({ err }, "listPlatformPromos error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -891,7 +914,7 @@ const createPlatformPromo: RequestHandler = async (req, res) => {
     }
     res.status(201).json(data);
   } catch (err) {
-    console.error("[PacksAdmin] createPlatformPromo error:", err);
+    log.error({ err }, "createPlatformPromo error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -930,7 +953,7 @@ const updatePlatformPromo: RequestHandler = async (req, res) => {
     }
     res.json(data);
   } catch (err) {
-    console.error("[PacksAdmin] updatePlatformPromo error:", err);
+    log.error({ err }, "updatePlatformPromo error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -955,7 +978,7 @@ const deletePlatformPromo: RequestHandler = async (req, res) => {
     }
     res.json({ ok: true });
   } catch (err) {
-    console.error("[PacksAdmin] deletePlatformPromo error:", err);
+    log.error({ err }, "deletePlatformPromo error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -1002,7 +1025,7 @@ const getPacksStats: RequestHandler = async (req, res) => {
       totalRefunds: refunds.length,
     });
   } catch (err) {
-    console.error("[PacksAdmin] getPacksStats error:", err);
+    log.error({ err }, "getPacksStats error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -1032,7 +1055,7 @@ const getBillingStats: RequestHandler = async (req, res) => {
       paidCommission: paid.reduce((s, p) => s + (p.total_commission || 0), 0),
     });
   } catch (err) {
-    console.error("[PacksAdmin] getBillingStats error:", err);
+    log.error({ err }, "getBillingStats error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -1065,7 +1088,7 @@ const getRevenueBySource: RequestHandler = async (req, res) => {
 
     res.json({ revenueBySource: byType });
   } catch (err) {
-    console.error("[PacksAdmin] getRevenueBySource error:", err);
+    log.error({ err }, "getRevenueBySource error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -1099,7 +1122,7 @@ const listRefunds: RequestHandler = async (req, res) => {
     }
     res.json({ refunds: data ?? [] });
   } catch (err) {
-    console.error("[PacksAdmin] listRefunds error:", err);
+    log.error({ err }, "listRefunds error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -1135,7 +1158,7 @@ const approveRefund: RequestHandler = async (req, res) => {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PacksAdmin] approveRefund error:", err);
+    log.error({ err }, "approveRefund error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -1171,7 +1194,127 @@ const rejectRefund: RequestHandler = async (req, res) => {
       ip: getClientIp(req),
     });
   } catch (err) {
-    console.error("[PacksAdmin] rejectRefund error:", err);
+    log.error({ err }, "rejectRefund error");
+    res.status(500).json({ error: "internal_error" });
+  }
+};
+
+// =============================================================================
+// ADMIN PACK CRUD (get detail, update, delete)
+// =============================================================================
+
+// GET /api/admin/packs/:id
+const getAdminPackDetail: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  try {
+    const packId = req.params.id;
+    if (!isValidUUID(packId)) {
+      res.status(400).json({ error: "invalid_pack_id" });
+      return;
+    }
+
+    const supabase = getAdminSupabase();
+    const { data, error } = await supabase
+      .from("packs")
+      .select("*, establishments (id, name, slug, city)")
+      .eq("id", packId)
+      .maybeSingle();
+
+    if (error) {
+      res.status(500).json({ error: error.message });
+      return;
+    }
+    if (!data) {
+      res.status(404).json({ error: "Pack introuvable." });
+      return;
+    }
+
+    res.json({ pack: data });
+  } catch (err) {
+    log.error({ err }, "getAdminPackDetail error");
+    res.status(500).json({ error: "internal_error" });
+  }
+};
+
+// PUT /api/admin/packs/:id
+const updateAdminPackRoute: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  try {
+    const packId = req.params.id;
+
+    // Map snake_case body to camelCase input expected by adminUpdatePack
+    const b = req.body ?? {};
+    const input: Record<string, unknown> = {};
+    if (b.title !== undefined) input.title = b.title;
+    if (b.short_description !== undefined) input.shortDescription = b.short_description;
+    if (b.detailed_description !== undefined) input.detailedDescription = b.detailed_description;
+    if (b.cover_url !== undefined) input.coverUrl = b.cover_url;
+    if (b.additional_photos !== undefined) input.additionalPhotos = b.additional_photos;
+    if (b.category !== undefined) input.category = b.category;
+    if (b.price !== undefined) input.price = b.price;
+    if (b.original_price !== undefined) input.originalPrice = b.original_price;
+    if (b.party_size !== undefined) input.partySize = b.party_size;
+    if (b.items !== undefined) input.items = b.items;
+    if (b.inclusions !== undefined) input.inclusions = b.inclusions;
+    if (b.exclusions !== undefined) input.exclusions = b.exclusions;
+    if (b.conditions !== undefined) input.conditions = b.conditions;
+    if (b.valid_days !== undefined) input.validDays = b.valid_days;
+    if (b.valid_time_start !== undefined) input.validTimeStart = b.valid_time_start;
+    if (b.valid_time_end !== undefined) input.validTimeEnd = b.valid_time_end;
+    if (b.sale_start_date !== undefined) input.saleStartDate = b.sale_start_date;
+    if (b.sale_end_date !== undefined) input.saleEndDate = b.sale_end_date;
+    if (b.validity_start_date !== undefined) input.validityStartDate = b.validity_start_date;
+    if (b.validity_end_date !== undefined) input.validityEndDate = b.validity_end_date;
+    if (b.stock !== undefined) input.stock = b.stock;
+    if (b.limit_per_client !== undefined) input.limitPerClient = b.limit_per_client;
+    if (b.is_multi_use !== undefined) input.isMultiUse = b.is_multi_use;
+    if (b.total_uses !== undefined) input.totalUses = b.total_uses;
+
+    const result = await adminUpdatePack(packId, input as any);
+
+    if (!result.ok) {
+      const err = result as { ok: false; error: string; errorCode?: string };
+      res.status(400).json({ error: err.error, errorCode: err.errorCode });
+      return;
+    }
+
+    res.json({ ok: true });
+    void auditAdminAction("admin.pack.update", {
+      targetType: "pack",
+      targetId: packId,
+      ip: getClientIp(req),
+    });
+  } catch (err) {
+    log.error({ err }, "updateAdminPack error");
+    res.status(500).json({ error: "internal_error" });
+  }
+};
+
+// DELETE /api/admin/packs/:id
+const deleteAdminPackRoute: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  try {
+    const packId = req.params.id;
+    const result = await adminDeletePack(packId);
+
+    if (!result.ok) {
+      const err = result as { ok: false; error: string; errorCode?: string };
+      const status = err.errorCode === "has_active_purchases" ? 409 : 400;
+      res.status(status).json({ error: err.error, errorCode: err.errorCode });
+      return;
+    }
+
+    res.json({ ok: true });
+    void auditAdminAction("admin.pack.delete", {
+      targetType: "pack",
+      targetId: packId,
+      ip: getClientIp(req),
+    });
+  } catch (err) {
+    log.error({ err }, "deleteAdminPack error");
     res.status(500).json({ error: "internal_error" });
   }
 };
@@ -1183,48 +1326,51 @@ const rejectRefund: RequestHandler = async (req, res) => {
 export function registerPacksAdminRoutes(app: Router): void {
   // Pack moderation
   app.get("/api/admin/packs/moderation", getModerationQueue);
-  app.post("/api/admin/packs/:id/approve", approvePackRoute);
-  app.post("/api/admin/packs/:id/reject", rejectPackRoute);
-  app.post("/api/admin/packs/:id/request-modification", requestModificationRoute);
-  app.post("/api/admin/packs/:id/feature", featurePackRoute);
-  app.post("/api/admin/packs/:id/unfeature", unfeaturePackRoute);
+  app.get("/api/admin/packs/stats", getPacksStats);
+  app.get("/api/admin/packs/:id", zParams(zIdParam), getAdminPackDetail);
+  app.put("/api/admin/packs/:id", zParams(zIdParam), zBody(UpdatePackSchema), updateAdminPackRoute);
+  app.delete("/api/admin/packs/:id", zParams(zIdParam), deleteAdminPackRoute);
+  app.post("/api/admin/packs/:id/approve", zParams(zIdParam), approvePackRoute);
+  app.post("/api/admin/packs/:id/reject", zParams(zIdParam), zBody(RejectPackSchema), rejectPackRoute);
+  app.post("/api/admin/packs/:id/request-modification", zParams(zIdParam), zBody(RequestPackModificationSchema), requestModificationRoute);
+  app.post("/api/admin/packs/:id/feature", zParams(zIdParam), featurePackRoute);
+  app.post("/api/admin/packs/:id/unfeature", zParams(zIdParam), unfeaturePackRoute);
 
   // Modules
   app.get("/api/admin/modules", listModules);
-  app.post("/api/admin/modules/:module/toggle-global", toggleGlobalModuleRoute);
-  app.post("/api/admin/modules/:module/toggle-establishment/:id", toggleEstablishmentModuleRoute);
+  app.post("/api/admin/modules/:module/toggle-global", zParams(ModuleParams), zBody(ToggleModuleSchema), toggleGlobalModuleRoute);
+  app.post("/api/admin/modules/:module/toggle-establishment/:id", zParams(ModuleToggleParams), zBody(ToggleModuleSchema), toggleEstablishmentModuleRoute);
 
   // Commissions
   app.get("/api/admin/commissions", listCommissions);
-  app.put("/api/admin/commissions/:id", updateCommission);
-  app.post("/api/admin/commissions/establishment", createCustomCommission);
-  app.put("/api/admin/commissions/establishment/:id", updateCustomCommission);
-  app.delete("/api/admin/commissions/establishment/:id", deleteCustomCommission);
+  app.put("/api/admin/commissions/:id", zParams(zIdParam), zBody(UpdateCommissionSchema), updateCommission);
+  app.post("/api/admin/commissions/establishment", zBody(CreateCustomCommissionSchema), createCustomCommission);
+  app.put("/api/admin/commissions/establishment/:id", zParams(zIdParam), zBody(UpdateCustomCommissionSchema), updateCustomCommission);
+  app.delete("/api/admin/commissions/establishment/:id", zParams(zIdParam), deleteCustomCommission);
 
   // Billing
   app.get("/api/admin/billing/invoices", listAdminInvoices);
-  app.post("/api/admin/billing/invoices/:id/validate", validateInvoiceRoute);
-  app.post("/api/admin/billing/invoices/:id/contest", contestInvoiceRoute);
+  app.post("/api/admin/billing/invoices/:id/validate", zParams(zIdParam), validateInvoiceRoute);
+  app.post("/api/admin/billing/invoices/:id/contest", zParams(zIdParam), zBody(ContestInvoiceSchema), contestInvoiceRoute);
   app.get("/api/admin/billing/payments", listPayments);
-  app.post("/api/admin/billing/payments/:id/execute", executePaymentRoute);
-  app.post("/api/admin/billing/payments/batch-execute", batchExecutePayments);
+  app.post("/api/admin/billing/payments/:id/execute", zParams(zIdParam), executePaymentRoute);
+  app.post("/api/admin/billing/payments/batch-execute", zBody(BatchExecutePaymentsSchema), batchExecutePayments);
   app.get("/api/admin/billing/disputes", listAdminDisputes);
-  app.post("/api/admin/billing/disputes/:id/respond", respondToDisputeRoute);
+  app.post("/api/admin/billing/disputes/:id/respond", zParams(zIdParam), zBody(RespondToDisputeSchema), respondToDisputeRoute);
   app.get("/api/admin/billing/reconciliation", getReconciliation);
 
   // Platform promos
   app.get("/api/admin/pack-promos", listPlatformPromos);
-  app.post("/api/admin/pack-promos", createPlatformPromo);
-  app.put("/api/admin/pack-promos/:id", updatePlatformPromo);
-  app.delete("/api/admin/pack-promos/:id", deletePlatformPromo);
+  app.post("/api/admin/pack-promos", zBody(CreatePlatformPromoSchema), createPlatformPromo);
+  app.put("/api/admin/pack-promos/:id", zParams(zIdParam), zBody(UpdatePlatformPromoSchema), updatePlatformPromo);
+  app.delete("/api/admin/pack-promos/:id", zParams(zIdParam), deletePlatformPromo);
 
-  // Stats
-  app.get("/api/admin/packs/stats", getPacksStats);
+  // Stats (packs/stats registered above to avoid :id conflict)
   app.get("/api/admin/billing/stats", getBillingStats);
   app.get("/api/admin/billing/revenue", getRevenueBySource);
 
   // Refunds
   app.get("/api/admin/refunds", listRefunds);
-  app.post("/api/admin/refunds/:id/approve", approveRefund);
-  app.post("/api/admin/refunds/:id/reject", rejectRefund);
+  app.post("/api/admin/refunds/:id/approve", zParams(zIdParam), approveRefund);
+  app.post("/api/admin/refunds/:id/reject", zParams(zIdParam), zBody(RejectRefundSchema), rejectRefund);
 }

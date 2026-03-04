@@ -126,7 +126,7 @@ export function AdminReservationsPage() {
   const [reservationStatusFilter, setReservationStatusFilter] = useState<string>("all");
   const [reservationPaymentFilter, setReservationPaymentFilter] = useState<string>("all");
   const [reservationWorkflowFilter, setReservationWorkflowFilter] = useState<string>("all");
-  const [reservationTimeFilter, setReservationTimeFilter] = useState<"current" | "expired" | "all">("current");
+  const [reservationTimeFilter, setReservationTimeFilter] = useState<"current" | "expired" | "all">("all");
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedReservationId, setSelectedReservationId] = useState<string | null>(null);

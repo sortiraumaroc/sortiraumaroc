@@ -78,13 +78,13 @@ function base32Decode(encoded: string): Uint8Array {
 async function hmacSha1(key: Uint8Array, message: Uint8Array): Promise<Uint8Array> {
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
-    key,
+    key as BufferSource,
     { name: "HMAC", hash: "SHA-1" },
     false,
     ["sign"]
   );
 
-  const signature = await crypto.subtle.sign("HMAC", cryptoKey, message);
+  const signature = await crypto.subtle.sign("HMAC", cryptoKey, message as BufferSource);
   return new Uint8Array(signature);
 }
 
@@ -229,7 +229,7 @@ export async function fetchTOTPSecret(
   try {
     const response = await fetch(`/api/totp/secret/${reservationId}`);
     if (!response.ok) {
-      console.warn("[totp] Failed to fetch secret:", response.status);
+      // Failed to fetch secret
       return null;
     }
     return await response.json();
@@ -248,7 +248,7 @@ export async function fetchTOTPCode(
   try {
     const response = await fetch(`/api/totp/code/${reservationId}`);
     if (!response.ok) {
-      console.warn("[totp] Failed to fetch code:", response.status);
+      // Failed to fetch code
       return null;
     }
     return await response.json();
@@ -269,7 +269,7 @@ export async function regenerateTOTPSecret(
       method: "POST",
     });
     if (!response.ok) {
-      console.warn("[totp] Failed to regenerate secret:", response.status);
+      // Failed to regenerate secret
       return null;
     }
     return await response.json();
