@@ -66,7 +66,11 @@ const RamadanOffersPage = lazy(() => import("./pages/RamadanOffers"));
 const OnboardingRamadanPage = lazy(() => import("./pages/OnboardingRamadan"));
 const WheelPage = lazy(() => import("./pages/WheelPage"));
 
+const DishDetail = lazy(() => import("./pages/DishDetail"));
 const LandingPage = lazy(() => import("./pages/LandingPage"));
+
+// Storage (file transfer) page
+const Storage = lazy(() => import("./pages/Storage"));
 
 // Rental vehicle pages
 const VehicleDetail = lazy(() => import("./pages/VehicleDetail"));
@@ -266,6 +270,11 @@ const AdminPayoutRequestsPage = lazy(() =>
     default: m.AdminPayoutRequestsPage,
   })),
 );
+const AdminQuotesInvoicesPage = lazy(() =>
+  import("./pages/admin/AdminQuotesInvoicesPage").then((m) => ({
+    default: m.AdminQuotesInvoicesPage,
+  })),
+);
 const AdminVisibilityPage = lazy(() =>
   import("./pages/admin/AdminVisibilityPage").then((m) => ({
     default: m.AdminVisibilityPage,
@@ -413,6 +422,11 @@ const AdminLoyaltyV2Page = lazy(() =>
     default: m.AdminLoyaltyV2Dashboard,
   })),
 );
+const AdminAmbassadorsPage = lazy(() =>
+  import("./pages/admin/AdminAmbassadorsPage").then((m) => ({
+    default: m.AdminAmbassadorsPage,
+  })),
+);
 const AdminCePage = lazy(() =>
   import("./pages/admin/AdminCePage").then((m) => ({
     default: m.AdminCePage,
@@ -459,6 +473,8 @@ function LocaleLayout({ locale }: { locale: AppLocale }) {
       <Routes>
         <Route index element={<Index />} />
         <Route path="results" element={<Results />} />
+        <Route path="resultats" element={<Results />} />
+        <Route path="restaurant/:id/menu/:dishSlug" element={<DishDetail />} />
         <Route path="restaurant/:id" element={<Restaurant />} />
         <Route path="hotel/:id" element={<Hotel />} />
         <Route path="hotel-booking/:hotelId" element={<HotelBooking />} />
@@ -689,6 +705,10 @@ function AppContent() {
                 path="finance/payout-requests"
                 element={<AdminPayoutRequestsPage />}
               />
+              <Route
+                path="finance/quotes-invoices"
+                element={<AdminQuotesInvoicesPage />}
+              />
               <Route path="visibility" element={<AdminVisibilityPage />} />
               <Route path="username-subscriptions" element={<AdminUsernameSubscriptionsPage />} />
               <Route path="ads" element={<AdminAdsPage />} />
@@ -711,6 +731,7 @@ function AppContent() {
               <Route path="finances" element={<AdminFinancesPage />} />
               <Route path="ftour" element={<AdminFtourPage />} />
               <Route path="loyalty-v2" element={<AdminLoyaltyV2Page />} />
+              <Route path="ambassadors" element={<AdminAmbassadorsPage />} />
               <Route path="ce" element={<AdminCePage />} />
               <Route path="partnerships" element={<AdminPartnershipsPage />} />
               <Route path="conciergeries" element={<AdminConciergeriePage />} />
@@ -756,6 +777,9 @@ function AppContent() {
 
             {/* Standalone public onboarding (no Header/Footer) */}
             <Route path="/onboarding/ramadan" element={<OnboardingRamadanPage />} />
+
+            {/* Storage (file transfer) — standalone, no Header/Footer */}
+            <Route path="/storage" element={<Storage />} />
 
             <Route path="/fr/*" element={<LocaleLayout locale="fr" />} />
             <Route path="/en/*" element={<LocaleLayout locale="en" />} />

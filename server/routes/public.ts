@@ -18,6 +18,7 @@
 import type { Express } from "express";
 import { cacheMiddleware, buildCacheKey, normalizeQuery } from "../lib/cache";
 import {
+  searchPublicRateLimiter,
   searchHistorySaveRateLimiter,
   searchHistoryReadRateLimiter,
   messageSendRateLimiter,
@@ -63,6 +64,7 @@ import {
   CampaignIdParams,
   ConsumerIdParams,
   DeviceIdParams,
+  EstablishmentSlotsQuery,
 } from "../schemas/publicRoutes";
 
 // ── Local imports for registerPublicRoutes ──────────────────────────────────
@@ -88,6 +90,7 @@ import {
 import {
   getPublicSitemapXml as _getPublicSitemapXml,
   getPublicEstablishment as _getPublicEstablishment,
+  getPublicDishDetail as _getPublicDishDetail,
   getPublicBillingCompanyProfile as _getPublicBillingCompanyProfile,
   listPublicEstablishments as _listPublicEstablishments,
   searchAutocomplete as _searchAutocomplete,
@@ -95,6 +98,8 @@ import {
   getPublicCategories as _getPublicCategories,
   getPublicCategoryImages as _getPublicCategoryImages,
   getPublicHomeFeed as _getPublicHomeFeed,
+  getEstablishmentSlots as _getEstablishmentSlots,
+  getPublicAmbassadorProgram as _getPublicAmbassadorProgram,
 } from "./publicEstablishments";
 import {
   ensureConsumerDemoAccount as _ensureConsumerDemoAccount,
@@ -185,6 +190,9 @@ export {
   getPublicCategories,
   getPublicCategoryImages,
   getPublicHomeFeed,
+  getPublicDishDetail,
+  getEstablishmentSlots,
+  getPublicAmbassadorProgram,
 } from "./publicEstablishments";
 
 // ── Reservations / Waitlist / Notifications ─────────────────────────────────
@@ -279,9 +287,14 @@ export function registerPublicRoutes(app: Express) {
       neLat: String(req.query.neLat ?? ""),
       neLng: String(req.query.neLng ?? ""),
       lang: String(req.query.lang ?? "fr"),
+      open_now: String(req.query.open_now ?? ""),
+      instant_booking: String(req.query.instant_booking ?? ""),
+      amenities: String(req.query.amenities ?? ""),
+      price_range: String(req.query.price_range ?? ""),
+      ramadan: String(req.query.ramadan ?? ""),
     }),
   );
-  app.get("/api/public/establishments", zQuery(ListEstablishmentsQuery), (req, res, next) => {
+  app.get("/api/public/establishments", searchPublicRateLimiter, zQuery(ListEstablishmentsQuery), (req, res, next) => {
     const auth = String(req.headers.authorization ?? "");
     const hasAuth = auth.toLowerCase().startsWith("bearer ");
     const personalized = String(req.query.personalized ?? "1") !== "0";
@@ -315,6 +328,38 @@ export function registerPublicRoutes(app: Express) {
     ),
     _getPublicEstablishmentByUsername,
   );
+  // ── Establishment time slots (for mobile booking) ──────────────────────
+  app.get(
+    "/api/public/establishments/:id/slots",
+    zQuery(EstablishmentSlotsQuery),
+    cacheMiddleware(30, (req) =>
+      buildCacheKey("est-slots", {
+        id: req.params.id ?? "",
+        date: String(req.query.date ?? ""),
+        ps: String(req.query.partySize ?? ""),
+      }),
+    ),
+    _getEstablishmentSlots,
+  );
+
+  // ── Ambassador program (public) ───────────────────────────────────────
+  app.get(
+    "/api/public/establishments/:id/ambassador-program",
+    cacheMiddleware(120, (req) =>
+      buildCacheKey("est-ambassador", { id: req.params.id ?? "" }),
+    ),
+    _getPublicAmbassadorProgram,
+  );
+
+  // ── Dish detail page ───────────────────────────────────────────────────
+  app.get(
+    "/api/public/establishments/:ref/menu/:dishSlug",
+    cacheMiddleware(120, (req) =>
+      buildCacheKey("dish-detail", { ref: req.params.ref ?? "", dish: req.params.dishSlug ?? "" }),
+    ),
+    _getPublicDishDetail,
+  );
+
   app.get(
     "/api/public/establishments/:ref",
     zParams(EstablishmentRefParams),

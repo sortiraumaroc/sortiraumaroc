@@ -41,6 +41,7 @@ import {
   type PublicEstablishmentListItem,
   type PublicEstablishmentsListResponse,
   maxPromoPercent,
+  buildEstablishmentDetailsUrl,
 } from "./publicHelpers";
 
 type SitemapUrl = {
@@ -52,53 +53,88 @@ type SitemapUrl = {
 };
 
 export async function getPublicSitemapXml(req: Request, res: Response) {
+  try {
   const supabase = getAdminSupabase();
+
+  // Paginated fetch to bypass PostgREST 1000-row default limit
+  async function fetchAllPages<T = Record<string, unknown>>(
+    buildQuery: () => any,
+    pageSize = 1000,
+  ): Promise<{ data: T[]; error: any }> {
+    const all: T[] = [];
+    let offset = 0;
+    for (;;) {
+      const { data, error } = await buildQuery().range(offset, offset + pageSize - 1);
+      if (error) return { data: all, error };
+      if (!data || data.length === 0) break;
+      all.push(...(data as T[]));
+      if (data.length < pageSize) break;
+      offset += pageSize;
+    }
+    return { data: all, error: null };
+  }
 
   const [
     { data: establishments, error: estError },
     { data: contentPagesRaw, error: contentError },
     { data: blogArticlesRaw, error: blogError },
     { data: landingPagesRaw, error: landingError },
+    { data: dishItemsRaw, error: dishError },
   ] = await Promise.all([
-    supabase
-      .from("establishments")
-      .select("id,universe,updated_at")
-      .eq("status", "active")
-      .order("updated_at", { ascending: false })
-      .limit(50000),
+    fetchAllPages(() =>
+      supabase
+        .from("establishments")
+        .select("id,universe,updated_at")
+        .eq("status", "active")
+        .order("updated_at", { ascending: false }),
+    ),
     supabase
       .from("content_pages")
       .select("slug_fr,slug_en,canonical_url_fr,canonical_url_en,updated_at")
       .eq("status", "published")
-      .limit(500),
+      .limit(1000),
     supabase
       .from("blog_articles")
       .select("slug,updated_at")
       .eq("is_published", true)
-      .limit(500),
+      .limit(1000),
     supabase
       .from("landing_pages")
       .select("slug,priority,updated_at")
       .eq("is_active", true)
       .limit(1000),
+    fetchAllPages(() =>
+      supabase
+        .from("pro_inventory_items")
+        .select("slug,establishment_id,updated_at")
+        .eq("is_active", true)
+        .not("slug", "is", null),
+    ),
   ]);
 
   const contentPages = contentError ? [] : (contentPagesRaw ?? []);
   const blogArticles = blogError ? [] : (blogArticlesRaw ?? []);
   const landingPages = landingError ? [] : (landingPagesRaw ?? []);
+  const dishItems = dishError ? [] : (dishItemsRaw ?? []);
   if (landingError) log.error({ err: landingError }, "sitemap: failed to load landing_pages");
   if (contentError)
     log.error({ err: contentError }, "sitemap: failed to load content_pages");
   if (blogError)
     log.error({ err: blogError }, "sitemap: failed to load blog_articles");
+  if (dishError) log.error({ err: dishError }, "sitemap: failed to load dish items");
 
-  if (estError) return res.status(500).send("Unable to generate sitemap");
+  if (estError) {
+    log.error({ err: estError }, "sitemap: failed to load establishments");
+    return res.status(500).send("Unable to generate sitemap");
+  }
 
   const baseUrl = (() => {
-    const host = String(req.get("host") ?? "");
-    const proto = String(
+    const host = String(req.get("host") ?? "").split(",")[0].trim();
+    const rawProto = String(
       req.get("x-forwarded-proto") ?? req.protocol ?? "https",
     );
+    // Plesk/Nginx can send "https, https" — take only the first value
+    const proto = rawProto.split(",")[0].trim();
     if (!host) return "";
     return `${proto}://${host}`;
   })();
@@ -216,6 +252,24 @@ export async function getPublicSitemapXml(req: Request, res: Response) {
     });
   }
 
+  // S4: Dish detail pages
+  for (const row of (dishItems ?? []) as Array<{
+    slug: string | null;
+    establishment_id: string | null;
+    updated_at?: string | null;
+  }>) {
+    const slug = row.slug ? String(row.slug) : null;
+    const estId = row.establishment_id ? String(row.establishment_id) : null;
+    if (!slug || !estId) continue;
+    const dishPath = `/restaurant/${encodeURIComponent(estId)}/menu/${encodeURIComponent(slug)}`;
+    urls.push({
+      loc: baseUrl ? `${baseUrl}${dishPath}` : dishPath,
+      lastmod: row.updated_at ? String(row.updated_at) : undefined,
+      changefreq: "monthly",
+      priority: 0.5,
+    });
+  }
+
   const escapeXml = (s: string) =>
     s
       .replace(/&/g, "&amp;")
@@ -285,6 +339,12 @@ export async function getPublicSitemapXml(req: Request, res: Response) {
 
   res.setHeader("Content-Type", "application/xml; charset=utf-8");
   res.status(200).send(xml);
+  } catch (err) {
+    log.error({ err }, "sitemap: unhandled error");
+    if (!res.headersSent) {
+      res.status(500).send("Unable to generate sitemap");
+    }
+  }
 }
 
 export async function getPublicEstablishment(req: Request, res: Response) {
@@ -354,7 +414,7 @@ export async function getPublicEstablishment(req: Request, res: Response) {
     // Fetch inventory items
     supabase
       .from("pro_inventory_items")
-      .select("id,category_id,title,description,base_price,currency,labels,photos,sort_order,is_active")
+      .select("id,category_id,title,description,base_price,currency,labels,photos,sort_order,is_active,slug")
       .eq("establishment_id", establishmentId)
       .eq("is_active", true)
       .order("sort_order", { ascending: true })
@@ -594,12 +654,15 @@ function transformInventoryToMenuCategories(
     labels?: string[] | null;
     photos?: string[] | null;
     sort_order?: number;
+    slug?: string | null;
   }>
 ): Array<{
   id: string;
   name: string;
   items: Array<{
     id: number;
+    inventoryItemId?: string;
+    slug?: string;
     name: string;
     description: string;
     price: string;
@@ -650,6 +713,8 @@ function transformInventoryToMenuCategories(
 
     return {
       id: index + 1,
+      inventoryItemId: item.id,
+      slug: item.slug ?? undefined,
       name: item.title,
       description: item.description ?? "",
       price: formatPrice(item.base_price, item.currency),
@@ -665,6 +730,8 @@ function transformInventoryToMenuCategories(
     name: string;
     items: Array<{
       id: number;
+      inventoryItemId?: string;
+      slug?: string;
       name: string;
       description: string;
       price: string;
@@ -804,6 +871,8 @@ export async function listPublicEstablishments(req: Request, res: Response) {
     String(req.query.promo ?? "").trim() === "1" ||
     String(req.query.promoOnly ?? "").trim() === "1";
 
+  const ramadanOnly = String(req.query.ramadan ?? "").trim() === "1";
+
   // Prompt 11 — practical filters
   const openNowOnly = String(req.query.open_now ?? "").trim() === "1";
   const instantBookingOnly = String(req.query.instant_booking ?? "").trim() === "1";
@@ -866,6 +935,25 @@ export async function listPublicEstablishments(req: Request, res: Response) {
   if (instantBookingOnly) {
     estQuery = estQuery.eq("booking_enabled", true);
   }
+
+  // Ramadan filter: only show establishments with active Ftour pro_slots
+  if (ramadanOnly) {
+    const { data: ftourSlots } = await supabase
+      .from("pro_slots")
+      .select("establishment_id")
+      .eq("service_label", "Ftour")
+      .eq("moderation_status", "active")
+      .limit(500);
+
+    const ftourEstabIds = [...new Set((ftourSlots ?? []).map((s: any) => s.establishment_id))];
+    if (ftourEstabIds.length > 0) {
+      estQuery = estQuery.in("id", ftourEstabIds);
+    } else {
+      // No Ftour slots → return empty results
+      return res.json({ items: [], total: 0, meta: { ramadan_active: true } });
+    }
+  }
+
   // Instead, is_online is used as a RANKING boost (online establishments appear higher in results).
 
   if (universeAliases.length === 1) {
@@ -3202,6 +3290,309 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
   };
 
   return res.json(payload);
+}
+
+// ── Dish detail page ────────────────────────────────────────────────────────
+// GET /api/public/establishments/:ref/menu/:dishSlug
+export async function getPublicDishDetail(req: Request, res: Response) {
+  const ref = String(req.params.ref ?? "").trim();
+  const dishSlug = String(req.params.dishSlug ?? "").trim();
+  if (!ref || !dishSlug) return res.status(400).json({ error: "missing_params" });
+
+  const establishmentId = await resolveEstablishmentId({ ref });
+  if (!establishmentId) return res.status(404).json({ error: "establishment_not_found" });
+
+  const supabase = getAdminSupabase();
+
+  // Fetch dish + establishment basics in parallel
+  const [{ data: dish, error: dishError }, { data: establishment, error: estError }] = await Promise.all([
+    supabase
+      .from("pro_inventory_items")
+      .select("id,category_id,title,description,base_price,currency,labels,photos,slug,sort_order,is_active")
+      .eq("establishment_id", establishmentId)
+      .eq("slug", dishSlug)
+      .eq("is_active", true)
+      .maybeSingle(),
+    supabase
+      .from("establishments")
+      .select("id,slug,name,universe,city,address,cover_url,cuisine_types,subcategory,avg_rating,review_count,google_rating,google_review_count")
+      .eq("id", establishmentId)
+      .maybeSingle(),
+  ]);
+
+  if (dishError) return res.status(500).json({ error: dishError.message });
+  if (estError) return res.status(500).json({ error: estError.message });
+  if (!dish) return res.status(404).json({ error: "dish_not_found" });
+  if (!establishment) return res.status(404).json({ error: "establishment_not_found" });
+
+  // Fetch vote stats for this dish
+  const { data: votes } = await supabase
+    .from("menu_item_votes")
+    .select("vote")
+    .eq("item_id", dish.id);
+
+  const likes = (votes ?? []).filter((v: { vote: string }) => v.vote === "like").length;
+  const dislikes = (votes ?? []).filter((v: { vote: string }) => v.vote === "dislike").length;
+
+  // Fetch similar dishes (same category, same establishment)
+  let similarDishes: Array<{ id: string; title: string; slug: string | null; base_price: number | null; currency: string | null; labels: string[] | null }> = [];
+  if (dish.category_id) {
+    const { data: similar } = await supabase
+      .from("pro_inventory_items")
+      .select("id,title,slug,base_price,currency,labels")
+      .eq("establishment_id", establishmentId)
+      .eq("category_id", dish.category_id)
+      .eq("is_active", true)
+      .neq("id", dish.id)
+      .order("sort_order", { ascending: true })
+      .limit(6);
+
+    similarDishes = (similar ?? []) as typeof similarDishes;
+  }
+
+  // Fetch category name
+  let categoryName: string | null = null;
+  if (dish.category_id) {
+    const { data: cat } = await supabase
+      .from("pro_inventory_categories")
+      .select("title")
+      .eq("id", dish.category_id)
+      .maybeSingle();
+    categoryName = (cat as { title?: string } | null)?.title ?? null;
+  }
+
+  return res.json({
+    dish: {
+      id: dish.id,
+      title: dish.title,
+      description: dish.description,
+      price: dish.base_price,
+      currency: dish.currency ?? "MAD",
+      photos: dish.photos ?? [],
+      labels: dish.labels ?? [],
+      slug: dish.slug,
+      categoryName,
+      likes,
+      dislikes,
+    },
+    establishment: {
+      id: establishment.id,
+      slug: (establishment as Record<string, unknown>).slug as string | null,
+      name: (establishment as Record<string, unknown>).name as string | null,
+      universe: (establishment as Record<string, unknown>).universe as string | null,
+      city: (establishment as Record<string, unknown>).city as string | null,
+      address: (establishment as Record<string, unknown>).address as string | null,
+      cover_url: (establishment as Record<string, unknown>).cover_url as string | null,
+      cuisine_types: (establishment as Record<string, unknown>).cuisine_types as string[] | null,
+      subcategory: (establishment as Record<string, unknown>).subcategory as string | null,
+      avg_rating: (establishment as Record<string, unknown>).avg_rating as number | null,
+      review_count: (establishment as Record<string, unknown>).review_count as number | null,
+      google_rating: (establishment as Record<string, unknown>).google_rating as number | null,
+      google_review_count: (establishment as Record<string, unknown>).google_review_count as number | null,
+    },
+    similarDishes: similarDishes.map((d) => ({
+      id: d.id,
+      title: d.title,
+      slug: d.slug,
+      price: d.base_price,
+      currency: d.currency ?? "MAD",
+      labels: d.labels ?? [],
+    })),
+  });
+}
+
+// =============================================================================
+// GET /api/public/establishments/:id/slots?date=YYYY-MM-DD&partySize=N
+// Returns available time slots for a given date with remaining capacity.
+// =============================================================================
+export async function getEstablishmentSlots(req: Request, res: Response) {
+  const establishmentId = String(req.params.id ?? "").trim();
+  if (!establishmentId || !isUuid(establishmentId)) {
+    return res.status(400).json({ error: "invalid_establishment_id" });
+  }
+
+  const date = String(req.query.date ?? "").trim();
+  if (!date) return res.status(400).json({ error: "missing_date" });
+
+  const partySize = req.query.partySize
+    ? Math.max(1, Math.round(Number(req.query.partySize)))
+    : null;
+
+  // Parse the target date to determine day of week
+  const targetDate = new Date(date + "T00:00:00");
+  if (!Number.isFinite(targetDate.getTime())) {
+    return res.status(400).json({ error: "invalid_date" });
+  }
+
+  // Compute start/end of day ISO for the requested date
+  const dayStartIso = date + "T00:00:00.000Z";
+  const dayEndIso = date + "T23:59:59.999Z";
+
+  const supabase = getAdminSupabase();
+
+  // 1. Fetch all active pro_slots for this establishment on this date
+  const { data: slots, error: slotsError } = await supabase
+    .from("pro_slots")
+    .select(
+      "id,establishment_id,starts_at,ends_at,capacity,base_price,promo_type,promo_value,promo_label,service_label,active",
+    )
+    .eq("establishment_id", establishmentId)
+    .eq("active", true)
+    .gte("starts_at", dayStartIso)
+    .lte("starts_at", dayEndIso)
+    .order("starts_at", { ascending: true })
+    .limit(200);
+
+  if (slotsError) {
+    log.error({ err: slotsError }, "Error fetching slots");
+    return res.status(500).json({ error: "slots_fetch_error" });
+  }
+
+  const slotsArr = (slots ?? []) as Array<{
+    id: string;
+    starts_at: string;
+    ends_at: string | null;
+    capacity: number | null;
+    base_price: number | null;
+    promo_type: string | null;
+    promo_value: number | null;
+    promo_label: string | null;
+    service_label: string | null;
+  }>;
+
+  if (!slotsArr.length) {
+    return res.json({ ok: true, slots: [] });
+  }
+
+  // 2. Fetch existing reservations for this date to compute remaining capacity
+  const slotIds = slotsArr.map((s) => s.id);
+  const minStartsAt = slotsArr[0]?.starts_at ?? dayStartIso;
+  const maxStartsAt = slotsArr[slotsArr.length - 1]?.starts_at ?? dayEndIso;
+
+  const [{ data: bySlot }, { data: byTime }] = await Promise.all([
+    supabase
+      .from("reservations")
+      .select("slot_id, party_size")
+      .in("slot_id", slotIds)
+      .in("status", OCCUPYING_RESERVATION_STATUSES as unknown as string[])
+      .limit(5000),
+    supabase
+      .from("reservations")
+      .select("starts_at, party_size")
+      .eq("establishment_id", establishmentId)
+      .is("slot_id", null)
+      .in("status", ["confirmed", "pending_pro_validation", "requested"])
+      .gte("starts_at", minStartsAt)
+      .lte("starts_at", maxStartsAt)
+      .limit(5000),
+  ]);
+
+  // Build used-capacity maps
+  const usedBySlotId = new Map<string, number>();
+  for (const r of (bySlot ?? []) as Array<{
+    slot_id: string | null;
+    party_size: number | null;
+  }>) {
+    if (!r.slot_id) continue;
+    const size =
+      typeof r.party_size === "number" && Number.isFinite(r.party_size)
+        ? Math.max(0, Math.round(r.party_size))
+        : 0;
+    usedBySlotId.set(r.slot_id, (usedBySlotId.get(r.slot_id) ?? 0) + size);
+  }
+
+  const usedByStartsAtIso = new Map<string, number>();
+  for (const r of (byTime ?? []) as Array<{
+    starts_at: string;
+    party_size: number | null;
+  }>) {
+    const startsAt = String(r.starts_at ?? "").trim();
+    if (!startsAt) continue;
+    const size =
+      typeof r.party_size === "number" && Number.isFinite(r.party_size)
+        ? Math.max(0, Math.round(r.party_size))
+        : 0;
+    usedByStartsAtIso.set(
+      startsAt,
+      (usedByStartsAtIso.get(startsAt) ?? 0) + size,
+    );
+  }
+
+  // 3. Build the response
+  const result = slotsArr.map((s) => {
+    const dt = new Date(s.starts_at);
+    const time = timeHm(dt);
+
+    const used =
+      usedBySlotId.get(s.id) ?? usedByStartsAtIso.get(s.starts_at) ?? 0;
+    const cap =
+      typeof s.capacity === "number" && Number.isFinite(s.capacity)
+        ? Math.max(0, Math.round(s.capacity))
+        : null;
+    const remainingCapacity = cap == null ? null : Math.max(0, cap - used);
+
+    // A slot is available if capacity is unknown (null) or there's room
+    const available =
+      remainingCapacity === null
+        ? true
+        : partySize
+          ? remainingCapacity >= partySize
+          : remainingCapacity > 0;
+
+    const promo = promoPercentFromSlot({
+      promo_type: s.promo_type,
+      promo_value: s.promo_value,
+    });
+
+    return {
+      slotId: s.id,
+      time,
+      available,
+      remainingCapacity,
+      ...(s.service_label ? { serviceLabel: s.service_label } : {}),
+      ...(promo ? { promo } : {}),
+      ...(s.promo_label ? { promoLabel: s.promo_label } : {}),
+    };
+  });
+
+  return res.json({ ok: true, slots: result });
+}
+
+// ── Public ambassador program for an establishment ──────────────────────────
+export async function getPublicAmbassadorProgram(req: Request, res: Response) {
+  const establishmentId = req.params.id;
+  if (!establishmentId || !isUuid(establishmentId)) {
+    return res.status(400).json({ ok: false, error: "Invalid establishment ID" });
+  }
+
+  const supabase = getAdminSupabase();
+  const { data, error } = await supabase
+    .from("ambassador_programs")
+    .select("id, reward_description, conversions_required, validity_days, confirmation_mode, created_at")
+    .eq("establishment_id", establishmentId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (error) {
+    log.error({ err: error }, "Failed to fetch ambassador program");
+    return res.status(500).json({ ok: false, error: "Internal error" });
+  }
+
+  if (!data) {
+    return res.json({ ok: true, program: null });
+  }
+
+  return res.json({
+    ok: true,
+    program: {
+      id: data.id,
+      reward_description: data.reward_description,
+      conversions_required: data.conversions_required,
+      validity_days: data.validity_days,
+      confirmation_mode: data.confirmation_mode,
+      created_at: data.created_at,
+    },
+  });
 }
 
 export function isDemoRoutesAllowed(): boolean {

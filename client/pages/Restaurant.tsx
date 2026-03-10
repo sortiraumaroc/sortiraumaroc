@@ -63,7 +63,8 @@ import { ReportEstablishmentDialog } from "@/components/ReportEstablishmentDialo
 import { ClaimEstablishmentDialog } from "@/components/ClaimEstablishmentDialog";
 import { CeAdvantageSection } from "@/components/ce/CeAdvantageSection";
 import { EstablishmentRamadanTab, useHasRamadanOffers } from "@/components/establishment/EstablishmentRamadanTab";
-import DisplayBannerAd from "@/components/ads/DisplayBannerAd";
+import { EstablishmentAmbassadorSection } from "@/components/establishment/EstablishmentAmbassadorSection";
+import { InlineBanner } from "@/components/banners/InlineBanner";
 import { Moon } from "lucide-react";
 
 interface RestaurantReview {
@@ -1041,6 +1042,7 @@ export default function Restaurant() {
       name: cat.name,
       items: (cat.items ?? []).map((item) => ({
         id: item.id,
+        inventoryItemId: item.inventoryItemId,
         name: item.name,
         description: item.description ?? "",
         price: item.price ?? "",
@@ -1219,13 +1221,29 @@ export default function Restaurant() {
     if (!name) return;
 
     const city = (publicPayload?.establishment?.city ?? "").trim();
-    const title = city ? `${name} à ${city} — Sortir Au Maroc` : `${name} — Sortir Au Maroc`;
-    const description = (restaurant.description ?? "").trim() || undefined;
+    const cuisine = (publicPayload?.establishment?.subcategory ?? "").trim();
+    const avgRating = (publicPayload?.establishment as Record<string, unknown>)?.avg_rating as number | null;
+    const reviewCount = ((publicPayload?.establishment as Record<string, unknown>)?.review_count as number) ?? 0;
+
+    // S5: Enriched title — "[nom] — [cuisine] à [ville] | sam.ma"
+    const titleParts = [name];
+    if (cuisine) titleParts.push(cuisine);
+    if (city) titleParts.push(`à ${city}`);
+    const title = `${titleParts.join(" — ")} | sam.ma`;
+
+    // S5: Enriched description with rating when available
+    let description = (restaurant.description ?? "").trim();
+    if (avgRating && reviewCount > 0) {
+      const ratingStr = Number(avgRating).toFixed(1);
+      description = description
+        ? `${description} — Note ${ratingStr}/5 basée sur ${reviewCount} avis.`
+        : `Note ${ratingStr}/5 basée sur ${reviewCount} avis sur sam.ma.`;
+    }
     const ogImageUrl = restaurant.images?.[0] ? String(restaurant.images[0]) : undefined;
 
     applySeo({
       title,
-      description,
+      description: description || undefined,
       ogType: "restaurant",
       ogImageUrl,
       canonicalStripQuery: true,
@@ -1279,6 +1297,41 @@ export default function Restaurant() {
       // Upgrade to Restaurant subtype + add reservation support
       (schema as any)["@type"] = "Restaurant";
       (schema as any).acceptsReservations = true;
+
+      // S2: Add cuisine types
+      const cuisineTypes = (est as Record<string, unknown>)?.cuisine_types as string[] | null;
+      if (cuisineTypes && cuisineTypes.length > 0) {
+        (schema as any).servesCuisine = cuisineTypes;
+      }
+
+      // S2: Schema.org Menu with MenuSections and MenuItems
+      const menuData = publicPayload?.menu;
+      if (menuData && Array.isArray(menuData) && menuData.length > 0) {
+        (schema as any).hasMenu = {
+          "@type": "Menu",
+          name: `Menu de ${est.name || name}`,
+          hasMenuSection: menuData.slice(0, 10).map((cat: Record<string, unknown>) => ({
+            "@type": "MenuSection",
+            name: cat.name,
+            hasMenuItem: ((cat.items as Array<Record<string, unknown>>) ?? []).slice(0, 20).map((item) => {
+              const priceNum = parseFloat(String(item.price ?? "0").replace(/[^\d.]/g, ""));
+              return {
+                "@type": "MenuItem",
+                name: item.name,
+                ...(item.description && { description: String(item.description) }),
+                ...(Number.isFinite(priceNum) && priceNum > 0 && {
+                  offers: {
+                    "@type": "Offer",
+                    price: priceNum,
+                    priceCurrency: "MAD",
+                  },
+                }),
+              };
+            }),
+          })),
+        };
+      }
+
       setJsonLd("restaurant", schema);
 
       setJsonLd(
@@ -1864,10 +1917,17 @@ export default function Restaurant() {
             <EstablishmentRamadanTab
               establishmentId={bookingEstablishmentId}
               establishmentName={restaurant.name}
+              serviceTypes={restaurant.serviceTypes}
               onReserve={() => setBookingOpen(true)}
             />
           </section>
         )}
+
+        {/* Programme Ambassadeur */}
+        <EstablishmentAmbassadorSection
+          establishmentId={bookingEstablishmentId}
+          establishmentName={restaurant.name}
+        />
 
         {/* Show Menu section only when packs or menu items exist (or rentacar) */}
         {(isRentacar || (restaurant.packs && restaurant.packs.length > 0) || (restaurant.menu && restaurant.menu.length > 0)) && (
@@ -1908,10 +1968,11 @@ export default function Restaurant() {
             </div>
           </section>
 
-          {/* Slot publicitaire IAB #1 */}
-          <DisplayBannerAd
-            placement="establishment_detail_slot_1"
-            city={restaurant.city ?? undefined}
+          {/* Bannière inline #1 (système bannières admin) */}
+          <InlineBanner
+            slot="establishment_slot_1"
+            page={window.location.pathname}
+            className="my-4"
           />
 
           <section>
@@ -2103,10 +2164,11 @@ export default function Restaurant() {
           )}
         </section>
 
-        {/* Slot publicitaire IAB #2 */}
-        <DisplayBannerAd
-          placement="establishment_detail_slot_2"
-          city={restaurant.city ?? undefined}
+        {/* Bannière inline #2 (système bannières admin) */}
+        <InlineBanner
+          slot="establishment_slot_2"
+          page={window.location.pathname}
+          className="my-4"
         />
 
         <section id="section-horaires" data-tab="horaires" className="scroll-mt-28 space-y-6">

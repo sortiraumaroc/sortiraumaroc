@@ -33,6 +33,7 @@ import {
   Tags,
   UserRound,
   Users,
+  Gift,
   Video,
 } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -129,6 +130,7 @@ const ProPrestatairesTab = lazy(() => import("@/components/pro/tabs/ProPrestatai
 const ProReviewsTab = lazy(() => import("@/components/pro/tabs/ProReviewsTab").then(m => ({ default: m.ProReviewsTab })));
 const ProAdsTab = lazy(() => import("@/components/pro/ads/ProAdsTab").then(m => ({ default: m.ProAdsTab })));
 const ProLoyaltyTab = lazy(() => import("@/components/pro/tabs/ProLoyaltyTab").then(m => ({ default: m.ProLoyaltyTab })));
+const ProAmbassadorTab = lazy(() => import("@/components/pro/tabs/ProAmbassadorTab").then(m => ({ default: m.ProAmbassadorTab })));
 const ProRentalTab = lazy(() => import("@/components/pro/tabs/ProRentalTab").then(m => ({ default: m.ProRentalTab })));
 const ProRamadanTab = lazy(() => import("@/components/pro/tabs/ProRamadanTab"));
 const ProConciergerieInboxTab = lazy(() => import("@/components/pro/tabs/ProConciergerieInboxTab"));
@@ -215,6 +217,7 @@ export function ProShell({ user, onSignOut }: Props) {
         "media",
         "prestataires",
         "loyalty",
+        "ambassador",
         "notifications",
         "team",
         "messages",
@@ -1014,6 +1017,15 @@ export function ProShell({ user, onSignOut }: Props) {
                             Fidélité
                           </TabsTrigger>
                         )}
+                        {can("manage_offers") && (
+                          <TabsTrigger
+                            value="ambassador"
+                            className="w-auto md:w-full shrink-0 justify-start font-bold gap-2 rounded-md px-3 py-1.5 text-slate-700 hover:bg-primary/10 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none"
+                          >
+                            <Gift className="w-4 h-4" />
+                            Ambassadeurs
+                          </TabsTrigger>
+                        )}
                         {can("manage_profile") && (
                           <TabsTrigger
                             value="settings"
@@ -1266,6 +1278,16 @@ export function ProShell({ user, onSignOut }: Props) {
                       establishmentName={selected.name ?? ""}
                       role={role}
                     />
+                  </TabsContent>
+
+                  <TabsContent value="ambassador" className="mt-0">
+                    <Suspense fallback={<TabFallback />}>
+                      <ProAmbassadorTab
+                        establishmentId={selected.id}
+                        establishmentName={selected.name ?? ""}
+                        role={role}
+                      />
+                    </Suspense>
                   </TabsContent>
 
                   <TabsContent value="settings" className="mt-0">

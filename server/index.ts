@@ -75,6 +75,12 @@ import { registerLoyaltyV2AdminRoutes } from "./routes/loyaltyV2Admin";
 import { registerLoyaltyV2CronRoutes } from "./routes/loyaltyV2Cron";
 import { registerSuspiciousActivityCronRoutes } from "./routes/suspiciousActivityCron";
 
+// Ambassador Program
+import { registerAmbassadorProRoutes } from "./routes/ambassadorPro";
+import { registerAmbassadorConsumerRoutes } from "./routes/ambassadorConsumer";
+import { registerAmbassadorAdminRoutes } from "./routes/ambassadorAdmin";
+import { registerAmbassadorCronRoutes } from "./routes/ambassadorCron";
+
 // Loyalty V1
 import { registerLoyaltyRoutes } from "./routes/loyalty";
 
@@ -124,6 +130,9 @@ import ramadanPublicRoutes from "./routes/ramadanPublic";
 import ramadanCronRoutes from "./routes/ramadanCron";
 import onboardingRamadanRouter from "./routes/onboardingRamadan";
 
+// Menu Item Votes (like/dislike)
+import { registerMenuItemVoteRoutes } from "./routes/menuItemVotes";
+
 // Small standalone modules
 import { registerBookingConfirmationRoutes } from "./bookingConfirmation";
 import { registerEmailTrackingRoutes } from "./routes/emailTracking";
@@ -150,6 +159,7 @@ import { registerWaitlistCronRoutes } from "./routes/waitlistCron";
 import { registerAdsCronRoutes } from "./routes/adsCron";
 import { registerSubscriptionsCronRoutes } from "./routes/subscriptionsCron";
 import { registerGoogleRatingSyncRoutes } from "./routes/googleRatingSync";
+import { registerStorageAdminRoutes, registerStoragePublicRoutes } from "./routes/storage";
 import newsletterRoutes from "./routes/newsletter";
 import { purgeOldAuditLogs } from "./routes/admin";
 
@@ -383,6 +393,8 @@ export function createServer() {
   registerBugReportRoutes(app);
   registerSupportRoutes(app);
   registerBookingConfirmationRoutes(app);
+  registerMenuItemVoteRoutes(app);
+  registerStoragePublicRoutes(app);
 
   // Newsletter public
   app.use("/api/newsletter", newsletterRoutes);
@@ -407,6 +419,211 @@ export function createServer() {
     }
   });
 
+  // Cron: Recalculate menu popularity scores (hourly)
+  app.post("/api/admin/cron/recalcul-menu-popularity", async (req, res) => {
+    const adminKey = req.headers["x-admin-key"];
+    if (adminKey !== process.env.ADMIN_API_KEY) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    try {
+      const supabase = getAdminSupabase();
+      const { error } = await supabase.rpc("recalcul_menu_popularity");
+      if (error) {
+        logger.error({ err: error }, "[MenuPopularity Cron] RPC error");
+        return res.status(500).json({ error: error.message });
+      }
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error({ err }, "[MenuPopularity Cron] Error");
+      res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Landing page auto-generation — shared logic
+  // ---------------------------------------------------------------------------
+
+  async function generateLandingPagesFromSearch(): Promise<{ ok: true; created: number; skipped: number; total_patterns: number }> {
+    const supabase = getAdminSupabase();
+
+    // Helper: slugify
+    const slugify = (parts: string[]) =>
+      parts
+        .filter(Boolean)
+        .join("-")
+        .toLowerCase()
+        .replace(/[^a-z0-9àâäéèêëïîôùûüÿçñ]+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 80);
+
+    // Helper: upsert a landing page (skip if slug exists)
+    const tryInsertLanding = async (data: {
+      slug: string;
+      universe: string;
+      city: string | null;
+      cuisine_type: string | null;
+      title_fr: string;
+      description_fr: string;
+      h1_fr: string;
+      keywords: string;
+    }): Promise<boolean> => {
+      const { data: existing } = await supabase
+        .from("landing_pages").select("id").eq("slug", data.slug).maybeSingle();
+      if (existing) return false;
+      const { error } = await supabase.from("landing_pages").insert({
+        ...data,
+        title_fr: data.title_fr.slice(0, 70),
+        description_fr: data.description_fr.slice(0, 160),
+        priority: 0.7,
+        is_active: true,
+      });
+      if (error) { logger.warn({ err: error, slug: data.slug }, "Failed to insert landing page"); return false; }
+      return true;
+    };
+
+    let created = 0;
+    let skipped = 0;
+
+    // ── Pass 1: From search history patterns ────────────────────────────────
+
+    let patterns: Array<{ query: string; universe: string; city: string; count: number }> = [];
+
+    const { data: topSearches, error: searchError } = await supabase
+      .rpc("get_top_search_patterns", { days_back: 90, min_count: 10, max_results: 50 });
+
+    if (searchError) {
+      // Fallback: aggregate in-memory
+      const { data: rawSearches, error: rawError } = await supabase
+        .from("search_history")
+        .select("query,universe,city")
+        .gte("created_at", new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString());
+
+      if (rawError) throw new Error(rawError.message);
+
+      const counts = new Map<string, { query: string; universe: string; city: string; count: number }>();
+      for (const row of (rawSearches ?? []) as Array<{ query: string; universe: string; city: string }>) {
+        const q = (row.query ?? "").toLowerCase().trim();
+        const u = (row.universe ?? "restaurant").toLowerCase().trim();
+        const c = (row.city ?? "").trim();
+        if (!q) continue;
+        const key = `${q}|${u}|${c}`;
+        const existing = counts.get(key);
+        if (existing) existing.count++;
+        else counts.set(key, { query: q, universe: u, city: c, count: 1 });
+      }
+
+      patterns = Array.from(counts.values())
+        .filter((p) => p.count >= 10)
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 50);
+    } else {
+      patterns = ((topSearches ?? []) as Array<{ query: string; universe: string; city: string; search_count: number }>)
+        .map((p) => ({ query: p.query, universe: p.universe, city: p.city, count: p.search_count }));
+    }
+
+    for (const pattern of patterns) {
+      const slug = slugify([pattern.query, pattern.city]);
+      if (!slug) { skipped++; continue; }
+      const cityLabel = pattern.city || "Maroc";
+      const cap = pattern.query.charAt(0).toUpperCase() + pattern.query.slice(1);
+      const uniLabel = pattern.universe === "restaurant" ? "Restaurants" : pattern.universe === "hebergement" ? "Hébergements" : "Loisirs";
+      const ok = await tryInsertLanding({
+        slug,
+        universe: pattern.universe || "restaurant",
+        city: pattern.city || null,
+        cuisine_type: pattern.universe === "restaurant" ? pattern.query : null,
+        title_fr: `${cap} à ${cityLabel} — ${uniLabel} | sam.ma`,
+        description_fr: `Découvrez les meilleurs ${pattern.query} à ${cityLabel}. Réservez en ligne sur sam.ma et profitez des meilleures adresses.`,
+        h1_fr: `${cap} à ${cityLabel}`,
+        keywords: [pattern.query, pattern.city, "sam.ma"].filter(Boolean).join(", "),
+      });
+      ok ? created++ : skipped++;
+    }
+
+    // ── Pass 2: Dish × city landing pages ───────────────────────────────────
+
+    try {
+      // Find popular dishes served in multiple establishments per city
+      const { data: dishCombos } = await supabase
+        .from("pro_inventory_items")
+        .select("title, establishments!inner(city)")
+        .eq("is_active", true)
+        .not("slug", "is", null);
+
+      if (dishCombos && dishCombos.length > 0) {
+        // Aggregate: dish title × city → count of establishments
+        const dishCityCounts = new Map<string, { dish: string; city: string; count: number }>();
+        for (const item of dishCombos as Array<{ title: string; establishments: { city: string } }>) {
+          const dish = (item.title ?? "").trim();
+          const city = ((item.establishments as any)?.city ?? "").trim();
+          if (!dish || !city || dish.length < 3) continue;
+          const dishNorm = dish.toLowerCase();
+          const key = `${dishNorm}|${city}`;
+          const existing = dishCityCounts.get(key);
+          if (existing) existing.count++;
+          else dishCityCounts.set(key, { dish: dishNorm, city, count: 1 });
+        }
+
+        // Only create pages for dishes served in ≥3 establishments in a city
+        const popularDishCities = Array.from(dishCityCounts.values())
+          .filter((d) => d.count >= 3)
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 100);
+
+        for (const dc of popularDishCities) {
+          const slug = slugify([dc.dish, dc.city]);
+          if (!slug) continue;
+          const cap = dc.dish.charAt(0).toUpperCase() + dc.dish.slice(1);
+          const ok = await tryInsertLanding({
+            slug,
+            universe: "restaurant",
+            city: dc.city,
+            cuisine_type: dc.dish,
+            title_fr: `${cap} à ${dc.city} — Restaurants | sam.ma`,
+            description_fr: `Où manger ${dc.dish} à ${dc.city} ? Découvrez les ${dc.count} meilleurs restaurants sur sam.ma.`,
+            h1_fr: `${cap} à ${dc.city}`,
+            keywords: [dc.dish, dc.city, "restaurant", "sam.ma"].join(", "),
+          });
+          ok ? created++ : skipped++;
+        }
+      }
+    } catch (err) {
+      logger.warn({ err }, "[LandingPage Gen] Dish×city pass failed (non-blocking)");
+    }
+
+    return { ok: true, created, skipped, total_patterns: patterns.length };
+  }
+
+  // Cron: Auto-generate landing pages from search history (weekly)
+  app.post("/api/admin/cron/landing-pages-generate", async (req, res) => {
+    const adminKey = req.headers["x-admin-key"];
+    if (adminKey !== process.env.ADMIN_API_KEY) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    try {
+      const result = await generateLandingPagesFromSearch();
+      res.json(result);
+    } catch (err) {
+      logger.error({ err }, "[LandingPage Cron] Error");
+      res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
+  // S3: Auto-generate SEO landing pages from search history (original endpoint)
+  app.post("/api/admin/landing-pages/generate-from-search", async (req, res) => {
+    const adminKey = req.headers["x-admin-key"];
+    if (adminKey !== process.env.ADMIN_API_KEY) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    try {
+      const result = await generateLandingPagesFromSearch();
+      res.json(result);
+    } catch (err) {
+      logger.error({ err }, "[LandingPage Gen] Error");
+      res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+
   registerAdminAIRoutes(app);
   registerAdminInventoryRoutes(app);
   registerAdminImportExportRoutes(app);
@@ -427,6 +644,7 @@ export function createServer() {
   registerMysqlContentRoutes(app);
   registerGoogleRatingSyncRoutes(app);
   registerAdminSuspiciousActivityRoutes(app);
+  registerStorageAdminRoutes(app);
 
   // Pro core + sub-modules
   registerProCoreRoutes(app);
@@ -466,6 +684,12 @@ export function createServer() {
   registerLoyaltyV2AdminRoutes(app);
   registerLoyaltyV2CronRoutes(app);
   registerSuspiciousActivityCronRoutes(app);
+
+  // Ambassador Program
+  registerAmbassadorProRoutes(app);
+  registerAmbassadorConsumerRoutes(app);
+  registerAmbassadorAdminRoutes(app);
+  registerAmbassadorCronRoutes(app);
 
   // Rental vehicles
   registerRentalPublicRoutes(app);

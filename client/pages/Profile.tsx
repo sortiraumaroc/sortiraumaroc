@@ -21,6 +21,7 @@ import {
   Shield,
   Sliders,
   Gift,
+  Trophy,
   User2,
   X,
 } from "lucide-react";
@@ -67,6 +68,7 @@ import { MyLoyaltySection } from "@/components/loyaltyV2/MyLoyaltySection";
 import { MyPacksSection } from "@/components/packs/MyPacksSection";
 import { MyWheelGifts } from "@/components/wheel/MyWheelGifts";
 import { ProfileCeTab } from "@/components/ce/ProfileCeTab";
+import { ProfileAmbassadorTab } from "@/components/profile/ProfileAmbassadorTab";
 import { useCeStatus } from "@/hooks/useCeStatus";
 
 function getInitials(firstName?: string, lastName?: string): string {
@@ -87,7 +89,7 @@ export default function Profile() {
   const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const allowedTabs = useMemo(() => new Set(["qrcode", "infos", "bookings", "waitlist", "loyalty", "notifications", "billing", "packs", "gains", "favorites", "prefs", "privacy", "ce"]), []);
+  const allowedTabs = useMemo(() => new Set(["qrcode", "infos", "bookings", "waitlist", "loyalty", "notifications", "billing", "packs", "gains", "ambassador", "favorites", "prefs", "privacy", "ce"]), []);
   const tabParam = searchParams.get("tab");
   const [activeTab, setActiveTab] = useState(() => (tabParam && allowedTabs.has(tabParam) ? tabParam : "qrcode"));
 
@@ -248,6 +250,7 @@ export default function Profile() {
     { id: "loyalty", label: "Fidélité", icon: Award },
     { id: "packs", label: t("profile.tabs.packs"), icon: Package },
     { id: "gains", label: "Mes gains", icon: Gift },
+    { id: "ambassador", label: "Ambassadeur", icon: Trophy },
     ...(isCeEmployee ? [{ id: "ce", label: "Avantages CE", icon: Building2 }] : []),
     { id: "notifications", label: "Notifications", icon: Bell },
     { id: "billing", label: t("profile.tabs.billing"), icon: CreditCard },
@@ -578,6 +581,8 @@ export default function Profile() {
                 {activeTab === "packs" && <MyPacksSection />}
 
                 {activeTab === "gains" && <MyWheelGifts />}
+
+                {activeTab === "ambassador" && <ProfileAmbassadorTab />}
 
                 {activeTab === "notifications" && (
                   <ProfileNotifications />
