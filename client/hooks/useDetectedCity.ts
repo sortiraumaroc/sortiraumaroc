@@ -23,7 +23,7 @@ export const CITY_COORDINATES: Array<{
   { name: "Kénitra", lat: 34.261, lng: -6.5802, radius: 12 },
   { name: "Tétouan", lat: 35.5889, lng: -5.3626, radius: 10 },
   { name: "Essaouira", lat: 31.5085, lng: -9.7595, radius: 10 },
-  { name: "Mohammedia", lat: 33.6861, lng: -7.3828, radius: 10 },
+  { name: "Mohammédia", lat: 33.6861, lng: -7.3828, radius: 10 },
   { name: "El Jadida", lat: 33.2316, lng: -8.5007, radius: 12 },
   { name: "Salé", lat: 34.0531, lng: -6.7985, radius: 10 },
   { name: "Nador", lat: 35.1681, lng: -2.9287, radius: 12 },
@@ -34,6 +34,7 @@ export const CITY_COORDINATES: Array<{
   { name: "Khouribga", lat: 32.8811, lng: -6.9063, radius: 10 },
   { name: "Dakhla", lat: 23.7147, lng: -15.9328, radius: 15 },
   { name: "Laâyoune", lat: 27.1253, lng: -13.1625, radius: 15 },
+  { name: "Bouskoura", lat: 33.4489, lng: -7.6486, radius: 10 },
 ];
 
 /**

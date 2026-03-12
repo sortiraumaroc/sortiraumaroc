@@ -8,6 +8,7 @@ import { MOROCCAN_CITIES } from "@/hooks/useSuggestions";
 import { searchAutocomplete, getPopularSearches, getPublicHomeCities, getPublicCountries, type AutocompleteSuggestion, type PublicCountry } from "@/lib/publicApi";
 import { useDebounce } from "@/hooks/useDebounce";
 import { readSearchState } from "@/lib/searchState";
+import { toast } from "@/hooks/use-toast";
 import type { ActivityCategory } from "@/lib/taxonomy";
 import { parseTemporalIntent, getTemporalSuggestions, type TemporalSuggestion } from "@/lib/search/temporalParser";
 
@@ -234,21 +235,36 @@ export function MobileHeaderSearch({ universe, className }: MobileHeaderSearchPr
   const handleSelectNearMe = useCallback(async () => {
     setIsRequestingLocation(true);
     try {
-      if (navigator.geolocation) {
-        await new Promise<void>((resolve) => {
-          navigator.geolocation.getCurrentPosition(
-            () => resolve(),
-            () => resolve(),
-            { enableHighAccuracy: true, timeout: 10000 }
-          );
-        });
+      if (!navigator.geolocation) {
+        toast({ title: "Géolocalisation non disponible", description: "Votre navigateur ne supporte pas la géolocalisation.", variant: "destructive" });
+        return;
       }
-      setCity(t("suggestions.my_position") || "Autour de moi");
+
+      const coords = await new Promise<{ lat: number; lng: number } | null>((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          () => resolve(null),
+          { enableHighAccuracy: true, timeout: 10000 }
+        );
+      });
+
+      if (coords) {
+        setCity("Autour de moi");
+        // Navigate immediately with nearme coords
+        const qs = new URLSearchParams(searchParams);
+        qs.delete("city");
+        qs.set("nearme", "1");
+        qs.set("lat", coords.lat.toFixed(6));
+        qs.set("lng", coords.lng.toFixed(6));
+        navigate(`/results?${qs.toString()}`);
+      } else {
+        toast({ title: "Géolocalisation refusée", description: "Pour utiliser « Autour de moi », activez la localisation dans les paramètres de votre navigateur, puis rechargez la page.", variant: "destructive" });
+      }
     } finally {
       setIsRequestingLocation(false);
       setIsCityModalOpen(false);
     }
-  }, [t]);
+  }, [searchParams, navigate]);
 
   const handleSelectCity = (selectedCity: string) => {
     setCity(selectedCity);

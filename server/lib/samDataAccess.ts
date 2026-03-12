@@ -9,6 +9,8 @@
 import { getAdminSupabase } from "../supabaseAdmin";
 import { OCCUPYING_RESERVATION_STATUSES } from "../../shared/reservationStates";
 import { createModuleLogger } from "./logger";
+import { notifyProMembers } from "../proNotifications";
+import { emitAdminNotification } from "../adminNotifications";
 
 const log = createModuleLogger("samDataAccess");
 
@@ -32,6 +34,11 @@ export interface SamEstablishmentListItem {
   booking_enabled: boolean;
   google_rating: number | null;
   google_review_count: number | null;
+  avg_rating: number | null;
+  review_count: number | null;
+  cuisine_types: string[] | null;
+  price_range: string | null;
+  is_online: boolean;
   promo_percent: number | null;
   next_slot_at: string | null;
   reservations_30d: number;
@@ -186,8 +193,15 @@ export async function searchEstablishments(params: {
   promoOnly?: boolean;
   limit?: number;
   offset?: number;
+  /** Filtre gamme de prix : "€", "€€", "€€€", "€€€€" */
+  priceRange?: string;
+  /** Ambiance recherchée (texte libre ajouté au FTS) */
+  ambiance?: string;
 }): Promise<{ establishments: SamEstablishmentListItem[]; total: number }> {
   const supabase = getAdminSupabase();
+  // Quand un filtre post-fetch est actif, chercher plus de résultats pour compenser
+  const hasPostFilter = !!params.priceRange;
+  const fetchLimit = hasPostFilter ? Math.min(20, Math.max(1, (params.limit ?? 5) * 3)) : Math.min(10, Math.max(1, params.limit ?? 5));
   const limit = Math.min(10, Math.max(1, params.limit ?? 5));
   const offset = Math.max(0, params.offset ?? 0);
 
@@ -196,9 +210,16 @@ export async function searchEstablishments(params: {
 
   // Si recherche textuelle, utiliser la fonction scored
   // Incorporer la catégorie dans la requête de recherche pour filtrer par cuisine/type
-  const effectiveQ = params.q && params.q.length >= 2
+  // F5 : Incorporer l'ambiance dans la recherche textuelle (matchera les ambiance_tags via FTS)
+  let effectiveQ = params.q && params.q.length >= 2
     ? (params.category ? `${params.q} ${params.category}`.trim() : params.q)
     : (params.category && params.category.length >= 2 ? params.category : null);
+
+  if (params.ambiance && params.ambiance.length >= 2) {
+    effectiveQ = effectiveQ
+      ? `${effectiveQ} ${params.ambiance}`.trim()
+      : params.ambiance;
+  }
 
   if (effectiveQ) {
     const { data: scoredResults, error } = await supabase.rpc(
@@ -207,7 +228,7 @@ export async function searchEstablishments(params: {
         search_query: effectiveQ,
         filter_universe: dbUniverse,
         filter_city: params.city ?? null,
-        result_limit: limit,
+        result_limit: fetchLimit,
         result_offset: offset,
       },
     );
@@ -225,13 +246,13 @@ export async function searchEstablishments(params: {
             search_query: effectiveQ,
             filter_universe: null,
             filter_city: params.city ?? null,
-            result_limit: limit,
+            result_limit: fetchLimit,
             result_offset: offset,
           },
         );
         if (fallbackResults?.length) {
           const ids = fallbackResults.map((r: any) => r.id);
-          return enrichEstablishmentList(ids, limit);
+          return applyPostFilters(await enrichEstablishmentList(ids, fetchLimit), params.priceRange, limit);
         }
       }
 
@@ -239,7 +260,7 @@ export async function searchEstablishments(params: {
     }
 
     const ids = scoredResults.map((r: any) => r.id);
-    return enrichEstablishmentList(ids, limit);
+    return applyPostFilters(await enrichEstablishmentList(ids, fetchLimit), params.priceRange, limit);
   }
 
   // Sinon, requête directe avec filtres
@@ -292,8 +313,27 @@ export async function searchEstablishments(params: {
   }
 
   const ids = (rows as any[]).map((r) => r.id);
-  const result = await enrichEstablishmentList(ids, limit);
-  return { ...result, total: count ?? result.establishments.length };
+  const result = await enrichEstablishmentList(ids, fetchLimit);
+  const filtered = applyPostFilters(result, params.priceRange, limit);
+  return { ...filtered, total: count ?? filtered.establishments.length };
+}
+
+/** F5 : Filtrage post-fetch (price_range) — appliqué après enrichissement */
+function applyPostFilters(
+  result: { establishments: SamEstablishmentListItem[]; total: number },
+  priceRange: string | undefined,
+  limit: number,
+): { establishments: SamEstablishmentListItem[]; total: number } {
+  let { establishments } = result;
+
+  if (priceRange) {
+    establishments = establishments.filter((e) => e.price_range === priceRange);
+  }
+
+  // Re-appliquer la limite après filtrage
+  establishments = establishments.slice(0, limit);
+
+  return { establishments, total: establishments.length };
 }
 
 async function enrichEstablishmentList(
@@ -311,7 +351,7 @@ async function enrichEstablishmentList(
       supabase
         .from("establishments")
         .select(
-          "id,slug,name,universe,subcategory,city,address,neighborhood,lat,lng,phone,cover_url,booking_enabled,google_rating,google_review_count",
+          "id,slug,name,universe,subcategory,city,address,neighborhood,lat,lng,phone,cover_url,booking_enabled,google_rating,google_review_count,avg_rating,review_count,cuisine_types,price_range,is_online",
         )
         .in("id", ids)
         .eq("status", "active"),
@@ -367,6 +407,11 @@ async function enrichEstablishmentList(
     booking_enabled: e.booking_enabled ?? false,
     google_rating: e.google_rating ?? null,
     google_review_count: e.google_review_count ?? null,
+    avg_rating: e.avg_rating ?? null,
+    review_count: e.review_count ?? null,
+    cuisine_types: Array.isArray(e.cuisine_types) ? e.cuisine_types : null,
+    price_range: e.price_range ?? null,
+    is_online: e.is_online ?? false,
     promo_percent: promoByEst.get(e.id) ?? null,
     next_slot_at: nextSlotByEst.get(e.id) ?? null,
     reservations_30d: resByEst.get(e.id) ?? 0,
@@ -627,10 +672,51 @@ export async function createReservation(params: {
     return { ok: false, error: "db_error" };
   }
 
+  const reservationId = String((inserted as any).id ?? "");
+  const bookingRef = String((inserted as any).booking_reference ?? "");
+
+  // ── Notifications (fire-and-forget) ──
+  // Le restaurant DOIT être notifié, même quand la réservation vient du chatbot Sam
+  void (async () => {
+    try {
+      const notifTitle = "Nouvelle demande de réservation (via Sam)";
+      const notifBody = `${params.partySize} personne(s) — ${startsAtDate.toISOString().slice(0, 16).replace("T", " ")}`;
+
+      // Notification in-app pour les membres pro de l'établissement
+      await notifyProMembers({
+        supabase,
+        establishmentId: params.establishmentId,
+        category: "booking",
+        title: notifTitle,
+        body: notifBody,
+        data: {
+          action: "booking_new_request",
+          reservationId,
+          targetTab: "reservations",
+          source: "sam_assistant",
+        },
+      });
+
+      // Notification admin dashboard
+      void emitAdminNotification({
+        type: "new_reservation_sam",
+        title: "Réservation via Sam AI",
+        body: `${params.partySize} pers. — pending — via chatbot`,
+        data: {
+          reservationId,
+          establishmentId: params.establishmentId,
+          source: "sam_assistant",
+        },
+      });
+    } catch (err) {
+      log.warn({ err }, "Sam createReservation: notification dispatch failed (non-blocking)");
+    }
+  })();
+
   return {
     ok: true,
-    reservationId: (inserted as any).id,
-    reference: (inserted as any).booking_reference,
+    reservationId,
+    reference: bookingRef,
   };
 }
 
@@ -1042,12 +1128,24 @@ export interface SamRamadanOffer {
   establishment_name: string | null;
   establishment_slug: string | null;
   establishment_city: string | null;
+  establishment_google_rating: number | null;
+  establishment_google_review_count: number | null;
+  establishment_avg_rating: number | null;
+  establishment_review_count: number | null;
+  establishment_subcategory: string | null;
+  establishment_neighborhood: string | null;
+  establishment_booking_enabled: boolean;
+  establishment_is_online: boolean;
+  establishment_service_types: string[] | null;
+  establishment_universe: string;
 }
 
 export async function searchRamadanOffers(params: {
   type?: string;
   city?: string;
   limit?: number;
+  min_price?: number; // MAD — converti en centimes pour le filtre DB
+  max_price?: number; // MAD — converti en centimes pour le filtre DB
 }): Promise<{ offers: SamRamadanOffer[]; total: number }> {
   const supabase = getAdminSupabase();
   const limit = Math.min(params.limit ?? 5, 10);
@@ -1055,11 +1153,13 @@ export async function searchRamadanOffers(params: {
   let query = supabase
     .from("ramadan_offers")
     .select(
-      "id, title, type, price, original_price, description_fr, time_slots, capacity_per_slot, valid_from, valid_to, cover_url, establishments(id, name, slug, city, cover_url, universe)",
+      "id, title, type, price, original_price, description_fr, time_slots, capacity_per_slot, valid_from, valid_to, cover_url, establishments(id, name, slug, city, cover_url, universe, service_types, google_rating, google_review_count, avg_rating, review_count, subcategory, neighborhood, booking_enabled, is_online)",
     )
     .eq("moderation_status", "active");
 
   if (params.type) query = query.eq("type", params.type);
+  if (params.min_price) query = query.gte("price", params.min_price * 100);
+  if (params.max_price) query = query.lte("price", params.max_price * 100);
 
   const { data, error } = await query;
   if (error) {
@@ -1078,10 +1178,14 @@ export async function searchRamadanOffers(params: {
     });
   }
 
-  // Shuffle Fisher-Yates
-  for (let i = offers.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [offers[i], offers[j]] = [offers[j], offers[i]];
+  // Tri : par prix ASC si filtre prix actif, sinon shuffle Fisher-Yates
+  if (params.max_price || params.min_price) {
+    offers.sort((a: any, b: any) => (a.price ?? 999999) - (b.price ?? 999999));
+  } else {
+    for (let i = offers.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [offers[i], offers[j]] = [offers[j], offers[i]];
+    }
   }
 
   const total = offers.length;
@@ -1104,6 +1208,16 @@ export async function searchRamadanOffers(params: {
       establishment_name: o.establishments?.name ?? null,
       establishment_slug: o.establishments?.slug ?? null,
       establishment_city: o.establishments?.city ?? null,
+      establishment_google_rating: o.establishments?.google_rating ?? null,
+      establishment_google_review_count: o.establishments?.google_review_count ?? null,
+      establishment_avg_rating: o.establishments?.avg_rating ?? null,
+      establishment_review_count: o.establishments?.review_count ?? null,
+      establishment_subcategory: o.establishments?.subcategory ?? null,
+      establishment_neighborhood: o.establishments?.neighborhood ?? null,
+      establishment_booking_enabled: o.establishments?.booking_enabled ?? false,
+      establishment_is_online: o.establishments?.is_online ?? false,
+      establishment_service_types: Array.isArray(o.establishments?.service_types) ? o.establishments.service_types : null,
+      establishment_universe: o.establishments?.universe ?? "restaurant",
     })),
     total,
   };

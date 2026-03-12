@@ -282,7 +282,7 @@ export function AdminUsernameSubscriptionsPage() {
   const columns: ColumnDef<Row>[] = [
     {
       accessorKey: "establishmentName",
-      header: "Etablissement",
+      header: "Établissement",
       cell: (info) => {
         const row = info.row.original;
         return (
@@ -375,7 +375,7 @@ export function AdminUsernameSubscriptionsPage() {
     },
     {
       accessorKey: "createdAt",
-      header: "Cree le",
+      header: "Créé le",
       cell: (info) => info.getValue() as string,
     },
     {
@@ -417,10 +417,10 @@ export function AdminUsernameSubscriptionsPage() {
   const cancellingItem = items.find((i) => i.id === cancellingId);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AdminPageHeader
-        title="Abonnements Liens Personnalises"
-        description="Gerez les abonnements au service de lien personnalise book.sam.ma/@username"
+        title="Abonnements Liens Personnalisés"
+        description="Gérez les abonnements au service de lien personnalisé book.sam.ma/@username"
         actions={
           <RefreshIconButton
             onClick={() => {

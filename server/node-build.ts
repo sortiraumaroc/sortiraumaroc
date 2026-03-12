@@ -27,10 +27,16 @@ const port = process.env.PORT || process.env.PLESK_NODE_PORT || process.env.APP_
 // ─── Cluster Mode ───────────────────────────────────────────────────────────
 // En production, fork un worker par CPU pour utiliser tous les cœurs.
 // Désactivable via CLUSTER_ENABLED=false (ex: debug, dev).
+// Auto-disabled under Phusion Passenger (Plesk) — Passenger manages processes itself.
 // En dev ou si explicitement désactivé, fonctionne en mono-processus.
 const isProduction = process.env.NODE_ENV === "production";
-const clusterEnabled = process.env.CLUSTER_ENABLED !== "false" && isProduction;
+const isPassenger = !!(process.env.PASSENGER_APP_ENV || process.env.PASSENGER_BASE_URI || (typeof (process as any).title === "string" && (process as any).title.includes("Passenger")));
+const clusterEnabled = process.env.CLUSTER_ENABLED !== "false" && isProduction && !isPassenger;
 const numCPUs = Math.max(1, os.availableParallelism?.() ?? os.cpus().length);
+
+if (isPassenger) {
+  log.info("Phusion Passenger detected — cluster mode disabled (Passenger manages processes)");
+}
 
 if (clusterEnabled && cluster.isPrimary) {
   // ─── Primary Process ────────────────────────────────────────────────────

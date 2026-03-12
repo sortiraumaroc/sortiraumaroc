@@ -42,14 +42,21 @@ export const ListDeliveriesQuery = z.object({
 /**
  * POST /api/admin/campaigns
  * Handler: createCampaignRoute
+ *
+ * All fields optional at schema level — deep validation in pushCampaignLogic.
  */
 export const CreateCampaignSchema = z.object({
   title: z.string().optional(),
   message: z.string().optional(),
+  type: z.string().optional(),
+  image_url: z.string().optional().nullable(),
+  cta_url: z.string().optional().nullable(),
+  channels: z.array(z.string()).optional(),
   audience_type: z.enum(["all", "segment"]).optional(),
   audience_filters: z.any().optional(),
+  priority: z.string().optional(),
+  // Legacy / extra fields
   action_url: z.string().optional(),
-  image_url: z.string().optional(),
   icon_url: z.string().optional(),
   data: z.any().optional(),
 });
@@ -58,16 +65,7 @@ export const CreateCampaignSchema = z.object({
  * PUT /api/admin/campaigns/:id
  * Handler: updateCampaignRoute
  */
-export const UpdateCampaignSchema = z.object({
-  title: z.string().optional(),
-  message: z.string().optional(),
-  audience_type: z.enum(["all", "segment"]).optional(),
-  audience_filters: z.any().optional(),
-  action_url: z.string().optional(),
-  image_url: z.string().optional(),
-  icon_url: z.string().optional(),
-  data: z.any().optional(),
-});
+export const UpdateCampaignSchema = CreateCampaignSchema;
 
 /**
  * POST /api/admin/campaigns/:id/schedule

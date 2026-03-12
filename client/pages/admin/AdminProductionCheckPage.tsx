@@ -298,7 +298,7 @@ export function AdminProductionCheckPage() {
   }, [mergedChecks]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AdminPageHeader
         title="Production check"
         description="Vérification automatique de l'environnement, base de données, API et SEO"

@@ -18,18 +18,13 @@ import {
   EstablishmentIdUserIdParams,
   EstablishmentIdRewardIdParams,
 } from "../schemas/loyalty";
+import { parseBearerToken } from "./proHelpers";
 
 const log = createModuleLogger("loyalty");
 
 // =============================================================================
 // HELPERS
 // =============================================================================
-
-function parseBearerToken(header: string | undefined): string | null {
-  if (!header) return null;
-  const match = /^Bearer\s+(.+)$/i.exec(header);
-  return match ? match[1] : null;
-}
 
 async function getUserFromBearerToken(token: string): Promise<
   | { ok: true; user: { id: string; email?: string } }

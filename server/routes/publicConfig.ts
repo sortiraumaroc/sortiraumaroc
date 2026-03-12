@@ -198,7 +198,7 @@ const KNOWN_CITIES: Array<{ name: string; lat: number; lng: number }> = [
   { name: "Kénitra", lat: 34.261, lng: -6.5802 },
   { name: "Tétouan", lat: 35.5889, lng: -5.3626 },
   { name: "Essaouira", lat: 31.5085, lng: -9.7595 },
-  { name: "Mohammedia", lat: 33.6861, lng: -7.3828 },
+  { name: "Mohammédia", lat: 33.6861, lng: -7.3828 },
   { name: "El Jadida", lat: 33.2316, lng: -8.5007 },
   { name: "Salé", lat: 34.0531, lng: -6.7985 },
   { name: "Nador", lat: 35.1681, lng: -2.9287 },
@@ -958,13 +958,168 @@ export async function getPublicLandingPage(req: Request, res: Response) {
   const isFirstPage = !cursor;
 
   // 3. Determine search strategy
-  // If cuisine_type or category exists, use scored search (full-text matching)
-  // Otherwise (city-only), use direct Supabase query ordered by activity_score
-  const searchQuery = cuisineType || category || null;
+  const isFtourRamadan = category === "ftour-ramadan";
+  const searchQuery = isFtourRamadan ? null : (cuisineType || category || null);
 
   let items: PublicEstablishmentListItem[] = [];
   let hasMore = false;
   let totalCount: number | null = null;
+
+  if (isFtourRamadan) {
+    // ---- FTOUR RAMADAN PATH — use pro_slots to find establishments ----
+    const { data: ftourSlots } = await supabase
+      .from("pro_slots")
+      .select("establishment_id")
+      .eq("service_label", "Ftour")
+      .eq("moderation_status", "active")
+      .limit(500);
+
+    const ftourEstabIds = [...new Set((ftourSlots ?? []).map((s: any) => s.establishment_id as string))];
+
+    if (ftourEstabIds.length === 0) {
+      // No Ftour slots → return empty
+      const { data: relatedRaw } = await supabase
+        .from("landing_pages")
+        .select("slug,title_fr,title_en,h1_fr,h1_en,city,cuisine_type")
+        .eq("is_active", true).eq("universe", universe).neq("slug", slug).limit(20);
+      return res.json({
+        ok: true, landing, items: [], pagination: { next_cursor: null, next_cursor_score: null, next_cursor_date: null, has_more: false, total_count: 0 },
+        stats: { total_count: 0 }, related_landings: relatedRaw ?? [],
+      });
+    }
+
+    // Build base query for establishments with Ftour slots
+    let ftourQuery = supabase
+      .from("establishments")
+      .select(
+        "id,slug,name,universe,subcategory,city,address,neighborhood,region,country,lat,lng,phone,cover_url,booking_enabled,updated_at,tags,amenities,is_online,activity_score,verified,premium,curated,google_rating,google_review_count,avg_rating,review_count,reviews_last_30d"
+      )
+      .eq("status", "active")
+      .not("cover_url", "is", null)
+      .neq("cover_url", "")
+      .in("id", ftourEstabIds);
+
+    if (city) ftourQuery = ftourQuery.ilike("city", city);
+    ftourQuery = ftourQuery
+      .order("activity_score", { ascending: false, nullsFirst: false })
+      .order("updated_at", { ascending: false })
+      .order("id", { ascending: false });
+
+    if (cursor && cursorDate) {
+      ftourQuery = ftourQuery.or(
+        `updated_at.lt.${cursorDate},and(updated_at.eq.${cursorDate},id.lt.${cursor})`
+      );
+    }
+    ftourQuery = ftourQuery.limit(limit + 1);
+
+    // Count
+    if (isFirstPage) {
+      let countQ = supabase
+        .from("establishments")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "active")
+        .not("cover_url", "is", null)
+        .neq("cover_url", "")
+        .in("id", ftourEstabIds);
+      if (city) countQ = countQ.ilike("city", city);
+      const { count } = await countQ;
+      totalCount = typeof count === "number" ? count : null;
+    }
+
+    const { data: ftourEstabs, error: ftourErr } = await ftourQuery;
+    if (ftourErr) return res.status(500).json({ error: ftourErr.message });
+
+    const estArrRaw = (ftourEstabs ?? []) as Array<Record<string, unknown>>;
+    hasMore = estArrRaw.length > limit;
+    const estArr = hasMore ? estArrRaw.slice(0, limit) : estArrRaw;
+
+    // Enrich with slots + reservations
+    const ids = estArr.map((e) => String(e.id ?? "")).filter(Boolean);
+    const nowIso = new Date().toISOString();
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    const [{ data: slots }, { data: reservations }] = await Promise.all([
+      ids.length
+        ? supabase.from("pro_slots").select("establishment_id,starts_at,promo_type,promo_value,active")
+            .in("establishment_id", ids).eq("active", true).gte("starts_at", nowIso)
+            .order("starts_at", { ascending: true }).limit(5000)
+        : Promise.resolve({ data: [] as unknown[] }),
+      ids.length
+        ? supabase.from("reservations").select("establishment_id,created_at,status")
+            .in("establishment_id", ids).gte("created_at", thirtyDaysAgo)
+            .in("status", ["confirmed", "pending_pro_validation", "requested"]).limit(5000)
+        : Promise.resolve({ data: [] as unknown[] }),
+    ]);
+
+    const nextSlotByEst = new Map<string, string>();
+    const promoByEst = new Map<string, number>();
+    for (const s of (slots ?? []) as Array<Record<string, unknown>>) {
+      const eid = typeof s.establishment_id === "string" ? s.establishment_id : "";
+      const startsAt = typeof s.starts_at === "string" ? s.starts_at : "";
+      if (!eid || !startsAt) continue;
+      if (!nextSlotByEst.has(eid)) nextSlotByEst.set(eid, startsAt);
+      const promo = maxPromoPercent(s.promo_type, s.promo_value);
+      if (promo != null) promoByEst.set(eid, Math.max(promoByEst.get(eid) ?? 0, promo));
+    }
+
+    const reservationCountByEst = new Map<string, number>();
+    for (const r of (reservations ?? []) as Array<Record<string, unknown>>) {
+      const eid = typeof r.establishment_id === "string" ? r.establishment_id : "";
+      if (!eid) continue;
+      reservationCountByEst.set(eid, (reservationCountByEst.get(eid) ?? 0) + 1);
+    }
+
+    items = estArr.map((e) => {
+      const id = typeof e.id === "string" ? e.id : "";
+      if (!id) return null as unknown as PublicEstablishmentListItem;
+      return {
+        id,
+        name: typeof e.name === "string" ? e.name : null,
+        universe: typeof e.universe === "string" ? e.universe : null,
+        subcategory: typeof e.subcategory === "string" ? e.subcategory : null,
+        city: typeof e.city === "string" ? e.city : null,
+        address: typeof e.address === "string" ? e.address : null,
+        neighborhood: typeof e.neighborhood === "string" ? e.neighborhood : null,
+        region: typeof e.region === "string" ? e.region : null,
+        country: typeof e.country === "string" ? e.country : null,
+        lat: typeof e.lat === "number" && Number.isFinite(e.lat) ? e.lat : null,
+        lng: typeof e.lng === "number" && Number.isFinite(e.lng) ? e.lng : null,
+        cover_url: typeof e.cover_url === "string" ? e.cover_url : null,
+        booking_enabled: typeof e.booking_enabled === "boolean" ? e.booking_enabled : null,
+        promo_percent: promoByEst.get(id) ?? null,
+        next_slot_at: nextSlotByEst.get(id) ?? null,
+        reservations_30d: reservationCountByEst.get(id) ?? 0,
+        avg_rating: typeof e.avg_rating === "number" ? e.avg_rating : null,
+        review_count: typeof e.review_count === "number" ? e.review_count : 0,
+        reviews_last_30d: typeof e.reviews_last_30d === "number" ? e.reviews_last_30d : 0,
+        verified: typeof e.verified === "boolean" ? e.verified : false,
+        premium: typeof e.premium === "boolean" ? e.premium : false,
+        curated: typeof e.curated === "boolean" ? e.curated : false,
+        tags: Array.isArray(e.tags) ? (e.tags as string[]) : null,
+        slug: typeof e.slug === "string" ? e.slug : null,
+        is_online: typeof e.is_online === "boolean" ? e.is_online : false,
+        activity_score: typeof e.activity_score === "number" ? e.activity_score : undefined,
+        google_rating: typeof e.google_rating === "number" ? e.google_rating : null,
+        google_review_count: typeof e.google_review_count === "number" ? e.google_review_count : null,
+      };
+    }).filter(Boolean) as PublicEstablishmentListItem[];
+
+    const lastItem = estArr.length > 0 ? estArr[estArr.length - 1] : null;
+    const nextCursor = hasMore && lastItem && typeof lastItem.id === "string" ? lastItem.id : null;
+    const nextCursorDate = hasMore && lastItem && typeof lastItem.updated_at === "string" ? lastItem.updated_at : null;
+
+    const { data: relatedRaw } = await supabase
+      .from("landing_pages")
+      .select("slug,title_fr,title_en,h1_fr,h1_en,city,cuisine_type")
+      .eq("is_active", true).eq("universe", universe).neq("slug", slug).limit(20);
+
+    return res.json({
+      ok: true, landing, items,
+      pagination: { next_cursor: nextCursor, next_cursor_score: null, next_cursor_date: nextCursorDate, has_more: hasMore, total_count: totalCount },
+      stats: { total_count: totalCount ?? items.length },
+      related_landings: relatedRaw ?? [],
+    });
+  }
 
   if (searchQuery) {
     // ---- SCORED SEARCH PATH ----

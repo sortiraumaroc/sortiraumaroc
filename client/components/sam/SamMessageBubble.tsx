@@ -5,6 +5,8 @@
 import { useMemo } from "react";
 import type { SamMessage } from "../../hooks/useSam";
 import { SamEstablishmentCard } from "./SamEstablishmentCard";
+import { SamRamadanOfferCard } from "./SamRamadanOfferCard";
+import { SamEstablishmentSkeletons } from "./SamEstablishmentCardSkeleton";
 import type { SamEstablishmentItem } from "../../lib/samApi";
 import type { LatLng } from "../../lib/geo";
 import { SamTypingIndicator } from "./SamTypingIndicator";
@@ -221,22 +223,22 @@ export function SamMessageBubble({ message, userLocation, onSpeak, onStopSpeakin
       )}
 
       <div
-        className={`max-w-[80%] space-y-2 ${
+        className={`min-w-0 space-y-2 ${
           isUser
-            ? "rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-white"
-            : "space-y-2"
+            ? "max-w-[80%] rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-white"
+            : "w-full"
         }`}
       >
         {/* Texte du message */}
         {message.isLoading && !message.content ? (
           <SamTypingIndicator />
         ) : message.isError ? (
-          <div className="flex items-start gap-2 rounded-2xl rounded-bl-md bg-destructive/10 px-4 py-2.5 text-destructive">
+          <div className="flex items-start gap-2 rounded-2xl rounded-bl-md bg-destructive/10 px-4 py-2.5 text-destructive max-w-[85%]">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <p className="text-sm">{message.content}</p>
           </div>
         ) : !isUser && message.content ? (
-          <div className="group relative rounded-2xl rounded-bl-md bg-muted px-4 py-2.5 space-y-1.5">
+          <div className="group relative rounded-2xl rounded-bl-md bg-muted px-4 py-2.5 space-y-1.5 max-w-[85%]">
             {renderedContent}
             {/* Bouton écouter le message */}
             {onSpeak && !message.isLoading && (
@@ -270,17 +272,25 @@ export function SamMessageBubble({ message, userLocation, onSpeak, onStopSpeakin
           <p className="text-sm leading-relaxed">{message.content}</p>
         ) : null}
 
-        {/* Carrousel d'établissements */}
+        {/* Grille d'établissements — pleine largeur du chat */}
         {message.establishments && message.establishments.length > 0 && (
-          <div
-            className="flex gap-2 overflow-x-auto scroll-smooth snap-x snap-mandatory pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          >
+          <div className="grid grid-cols-1 gap-3 w-full">
             {message.establishments
               .filter((est): est is SamEstablishmentItem => est != null && est.id != null)
-              .map((est) => (
-                <SamEstablishmentCard key={est.id} item={est} userLocation={userLocation} />
-              ))}
+              .slice(0, 5)
+              .map((est) =>
+                est.ramadan_offer ? (
+                  <SamRamadanOfferCard key={`${est.id}-${est.ramadan_offer.offer_id}`} item={est} />
+                ) : (
+                  <SamEstablishmentCard key={est.id} item={est} />
+                ),
+              )}
           </div>
+        )}
+
+        {/* Skeleton cards — pendant que Sam cherche des établissements */}
+        {message.isSearching && !(message.establishments?.length) && (
+          <SamEstablishmentSkeletons />
         )}
       </div>
     </div>

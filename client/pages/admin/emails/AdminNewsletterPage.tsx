@@ -568,6 +568,7 @@ export function AdminNewsletterPage() {
 
   return (
     <div className="space-y-4">
+      <AdminEmailsNav />
       <AdminPageHeader
         title="Newsletter"
         description="Créez et gérez vos templates newsletter avec un éditeur visuel drag & drop."
@@ -587,7 +588,6 @@ export function AdminNewsletterPage() {
 
       <Card className="border-slate-200">
         <CardContent className="p-4 space-y-3">
-          <AdminEmailsNav />
 
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
             <div className="w-full sm:w-72">

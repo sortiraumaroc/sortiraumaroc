@@ -69,31 +69,101 @@ router.get("/", cacheMiddleware(120, (req) =>
     featured: String(req.query.featured ?? ""),
     min_price: String(req.query.min_price ?? ""),
     max_price: String(req.query.max_price ?? ""),
-    limit: String(req.query.limit ?? ""),
-    offset: String(req.query.offset ?? ""),
+    sort: String(req.query.sort ?? ""),
+    page: String(req.query.page ?? ""),
+    per_page: String(req.query.per_page ?? ""),
+    search: String(req.query.search ?? ""),
   }),
 ), (async (req, res) => {
   const supabase = getAdminSupabase();
 
   const type = asString(req.query.type);
   const city = asString(req.query.city);
+  const search = asString(req.query.search);
   const featured = req.query.featured === "true";
   const minPrice = asNumber(req.query.min_price);
   const maxPrice = asNumber(req.query.max_price);
+  const searchQuery = asString(req.query.search);
   const sort = asString(req.query.sort) || "featured";
   const page = Math.max(1, asNumber(req.query.page) || 1);
   const perPage = Math.min(50, Math.max(1, asNumber(req.query.per_page) || 20));
   const offset = (page - 1) * perPage;
 
+  // 1. Ramadan offers classiques
   let query = supabase
     .from("ramadan_offers")
-    .select("*, establishments(id, name, slug, city, cover_url, logo_url, universe)", { count: "exact" })
+    .select("*, establishments(id, name, slug, city, cover_url, logo_url, universe, service_types, phone, google_maps_url)", { count: "exact" })
     .eq("moderation_status", "active");
 
   if (type) query = query.eq("type", type);
   if (featured) query = query.eq("is_featured", true);
   if (minPrice !== undefined) query = query.gte("price", minPrice);
   if (maxPrice !== undefined) query = query.lte("price", maxPrice);
+
+  // 2. Ftour slots actifs (groupés par établissement → carte homepage)
+  //    Seulement si pas de filtre type OU type === 'ftour'
+  let ftourOffers: any[] = [];
+  if (!type || type === "ftour") {
+    const { data: slotsData } = await supabase
+      .from("pro_slots")
+      .select("*, establishments!inner(id, name, slug, city, cover_url, logo_url, universe, service_types, phone, google_maps_url)")
+      .eq("service_label", "Ftour")
+      .eq("moderation_status", "active")
+      .order("starts_at", { ascending: true })
+      .limit(500);
+
+    if (slotsData?.length) {
+      // Grouper par établissement
+      const byEstab = new Map<string, any[]>();
+      for (const s of slotsData as any[]) {
+        const eid = s.establishment_id;
+        if (!byEstab.has(eid)) byEstab.set(eid, []);
+        byEstab.get(eid)!.push(s);
+      }
+
+      for (const [estabId, slots] of byEstab) {
+        const first = slots[0];
+        const last = slots[slots.length - 1];
+        // Construire les time_slots à partir du premier slot
+        const startTime = new Date(first.starts_at);
+        const endTime = first.ends_at ? new Date(first.ends_at) : new Date(startTime.getTime() + 180 * 60000);
+        const timeSlots = [{
+          start: `${String(startTime.getHours()).padStart(2, "0")}:${String(startTime.getMinutes()).padStart(2, "0")}`,
+          end: `${String(endTime.getHours()).padStart(2, "0")}:${String(endTime.getMinutes()).padStart(2, "0")}`,
+          label: "Ftour",
+        }];
+
+        ftourOffers.push({
+          id: `ftour_${estabId}`,
+          establishment_id: estabId,
+          title: first.title || `Ftour — ${first.establishments?.name ?? ""}`,
+          type: "ftour",
+          price: first.base_price ?? 0,
+          price_type: first.base_price && first.base_price > 0
+            ? (first.price_type === "a_la_carte" || first.price_type === "starting_from" ? first.price_type : "fixed")
+            : (first.price_type ?? "nc"),
+          original_price: null,
+          currency: "MAD",
+          cover_url: first.cover_url,
+          capacity_per_slot: first.capacity ?? 30,
+          slot_interval_minutes: 30,
+          time_slots: timeSlots,
+          photos: first.cover_url ? [first.cover_url] : [],
+          conditions_fr: null,
+          conditions_ar: null,
+          description_fr: null,
+          description_ar: null,
+          moderation_status: "active",
+          is_featured: !!(first as any).is_featured,
+          valid_from: first.starts_at?.split("T")[0] ?? null,
+          valid_to: last.starts_at?.split("T")[0] ?? null,
+          created_at: first.created_at,
+          updated_at: first.updated_at,
+          establishments: first.establishments,
+        });
+      }
+    }
+  }
 
   // Tri — pour "featured" (défaut), on shuffle pour varier l'ordre à chaque visite
   const isRandomSort = sort === "featured" || !["price_asc", "price_desc", "newest"].includes(sort);
@@ -112,13 +182,18 @@ router.get("/", cacheMiddleware(120, (req) =>
     }
   }
 
-  // Pour le tri aléatoire ou le filtre ville, on récupère tout en mémoire
+  // Pour le tri aléatoire, filtre ville ou recherche, on récupère tout en mémoire
   // Le volume d'offres Ramadan actives est faible (<200) donc OK.
-  if (isRandomSort || city) {
+  if (isRandomSort || city || searchQuery) {
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
 
     let allOffers = (data ?? []) as any[];
+
+    // Dédupliquer : ne pas inclure de ftour group si un ramadan_offer existe déjà pour cet établissement
+    const existingEstabIds = new Set(allOffers.map((o: any) => o.establishment_id));
+    const uniqueFtour = ftourOffers.filter((f) => !existingEstabIds.has(f.establishment_id));
+    allOffers = [...allOffers, ...uniqueFtour];
 
     // Filtre ville en mémoire
     if (city) {
@@ -126,6 +201,31 @@ router.get("/", cacheMiddleware(120, (req) =>
       allOffers = allOffers.filter((o: any) => {
         const estCity = o.establishments?.city;
         return typeof estCity === "string" && estCity.toLowerCase().includes(lowerCity);
+      });
+    }
+
+    // Recherche textuelle en mémoire (nom établissement, ville, titre, description, type de prix)
+    if (searchQuery) {
+      const terms = searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
+      allOffers = allOffers.filter((o: any) => {
+        const haystack = [
+          o.establishments?.name,
+          o.establishments?.city,
+          o.title,
+          o.description_fr,
+          // Mapper price_type vers labels recherchables
+          o.price_type === "a_la_carte" ? "à la carte" : "",
+          o.price_type === "fixed" ? "prix fixe" : "",
+          o.price_type === "free" ? "gratuit" : "",
+          o.price_type === "starting_from" ? "à partir de" : "",
+          // Type d'offre
+          o.type === "ftour" ? "ftour buffet" : "",
+          o.type === "shour" ? "shour" : "",
+          o.type === "traiteur" ? "traiteur" : "",
+          o.type === "pack_famille" ? "pack famille" : "",
+          o.type === "special" ? "spécial ramadan" : "",
+        ].filter(Boolean).join(" ").toLowerCase();
+        return terms.every((t) => haystack.includes(t));
       });
     }
 
@@ -146,7 +246,12 @@ router.get("/", cacheMiddleware(120, (req) =>
   const { data, count, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
 
-  return res.json({ offers: data ?? [], total: count ?? 0, page, per_page: perPage });
+  // Ajouter les ftour groups dédupliqués
+  const existingEstabIds = new Set((data ?? []).map((o: any) => o.establishment_id));
+  const uniqueFtour = ftourOffers.filter((f) => !existingEstabIds.has(f.establishment_id));
+  const combined = [...(data ?? []), ...uniqueFtour];
+
+  return res.json({ offers: combined, total: (count ?? 0) + uniqueFtour.length, page, per_page: perPage });
 }) as RequestHandler);
 
 // ---------------------------------------------------------------------------
@@ -160,7 +265,7 @@ router.get("/:id", (async (req, res) => {
 
   const { data: offer, error } = await supabase
     .from("ramadan_offers")
-    .select("*, establishments(id, name, slug, city, cover_url, logo_url, universe, address, phone, description)")
+    .select("*, establishments(id, name, slug, city, cover_url, logo_url, universe, service_types, address, phone, description)")
     .eq("id", offerId)
     .eq("moderation_status", "active")
     .maybeSingle();

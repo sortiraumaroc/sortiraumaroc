@@ -227,8 +227,9 @@ export function registerCePublicRoutes(app: Express): void {
     let usesCount = 0;
     if (advantage.max_uses_per_employee > 0) {
       const { count } = await sb
-        .from("b2b_scans").eq("scan_type", "ce")
+        .from("b2b_scans")
         .select("id", { count: "exact", head: true })
+        .eq("scan_type", "ce")
         .eq("employee_id", info.employee.id)
         .eq("advantage_id", advantage.id)
         .eq("status", "validated");
@@ -323,8 +324,9 @@ export function registerCePublicRoutes(app: Express): void {
     const offset = (page - 1) * limit;
 
     const { data: scans, count } = await sb
-      .from("b2b_scans").eq("scan_type", "ce")
+      .from("b2b_scans")
       .select("*", { count: "exact" })
+      .eq("scan_type", "ce")
       .eq("employee_id", emp.id)
       .order("scan_datetime", { ascending: false })
       .range(offset, offset + limit - 1);

@@ -38,6 +38,8 @@ export interface PlatformSettingsSnapshot {
     social_youtube: string;
     social_snapchat: string;
     social_linkedin: string;
+    contact_email: string;
+    contact_phone: string;
   };
   ramadan: {
     enabled: boolean;
@@ -85,6 +87,8 @@ const defaultSnapshot: PlatformSettingsSnapshot = {
     social_youtube: "",
     social_snapchat: "",
     social_linkedin: "",
+    contact_email: "contact@sam.ma",
+    contact_phone: "+212520123456",
   },
   ramadan: {
     enabled: false,

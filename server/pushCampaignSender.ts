@@ -135,6 +135,20 @@ async function sendViaPush(
     }
   }
 
+  // Include anonymous tokens (user_id IS NULL) — these are visitors who
+  // accepted push notifications without being logged in
+  const { data: anonTokens } = await supabase
+    .from("consumer_fcm_tokens")
+    .select("token")
+    .is("user_id", null)
+    .eq("active", true);
+
+  if (anonTokens) {
+    for (const row of anonTokens as { token: string }[]) {
+      allTokenEntries.push({ userId: "__anonymous__", token: row.token });
+    }
+  }
+
   // Send in batches of 500 tokens
   const fcmBatchSize = 500;
 

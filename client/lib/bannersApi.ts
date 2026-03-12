@@ -276,3 +276,51 @@ export async function exportFormResponses(bannerId: string): Promise<Blob> {
 export async function getActiveBannerCount(): Promise<{ count: number }> {
   return adminJson("/api/admin/banners/active-count");
 }
+
+/** POST /api/admin/banners/upload-media — Upload banner image/video to Supabase Storage */
+export async function uploadBannerMedia(
+  file: File,
+  onProgress?: (percent: number) => void,
+): Promise<{ ok: true; url: string; path: string }> {
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    formData.append("media", file);
+
+    const xhr = new XMLHttpRequest();
+
+    if (onProgress) {
+      xhr.upload.addEventListener("progress", (event) => {
+        if (event.lengthComputable) {
+          onProgress(Math.round((event.loaded / event.total) * 100));
+        }
+      });
+    }
+
+    xhr.addEventListener("load", () => {
+      try {
+        const payload = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(payload);
+        } else {
+          reject(new BannersApiError(payload?.error || `HTTP ${xhr.status}`, xhr.status, payload));
+        }
+      } catch {
+        reject(new BannersApiError(`HTTP ${xhr.status}`, xhr.status));
+      }
+    });
+
+    xhr.addEventListener("error", () => {
+      reject(new BannersApiError("Impossible de contacter le serveur.", 0));
+    });
+
+    xhr.open("POST", "/api/admin/banners/upload-media");
+
+    // Set admin auth headers
+    const headers = getAdminHeaders();
+    for (const [key, value] of Object.entries(headers)) {
+      xhr.setRequestHeader(key, value);
+    }
+
+    xhr.send(formData);
+  });
+}

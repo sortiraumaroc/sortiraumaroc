@@ -30,7 +30,7 @@ const MOROCCAN_CITIES = [
   "Tétouan",
   "Salé",
   "Nador",
-  "Mohammedia",
+  "Mohammédia",
   "El Jadida",
   "Beni Mellal",
   "Khénifra",

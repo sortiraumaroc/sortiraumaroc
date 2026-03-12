@@ -162,13 +162,13 @@ export function AdminMediaFactoryComptaPage() {
   }, [items]);
 
   return (
-    <div className="p-4 lg:p-6 space-y-4">
+    <div className="space-y-4">
+      <AdminVisibilityNav />
+
       <AdminPageHeader
         title="Media Factory"
         description="Comptabilité - Factures Partenaires"
       />
-
-      <AdminVisibilityNav />
 
       <div className="flex items-center justify-end gap-3">
         <div className="flex items-center gap-2">

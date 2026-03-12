@@ -866,13 +866,16 @@ export const updateMyProfile: RequestHandler = async (req, res) => {
       .eq("id", collaboratorId)
       .single();
 
-    if (!currentCollab || currentCollab.password_hash === "legacy_auth_no_password") {
+    if (!currentCollab) {
       return res.status(400).json({ error: "Impossible de modifier le mot de passe pour ce compte" });
     }
 
-    const isValid = await verifyPassword(currentPassword, currentCollab.password_hash);
-    if (!isValid) {
-      return res.status(400).json({ error: "Le mot de passe actuel est incorrect" });
+    // Legacy accounts (no password hash) — allow setting a new password without verifying old one
+    if (currentCollab.password_hash !== "legacy_auth_no_password") {
+      const isValid = await verifyPassword(currentPassword, currentCollab.password_hash);
+      if (!isValid) {
+        return res.status(400).json({ error: "Le mot de passe actuel est incorrect" });
+      }
     }
 
     update.password_hash = await hashPassword(newPassword);

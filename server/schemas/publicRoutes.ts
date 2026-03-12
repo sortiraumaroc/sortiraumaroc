@@ -24,6 +24,12 @@ export const UpdateConsumerMeSchema = z.object({
   city: z.string().max(100).optional(),
   country: z.string().max(100).optional(),
   socio_professional_status: z.string().max(100).optional(),
+  // Onboarding fields
+  username: z.string().min(3).max(30).optional(),
+  gender: z.enum(["male", "female"]).optional(),
+  onboarding_completed: z.boolean().optional(),
+  avatar_url: z.string().optional(),
+  avatarUrl: z.string().optional(),
 });
 
 export const DeactivateConsumerAccountSchema = z.object({
@@ -202,7 +208,7 @@ export const SubmitContactFormSchema = z.object({
 
 /** GET /api/public/establishments */
 export const ListEstablishmentsQuery = z.object({
-  q: z.string().optional(),
+  q: z.string().max(200).optional(),
   universe: z.string().optional(),
   city: z.string().optional(),
   category: z.string().optional(),
@@ -212,23 +218,24 @@ export const ListEstablishmentsQuery = z.object({
   cursor: z.string().optional(),
   cs: z.string().optional(),
   cd: z.string().optional(),
-  swLat: z.string().optional(),
-  swLng: z.string().optional(),
-  neLat: z.string().optional(),
-  neLng: z.string().optional(),
+  swLat: z.string().refine(s => { const n = Number(s); return !isNaN(n) && n >= -90 && n <= 90; }, "Latitude invalide").optional(),
+  swLng: z.string().refine(s => { const n = Number(s); return !isNaN(n) && n >= -180 && n <= 180; }, "Longitude invalide").optional(),
+  neLat: z.string().refine(s => { const n = Number(s); return !isNaN(n) && n >= -90 && n <= 90; }, "Latitude invalide").optional(),
+  neLng: z.string().refine(s => { const n = Number(s); return !isNaN(n) && n >= -180 && n <= 180; }, "Longitude invalide").optional(),
   promo: z.string().optional(),
   promoOnly: z.string().optional(),
   open_now: z.string().optional(),
   instant_booking: z.string().optional(),
-  amenities: z.string().optional(),
+  amenities: z.string().refine(s => s.split(",").length <= 15, "Max 15 amenities").optional(),
   price_range: z.string().optional(),
   personalized: z.string().optional(),
   lang: z.string().optional(),
+  ramadan: z.string().optional(),
 });
 
 /** GET /api/public/search/autocomplete */
 export const SearchAutocompleteQuery = z.object({
-  q: z.string().optional(),
+  q: z.string().max(200).optional(),
   universe: z.string().optional(),
   city: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(20).optional(),
@@ -275,6 +282,12 @@ export const PublicLandingPageQuery = z.object({
 /** GET /api/public/universes */
 export const PublicUniversesQuery = z.object({
   universe: z.string().optional(),
+});
+
+/** GET /api/public/establishments/:id/slots */
+export const EstablishmentSlotsQuery = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "date must be YYYY-MM-DD"),
+  partySize: z.coerce.number().int().min(1).max(100).optional(),
 });
 
 // =============================================================================

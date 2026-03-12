@@ -88,7 +88,7 @@ function RejectDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Rejeter le vehicule</DialogTitle>
+          <DialogTitle>Rejeter le véhicule</DialogTitle>
           <DialogDescription>
             Indiquez la raison du refus pour {vehicleName}.
           </DialogDescription>
@@ -186,8 +186,8 @@ function PendingVehicleCard({
           <span>
             Prix/jour: {vehicle.pricing?.standard ?? "---"} MAD
           </span>
-          <span>Quantite: {vehicle.quantity}</span>
-          <span>Cree le: {formatDate(vehicle.created_at)}</span>
+          <span>Quantité: {vehicle.quantity}</span>
+          <span>Créé le: {formatDate(vehicle.created_at)}</span>
         </div>
 
         {/* Actions */}
@@ -239,7 +239,7 @@ export function AdminRentalModerationPanel() {
     } catch {
       toast({
         title: "Erreur",
-        description: "Impossible de charger les vehicules en attente",
+        description: "Impossible de charger les véhicules en attente",
         variant: "destructive",
       });
     } finally {
@@ -255,7 +255,7 @@ export function AdminRentalModerationPanel() {
     setActionLoading(true);
     try {
       await moderateVehicle(vehicle.id, "approve");
-      toast({ title: "Vehicule approuve" });
+      toast({ title: "Véhicule approuvé" });
       load();
     } catch (e: any) {
       toast({
@@ -273,7 +273,7 @@ export function AdminRentalModerationPanel() {
     setActionLoading(true);
     try {
       await moderateVehicle(rejectTarget.id, "reject");
-      toast({ title: "Vehicule rejete" });
+      toast({ title: "Véhicule rejeté" });
       setRejectTarget(null);
       load();
     } catch (e: any) {
@@ -293,7 +293,7 @@ export function AdminRentalModerationPanel() {
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
           <CardTitle className="text-base font-semibold flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-amber-500" />
-            Vehicules en attente de moderation
+            Véhicules en attente de modération
             {total > 0 && (
               <Badge className="bg-amber-100 text-amber-800 ml-1">
                 {total}

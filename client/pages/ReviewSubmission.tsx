@@ -39,6 +39,8 @@ import {
 import { StarRating } from "@/components/reviews/StarRating";
 import { PageLoading } from "@/components/PageLoading";
 import { cn } from "@/lib/utils";
+import { useMenuVotes } from "@/hooks/useMenuVotes";
+import type { PublicMenuCategory } from "@/lib/publicApi";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -99,6 +101,29 @@ export default function ReviewSubmission() {
   const [wouldRecommend, setWouldRecommend] = useState<boolean | null>(null);
   const [photos, setPhotos] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
+
+  // Menu dishes for "dishes tested" section
+  const [menuDishes, setMenuDishes] = useState<PublicMenuCategory[]>([]);
+  const [loadingDishes, setLoadingDishes] = useState(false);
+  const establishmentId = invitation?.establishment?.id;
+  const { votesMap, myVotesMap, toggleVote } = useMenuVotes(establishmentId);
+
+  // Load menu items when establishment is known
+  useEffect(() => {
+    if (!establishmentId) return;
+    let cancelled = false;
+    setLoadingDishes(true);
+    fetch(`/api/public/establishments/${encodeURIComponent(establishmentId)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled && Array.isArray(data?.menu)) {
+          setMenuDishes(data.menu);
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoadingDishes(false); });
+    return () => { cancelled = true; };
+  }, [establishmentId]);
 
   // Computed overall
   const overallRating = useMemo(
@@ -406,6 +431,74 @@ export default function ReviewSubmission() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Dishes tested — like/dislike */}
+        {menuDishes.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">
+                Quels plats avez-vous testés ?
+              </CardTitle>
+              <CardDescription>
+                Likez ou dislikez les plats que vous avez goûtés
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {menuDishes.map((cat) => (
+                  <div key={cat.id}>
+                    <h4 className="text-sm font-semibold text-slate-700 mb-2">{cat.name}</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {cat.items.map((dish) => {
+                        const iid = dish.inventoryItemId;
+                        const myVote = iid ? myVotesMap[iid] ?? null : null;
+                        return (
+                          <div
+                            key={dish.id}
+                            className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2"
+                          >
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium text-slate-900 truncate">{dish.name}</div>
+                              {dish.price && <div className="text-xs text-slate-500">{dish.price}</div>}
+                            </div>
+                            {iid && (
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleVote(iid, "like")}
+                                  className={cn(
+                                    "p-1.5 rounded-md transition",
+                                    myVote === "like"
+                                      ? "bg-emerald-100 text-emerald-700"
+                                      : "text-slate-400 hover:bg-slate-100",
+                                  )}
+                                >
+                                  <ThumbsUp className="h-4 w-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleVote(iid, "dislike")}
+                                  className={cn(
+                                    "p-1.5 rounded-md transition",
+                                    myVote === "dislike"
+                                      ? "bg-red-100 text-red-700"
+                                      : "text-slate-400 hover:bg-slate-100",
+                                  )}
+                                >
+                                  <ThumbsDown className="h-4 w-4" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Comment form */}
         <Card>

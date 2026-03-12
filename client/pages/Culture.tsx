@@ -28,7 +28,6 @@ import { ReservationBanner } from "@/components/booking/ReservationBanner";
 import { EstablishmentTabs } from "@/components/establishment/EstablishmentTabs";
 import { CeAdvantageSection } from "@/components/ce/CeAdvantageSection";
 import { GOOGLE_MAPS_LOGO_URL, WAZE_LOGO_URL } from "@/lib/mapAppLogos";
-import { createRng, makeImageSet, makePhoneMa, makeWebsiteUrl, nextDaysYmd, pickMany, pickOne, slugify } from "@/lib/mockData";
 import { cn } from "@/lib/utils";
 import { isAuthed, openAuthModal } from "@/lib/auth";
 import { ReportEstablishmentDialog } from "@/components/ReportEstablishmentDialog";
@@ -175,81 +174,9 @@ function buildFallbackCulture(args: {
   neighborhood?: string;
   city?: string;
 }): CultureData {
-  const rng = createRng(`culture-${args.id}-${args.name}`);
-
-  const city = args.city ?? "Marrakech";
-  const neighborhood = args.neighborhood ?? pickOne(rng, ["Médina", "Guéliz", "Centre historique", "Kasbah"] as const);
-  const category = args.category ?? pickOne(rng, ["Musée", "Monument", "Palais", "Site historique", "Marché"] as const);
-
-  const rating = clampRating(4.2 + rng() * 0.7);
-  const reviewCount = Math.floor(120 + rng() * 900);
-  const phone = makePhoneMa(rng);
-  const website = makeWebsiteUrl(args.name);
-
-  const images = makeImageSet(rng, "culture");
-
-  const highlights = pickMany(
-    rng,
-    [
-      "Billets horodatés pour limiter l’attente",
-      "Parcours conseillé 60–90 min",
-      "Zones photo (hors zones signalées)",
-      "Accès facile en taxi",
-      "Boutique et souvenirs sur place",
-      "Idéal le matin pour une visite plus fluide",
-      "Panneaux explicatifs et histoire du lieu",
-      "Expérience immersive",
-    ] as const,
-    6,
-  );
-
-  const ticketIncluded = pickMany(
-    rng,
-    [
-      "Accès au site",
-      "Accès exposition permanente",
-      "Accès exposition temporaire (selon calendrier)",
-      "Accès boutique",
-      "Audioguide (selon option)",
-    ] as const,
-    3,
-  );
-
-  const ticketInfo: CultureData["ticketInfo"] = {
-    openDays: pickOne(rng, ["Tous les jours", "Tous les jours sauf lundi", "Tous les jours sauf mercredi"] as const),
-    duration: pickOne(rng, ["45–60 min", "60–90 min", "90–120 min"] as const),
-    bestTime: pickOne(rng, ["Matin (10h–12h)", "Fin d’après-midi (16h–18h)"] as const),
-    included: ticketIncluded,
-  };
-
-  const basePrice = Math.floor(60 + rng() * 120);
-  const slots: Slot[] = [
-    { label: "Aujourd’hui", times: ["10:00", "11:00", "12:00", "14:00", "15:00", "16:00"], priceFromMad: basePrice },
-    { label: "Demain", times: ["10:00", "11:00", "12:00", "13:00", "15:00", "16:00"], priceFromMad: basePrice },
-  ];
-
-  const policies = [
-    "Arrivez 10 minutes avant l’horaire.",
-    "Billets non remboursables après validation.",
-    "Pièce d’identité requise pour les tarifs réduits.",
-  ];
-
-  const reviewerNames = ["Nadia", "Youssef", "Sarah", "Mehdi", "Salma"] as const;
-  const reviewTexts = [
-    "Visite superbe, très bien organisée.",
-    "Lieu incontournable, on apprend beaucoup.",
-    "Billets horodatés pratiques, flux fluide.",
-    "Très beau site, prévoir un peu d’ombre en été.",
-    "Bonne expérience, boutique sympa.",
-  ] as const;
-
-  const reviews: Review[] = Array.from({ length: 4 }, (_, i) => ({
-    id: `c-${args.id}-${i}`,
-    author: pickOne(rng, reviewerNames),
-    rating: Math.max(3, Math.round((3.7 + rng() * 1.3) * 2) / 2),
-    date: nextDaysYmd(30)[Math.floor(rng() * 30)] ?? "2025-01-01",
-    text: pickOne(rng, reviewTexts),
-  }));
+  const city = args.city ?? "";
+  const neighborhood = args.neighborhood ?? "";
+  const category = args.category ?? "";
 
   return {
     id: args.id,
@@ -257,24 +184,25 @@ function buildFallbackCulture(args: {
     category,
     city,
     neighborhood,
-    address: `${Math.floor(1 + rng() * 250)} ${pickOne(rng, ["Rue", "Avenue", "Place"] as const)} ${pickOne(rng, ["Bab", "Kasbah", "Majorelle", "Bahia"] as const)}, ${city}`,
-    phone,
-    website,
-    rating,
-    reviewCount,
-    description: `Une sortie ${category.toLowerCase()} à ${city}: visite accessible, points forts clairs et créneaux simples à réserver.`,
-    highlights,
-    images,
-    ticketInfo,
-    slots,
-    policies,
-    socialMedia: [
-      { platform: "instagram", url: `https://instagram.com/${slugify(args.name)}` },
-      { platform: "facebook", url: `https://facebook.com/${slugify(args.name)}` },
-      { platform: "website", url: website },
-    ],
-    reviews,
-    mapQuery: `${args.name} ${city}`,
+    address: "",
+    phone: "",
+    website: "",
+    rating: 0,
+    reviewCount: 0,
+    description: "",
+    highlights: [],
+    images: [],
+    ticketInfo: {
+      openDays: "Tous les jours",
+      duration: "60–90 min",
+      bestTime: "Matin (10h–12h)",
+      included: [],
+    },
+    slots: [],
+    policies: [],
+    socialMedia: [],
+    reviews: [],
+    mapQuery: `${args.name} ${city}`.trim(),
   };
 }
 

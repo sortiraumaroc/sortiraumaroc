@@ -276,7 +276,10 @@
       "Bash(__NEW_LINE_7f1a24113141df25__ echo \"=== concierges ===\")",
       "Bash(__NEW_LINE_7f1a24113141df25__ echo \"\")",
       "Bash(# The pg package is available. We need the connection string. # For Supabase hosted projects, the connection string format is: # postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres # Let''s check if there''s a password anywhere # Check if there''s .env in root project grep -i \"\"postgres\\\\|DATABASE\\\\|DB_\\\\|SUPABASE_DB\"\" \"\"/Users/salaheddineaitnasser/Downloads/sam.ma - Official/.env\"\" || echo \"\"No DB vars in root .env\"\" # Check supabase config cat \"\"/Users/salaheddineaitnasser/Downloads/sam.ma - Official/.claude/worktrees/musing-shamir/supabase/config.toml\"\")",
-      "Bash(git revert:*)"
+      "Bash(git revert:*)",
+      "Bash(xcrun simctl io F4F0D750-6813-4E40-A62D-728C3D8E5234 screenshot /tmp/sim_screenshot.png)",
+      "Bash(xcrun simctl list devices booted)",
+      "Bash(xcrun simctl io F4F0D750-6813-4E40-A62D-728C3D8E5234 screenshot /tmp/sim_after.png)"
     ]
   }
 }

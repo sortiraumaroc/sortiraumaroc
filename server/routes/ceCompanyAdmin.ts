@@ -157,8 +157,9 @@ export function registerCeCompanyAdminRoutes(app: Express): void {
           .maybeSingle();
 
         const { data: lastScan } = await sb
-          .from("b2b_scans").eq("scan_type", "ce")
+          .from("b2b_scans")
           .select("scan_datetime, establishment_id")
+          .eq("scan_type", "ce")
           .eq("employee_id", emp.id)
           .order("scan_datetime", { ascending: false })
           .limit(1)
@@ -257,8 +258,9 @@ export function registerCeCompanyAdminRoutes(app: Express): void {
 
     const sb = supabase();
     let query = sb
-      .from("b2b_scans").eq("scan_type", "ce")
+      .from("b2b_scans")
       .select("*", { count: "exact" })
+      .eq("scan_type", "ce")
       .eq("company_id", auth.companyId)
       .order("scan_datetime", { ascending: false })
       .range(offset, offset + limit - 1);
@@ -376,15 +378,16 @@ export function registerCeCompanyAdminRoutes(app: Express): void {
       sb.from("company_employees").select("id", { count: "exact", head: true }).eq("company_id", cid).eq("status", "active").is("deleted_at", null),
       sb.from("company_employees").select("id", { count: "exact", head: true }).eq("company_id", cid).eq("status", "pending").is("deleted_at", null),
       sb.from("company_employees").select("id", { count: "exact", head: true }).eq("company_id", cid).eq("status", "suspended").is("deleted_at", null),
-      sb.from("b2b_scans").eq("scan_type", "ce").select("id", { count: "exact", head: true }).eq("company_id", cid).gte("scan_datetime", todayStr),
-      sb.from("b2b_scans").eq("scan_type", "ce").select("id", { count: "exact", head: true }).eq("company_id", cid).gte("scan_datetime", weekAgo),
-      sb.from("b2b_scans").eq("scan_type", "ce").select("id", { count: "exact", head: true }).eq("company_id", cid).gte("scan_datetime", monthAgo),
+      sb.from("b2b_scans").select("id", { count: "exact", head: true }).eq("scan_type", "ce").eq("company_id", cid).gte("scan_datetime", todayStr),
+      sb.from("b2b_scans").select("id", { count: "exact", head: true }).eq("scan_type", "ce").eq("company_id", cid).gte("scan_datetime", weekAgo),
+      sb.from("b2b_scans").select("id", { count: "exact", head: true }).eq("scan_type", "ce").eq("company_id", cid).gte("scan_datetime", monthAgo),
     ]);
 
     // Top 5 establishments
     const { data: topScans } = await sb
-      .from("b2b_scans").eq("scan_type", "ce")
+      .from("b2b_scans")
       .select("establishment_id")
+      .eq("scan_type", "ce")
       .eq("company_id", cid)
       .gte("scan_datetime", monthAgo)
       .eq("status", "validated");
@@ -483,8 +486,9 @@ export function registerCeCompanyAdminRoutes(app: Express): void {
 
     const sb = supabase();
     const { data: scans } = await sb
-      .from("b2b_scans").eq("scan_type", "ce")
+      .from("b2b_scans")
       .select("*")
+      .eq("scan_type", "ce")
       .eq("company_id", auth.companyId)
       .order("scan_datetime", { ascending: false })
       .limit(5000);

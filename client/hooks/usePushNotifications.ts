@@ -77,9 +77,14 @@ export function usePushNotifications(): PushNotificationState {
     return () => window.removeEventListener(AUTH_CHANGED_EVENT, handler);
   }, []);
 
-  // If user is authenticated & permission is already granted, silently register
+  // If permission is already granted, silently register (works for anonymous too)
+  // Only attempt once per mount to avoid retry storms on persistent errors.
+  const setupAttemptedRef = useRef(false);
+
   useEffect(() => {
-    if (!authed || !supported || permission !== "granted") return;
+    if (!supported || permission !== "granted") return;
+    if (setupAttemptedRef.current) return;
+    setupAttemptedRef.current = true;
 
     let cancelled = false;
 
@@ -91,7 +96,7 @@ export function usePushNotifications(): PushNotificationState {
           setRegistered(result.success);
         }
       } catch {
-        // Best-effort
+        // Best-effort — do not retry on error
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -100,7 +105,7 @@ export function usePushNotifications(): PushNotificationState {
     return () => {
       cancelled = true;
     };
-  }, [authed, supported, permission]);
+  }, [supported, permission]);
 
   // Set up foreground message listener
   useEffect(() => {
@@ -156,9 +161,9 @@ export function usePushNotifications(): PushNotificationState {
     setRegistered(false);
   }, []);
 
-  // Should show prompt: user is authed, push supported, permission is "default", not dismissed
+  // Should show prompt: push supported, permission is "default", not dismissed
   const shouldShowPrompt =
-    authed && supported && permission === "default" && !dismissed && !registered;
+    supported && permission === "default" && !dismissed && !registered;
 
   return {
     supported,

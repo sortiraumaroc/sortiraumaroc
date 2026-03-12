@@ -2808,7 +2808,7 @@ export default function AdminHomePage() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-4">
       <AdminHomepageNav />
       <AdminPageHeader
         title="Gestion de la page d'accueil"

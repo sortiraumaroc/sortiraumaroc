@@ -56,6 +56,22 @@ export interface BannerRendererProps {
 }
 
 // =============================================================================
+// Format normalization — maps admin dashboard values to renderer values
+// =============================================================================
+
+const FORMAT_MAP: Record<string, BannerDisplayFormat> = {
+  popup_center: "modal",
+  popup_bottom: "bottom_sheet",
+  top_bar: "top_banner",
+  slide_in: "floating",
+  fullscreen: "modal",
+};
+
+function normalizeFormat(raw: string): BannerDisplayFormat {
+  return FORMAT_MAP[raw] ?? (raw as BannerDisplayFormat);
+}
+
+// =============================================================================
 // Helpers
 // =============================================================================
 
@@ -154,7 +170,7 @@ function CtaButtons({
   const handlePrimary = useCallback(() => {
     onCtaClick();
     if (banner.cta_url) {
-      if (banner.cta_target === "new_tab" || banner.cta_target === "external") {
+      if (banner.cta_target === "new_tab" || banner.cta_target === "external" || banner.cta_target === "_blank") {
         window.open(banner.cta_url, "_blank", "noopener,noreferrer");
       } else {
         window.location.href = banner.cta_url;
@@ -171,7 +187,7 @@ function CtaButtons({
   if (!banner.cta_text && !banner.secondary_cta_text) return null;
 
   return (
-    <div className={cn("flex flex-wrap items-center gap-3", className)}>
+    <div className={cn("flex flex-wrap items-center justify-center gap-3", className)}>
       {banner.cta_text && (
         <button
           type="button"
@@ -179,7 +195,7 @@ function CtaButtons({
           className="inline-flex items-center gap-2 px-6 py-2.5 bg-[#a3001d] text-white text-sm font-semibold rounded-full hover:bg-[#a3001d]/90 transition-colors shadow-lg"
         >
           {banner.cta_text}
-          {(banner.cta_target === "new_tab" || banner.cta_target === "external") && (
+          {(banner.cta_target === "new_tab" || banner.cta_target === "external" || banner.cta_target === "_blank") && (
             <ExternalLink className="h-3.5 w-3.5" />
           )}
         </button>
@@ -551,11 +567,13 @@ function BannerContent({
 export function BannerRenderer({ banner, onClose, onCtaClick, onFormSubmit, sessionId }: BannerRendererProps) {
   const [entered, setEntered] = useState(false);
   const hasTrackedView = useRef(false);
-  const format = banner.display_format as BannerDisplayFormat;
+  const format = normalizeFormat(banner.display_format);
   const animation = banner.animation as BannerAnimation;
   const closeDelay = banner.close_delay_seconds ?? 0;
   const overlayColor = banner.overlay_color ?? "#000000";
-  const overlayOpacity = banner.overlay_opacity ?? 0.5;
+  const rawOpacity = banner.overlay_opacity ?? 0.5;
+  // Admin dashboard stores opacity as 0-100 (e.g. 50), CSS expects 0-1
+  const overlayOpacity = rawOpacity > 1 ? rawOpacity / 100 : rawOpacity;
 
   // Trigger entrance animation after mount
   useEffect(() => {
@@ -569,10 +587,10 @@ export function BannerRenderer({ banner, onClose, onCtaClick, onFormSubmit, sess
   useEffect(() => {
     if (hasTrackedView.current) return;
     hasTrackedView.current = true;
-    void fetch("/api/banners/track", {
+    void fetch(`/api/banners/${banner.id}/view`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ banner_id: banner.id, action: "view", session_id: sessionId }),
+      body: JSON.stringify({ session_id: sessionId }),
     }).catch(() => {});
   }, [banner.id, sessionId]);
 

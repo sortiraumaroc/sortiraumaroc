@@ -1,6 +1,6 @@
 import { CONSUMER_AUTH_STORAGE_KEY, consumerSupabase } from "@/lib/supabase";
 import { clearProAuthStorage, proSupabase } from "@/lib/pro/supabase";
-import { clearUserLocalData, getUserProfile, restoreAvatarFromBackup, saveUserProfile } from "@/lib/userData";
+import { clearUserLocalData, getUserProfile, restoreAvatarFromBackup, saveUserProfile, syncFavoritesFromServer } from "@/lib/userData";
 import { getMyConsumerMe } from "@/lib/consumerMeApi";
 
 export const AUTH_STORAGE_KEY = "sam_auth";
@@ -271,6 +271,7 @@ export function initConsumerAuth(): void {
       );
     }
     void bestEffortReactivateConsumerAccount(session?.access_token);
+    void syncFavoritesFromServer();
   });
 
   authSubscription = data.subscription;

@@ -107,6 +107,7 @@ export type PublicBookingPolicy = {
 
 export type PublicMenuItem = {
   id: number;
+  inventoryItemId?: string;
   name: string;
   description: string;
   price: string;
@@ -286,6 +287,7 @@ export type PublicEstablishmentListItem = {
   booking_enabled: boolean | null;
   promo_percent: number | null;
   next_slot_at: string | null;
+  next_slots?: Array<{ time: string; discount?: number }>;
   reservations_30d: number;
   avg_rating: number | null;
   review_count: number;
@@ -361,6 +363,8 @@ export async function listPublicEstablishments(args?: {
   price_range?: number[];
   /** Prompt 12 — personalization toggle (false = disable) */
   personalized?: boolean;
+  /** Ramadan filter — only show establishments with active Ftour pro_slots */
+  ramadan?: boolean;
 }): Promise<PublicEstablishmentsListResponse> {
   const qs = new URLSearchParams();
 
@@ -410,6 +414,9 @@ export async function listPublicEstablishments(args?: {
   if (args?.cursorDate) qs.set("cd", args.cursorDate);
 
   if (args?.lang && args.lang !== "fr") qs.set("lang", args.lang);
+
+  // Ramadan filter
+  if (args?.ramadan) qs.set("ramadan", "1");
 
   // Prompt 12 — personalization
   if (args?.personalized === false) qs.set("personalized", "0");

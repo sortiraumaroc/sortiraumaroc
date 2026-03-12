@@ -67,6 +67,7 @@ const CITY_TO_REGION = {
   'marrakech': 'Marrakech-Safi',
   'meknès': 'Fès-Meknès',
   'mohammedia': 'Casablanca-Settat',
+  'mohammédia': 'Casablanca-Settat',
   'nador': "L'Oriental",
   'oujda': "L'Oriental",
   'ouarzazate': 'Drâa-Tafilalet',

@@ -8,8 +8,6 @@ import {
   GripVertical,
   Settings,
   Eye,
-  Palette,
-  Bell,
   Mail,
   ExternalLink,
   Copy,
@@ -461,18 +459,9 @@ export default function AdminContactFormEditPage() {
 
       <Tabs defaultValue="fields" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="fields">
-            <Settings className="w-4 h-4 me-2" />
-            Champs
-          </TabsTrigger>
-          <TabsTrigger value="appearance">
-            <Palette className="w-4 h-4 me-2" />
-            Apparence
-          </TabsTrigger>
-          <TabsTrigger value="settings">
-            <Bell className="w-4 h-4 me-2" />
-            Paramètres
-          </TabsTrigger>
+          <TabsTrigger value="fields">Champs</TabsTrigger>
+          <TabsTrigger value="appearance">Apparence</TabsTrigger>
+          <TabsTrigger value="settings">Paramètres</TabsTrigger>
         </TabsList>
 
         {/* Fields Tab */}

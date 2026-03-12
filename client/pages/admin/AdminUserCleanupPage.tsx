@@ -208,7 +208,7 @@ export function AdminUserCleanupPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AdminPageHeader
         title="Nettoyage des comptes"
         description="Identifiez et supprimez les comptes de test et de démonstration"

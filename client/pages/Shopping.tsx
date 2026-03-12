@@ -24,7 +24,6 @@ import { Button } from "@/components/ui/button";
 import { formatDistanceBetweenCoords } from "@/lib/geo";
 import { makeLegacyHoursPreset } from "@/lib/openingHoursPresets";
 import { GOOGLE_MAPS_LOGO_URL, WAZE_LOGO_URL } from "@/lib/mapAppLogos";
-import { createRng, makeImageSet, makePhoneMa, makeWebsiteUrl, nextDaysYmd, pickMany, pickOne, slugify } from "@/lib/mockData";
 import { cn } from "@/lib/utils";
 import { isAuthed, openAuthModal } from "@/lib/auth";
 import { ReportEstablishmentDialog } from "@/components/ReportEstablishmentDialog";
@@ -138,51 +137,9 @@ function buildFallbackShopping(args: {
   neighborhood?: string;
   city?: string;
 }): ShoppingData {
-  const rng = createRng(`shopping-${args.id}-${args.name}`);
-
-  const city = args.city ?? "Marrakech";
-  const neighborhood = args.neighborhood ?? pickOne(rng, ["Médina", "Guéliz", "Menara", "Centre-ville"] as const);
-  const category = args.category ?? pickOne(rng, ["Centre commercial", "Artisanat", "Mode", "Concept store", "Souk"] as const);
-
-  const rating = clampRating(4.0 + rng() * 0.9);
-  const reviewCount = Math.floor(90 + rng() * 700);
-
-  const phone = makePhoneMa(rng);
-  const website = makeWebsiteUrl(args.name);
-  const images = makeImageSet(rng, "shopping");
-
-  const highlights = pickMany(
-    rng,
-    [
-      "Sélection premium (artisanat + déco)",
-      "Service cadeau (emballage + message)",
-      "Conseils personnalisés",
-      "Offres saisonnières",
-      "Paiement rapide en caisse",
-      "Marques locales",
-      "Cadeaux corporate",
-      "Retours et échanges facilités",
-    ] as const,
-    6,
-  );
-
-  const tags = pickMany(rng, ["Mode", "Déco", "Cadeaux", "Artisanat", "Souk"] as const, 5);
-
-  const reviewerNames = ["Othmane", "Amina", "Nadia", "Yassine", "Salma"] as const;
-  const reviewTexts = [
-    "Boutique top, beaucoup de choix et accueil agréable.",
-    "Très pratique pour les cadeaux, service rapide.",
-    "Qualité au rendez-vous, je recommande.",
-    "Un peu de monde en fin de journée, privilégiez le matin.",
-  ] as const;
-
-  const reviews: Review[] = Array.from({ length: 4 }, (_, i) => ({
-    id: `s-${args.id}-${i}`,
-    author: pickOne(rng, reviewerNames),
-    rating: Math.max(3, Math.round((3.7 + rng() * 1.3) * 2) / 2),
-    date: nextDaysYmd(30)[Math.floor(rng() * 30)] ?? "2025-01-01",
-    text: pickOne(rng, reviewTexts),
-  }));
+  const city = args.city ?? "";
+  const neighborhood = args.neighborhood ?? "";
+  const category = args.category ?? "";
 
   return {
     id: args.id,
@@ -190,23 +147,19 @@ function buildFallbackShopping(args: {
     category,
     city,
     neighborhood,
-    address: `${pickOne(rng, ["Souk", "Avenue", "Boulevard"] as const)} ${pickOne(rng, ["Semmarine", "Mohamed V", "Guéliz"] as const)}, ${city}`,
-    phone,
-    website,
-    rating,
-    reviewCount,
-    description: `Un lieu shopping ${category.toLowerCase()} à ${city}, pensé pour une expérience fluide: sélection claire, service cadeau et conseils.`,
-    highlights,
-    images,
-    tags,
+    address: "",
+    phone: "",
+    website: "",
+    rating: 0,
+    reviewCount: 0,
+    description: "",
+    highlights: [],
+    images: [],
+    tags: [],
     hours: makeLegacyHoursPreset("shopping"),
-    socialMedia: [
-      { platform: "instagram", url: `https://instagram.com/${slugify(args.name)}` },
-      { platform: "facebook", url: `https://facebook.com/${slugify(args.name)}` },
-      { platform: "website", url: website },
-    ],
-    reviews,
-    mapQuery: `${args.name} ${city}`,
+    socialMedia: [],
+    reviews: [],
+    mapQuery: `${args.name} ${city}`.trim(),
   };
 }
 

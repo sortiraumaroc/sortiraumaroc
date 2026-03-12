@@ -11,15 +11,23 @@
  */
 
 import { Bell, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useI18n } from "@/lib/i18n";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
+
+const PROMPT_DELAY_MS = 30_000; // 30 seconds
 
 export function PushNotificationPrompt() {
   const { t } = useI18n();
   const { shouldShowPrompt, requestPermission, dismissPrompt, loading } =
     usePushNotifications();
-  const [visible, setVisible] = useState(true);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (!shouldShowPrompt) return;
+    const timer = setTimeout(() => setVisible(true), PROMPT_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [shouldShowPrompt]);
 
   if (!shouldShowPrompt || !visible) return null;
 
@@ -34,7 +42,7 @@ export function PushNotificationPrompt() {
   };
 
   return (
-    <div className="fixed bottom-4 left-4 right-4 md:start-auto md:end-4 md:w-[420px] z-[9998] animate-in slide-in-from-bottom-4 fade-in duration-300">
+    <div className="fixed top-4 left-4 right-4 md:start-auto md:end-4 md:w-[420px] z-[9998] animate-in slide-in-from-top-4 fade-in duration-300">
       <div className="bg-white border border-slate-200 rounded-xl shadow-xl p-4 flex items-start gap-3">
         {/* Bell icon */}
         <div className="shrink-0 mt-0.5 w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">

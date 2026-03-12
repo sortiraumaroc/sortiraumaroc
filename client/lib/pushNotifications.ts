@@ -51,13 +51,22 @@ function getMessagingInstance() {
 // ---------------------------------------------------------------------------
 
 export function isPushSupported(): boolean {
-  return (
-    "Notification" in window &&
-    "serviceWorker" in navigator &&
-    "PushManager" in window &&
-    isFirebaseConfigured() &&
-    Boolean(VAPID_KEY)
-  );
+  const hasNotification = "Notification" in window;
+  const hasSW = "serviceWorker" in navigator;
+  const hasPush = "PushManager" in window;
+  const fbConfigured = isFirebaseConfigured();
+  const hasVapid = Boolean(VAPID_KEY);
+
+  const supported = hasNotification && hasSW && hasPush && fbConfigured && hasVapid;
+
+  if (!supported) {
+    console.warn(
+      "[PushNotifications] Not supported —",
+      { hasNotification, hasSW, hasPush, fbConfigured, hasVapid },
+    );
+  }
+
+  return supported;
 }
 
 // ---------------------------------------------------------------------------
@@ -107,13 +116,16 @@ export async function getFCMToken(): Promise<string | null> {
 
   try {
     // Register service worker for background notifications
+    console.log("[PushNotifications] Registering service worker...");
     const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+    console.log("[PushNotifications] SW registered, state:", registration.active?.state ?? "installing");
 
     const token = await getToken(messaging, {
       vapidKey: VAPID_KEY,
       serviceWorkerRegistration: registration,
     });
 
+    console.log("[PushNotifications] FCM token obtained:", token ? "OK" : "null");
     currentToken = token;
     return token;
   } catch (error) {
@@ -128,18 +140,19 @@ export async function getFCMToken(): Promise<string | null> {
 
 export async function registerPushToken(token: string): Promise<boolean> {
   const accessToken = await getConsumerAccessToken();
-  if (!accessToken) {
-    // Not authenticated, cannot register token
-    return false;
-  }
+
+  // Authenticated → consumer endpoint; anonymous → public endpoint
+  const endpoint = accessToken
+    ? "/api/consumer/push/register"
+    : "/api/public/push/register";
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
 
   try {
-    const response = await fetch("/api/consumer/push/register", {
+    const response = await fetch(endpoint, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-      },
+      headers,
       body: JSON.stringify({
         token,
         device_type: "web",

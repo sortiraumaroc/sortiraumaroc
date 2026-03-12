@@ -538,18 +538,8 @@ export function AdminUserDetailsPage() {
   return (
     <div className="space-y-4">
       <AdminPageHeader
-        title={(
-          user ? (
-            <div className="flex items-center gap-2">
-              <span>{user.displayName || user.name || "Client"}</span>
-              <HelpCircle className="h-5 w-5 text-slate-400" />
-              <span className="text-sm font-normal text-slate-500">ID: {user.id}</span>
-            </div>
-          ) : (
-            "Fiche client"
-          )
-        ) as any}
-        description=""
+        title={user ? (user.displayName || user.name || "Client") : "Fiche client"}
+        description={user ? `ID: ${user.id}` : ""}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" asChild>

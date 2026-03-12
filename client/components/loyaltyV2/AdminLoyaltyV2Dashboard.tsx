@@ -24,6 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
 
 import {
   getAdminLoyaltyStats,
@@ -81,49 +82,20 @@ export function AdminLoyaltyV2Dashboard() {
     void loadData();
   }, [loadData]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-6 h-6 animate-spin text-primary" />
-        <span className="ms-2 text-slate-600">Chargement admin fidélité...</span>
-      </div>
-    );
-  }
+  const loadingIndicator = loading ? (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="w-6 h-6 animate-spin text-primary" />
+      <span className="ms-2 text-slate-600">Chargement...</span>
+    </div>
+  ) : null;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold flex items-center gap-2">
-          <Shield className="w-7 h-7 text-primary" />
-          Admin — Fidélité
-        </h2>
-        <p className="text-slate-600 mt-1">Supervision globale du système de fidélité</p>
-      </div>
-
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">{error}</div>
-      )}
-      {actionMsg && (
-        <div className={cn(
-          "px-4 py-3 rounded-lg border text-sm",
-          actionMsg.type === "success" ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-red-50 border-red-200 text-red-700"
-        )}>
-          {actionMsg.text}
-        </div>
-      )}
-
-      <Tabs defaultValue="overview" className="space-y-6">
+    <div className="space-y-4">
+      <Tabs defaultValue="overview" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="overview" className="gap-2">
-            <TrendingUp className="w-4 h-4" />
-            Vue globale
-          </TabsTrigger>
-          <TabsTrigger value="programs" className="gap-2">
-            <CreditCard className="w-4 h-4" />
-            Programmes
-          </TabsTrigger>
-          <TabsTrigger value="alerts" className="gap-2">
-            <Bell className="w-4 h-4" />
+          <TabsTrigger value="overview">Vue globale</TabsTrigger>
+          <TabsTrigger value="programs">Programmes</TabsTrigger>
+          <TabsTrigger value="alerts">
             Alertes
             {(stats?.alerts_pending ?? 0) > 0 && (
               <span className="ms-1 px-1.5 py-0.5 text-xs bg-red-500 text-white rounded-full">
@@ -131,42 +103,62 @@ export function AdminLoyaltyV2Dashboard() {
               </span>
             )}
           </TabsTrigger>
-          <TabsTrigger value="gifts" className="gap-2">
-            <Gift className="w-4 h-4" />
-            Cadeaux sam.ma
-          </TabsTrigger>
+          <TabsTrigger value="gifts">Cadeaux sam.ma</TabsTrigger>
         </TabsList>
 
+        <AdminPageHeader
+          title="Fidélité"
+          description="Supervision globale du système de fidélité"
+        />
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">{error}</div>
+        )}
+        {actionMsg && (
+          <div className={cn(
+            "px-4 py-3 rounded-lg border text-sm",
+            actionMsg.type === "success" ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-red-50 border-red-200 text-red-700"
+          )}>
+            {actionMsg.text}
+          </div>
+        )}
+
         {/* ==================== OVERVIEW ==================== */}
-        <TabsContent value="overview" className="space-y-6">
-          <AdminOverviewSection stats={stats} />
+        <TabsContent value="overview" className="space-y-4">
+          {loadingIndicator ?? <AdminOverviewSection stats={stats} />}
         </TabsContent>
 
         {/* ==================== PROGRAMS ==================== */}
-        <TabsContent value="programs" className="space-y-6">
-          <AdminProgramsSection
-            programs={programs}
-            onRefresh={loadData}
-            setActionMsg={setActionMsg}
-          />
+        <TabsContent value="programs" className="space-y-4">
+          {loadingIndicator ?? (
+            <AdminProgramsSection
+              programs={programs}
+              onRefresh={loadData}
+              setActionMsg={setActionMsg}
+            />
+          )}
         </TabsContent>
 
         {/* ==================== ALERTS ==================== */}
-        <TabsContent value="alerts" className="space-y-6">
-          <AdminAlertsSection
-            alerts={alerts}
-            onRefresh={loadData}
-            setActionMsg={setActionMsg}
-          />
+        <TabsContent value="alerts" className="space-y-4">
+          {loadingIndicator ?? (
+            <AdminAlertsSection
+              alerts={alerts}
+              onRefresh={loadData}
+              setActionMsg={setActionMsg}
+            />
+          )}
         </TabsContent>
 
         {/* ==================== GIFTS ==================== */}
-        <TabsContent value="gifts" className="space-y-6">
-          <AdminGiftsSection
-            gifts={gifts}
-            onRefresh={loadData}
-            setActionMsg={setActionMsg}
-          />
+        <TabsContent value="gifts" className="space-y-4">
+          {loadingIndicator ?? (
+            <AdminGiftsSection
+              gifts={gifts}
+              onRefresh={loadData}
+              setActionMsg={setActionMsg}
+            />
+          )}
         </TabsContent>
       </Tabs>
     </div>

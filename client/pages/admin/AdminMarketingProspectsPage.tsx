@@ -438,7 +438,7 @@ export function AdminMarketingProspectsPage() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AdminPageHeader
         title="Prospects Marketing"
         description="Gérez vos contacts pour les campagnes email"

@@ -41,19 +41,15 @@ import { MenuSection } from "@/components/restaurant/MenuSection";
 import { RentacarVehicleSection } from "@/components/establishment/RentacarVehicleSection";
 import { RestaurantMap } from "@/components/restaurant/RestaurantMap";
 import type { Pack, MenuCategory, MenuItem, MenuBadge } from "@/components/restaurant/MenuSection";
-import {
-  clampRating,
-  createRng,
-  makeImageSet,
-  makePhoneMa,
-  makeWebsiteUrl,
-  nextDaysYmd,
-  pickMany,
-  pickOne,
-  slugify,
-  toYmd,
-} from "@/lib/mockData";
 import { GOOGLE_MAPS_LOGO_URL, WAZE_LOGO_URL, TRIPADVISOR_LOGO_URL } from "@/lib/mapAppLogos";
+
+/** Format a Date to "YYYY-MM-DD". */
+function toYmd(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
 import { applySeo, clearJsonLd, setJsonLd, generateLocalBusinessSchema, generateBreadcrumbSchema, hoursToOpeningHoursSpecification, buildI18nSeoFields } from "@/lib/seo";
 import { useI18n } from "@/lib/i18n";
 import { EstablishmentTabs, type TabConfigItem } from "@/components/establishment/EstablishmentTabs";
@@ -680,57 +676,9 @@ function buildFallbackRestaurant(args: {
   neighborhood?: string;
   city?: string;
 }): RestaurantData {
-  const rng = createRng(`restaurant-${args.id}-${args.name}`);
-
   const city = args.city ?? "Marrakech";
-  const neighborhood =
-    args.neighborhood ??
-    pickOne(rng, ["Médina", "Guéliz", "Hivernage", "Palmeraie", "Kasbah", "Sidi Ghanem"] as const);
-
-  const category =
-    args.category ??
-    pickOne(rng, ["Marocain", "Rooftop", "Fusion", "Grill", "Café", "Gastronomique", "International"] as const);
-
-  const rating = clampRating(4.1 + rng() * 0.8);
-  const reviewCount = Math.floor(80 + rng() * 900);
-
-  const addressNumber = Math.floor(10 + rng() * 240);
-  const streetType = pickOne(rng, ["Rue", "Avenue", "Boulevard", "Derb", "Place"] as const);
-  const streetName = pickOne(rng, [
-    "de la Kasbah",
-    "Mohamed VI",
-    "Majorelle",
-    "Mouassine",
-    "Yves Saint Laurent",
-    "Al Massira",
-    "Jemaa el-Fna",
-    "Bab Doukkala",
-  ] as const);
-
-  const address = `${addressNumber} ${streetType} ${streetName}, ${city}`;
-
-  const avgPrice = pickOne(rng, ["150-250 Dhs", "200-350 Dhs", "300-500 Dhs", "400-650 Dhs"] as const);
-  const website = makeWebsiteUrl(args.name);
-  const phone = makePhoneMa(rng);
-
-  const highlights = pickMany(
-    rng,
-    [
-      "Cuisine maison à base de produits locaux",
-      "Terrasse agréable (selon météo)",
-      "Service rapide et attentionné",
-      "Options végétariennes disponibles",
-      "Idéal en couple ou en famille",
-      "Ambiance musicale en soirée",
-      "Réservation conseillée le week-end",
-      "Desserts faits maison",
-      "Carte de boissons variée",
-      "Accès facile en taxi",
-    ] as const,
-    6,
-  );
-
-  const images = makeImageSet(rng, "restaurant");
+  const neighborhood = args.neighborhood ?? "";
+  const category = args.category ?? "";
 
   const hours: RestaurantData["hours"] = {
     lundi: { lunch: "12:00 - 15:00", dinner: "19:00 - 23:30" },
@@ -742,172 +690,26 @@ function buildFallbackRestaurant(args: {
     dimanche: { lunch: "12:00 - 15:30", dinner: "19:00 - 23:30" },
   };
 
-  const slotTimesLunch = ["12:00", "12:30", "13:00", "13:30", "14:00", "14:30"];
-  const slotTimesDinner = ["19:00", "19:30", "20:00", "20:30", "21:00", "21:30", "22:00"];
-
-  const availableSlots: DateSlots[] = nextDaysYmd(6).map((d) => ({
-    date: d,
-    services: [
-      { service: "Midi", times: slotTimesLunch },
-      { service: "Soir", times: slotTimesDinner },
-    ],
-  }));
-
-  const menu: MenuCategory[] = [
-    {
-      id: "starters",
-      name: "Entrées",
-      items: [
-        {
-          id: 1,
-          name: pickOne(rng, ["Salade marocaine", "Zaalouk", "Briouates", "Harira maison"] as const),
-          description: "Préparation maison, huile d’olive et herbes fraîches.",
-          price: `${Math.floor(35 + rng() * 40)} Dhs`,
-          badge: pickOne(rng, ["Nouveau", "Spécialité", "Chef selection"] as const),
-        },
-        {
-          id: 2,
-          name: pickOne(rng, ["Cigares croustillants", "Bastilla mini", "Soupe du jour", "Houmous & pain chaud"] as const),
-          description: "Servi chaud, texture croustillante, sauce maison.",
-          price: `${Math.floor(45 + rng() * 60)} Dhs`,
-        },
-        {
-          id: 3,
-          name: pickOne(rng, ["Carpaccio agrumes", "Taktouka", "Salade de pois chiches"] as const),
-          description: "Assaisonnement citron, épices douces et persil.",
-          price: `${Math.floor(40 + rng() * 55)} Dhs`,
-        },
-      ],
-    },
-    {
-      id: "mains",
-      name: "Plats",
-      items: [
-        {
-          id: 10,
-          name: pickOne(rng, ["Tajine poulet citron", "Couscous royal", "Pastilla poulet", "Brochettes grillées"] as const),
-          description: "Garniture du marché, cuisson lente, épices équilibrées.",
-          price: `${Math.floor(120 + rng() * 140)} Dhs`,
-          badge: pickOne(rng, ["Best seller", "Spécialité du Chef", "Chef selection"] as const),
-        },
-        {
-          id: 11,
-          name: pickOne(rng, ["Poisson du jour", "Kefta maison", "Pâtes fraîches", "Bowl végétarien"] as const),
-          description: "Portion généreuse, sauce maison et accompagnement.",
-          price: `${Math.floor(110 + rng() * 160)} Dhs`,
-        },
-        {
-          id: 12,
-          name: pickOne(rng, ["Tagine végétarien", "Couscous légumes", "Risotto safrané"] as const),
-          description: "Option végétarienne disponible, épices douces.",
-          price: `${Math.floor(95 + rng() * 120)} Dhs`,
-        },
-      ],
-    },
-    {
-      id: "desserts",
-      name: "Desserts",
-      items: [
-        {
-          id: 20,
-          name: pickOne(rng, ["Pastilla au lait", "Crème brûlée", "Chebakia revisitée", "Gâteau amande"] as const),
-          description: "Sucré équilibré, servi avec thé à la menthe.",
-          price: `${Math.floor(35 + rng() * 55)} Dhs`,
-          badge: pickOne(rng, ["New", "Nouveau"] as const),
-        },
-        {
-          id: 21,
-          name: pickOne(rng, ["Assortiment de pâtisseries", "Fruits frais", "Mousse chocolat"] as const),
-          description: "Sélection du chef selon saison.",
-          price: `${Math.floor(30 + rng() * 45)} Dhs`,
-        },
-      ],
-    },
-  ];
-
-  const packs: Pack[] = [
-    {
-      id: `pack-${args.id}-decouverte`,
-      title: "Pack Découverte",
-      is_limited: true,
-      availability: "week",
-      max_reservations: 40,
-      items: ["Entrée", "Plat", "Dessert", "Boisson"],
-      price: Math.floor(160 + rng() * 120),
-      original_price: Math.floor(220 + rng() * 150),
-    },
-    {
-      id: `pack-${args.id}-premium`,
-      title: "Pack Premium",
-      is_limited: true,
-      availability: "today",
-      max_reservations: 25,
-      items: ["Entrée", "Plat signature", "Dessert", "Thé à la menthe"],
-      price: Math.floor(220 + rng() * 160),
-      original_price: Math.floor(290 + rng() * 200),
-    },
-  ];
-
-  const reviewers = ["Nadia", "Youssef", "Imane", "Karim", "Salma", "Hamza", "Omar", "Meriem"] as const;
-  const reviewTexts = [
-    "Très bonne expérience, service agréable et plats savoureux.",
-    "Cadre magnifique, ambiance parfaite pour une soirée.",
-    "Réservation simple et rapide, on reviendra.",
-    "Bon rapport qualité-prix, portions généreuses.",
-    "Petit temps d’attente mais l’accueil rattrape tout.",
-    "Les desserts sont excellents, mention spéciale au thé.",
-  ] as const;
-
-  const reviewsList: RestaurantReview[] = Array.from({ length: 6 }, (_, i) => ({
-    id: i + 1,
-    author: pickOne(rng, reviewers),
-    rating: Math.max(3, Math.round((3.5 + rng() * 1.5) * 2) / 2),
-    date: nextDaysYmd(30)[Math.floor(rng() * 30)] ?? "2025-01-01",
-    text: pickOne(rng, reviewTexts),
-    helpful: Math.floor(rng() * 40),
-  }));
-
-  const taxonomy = pickMany(
-    rng,
-    [
-      "Réservation en ligne",
-      "Climatisation",
-      "Wi‑Fi gratuit",
-      "Paiement par carte",
-      "Terrasse",
-      "Parking à proximité",
-      "Options végétariennes",
-      "Menu enfants",
-      "Accessible",
-      "À emporter",
-    ] as const,
-    8,
-  );
-
   return {
     name: args.name,
-    rating,
-    reviewCount,
+    rating: 0,
+    reviewCount: 0,
     category,
     neighborhood,
-    address,
-    phone,
-    website,
-    avgPrice,
-    description: `Adresse populaire à ${city} (${neighborhood}) — une expérience ${category.toLowerCase()} pensée pour être simple à réserver et agréable sur place.`,
-    images,
-    highlights,
+    address: "",
+    phone: "",
+    website: "",
+    avgPrice: "",
+    description: "",
+    images: [],
+    highlights: [],
     hours,
-    availableSlots,
-    menu,
-    packs,
-    reviewsList,
-    socialMedia: [
-      { platform: "instagram", url: `https://instagram.com/${slugify(args.name)}` },
-      { platform: "facebook", url: `https://facebook.com/${slugify(args.name)}` },
-      { platform: "website", url: website },
-    ],
-    taxonomy,
+    availableSlots: [],
+    menu: [],
+    packs: [],
+    reviewsList: [],
+    socialMedia: [],
+    taxonomy: [],
   };
 }
 

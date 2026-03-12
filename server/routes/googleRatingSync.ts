@@ -1,14 +1,15 @@
 /**
- * Google Places Rating Sync
+ * Google Places Rating & Hours Sync
  *
- * Endpoint to sync Google ratings for establishments that have a google_maps_url.
+ * Endpoint to sync Google ratings and opening hours for establishments
+ * that have a google_maps_url.
  * Should be called periodically (e.g., every 24h) via cron or admin trigger.
  *
  * Flow:
  * 1. Fetch all establishments with a non-empty google_maps_url
  * 2. For each, extract or lookup the Google Place ID
- * 3. Call Google Places Details API to get rating + user_ratings_total
- * 4. Update the establishment in DB
+ * 3. Call Google Places Details API to get rating + user_ratings_total + opening_hours
+ * 4. Update the establishment in DB (rating + hours)
  */
 
 import type { Request, Response, RequestHandler } from "express";
@@ -77,35 +78,147 @@ async function extractPlaceId(
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Google opening_hours → DB OpeningHours format
+// ---------------------------------------------------------------------------
+
 /**
- * Get rating details from Google Places API
+ * Google Places API `opening_hours.periods` format:
+ *   { open: { day: 0-6 (0=Sunday), time: "HHMM" }, close: { day, time } }
+ *
+ * DB OpeningHours format:
+ *   { monday: [{ type: "lunch", from: "12:00", to: "15:00" }], ... }
  */
-async function getGoogleRating(
+
+type GooglePeriod = {
+  open: { day: number; time: string };
+  close?: { day: number; time: string };
+};
+
+type OpeningInterval = { type: string; from: string; to: string };
+
+const GOOGLE_DAY_TO_KEY: Record<number, string> = {
+  0: "sunday",
+  1: "monday",
+  2: "tuesday",
+  3: "wednesday",
+  4: "thursday",
+  5: "friday",
+  6: "saturday",
+};
+
+const ALL_DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+
+/** Convert "HHMM" → "HH:MM" */
+function formatTime(hhmm: string): string {
+  if (!hhmm || hhmm.length < 4) return "00:00";
+  return `${hhmm.slice(0, 2)}:${hhmm.slice(2, 4)}`;
+}
+
+/**
+ * Transform Google Places `opening_hours.periods` to the DB OpeningHours format.
+ * Groups periods by day and assigns type labels ("lunch", "dinner").
+ */
+function transformGoogleHoursToOpeningHours(
+  periods: GooglePeriod[],
+): Record<string, OpeningInterval[]> {
+  // Handle 24/7 case: single period with open day=0, time=0000, no close
+  if (
+    periods.length === 1 &&
+    periods[0].open.day === 0 &&
+    periods[0].open.time === "0000" &&
+    !periods[0].close
+  ) {
+    const result: Record<string, OpeningInterval[]> = {};
+    for (const day of ALL_DAYS) {
+      result[day] = [{ type: "lunch", from: "00:00", to: "23:59" }];
+    }
+    return result;
+  }
+
+  // Group periods by opening day
+  const byDay: Record<string, { from: string; to: string }[]> = {};
+  for (const day of ALL_DAYS) byDay[day] = [];
+
+  for (const period of periods) {
+    const dayKey = GOOGLE_DAY_TO_KEY[period.open.day];
+    if (!dayKey) continue;
+
+    const from = formatTime(period.open.time);
+    const to = period.close ? formatTime(period.close.time) : "23:59";
+
+    byDay[dayKey].push({ from, to });
+  }
+
+  // Sort ranges by opening time and assign type labels
+  const result: Record<string, OpeningInterval[]> = {};
+  const typeLabels = ["lunch", "dinner", "other"];
+
+  for (const day of ALL_DAYS) {
+    const ranges = byDay[day].sort((a, b) => a.from.localeCompare(b.from));
+    result[day] = ranges.map((r, i) => ({
+      type: typeLabels[i] ?? "other",
+      from: r.from,
+      to: r.to,
+    }));
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Google Places Details API
+// ---------------------------------------------------------------------------
+
+type PlaceDetailsResult = {
+  rating: number;
+  reviewCount: number;
+  hours: Record<string, OpeningInterval[]> | null;
+};
+
+/**
+ * Get rating + opening hours from Google Places API.
+ */
+async function getGooglePlaceDetails(
   placeId: string,
   apiKey: string,
-): Promise<{ rating: number; reviewCount: number } | null> {
+): Promise<PlaceDetailsResult | null> {
   try {
     const detailsUrl = new URL(`${GOOGLE_PLACES_BASE_URL}/details/json`);
     detailsUrl.searchParams.set("place_id", placeId);
-    detailsUrl.searchParams.set("fields", "rating,user_ratings_total");
+    detailsUrl.searchParams.set("fields", "rating,user_ratings_total,opening_hours");
     detailsUrl.searchParams.set("key", apiKey);
+    detailsUrl.searchParams.set("language", "fr");
 
     const res = await fetch(detailsUrl.toString());
     if (!res.ok) return null;
 
     const data = await res.json() as {
-      result?: { rating?: number; user_ratings_total?: number };
+      result?: {
+        rating?: number;
+        user_ratings_total?: number;
+        opening_hours?: {
+          periods?: GooglePeriod[];
+        };
+      };
       status: string;
     };
 
     if (data.status !== "OK" || !data.result) return null;
 
+    // Transform opening hours if available
+    let hours: Record<string, OpeningInterval[]> | null = null;
+    if (data.result.opening_hours?.periods && data.result.opening_hours.periods.length > 0) {
+      hours = transformGoogleHoursToOpeningHours(data.result.opening_hours.periods);
+    }
+
     return {
       rating: data.result.rating ?? 0,
       reviewCount: data.result.user_ratings_total ?? 0,
+      hours,
     };
   } catch (err) {
-    log.warn({ err }, "Google Places getGoogleRating API call failed");
+    log.warn({ err }, "Google Places getGooglePlaceDetails API call failed");
     return null;
   }
 }
@@ -151,7 +264,7 @@ export const syncGoogleRatings: RequestHandler = async (
   // Fetch establishments that have a google_maps_url and haven't been synced recently
   let query = supabase
     .from("establishments")
-    .select("id,name,city,google_maps_url,google_place_id,google_rating_updated_at")
+    .select("id,name,city,google_maps_url,google_place_id,google_rating_updated_at,hours")
     .eq("status", "active")
     .not("google_maps_url", "is", null)
     .neq("google_maps_url", "")
@@ -180,6 +293,7 @@ export const syncGoogleRatings: RequestHandler = async (
     status: "ok" | "no_place_id" | "api_error";
     rating?: number;
     reviewCount?: number;
+    hoursSynced?: boolean;
   }> = [];
 
   for (const est of establishments) {
@@ -211,23 +325,38 @@ export const syncGoogleRatings: RequestHandler = async (
       continue;
     }
 
-    // Step 2: Fetch rating from Google
-    const ratingData = await getGoogleRating(placeId, apiKey);
+    // Step 2: Fetch rating + hours from Google
+    const details = await getGooglePlaceDetails(placeId, apiKey);
 
-    if (!ratingData) {
+    if (!details) {
       results.push({ id: estId, name, status: "api_error" });
       continue;
     }
 
-    // Step 3: Update DB
+    // Step 3: Build update payload
+    const updatePayload: Record<string, unknown> = {
+      google_rating: details.rating,
+      google_review_count: details.reviewCount,
+      google_place_id: placeId,
+      google_rating_updated_at: new Date().toISOString(),
+    };
+
+    // Only set hours if the establishment doesn't already have them
+    // (avoid overwriting manually-set hours)
+    const existingHours = est.hours;
+    const hasExistingHours = existingHours && typeof existingHours === "object"
+      && Object.keys(existingHours as Record<string, unknown>).length > 0;
+
+    let hoursSynced = false;
+    if (details.hours && (!hasExistingHours || force)) {
+      updatePayload.hours = details.hours;
+      hoursSynced = true;
+    }
+
+    // Step 4: Update DB
     const { error: updateErr } = await supabase
       .from("establishments")
-      .update({
-        google_rating: ratingData.rating,
-        google_review_count: ratingData.reviewCount,
-        google_place_id: placeId,
-        google_rating_updated_at: new Date().toISOString(),
-      })
+      .update(updatePayload)
       .eq("id", estId);
 
     if (updateErr) {
@@ -237,8 +366,9 @@ export const syncGoogleRatings: RequestHandler = async (
         id: estId,
         name,
         status: "ok",
-        rating: ratingData.rating,
-        reviewCount: ratingData.reviewCount,
+        rating: details.rating,
+        reviewCount: details.reviewCount,
+        hoursSynced,
       });
     }
 
@@ -280,7 +410,7 @@ export const syncSingleGoogleRating: RequestHandler = async (
 
   const { data: est, error: fetchErr } = await supabase
     .from("establishments")
-    .select("id,name,city,google_maps_url,google_place_id")
+    .select("id,name,city,google_maps_url,google_place_id,hours")
     .eq("id", establishmentId)
     .single();
 
@@ -316,22 +446,33 @@ export const syncSingleGoogleRating: RequestHandler = async (
     });
   }
 
-  // Fetch rating
-  const ratingData = await getGoogleRating(placeId, apiKey);
+  // Fetch rating + hours
+  const details = await getGooglePlaceDetails(placeId, apiKey);
 
-  if (!ratingData) {
-    return res.status(502).json({ error: "Erreur lors de la récupération de la note Google." });
+  if (!details) {
+    return res.status(502).json({ error: "Erreur lors de la récupération des données Google." });
+  }
+
+  // Build update payload
+  const updatePayload: Record<string, unknown> = {
+    google_rating: details.rating,
+    google_review_count: details.reviewCount,
+    google_place_id: placeId,
+    google_rating_updated_at: new Date().toISOString(),
+  };
+
+  // For single sync, always update hours if available from Google
+  // (admin explicitly triggered sync for this establishment)
+  let hoursSynced = false;
+  if (details.hours) {
+    updatePayload.hours = details.hours;
+    hoursSynced = true;
   }
 
   // Update DB
   const { error: updateErr } = await supabase
     .from("establishments")
-    .update({
-      google_rating: ratingData.rating,
-      google_review_count: ratingData.reviewCount,
-      google_place_id: placeId,
-      google_rating_updated_at: new Date().toISOString(),
-    })
+    .update(updatePayload)
     .eq("id", establishmentId);
 
   if (updateErr) {
@@ -340,8 +481,9 @@ export const syncSingleGoogleRating: RequestHandler = async (
 
   return res.json({
     ok: true,
-    rating: ratingData.rating,
-    reviewCount: ratingData.reviewCount,
+    rating: details.rating,
+    reviewCount: details.reviewCount,
+    hoursSynced,
     updatedAt: new Date().toISOString(),
   });
 };

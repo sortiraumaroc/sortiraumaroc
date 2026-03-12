@@ -40,6 +40,39 @@
 - [x] QR code affiché (TOTP 30s)
 - [x] Booking Steps 1-3 (pré-remplissage OK)
 
+## Checkpoint SAM10 — Améliorations moteur de recherche + Fix push notifications (07/03/2026)
+
+### Audit moteur de recherche (score 7.5/10 → améliorations)
+- [x] **S1.1** Affichage erreurs API dans Results.tsx (AlertCircle + RefreshCw + retry)
+- [x] **S1.2** `.max(200)` sur le paramètre `q` (ListEstablishmentsQuery + SearchAutocompleteQuery)
+- [x] **S1.3** Rate limiter `searchPublicRateLimiter` (60 req/min) sur `/api/public/establishments`
+- [x] **S1.4** Ajout `ramadan` au schema Zod ListEstablishmentsQuery
+- [x] **S1.5** Clé cache complète (+open_now, instant_booking, amenities, price_range, ramadan)
+- [x] **S1.6** Suppression ~500 lignes de données fictives mortes (RESTAURANTS, SPORT_WELLNESS, etc.)
+- [x] **S2.1** Filtres cuisine/ambiance persistés en URL (useMemo/useCallback + searchParams)
+- [x] **S2.2** Filtres non-restaurant dans handleApplyFilters (loisirs, sport, hébergement, culture, shopping)
+- [x] **S2.3** Validation géographique bounding box (lat ∈ [-90,90], lng ∈ [-180,180])
+- [x] **S2.4** Limite 15 amenities max (`.refine()`)
+- [x] **S3.1** Navigation clavier complète autocomplete (toutes sections : suggestions, recent, popular, temporal)
+- [x] **S3.2** Accessibilité ARIA (role=combobox, aria-expanded, aria-controls, role=listbox)
+- [x] **S3.3** Sync état mobile/desktop dans UnifiedSearchInput
+
+### Fix push notifications
+- [x] **Root cause** : Service Worker `firebase-messaging-sw.js` initialisait Firebase avec des chaînes vides (`self.FIREBASE_*` jamais définis)
+- [x] **Fix** : Plugin Vite `firebase-sw-config` dans `vite.config.ts` — remplace les placeholders `__FIREBASE_*__` au build/serve
+- [x] **Logging** : Console warnings dans `isPushSupported()` + logs dans `getFCMToken()`
+- [x] **Rappel** : Le prompt push n'apparaît que pour les consommateurs connectés sur le site public
+
+### Fichiers modifiés (SAM10)
+- `client/pages/Results.tsx` — erreur API, dead code, filtres URL, resetAllPracticalFilters
+- `client/components/SearchInputs/UnifiedSearchInput.tsx` — keyboard nav, ARIA, sync mobile
+- `client/lib/pushNotifications.ts` — diagnostic logging
+- `server/schemas/publicRoutes.ts` — max(200), ramadan, bounds validation, amenities limit
+- `server/middleware/rateLimiter.ts` — searchPublicRateLimiter
+- `server/routes/public.ts` — rate limiter + cache key
+- `vite.config.ts` — plugin firebase-sw-config
+- `public/firebase-messaging-sw.js` — placeholders __FIREBASE_*__
+
 ## Bugs connus en local (non-bloquants)
 - `/api/public/home` retourne 500 "Invalid API key" en dev → normal (pas de cles Supabase en local)
 - Font Circular Std bloquee par ORB → cosmetique uniquement

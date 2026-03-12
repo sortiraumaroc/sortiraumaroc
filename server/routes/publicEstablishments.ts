@@ -2702,7 +2702,7 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
   let estQuery = supabase
     .from("establishments")
     .select(
-      "id,slug,name,universe,subcategory,city,address,neighborhood,region,country,lat,lng,cover_url,booking_enabled,updated_at,google_rating,google_review_count,hours,tags,highlights,created_at,service_types",
+      "id,slug,name,universe,subcategory,city,address,neighborhood,region,country,lat,lng,cover_url,phone,booking_enabled,updated_at,google_rating,google_review_count,hours,tags,highlights,created_at,service_types",
     )
     .eq("status", "active")
     .eq("is_online", true)
@@ -2761,6 +2761,8 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
   const nextSlotByEst = new Map<string, string>();
   const promoByEst = new Map<string, number>();
   const slotCoverByEst = new Map<string, string>();
+  // Next 3 slots per establishment for card display
+  const nextSlotsByEst = new Map<string, Array<{ time: string; discount?: number }>>();
 
   for (const s of (slots ?? []) as Array<Record<string, unknown>>) {
     const establishmentId =
@@ -2770,6 +2772,21 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
 
     if (!nextSlotByEst.has(establishmentId)) {
       nextSlotByEst.set(establishmentId, startsAt);
+    }
+
+    // Collect up to 3 unique-time next slots per establishment for card chips
+    const existingSlots = nextSlotsByEst.get(establishmentId) ?? [];
+    if (existingSlots.length < 3) {
+      const d = new Date(startsAt);
+      const hh = String(d.getHours()).padStart(2, "0");
+      const mm = String(d.getMinutes()).padStart(2, "0");
+      const timeStr = `${hh}:${mm}`;
+      // Deduplicate: skip if this time already exists for this establishment
+      if (!existingSlots.some((sl) => sl.time === timeStr)) {
+        const slotPromo = maxPromoPercent(s.promo_type, s.promo_value);
+        existingSlots.push({ time: timeStr, ...(slotPromo ? { discount: slotPromo } : {}) });
+        nextSlotsByEst.set(establishmentId, existingSlots);
+      }
     }
 
     const promo = maxPromoPercent(s.promo_type, s.promo_value);
@@ -2839,6 +2856,9 @@ export async function getPublicHomeFeed(req: Request, res: Response) {
         // Google rating
         google_rating: typeof e.google_rating === "number" ? e.google_rating : null,
         google_review_count: typeof e.google_review_count === "number" ? e.google_review_count : null,
+        // Phone + next slots for card CTA
+        phone: typeof e.phone === "string" && (e.phone as string).trim() ? (e.phone as string).trim() : null,
+        next_slots: nextSlotsByEst.get(id) ?? [],
       };
     })
     .filter(Boolean) as PublicHomeFeedItem[];

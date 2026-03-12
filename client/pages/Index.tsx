@@ -161,6 +161,7 @@ type HomeCard = {
   neighborhood?: string;
   image: string;
   nextAvailability?: string;
+  nextSlots?: Array<{ time: string; discount?: number }>;
   promoPercent: number;
   reservations30d: number;
   bookingEnabled: boolean;
@@ -337,6 +338,25 @@ function HomeCardTile({
               <span className="text-slate-400"> ({t("home.cards.reviews_count", { count: item.reviews.toLocaleString() })})</span>
             )}
           </p>
+        )}
+
+        {/* Time slot chips */}
+        {item.bookingEnabled && item.nextSlots && item.nextSlots.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-1.5">
+            {item.nextSlots.slice(0, 3).map((slot, idx) => (
+              <Link
+                key={idx}
+                to={`${href}?time=${encodeURIComponent(slot.time)}`}
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition hover:scale-105 shadow-sm"
+              >
+                <span>{slot.time}</span>
+                {slot.discount && (
+                  <span className="text-emerald-400 text-[10px]">-{slot.discount}%</span>
+                )}
+              </Link>
+            ))}
+          </div>
         )}
 
         {item.reservations30d > 0 ? (
@@ -975,6 +995,9 @@ export default function Home() {
 
   // Quand l'utilisateur change manuellement la ville
   const handleCityChange = useCallback((city: string) => {
+    // Ignore geo:denied / geo:unavailable (toast already shown by CityInput)
+    if (city === "geo:denied" || city === "geo:unavailable") return;
+
     // Detect geo:lat,lng format from "Autour de moi"
     const geoMatch = city.match(/^geo:([-\d.]+),([-\d.]+)$/);
     if (geoMatch) {
@@ -1162,6 +1185,7 @@ export default function Home() {
           neighborhood: [item.neighborhood, item.city].filter(Boolean).join(", ") || item.city || undefined,
           image: item.cover_url ?? "/placeholder.svg",
           nextAvailability: formatNextSlotLabel(item.next_slot_at ?? null) ?? undefined,
+          nextSlots: Array.isArray(item.next_slots) && item.next_slots.length > 0 ? item.next_slots : undefined,
           promoPercent: typeof item.promo_percent === "number" ? item.promo_percent : 0,
           bookingEnabled: item.booking_enabled === true,
           reservations30d: typeof item.reservations_30d === "number" ? item.reservations_30d : 0,
@@ -1656,7 +1680,7 @@ export default function Home() {
         {/* Spécial Ramadan — Section dédiée offres Ramadan (Ftour, S'hour, etc.) */}
         {homeTheme === "ftour_shour" && (
           <Suspense fallback={null}>
-            <RamadanHomeFeedSection />
+            <RamadanHomeFeedSection city={selectedCity} />
           </Suspense>
         )}
 

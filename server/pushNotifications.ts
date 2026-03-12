@@ -1,10 +1,13 @@
 /**
- * Push Notifications Service (Firebase Cloud Messaging)
+ * Push Notifications Service (Firebase Cloud Messaging + Expo Push API)
  *
- * This module handles sending push notifications to users via FCM.
+ * This module handles sending push notifications to users via:
+ * - FCM (Firebase Cloud Messaging) — for web tokens
+ * - Expo Push API — for mobile tokens (ExponentPushToken[...])
+ *
  * It supports:
- * - Sending to specific device tokens
- * - Sending to a user by looking up their registered FCM tokens
+ * - Sending to specific device tokens (auto-routed by token type)
+ * - Sending to a user by looking up their registered tokens
  * - Batch sending for efficiency
  */
 
@@ -78,10 +81,113 @@ export type SendPushResult = {
 };
 
 // ---------------------------------------------------------------------------
-// Send to specific FCM tokens
+// Expo Push API — for mobile tokens (ExponentPushToken[...])
 // ---------------------------------------------------------------------------
 
-export async function sendPushNotification(args: {
+const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
+const EXPO_BATCH_SIZE = 100; // Expo API limit per request
+
+function isExpoToken(token: string): boolean {
+  return token.startsWith("ExponentPushToken[");
+}
+
+async function sendViaExpoPush(args: {
+  tokens: string[];
+  notification: PushNotificationPayload;
+}): Promise<SendPushResult> {
+  const { tokens, notification } = args;
+
+  const messages = tokens.map((token) => ({
+    to: token,
+    title: notification.title,
+    body: notification.body,
+    data: notification.data,
+    sound: notification.sound || "default",
+    badge: notification.badge,
+    ...(notification.imageUrl && { image: notification.imageUrl }),
+  }));
+
+  let successCount = 0;
+  let failureCount = 0;
+  const errors: string[] = [];
+  const invalidTokens: string[] = [];
+
+  try {
+    for (let i = 0; i < messages.length; i += EXPO_BATCH_SIZE) {
+      const batch = messages.slice(i, i + EXPO_BATCH_SIZE);
+
+      const response = await fetch(EXPO_PUSH_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "Accept-Encoding": "gzip, deflate",
+        },
+        body: JSON.stringify(batch),
+      });
+
+      if (!response.ok) {
+        failureCount += batch.length;
+        errors.push(`Expo API HTTP ${response.status}`);
+        continue;
+      }
+
+      const result = (await response.json()) as {
+        data?: Array<{
+          status: "ok" | "error";
+          message?: string;
+          details?: { error?: string };
+        }>;
+      };
+
+      if (result.data) {
+        result.data.forEach((ticket, idx) => {
+          if (ticket.status === "ok") {
+            successCount++;
+          } else {
+            failureCount++;
+            if (ticket.message) errors.push(ticket.message);
+            // Token invalide → supprimer de la base
+            if (ticket.details?.error === "DeviceNotRegistered") {
+              invalidTokens.push(tokens[i + idx]);
+            }
+          }
+        });
+      }
+    }
+
+    // Clean up invalid Expo tokens
+    if (invalidTokens.length > 0) {
+      await supabase
+        .from("consumer_fcm_tokens")
+        .delete()
+        .in("token", invalidTokens);
+      log.info(
+        { count: invalidTokens.length },
+        "Removed invalid Expo push tokens",
+      );
+    }
+  } catch (error) {
+    log.error({ err: error }, "Error sending via Expo Push API");
+    return {
+      ok: false,
+      errors: [error instanceof Error ? error.message : "Expo Push error"],
+    };
+  }
+
+  return {
+    ok: successCount > 0 || (successCount === 0 && failureCount === 0),
+    successCount,
+    failureCount,
+    errors: errors.length > 0 ? errors : undefined,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Send via Firebase Cloud Messaging (FCM) — for web tokens
+// ---------------------------------------------------------------------------
+
+async function sendViaFCM(args: {
   tokens: string[];
   notification: PushNotificationPayload;
 }): Promise<SendPushResult> {
@@ -90,10 +196,6 @@ export async function sendPushNotification(args: {
   }
 
   const { tokens, notification } = args;
-
-  if (!tokens.length) {
-    return { ok: true, successCount: 0, failureCount: 0 };
-  }
 
   try {
     const message: admin.messaging.MulticastMessage = {
@@ -160,12 +262,61 @@ export async function sendPushNotification(args: {
         .map((r) => r.error?.message || "Unknown error"),
     };
   } catch (error) {
-    log.error({ err: error }, "Error sending push notification");
+    log.error({ err: error }, "Error sending via FCM");
     return {
       ok: false,
       errors: [error instanceof Error ? error.message : "Unknown error"],
     };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Send to specific tokens — auto-routes between Expo Push API and FCM
+// ---------------------------------------------------------------------------
+
+export async function sendPushNotification(args: {
+  tokens: string[];
+  notification: PushNotificationPayload;
+}): Promise<SendPushResult> {
+  const { tokens, notification } = args;
+
+  if (!tokens.length) {
+    return { ok: true, successCount: 0, failureCount: 0 };
+  }
+
+  // Séparer les tokens par type
+  const expoTokens = tokens.filter(isExpoToken);
+  const fcmTokens = tokens.filter((t) => !isExpoToken(t));
+
+  let totalSuccess = 0;
+  let totalFailure = 0;
+  const allErrors: string[] = [];
+
+  // Route 1: Expo Push API pour les tokens mobile
+  if (expoTokens.length > 0) {
+    const result = await sendViaExpoPush({
+      tokens: expoTokens,
+      notification,
+    });
+    totalSuccess += result.successCount ?? 0;
+    totalFailure += result.failureCount ?? 0;
+    if (result.errors) allErrors.push(...result.errors);
+  }
+
+  // Route 2: Firebase Admin SDK pour les tokens web
+  if (fcmTokens.length > 0) {
+    const result = await sendViaFCM({ tokens: fcmTokens, notification });
+    totalSuccess += result.successCount ?? 0;
+    totalFailure += result.failureCount ?? 0;
+    if (result.errors) allErrors.push(...result.errors);
+  }
+
+  return {
+    ok: totalSuccess > 0 || (totalSuccess === 0 && totalFailure === 0),
+    successCount: totalSuccess,
+    failureCount: totalFailure,
+    errors: allErrors.length > 0 ? allErrors : undefined,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -179,10 +330,6 @@ export async function sendPushToConsumerUser(args: {
   imageUrl?: string;
   data?: Record<string, string>;
 }): Promise<SendPushResult> {
-  if (!initializeFirebaseAdmin()) {
-    return { ok: false, errors: ["Firebase not configured"] };
-  }
-
   const { userId, title, body, imageUrl, data } = args;
 
   // Get user's FCM tokens
@@ -223,10 +370,6 @@ export async function sendPushToProUser(args: {
   imageUrl?: string;
   data?: Record<string, string>;
 }): Promise<SendPushResult> {
-  if (!initializeFirebaseAdmin()) {
-    return { ok: false, errors: ["Firebase not configured"] };
-  }
-
   const { userId, title, body, imageUrl, data } = args;
 
   // Get user's FCM tokens from pro table
@@ -266,10 +409,6 @@ export async function sendPushToEstablishmentPros(args: {
   imageUrl?: string;
   data?: Record<string, string>;
 }): Promise<SendPushResult> {
-  if (!initializeFirebaseAdmin()) {
-    return { ok: false, errors: ["Firebase not configured"] };
-  }
-
   const { establishmentId, title, body, imageUrl, data } = args;
 
   // Get all pro user IDs for this establishment

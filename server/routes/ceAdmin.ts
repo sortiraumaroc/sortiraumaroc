@@ -125,7 +125,7 @@ export function registerCeAdminRoutes(app: Express): void {
         const { count: active } = await sb.from("company_employees").select("id", { count: "exact", head: true }).eq("company_id", c.id).eq("status", "active").is("deleted_at", null);
         const { count: pending } = await sb.from("company_employees").select("id", { count: "exact", head: true }).eq("company_id", c.id).eq("status", "pending").is("deleted_at", null);
         const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-        const { count: scans } = await sb.from("b2b_scans").eq("scan_type", "ce").select("id", { count: "exact", head: true }).eq("company_id", c.id).gte("scan_datetime", monthAgo);
+        const { count: scans } = await sb.from("b2b_scans").select("id", { count: "exact", head: true }).eq("scan_type", "ce").eq("company_id", c.id).gte("scan_datetime", monthAgo);
         return {
           ...c,
           employees_count: total ?? 0,
@@ -271,8 +271,9 @@ export function registerCeAdminRoutes(app: Express): void {
           .maybeSingle();
 
         const { data: lastScan } = await sb
-          .from("b2b_scans").eq("scan_type", "ce")
+          .from("b2b_scans")
           .select("scan_datetime, establishment_id")
+          .eq("scan_type", "ce")
           .eq("employee_id", emp.id)
           .order("scan_datetime", { ascending: false })
           .limit(1)
@@ -318,8 +319,9 @@ export function registerCeAdminRoutes(app: Express): void {
 
     const sb = supabase();
     let query = sb
-      .from("b2b_scans").eq("scan_type", "ce")
+      .from("b2b_scans")
       .select("*", { count: "exact" })
+      .eq("scan_type", "ce")
       .eq("company_id", req.params.id)
       .order("scan_datetime", { ascending: false })
       .range(offset, offset + limit - 1);
@@ -377,15 +379,16 @@ export function registerCeAdminRoutes(app: Express): void {
       sb.from("company_employees").select("id", { count: "exact", head: true }).eq("status", "pending").is("deleted_at", null),
       sb.from("pro_ce_advantages").select("id", { count: "exact", head: true }).is("deleted_at", null),
       sb.from("pro_ce_advantages").select("id", { count: "exact", head: true }).eq("is_active", true).is("deleted_at", null),
-      sb.from("b2b_scans").eq("scan_type", "ce").select("id", { count: "exact", head: true }).gte("scan_datetime", todayStr),
-      sb.from("b2b_scans").eq("scan_type", "ce").select("id", { count: "exact", head: true }).gte("scan_datetime", weekAgo),
-      sb.from("b2b_scans").eq("scan_type", "ce").select("id", { count: "exact", head: true }).gte("scan_datetime", monthAgo),
+      sb.from("b2b_scans").select("id", { count: "exact", head: true }).eq("scan_type", "ce").gte("scan_datetime", todayStr),
+      sb.from("b2b_scans").select("id", { count: "exact", head: true }).eq("scan_type", "ce").gte("scan_datetime", weekAgo),
+      sb.from("b2b_scans").select("id", { count: "exact", head: true }).eq("scan_type", "ce").gte("scan_datetime", monthAgo),
     ]);
 
     // Top establishments by scans this month
     const { data: topScans } = await sb
-      .from("b2b_scans").eq("scan_type", "ce")
+      .from("b2b_scans")
       .select("establishment_id")
+      .eq("scan_type", "ce")
       .gte("scan_datetime", monthAgo)
       .eq("status", "validated");
 
@@ -592,8 +595,9 @@ export function registerCeAdminRoutes(app: Express): void {
 
     const sb = supabase();
     const { data: scans } = await sb
-      .from("b2b_scans").eq("scan_type", "ce")
+      .from("b2b_scans")
       .select("*")
+      .eq("scan_type", "ce")
       .order("scan_datetime", { ascending: false })
       .limit(5000);
 

@@ -23,7 +23,7 @@ import {
   CreateCampaignSchema,
   UpdateCampaignSchema,
   ScheduleCampaignSchema,
-  SendTestCampaignSchema,
+
   PreviewAudienceSchema,
   TrackDeliverySchema,
   DeliveryIdParams,
@@ -33,6 +33,7 @@ import {
 import {
   createCampaign,
   updateCampaign,
+  deleteCampaign,
   scheduleCampaign,
   cancelCampaign,
   sendCampaign,
@@ -41,6 +42,7 @@ import {
   trackDelivery,
   previewAudienceSize,
 } from "../pushCampaignLogic";
+import { sendPushNotification } from "../pushNotifications";
 import { auditAdminAction } from "../auditLogV2";
 import { isValidUUID, sanitizeText } from "../sanitizeV2";
 import { pushCampaignAdminRateLimiter } from "../middleware/rateLimiter";
@@ -206,6 +208,37 @@ async function updateCampaignRoute(req: Request, res: Response) {
   }
 }
 
+// 4b. DELETE /api/admin/campaigns/:id
+async function deleteCampaignRoute(req: Request, res: Response) {
+  try {
+    if (!requireAdminKey(req, res)) return;
+
+    const campaignId = req.params.id;
+    if (!isValidUUID(campaignId)) {
+      res.status(400).json({ error: "Invalid campaign ID" });
+      return;
+    }
+
+    const result = await deleteCampaign(campaignId);
+
+    if (!result.ok) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+
+    res.json({ ok: true });
+
+    void auditAdminAction("admin.campaign.delete", {
+      targetType: "push_campaign",
+      targetId: campaignId,
+      ip: getClientIp(req),
+    });
+  } catch (err) {
+    log.error({ err }, "deleteCampaign error");
+    res.status(500).json({ error: "internal_error" });
+  }
+}
+
 // 5. POST /api/admin/campaigns/:id/schedule
 async function scheduleCampaignRoute(req: Request, res: Response) {
   try {
@@ -306,7 +339,7 @@ async function sendCampaignRoute(req: Request, res: Response) {
   }
 }
 
-// 8. POST /api/admin/campaigns/:id/test
+// 8. POST /api/admin/push-campaigns/:id/test
 async function sendTestCampaignRoute(req: Request, res: Response) {
   try {
     if (!requireAdminKey(req, res)) return;
@@ -317,20 +350,72 @@ async function sendTestCampaignRoute(req: Request, res: Response) {
       return;
     }
 
-    const testUserId = req.body?.test_user_id;
+    // test_user_id is optional — if not provided, auto-detect a user with push token
+    let testUserId: string | undefined = req.body?.test_user_id;
+
     if (!testUserId || !isValidUUID(testUserId)) {
-      res.status(400).json({ error: "Valid test_user_id is required" });
-      return;
+      // Auto-find any user that has an active FCM token (for test)
+      const supabase = getAdminSupabase();
+      const { data: tokenRow } = await supabase
+        .from("consumer_fcm_tokens")
+        .select("user_id, token")
+        .eq("active", true)
+        .limit(1)
+        .single();
+
+      if (tokenRow?.user_id) {
+        testUserId = tokenRow.user_id;
+      } else if (tokenRow?.token) {
+        // Anonymous token (user_id IS NULL) — send directly via FCM
+        const { data: campaign } = await supabase
+          .from("push_campaigns")
+          .select("*")
+          .eq("id", campaignId)
+          .single();
+
+        if (!campaign) {
+          res.status(404).json({ error: "Campagne introuvable" });
+          return;
+        }
+
+        const pushResult = await sendPushNotification({
+          tokens: [tokenRow.token],
+          notification: {
+            title: `[TEST] ${campaign.title}`,
+            body: campaign.message,
+            imageUrl: campaign.image_url ?? undefined,
+            data: {
+              type: "push_campaign",
+              campaign_id: campaignId,
+              campaign_type: campaign.type,
+              cta_url: campaign.cta_url,
+            },
+          },
+        });
+
+        if (!pushResult.ok || (pushResult.successCount ?? 0) === 0) {
+          res.status(400).json({ error: "Le push n'a pas pu être envoyé. Vérifiez que le token est valide." });
+          return;
+        }
+
+        res.json({ ok: true, test_user_id: null, anonymous_token: true });
+        return;
+      } else {
+        res.status(400).json({
+          error: "Aucun token push trouvé. Ouvrez sam.ma dans votre navigateur, acceptez les notifications push, puis réessayez.",
+        });
+        return;
+      }
     }
 
-    const result = await sendTestCampaign(campaignId, testUserId);
+    const result = await sendTestCampaign(campaignId, testUserId!);
 
     if (!result.ok) {
       res.status(400).json({ error: (result as any).error });
       return;
     }
 
-    res.json({ ok: true });
+    res.json({ ok: true, test_user_id: testUserId });
   } catch (err) {
     log.error({ err }, "sendTestCampaign error");
     res.status(500).json({ error: "internal_error" });
@@ -453,21 +538,77 @@ async function trackDeliveryRoute(req: Request, res: Response) {
   }
 }
 
+// 13. GET /api/admin/push-campaigns/stats — global push stats
+async function getGlobalStats(req: Request, res: Response) {
+  try {
+    if (!requireAdminKey(req, res)) return;
+
+    const supabase = getAdminSupabase();
+
+    // Aggregate stats across all sent campaigns
+    const { data: campaigns } = await supabase
+      .from("push_campaigns")
+      .select("stats_sent, stats_failed, stats_opened, stats_clicked, stats_unsubscribed")
+      .eq("status", "sent");
+
+    const rows = (campaigns ?? []) as {
+      stats_sent: number | null;
+      stats_failed: number | null;
+      stats_opened: number | null;
+      stats_clicked: number | null;
+      stats_unsubscribed: number | null;
+    }[];
+
+    const total_sent = rows.reduce((s, r) => s + (r.stats_sent ?? 0), 0);
+    const total_delivered = total_sent; // FCM doesn't differentiate sent vs delivered
+    const total_opened = rows.reduce((s, r) => s + (r.stats_opened ?? 0), 0);
+    const total_clicked = rows.reduce((s, r) => s + (r.stats_clicked ?? 0), 0);
+    const unsubscribe_count = rows.reduce((s, r) => s + (r.stats_unsubscribed ?? 0), 0);
+
+    res.json({
+      stats: {
+        total_sent,
+        total_delivered,
+        delivery_rate: total_sent > 0 ? 100 : 0,
+        open_rate: total_sent > 0 ? Math.round((total_opened / total_sent) * 100) : 0,
+        click_rate: total_sent > 0 ? Math.round((total_clicked / total_sent) * 100) : 0,
+        unsubscribe_count,
+      },
+    });
+  } catch (err) {
+    log.error({ err }, "getGlobalStats error");
+    res.status(500).json({ error: "internal_error" });
+  }
+}
+
 // =============================================================================
 // Route registration
 // =============================================================================
 
 export function registerPushCampaignAdminRoutes(app: Router): void {
+  const P = "/api/admin/push-campaigns";
+
+  // Static paths FIRST (before /:id to avoid matching "stats" as an id)
+  app.get(P, zQuery(ListCampaignsQuery), pushCampaignAdminRateLimiter, listCampaigns);
+  app.post(P, pushCampaignAdminRateLimiter, zBody(CreateCampaignSchema), createCampaignRoute);
+  app.get(`${P}/stats`, pushCampaignAdminRateLimiter, getGlobalStats);
+  app.post(`${P}/preview-audience`, pushCampaignAdminRateLimiter, zBody(PreviewAudienceSchema), previewAudience);
+  app.post(`${P}/deliveries/:deliveryId/track`, zParams(DeliveryIdParams), pushCampaignAdminRateLimiter, zBody(TrackDeliverySchema), trackDeliveryRoute);
+
+  // Dynamic /:id paths
+  app.get(`${P}/:id`, zParams(zIdParam), pushCampaignAdminRateLimiter, getCampaign);
+  app.put(`${P}/:id`, zParams(zIdParam), pushCampaignAdminRateLimiter, zBody(UpdateCampaignSchema), updateCampaignRoute);
+  app.delete(`${P}/:id`, zParams(zIdParam), pushCampaignAdminRateLimiter, deleteCampaignRoute);
+  app.post(`${P}/:id/schedule`, zParams(zIdParam), pushCampaignAdminRateLimiter, zBody(ScheduleCampaignSchema), scheduleCampaignRoute);
+  app.post(`${P}/:id/cancel`, zParams(zIdParam), pushCampaignAdminRateLimiter, cancelCampaignRoute);
+  app.post(`${P}/:id/send`, zParams(zIdParam), pushCampaignAdminRateLimiter, sendCampaignRoute);
+  app.post(`${P}/:id/test`, zParams(zIdParam), pushCampaignAdminRateLimiter, sendTestCampaignRoute);
+  app.get(`${P}/:id/stats`, zParams(zIdParam), pushCampaignAdminRateLimiter, getCampaignStatsRoute);
+  app.get(`${P}/:id/deliveries`, zParams(zIdParam), zQuery(ListDeliveriesQuery), pushCampaignAdminRateLimiter, listDeliveries);
+
+  // Backward-compat aliases (old paths)
   app.get("/api/admin/campaigns", zQuery(ListCampaignsQuery), pushCampaignAdminRateLimiter, listCampaigns);
   app.get("/api/admin/campaigns/:id", zParams(zIdParam), pushCampaignAdminRateLimiter, getCampaign);
-  app.post("/api/admin/campaigns", pushCampaignAdminRateLimiter, zBody(CreateCampaignSchema), createCampaignRoute);
-  app.put("/api/admin/campaigns/:id", zParams(zIdParam), pushCampaignAdminRateLimiter, zBody(UpdateCampaignSchema), updateCampaignRoute);
-  app.post("/api/admin/campaigns/:id/schedule", zParams(zIdParam), pushCampaignAdminRateLimiter, zBody(ScheduleCampaignSchema), scheduleCampaignRoute);
-  app.post("/api/admin/campaigns/:id/cancel", zParams(zIdParam), pushCampaignAdminRateLimiter, cancelCampaignRoute);
-  app.post("/api/admin/campaigns/:id/send", zParams(zIdParam), pushCampaignAdminRateLimiter, sendCampaignRoute);
-  app.post("/api/admin/campaigns/:id/test", zParams(zIdParam), pushCampaignAdminRateLimiter, zBody(SendTestCampaignSchema), sendTestCampaignRoute);
-  app.get("/api/admin/campaigns/:id/stats", zParams(zIdParam), pushCampaignAdminRateLimiter, getCampaignStatsRoute);
-  app.get("/api/admin/campaigns/:id/deliveries", zParams(zIdParam), zQuery(ListDeliveriesQuery), pushCampaignAdminRateLimiter, listDeliveries);
+  app.post("/api/admin/campaigns/:id/test", zParams(zIdParam), pushCampaignAdminRateLimiter, sendTestCampaignRoute);
   app.post("/api/admin/audience/preview", pushCampaignAdminRateLimiter, zBody(PreviewAudienceSchema), previewAudience);
-  app.post("/api/admin/campaigns/deliveries/:deliveryId/track", zParams(DeliveryIdParams), pushCampaignAdminRateLimiter, zBody(TrackDeliverySchema), trackDeliveryRoute);
 }

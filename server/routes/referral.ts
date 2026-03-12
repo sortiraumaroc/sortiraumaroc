@@ -32,21 +32,13 @@ import {
   ReferralPayoutIdParams,
   ReferralUniverseParams,
 } from "../schemas/referral";
+import { parseBearerToken } from "./proHelpers";
 
 const log = createModuleLogger("referral");
 
 // =============================================================================
 // HELPERS
 // =============================================================================
-
-function parseBearerToken(header: string | undefined): string | null {
-  if (!header) return null;
-  const trimmed = header.trim();
-  if (!trimmed) return null;
-  const [scheme, token] = trimmed.split(/\s+/, 2);
-  if (!scheme || scheme.toLowerCase() !== "bearer") return null;
-  return token && token.trim() ? token.trim() : null;
-}
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === "object";

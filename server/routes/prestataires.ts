@@ -25,6 +25,7 @@ import {
   PrestataireEstablishmentIdParams,
   PrestataireIdDocIdParams,
 } from "../schemas/prestataires";
+import { parseBearerToken } from "./proHelpers";
 
 const log = createModuleLogger("prestataires");
 
@@ -56,13 +57,6 @@ function asInt(v: unknown): number | null {
 
 function asBool(v: unknown): boolean {
   return v === true || v === "true" || v === 1;
-}
-
-function parseBearerToken(header: string | undefined): string | null {
-  if (!header) return null;
-  const [scheme, token] = header.trim().split(/\s+/, 2);
-  if (!scheme || scheme.toLowerCase() !== "bearer") return null;
-  return token?.trim() || null;
 }
 
 async function getUserFromBearerToken(req: Parameters<RequestHandler>[0]) {

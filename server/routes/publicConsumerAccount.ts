@@ -12,6 +12,7 @@ import {
   revokeTrustedDevice,
   revokeCurrentDevice,
 } from "../trustedDeviceLogic";
+import { sendSAMEmail } from "../email";
 import { sendTemplateEmail } from "../emailService";
 
 import {
@@ -53,23 +54,23 @@ export async function getConsumerMe(req: Request, res: Response) {
     userId: userResult.userId,
   });
 
-  // Fetch city, country, socio_professional_status from consumer_users table
+  // Fetch extended fields from consumer_users table
   const supabase = getAdminSupabase();
   let consumerRow: Record<string, unknown> | null = null;
   {
     const { data, error: selErr } = await supabase
       .from("consumer_users")
-      .select("city, country, socio_professional_status")
+      .select("city, country, socio_professional_status, username, gender, onboarding_completed, email_verified, phone_verified")
       .eq("id", userResult.userId)
       .maybeSingle();
 
     if (!selErr) {
       consumerRow = data as Record<string, unknown> | null;
     } else {
-      // Fallback: column might not exist yet, try without socio_professional_status
+      // Fallback: new columns might not exist yet
       const { data: fallback } = await supabase
         .from("consumer_users")
-        .select("city, country")
+        .select("city, country, socio_professional_status")
         .eq("id", userResult.userId)
         .maybeSingle();
       consumerRow = fallback as Record<string, unknown> | null;
@@ -88,11 +89,18 @@ export async function getConsumerMe(req: Request, res: Response) {
     phone: normalizeUserMetaString(meta, "phone"),
     email: userResult.email,
     date_of_birth: normalizeUserMetaString(meta, "date_of_birth"),
+    avatar_url: normalizeUserMetaString(meta, "avatar_url"),
     city: cityValue,
     country: countryValue,
     socio_professional_status: socioValue,
     reliability_score: reliability.score,
     reliability_level: reliability.level,
+    // Onboarding fields from consumer_users
+    username: (typeof consumerRow?.username === "string" ? consumerRow.username : null) as string | null,
+    gender: (typeof consumerRow?.gender === "string" ? consumerRow.gender : null) as "male" | "female" | null,
+    onboarding_completed: consumerRow?.onboarding_completed === true,
+    email_verified: consumerRow?.email_verified === true,
+    phone_verified: consumerRow?.phone_verified === true,
   };
 
   return res.status(200).json(payload);
@@ -115,9 +123,14 @@ export async function updateConsumerMe(req: Request, res: Response) {
   const phone = asString(body.phone);
   const emailInput = asString(body.email);
   const dateOfBirth = asString(body.date_of_birth) ?? asString(body.dateOfBirth);
+  const avatarUrl = asString(body.avatar_url) ?? asString(body.avatarUrl);
   const city = asString(body.city);
   const country = asString(body.country);
   const socioProfessionalStatus = asString(body.socio_professional_status);
+  // Onboarding fields
+  const username = asString(body.username);
+  const gender = asString(body.gender);
+  const onboardingCompleted = typeof body.onboarding_completed === "boolean" ? body.onboarding_completed : undefined;
 
   // Normaliser l'email
   const email = emailInput?.trim().toLowerCase() || null;
@@ -181,6 +194,7 @@ export async function updateConsumerMe(req: Request, res: Response) {
     ...(lastName != null ? { last_name: lastName } : {}),
     ...(phone != null ? { phone } : {}),
     ...(dateOfBirth != null ? { date_of_birth: dateOfBirth } : {}),
+    ...(avatarUrl != null ? { avatar_url: avatarUrl } : {}),
     ...(city != null ? { city } : {}),
     ...(country != null ? { country } : {}),
     ...(socioProfessionalStatus != null ? { socio_professional_status: socioProfessionalStatus } : {}),
@@ -199,7 +213,7 @@ export async function updateConsumerMe(req: Request, res: Response) {
   );
   if (updateErr) return res.status(500).json({ error: updateErr.message });
 
-  // Update consumer_users table for city, country, socio_professional_status, full_name, and email
+  // Update consumer_users table for city, country, socio_professional_status, full_name, email, and onboarding fields
   const consumerUpdate: Record<string, unknown> = {};
   if (city != null) consumerUpdate.city = city;
   if (country != null) consumerUpdate.country = country;
@@ -210,6 +224,10 @@ export async function updateConsumerMe(req: Request, res: Response) {
   if (email && !email.endsWith("@phone.sortiraumaroc.ma")) {
     consumerUpdate.email = email;
   }
+  // Onboarding fields
+  if (username != null) consumerUpdate.username = username.trim().toLowerCase();
+  if (gender != null) consumerUpdate.gender = gender;
+  if (onboardingCompleted !== undefined) consumerUpdate.onboarding_completed = onboardingCompleted;
   if (Object.keys(consumerUpdate).length > 0) {
     // Use upsert so the row is created if it doesn't exist yet
     // (users who signed up via OAuth/Apple/Google may not have a consumer_users row)
@@ -264,7 +282,7 @@ export async function updateConsumerMe(req: Request, res: Response) {
   {
     const { data, error: selErr } = await supabase
       .from("consumer_users")
-      .select("city, country, socio_professional_status")
+      .select("city, country, socio_professional_status, username, gender, onboarding_completed, email_verified, phone_verified")
       .eq("id", userResult.userId)
       .maybeSingle();
 
@@ -273,7 +291,7 @@ export async function updateConsumerMe(req: Request, res: Response) {
     } else {
       const { data: fallback } = await supabase
         .from("consumer_users")
-        .select("city, country")
+        .select("city, country, socio_professional_status")
         .eq("id", userResult.userId)
         .maybeSingle();
       consumerRow = fallback as Record<string, unknown> | null;
@@ -287,14 +305,142 @@ export async function updateConsumerMe(req: Request, res: Response) {
     phone: phone ?? normalizeUserMetaString(nextMeta, "phone"),
     email: email ?? userResult.email,
     date_of_birth: dateOfBirth ?? normalizeUserMetaString(nextMeta, "date_of_birth"),
+    avatar_url: avatarUrl ?? normalizeUserMetaString(nextMeta, "avatar_url"),
     city: city ?? (typeof consumerRow?.city === "string" && consumerRow.city ? consumerRow.city : null) ?? normalizeUserMetaString(nextMeta, "city"),
     country: country ?? (typeof consumerRow?.country === "string" && consumerRow.country ? consumerRow.country : null) ?? normalizeUserMetaString(nextMeta, "country"),
     socio_professional_status: socioProfessionalStatus ?? (typeof consumerRow?.socio_professional_status === "string" && consumerRow.socio_professional_status ? consumerRow.socio_professional_status : null) ?? normalizeUserMetaString(nextMeta, "socio_professional_status"),
     reliability_score: reliability.score,
     reliability_level: reliability.level,
+    // Onboarding fields
+    username: (typeof consumerRow?.username === "string" ? consumerRow.username : null) as string | null,
+    gender: (typeof consumerRow?.gender === "string" ? consumerRow.gender : null) as "male" | "female" | null,
+    onboarding_completed: consumerRow?.onboarding_completed === true,
+    email_verified: consumerRow?.email_verified === true,
+    phone_verified: consumerRow?.phone_verified === true,
   };
 
   return res.status(200).json(payload);
+}
+
+// ---------------------------------------------------------------------------
+// Check username availability
+// ---------------------------------------------------------------------------
+
+const RESERVED_USERNAMES = new Set([
+  "admin", "support", "sam", "sortiraumaroc", "help", "info",
+  "contact", "api", "www", "app", "mobile", "web", "staff",
+  "moderator", "mod", "system", "bot", "official", "test",
+]);
+
+const USERNAME_REGEX = /^[a-z][a-z0-9._]{2,29}$/;
+
+export async function checkConsumerUsername(req: Request, res: Response) {
+  const auth = String(req.headers.authorization ?? "");
+  const token = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7) : "";
+  if (!token) return res.status(401).json({ error: "missing_token" });
+
+  const userResult = await getUserFromBearerToken(token);
+  if (userResult.ok === false)
+    return res.status(userResult.status).json({ error: userResult.error });
+
+  const raw = String(req.query.username ?? "").trim().toLowerCase();
+
+  // Validation rules
+  if (!raw || raw.length < 3) {
+    return res.json({ available: false, error: "3 caractères minimum" });
+  }
+  if (raw.length > 30) {
+    return res.json({ available: false, error: "30 caractères maximum" });
+  }
+  if (!USERNAME_REGEX.test(raw)) {
+    return res.json({ available: false, error: "Lettres minuscules, chiffres, points et underscores uniquement. Doit commencer par une lettre." });
+  }
+  if (/\.\./.test(raw) || /__/.test(raw)) {
+    return res.json({ available: false, error: "Pas de caractères spéciaux consécutifs" });
+  }
+  if (raw.endsWith(".") || raw.endsWith("_")) {
+    return res.json({ available: false, error: "Ne peut pas finir par un point ou underscore" });
+  }
+  if (RESERVED_USERNAMES.has(raw)) {
+    return res.json({ available: false, error: "Ce nom d'utilisateur est réservé" });
+  }
+
+  // Check DB
+  const supabase = getAdminSupabase();
+  const { data } = await supabase
+    .from("consumer_users")
+    .select("id")
+    .eq("username", raw)
+    .neq("id", userResult.userId)
+    .maybeSingle();
+
+  if (data) {
+    return res.json({ available: false, error: "Ce nom d'utilisateur est déjà pris" });
+  }
+
+  return res.json({ available: true });
+}
+
+// ---------------------------------------------------------------------------
+// Send invitations
+// ---------------------------------------------------------------------------
+
+export async function sendConsumerInvitations(req: Request, res: Response) {
+  const auth = String(req.headers.authorization ?? "");
+  const token = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7) : "";
+  if (!token) return res.status(401).json({ error: "missing_token" });
+
+  const userResult = await getUserFromBearerToken(token);
+  if (userResult.ok === false)
+    return res.status(userResult.status).json({ error: userResult.error });
+
+  const body = asRecord(req.body) ?? {};
+  const contacts = Array.isArray(body.contacts) ? body.contacts : [];
+
+  if (contacts.length === 0) {
+    return res.status(400).json({ error: "Aucun contact fourni" });
+  }
+  if (contacts.length > 10) {
+    return res.status(400).json({ error: "Maximum 10 invitations à la fois" });
+  }
+
+  const meta = (asRecord(userResult.user?.user_metadata) ?? {}) as Record<string, unknown>;
+  const senderName = [
+    normalizeUserMetaString(meta, "first_name"),
+    normalizeUserMetaString(meta, "last_name"),
+  ].filter(Boolean).join(" ") || "Un ami";
+
+  const baseUrl = getRequestBaseUrl(req);
+  const inviteLink = `${baseUrl}/rejoindre`;
+
+  let sent = 0;
+  for (const contact of contacts) {
+    const c = asRecord(contact);
+    if (!c) continue;
+    const type = asString(c.type);
+    const value = asString(c.value)?.trim();
+    if (!type || !value) continue;
+
+    try {
+      if (type === "email") {
+        await sendSAMEmail({
+          emailId: `invitation-${userResult.user!.id}-${Date.now()}`,
+          fromKey: "hello",
+          to: [value],
+          subject: `${senderName} vous invite sur SAM.ma`,
+          bodyText: `${senderName} vous invite a rejoindre SAM.ma, la plateforme des bonnes adresses au Maroc.`,
+          ctaUrl: inviteLink,
+          ctaLabel: "Rejoindre SAM.ma",
+        });
+        sent++;
+      }
+      // SMS via Twilio could be added here in the future
+    } catch (err) {
+      log.error({ err, contact: { type, value } }, "sendConsumerInvitations: failed to send");
+    }
+  }
+
+  return res.json({ ok: true, sent });
 }
 
 export async function deactivateConsumerAccount(req: Request, res: Response) {

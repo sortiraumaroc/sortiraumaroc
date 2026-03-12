@@ -102,8 +102,11 @@ import { registerSupportCronRoutes } from "./routes/supportCron";
 
 // Social / Messaging
 import { registerSocialRoutes } from "./routes/social";
+import { registerStoriesRoutes } from "./routes/socialStories";
+import { registerConsumerMediaRoutes } from "./routes/consumerMedia";
 import { registerMessagingRoutes } from "./routes/messaging";
 import { registerSponsoredNotificationRoutes } from "./routes/sponsoredNotifications";
+import { registerEstablishmentFavoritesRoutes } from "./routes/establishmentFavorites";
 
 // SAM AI
 import { registerSamRoutes } from "./sam/chatEndpoint";
@@ -149,6 +152,7 @@ import { registerLeadsRoutes } from "./routes/leads";
 import { registerPaymentsRoutes } from "./routes/payments";
 import { registerLacaissePayRoutes } from "./routes/lacaissepay";
 import { registerWalletRoutes } from "./routes/wallet";
+import { registerWalletConsumerRoutes } from "./routes/walletConsumer";
 import { registerTotpRoutes } from "./routes/totp";
 import { registerConsumerTotpRoutes } from "./routes/consumerTotp";
 import { registerPushTokenRoutes } from "./routes/pushTokens";
@@ -230,8 +234,20 @@ export function createServer() {
   });
 
   // ── Core middleware ──────────────────────────────────────────────────────
+  const ALLOWED_ORIGINS = [
+    "https://sam.ma",
+    "https://www.sam.ma",
+    ...(process.env.NODE_ENV !== "production"
+      ? ["http://localhost:8080", "http://localhost:5173", "http://localhost:3000"]
+      : []),
+  ];
   const corsOptions = {
-    origin: true,
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+      // Allow requests with no origin (mobile apps, server-to-server, curl)
+      if (!origin) return callback(null, true);
+      if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+      callback(new Error("Not allowed by CORS"));
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: [
@@ -293,6 +309,63 @@ export function createServer() {
       302,
       "https://cdn.builder.io/api/v1/image/assets%2F9d79e075af8c480ea94841fd41e63e5c%2Fc16969ff26074ebca70eb03a15c1fd0b?format=ico&width=64",
     );
+  });
+
+  // ── Universal Links (iOS) — Apple App Site Association ─────────────────
+  app.get("/.well-known/apple-app-site-association", (_req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.json({
+      applinks: {
+        details: [
+          {
+            appIDs: ["UUJ257R372.ma.sam.mobile"],
+            components: [
+              // Establishment detail pages (all universes)
+              { "/": "/restaurant/*" },
+              { "/": "/hotel/*" },
+              { "/": "/wellness/*" },
+              { "/": "/loisir/*" },
+              { "/": "/culture/*" },
+              { "/": "/shopping/*" },
+              // Search results
+              { "/": "/results" },
+              { "/": "/resultats" },
+              // User profile & content
+              { "/": "/profile" },
+              { "/": "/content/*" },
+              // Packs & blog
+              { "/": "/packs/*" },
+              { "/": "/blog/*" },
+              // Booking
+              { "/": "/booking/*" },
+              // Exclusions — keep these in browser
+              { "/": "/admin/*", "exclude": true },
+              { "/": "/pro/*", "exclude": true },
+              { "/": "/partners/*", "exclude": true },
+              { "/": "/api/*", "exclude": true },
+            ],
+          },
+        ],
+      },
+    });
+  });
+
+  // ── App Links (Android) — Digital Asset Links ────────────────────────
+  app.get("/.well-known/assetlinks.json", (_req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.json([
+      {
+        relation: ["delegate_permission/common.handle_all_urls"],
+        target: {
+          namespace: "android_app",
+          package_name: "ma.sam.mobile",
+          // SHA256 fingerprint à remplir après génération du keystore Android
+          sha256_cert_fingerprints: [],
+        },
+      },
+    ]);
   });
 
   // ── Health check ────────────────────────────────────────────────────────
@@ -387,6 +460,7 @@ export function createServer() {
   registerTotpRoutes(app);
   registerConsumerTotpRoutes(app);
   registerWalletRoutes(app);
+  registerWalletConsumerRoutes(app);
   registerLeadsRoutes(app);
   registerPaymentsRoutes(app);
   registerLacaissePayRoutes(app);
@@ -710,7 +784,10 @@ export function createServer() {
 
   // Social & Messaging
   registerSocialRoutes(app);
+  registerStoriesRoutes(app);
+  registerConsumerMediaRoutes(app);
   registerMessagingRoutes(app);
+  registerEstablishmentFavoritesRoutes(app);
 
   // SAM AI Assistant
   registerSamRoutes(app);

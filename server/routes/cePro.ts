@@ -20,6 +20,7 @@ import {
 import { createModuleLogger } from "../lib/logger";
 import { zBody } from "../lib/validate";
 import { validateScanBodySchema, advantageUpsertBodySchema } from "../schemas/cePro";
+import { parseBearerToken } from "./proHelpers";
 
 const log = createModuleLogger("cePro");
 
@@ -28,15 +29,6 @@ const log = createModuleLogger("cePro");
 // ============================================================================
 
 type ProUser = { id: string; email?: string | null };
-
-function parseBearerToken(header: string | undefined): string | null {
-  if (!header) return null;
-  const trimmed = header.trim();
-  if (!trimmed) return null;
-  const [scheme, token] = trimmed.split(/\s+/, 2);
-  if (!scheme || scheme.toLowerCase() !== "bearer") return null;
-  return token && token.trim() ? token.trim() : null;
-}
 
 async function getProUser(req: Request): Promise<ProUser | null> {
   const token = parseBearerToken(req.header("authorization") ?? undefined);
@@ -122,8 +114,9 @@ export function registerCeProRoutes(app: Express): void {
 
     const sb = supabase();
     let query = sb
-      .from("b2b_scans").eq("scan_type", "ce")
+      .from("b2b_scans")
       .select("*", { count: "exact" })
+      .eq("scan_type", "ce")
       .eq("establishment_id", establishmentId)
       .order("scan_datetime", { ascending: false })
       .range(offset, offset + limit - 1);
@@ -264,10 +257,10 @@ export function registerCeProRoutes(app: Express): void {
     const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
     const [today, week, month, total] = await Promise.all([
-      sb.from("b2b_scans").eq("scan_type", "ce").select("id", { count: "exact", head: true }).eq("establishment_id", establishmentId).gte("scan_datetime", todayStr).eq("status", "validated"),
-      sb.from("b2b_scans").eq("scan_type", "ce").select("id", { count: "exact", head: true }).eq("establishment_id", establishmentId).gte("scan_datetime", weekAgo).eq("status", "validated"),
-      sb.from("b2b_scans").eq("scan_type", "ce").select("id", { count: "exact", head: true }).eq("establishment_id", establishmentId).gte("scan_datetime", monthAgo).eq("status", "validated"),
-      sb.from("b2b_scans").eq("scan_type", "ce").select("id", { count: "exact", head: true }).eq("establishment_id", establishmentId).eq("status", "validated"),
+      sb.from("b2b_scans").select("id", { count: "exact", head: true }).eq("scan_type", "ce").eq("establishment_id", establishmentId).gte("scan_datetime", todayStr).eq("status", "validated"),
+      sb.from("b2b_scans").select("id", { count: "exact", head: true }).eq("scan_type", "ce").eq("establishment_id", establishmentId).gte("scan_datetime", weekAgo).eq("status", "validated"),
+      sb.from("b2b_scans").select("id", { count: "exact", head: true }).eq("scan_type", "ce").eq("establishment_id", establishmentId).gte("scan_datetime", monthAgo).eq("status", "validated"),
+      sb.from("b2b_scans").select("id", { count: "exact", head: true }).eq("scan_type", "ce").eq("establishment_id", establishmentId).eq("status", "validated"),
     ]);
 
     res.json({

@@ -1,6 +1,6 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Edit3, Loader2, Plus, Trash2, Calendar, User, Tag, Eye, FileText, Globe, Search } from "lucide-react";
+import { Edit3, Loader2, Plus, Trash2, Calendar, User, Tag, Eye, Globe } from "lucide-react";
 
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
 import { AdminHomepageNav } from "./homepage/AdminHomepageNav";
@@ -1082,7 +1082,7 @@ export function AdminContentPage() {
   }, [refreshBlog]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AdminHomepageNav />
       <AdminPageHeader
         title="Pages & Blog"
@@ -1857,14 +1857,12 @@ export function AdminContentPage() {
                     English
                   </TabsTrigger>
                   <TabsTrigger value="seo" className="gap-1.5 data-[state=active]:bg-white">
-                    <Search className="h-3.5 w-3.5" />
                     SEO
                     {(blogEditor.meta_title_fr || blogEditor.meta_description_fr) && (
                       <span className="w-2 h-2 rounded-full bg-emerald-500" />
                     )}
                   </TabsTrigger>
                   <TabsTrigger value="blocks" className="gap-1.5 data-[state=active]:bg-white">
-                    <FileText className="h-3.5 w-3.5" />
                     Blocs
                     {blogEditor.blocks.length > 0 && (
                       <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">{blogEditor.blocks.length}</Badge>

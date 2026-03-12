@@ -216,11 +216,18 @@ export type ConsumerMePayload = {
   phone: string | null;
   email: string | null;
   date_of_birth: string | null;
+  avatar_url: string | null;
   city: string | null;
   country: string | null;
   socio_professional_status: string | null;
   reliability_score: number;
   reliability_level: "excellent" | "good" | "medium" | "fragile";
+  // Onboarding fields
+  username: string | null;
+  gender: "male" | "female" | null;
+  onboarding_completed: boolean;
+  email_verified: boolean;
+  phone_verified: boolean;
 };
 
 type UserFromBearerOptions = {
@@ -670,6 +677,8 @@ export type PublicEstablishmentListItem = {
   activity_score?: number;
   google_rating?: number | null;
   google_review_count?: number | null;
+  phone?: string | null;
+  next_slots?: Array<{ time: string; discount?: number }>;
 };
 
 export type PublicEstablishmentsListResponse = {

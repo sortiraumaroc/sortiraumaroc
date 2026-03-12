@@ -142,10 +142,10 @@ function PlanEditDialog({
       const payload = formToPayload(form);
       if (plan) {
         await updateInsurancePlan(plan.id, payload);
-        toast({ title: "Plan mis a jour" });
+        toast({ title: "Plan mis à jour" });
       } else {
         await createInsurancePlan(payload as any);
-        toast({ title: "Plan cree" });
+        toast({ title: "Plan créé" });
       }
       onSaved();
       onOpenChange(false);
@@ -166,7 +166,7 @@ function PlanEditDialog({
           <DialogDescription>
             {plan
               ? "Modifiez les informations du plan d'assurance."
-              : "Creez un nouveau plan d'assurance pour le module location."}
+              : "Créez un nouveau plan d'assurance pour le module location."}
           </DialogDescription>
         </DialogHeader>
 
@@ -274,7 +274,7 @@ function PlanEditDialog({
             Annuler
           </Button>
           <Button onClick={handleSave} disabled={saving || !form.name.trim()}>
-            {saving ? "Enregistrement..." : plan ? "Mettre a jour" : "Creer"}
+            {saving ? "Enregistrement..." : plan ? "Mettre à jour" : "Créer"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -317,7 +317,7 @@ export function AdminInsurancePlansPanel() {
     if (!confirm(`Supprimer le plan "${plan.name}" ?`)) return;
     try {
       await deleteInsurancePlan(plan.id);
-      toast({ title: "Plan supprime" });
+      toast({ title: "Plan supprimé" });
       load();
     } catch (e: any) {
       toast({

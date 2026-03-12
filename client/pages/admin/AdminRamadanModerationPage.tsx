@@ -5,7 +5,7 @@
  * Dashboard de stats rapides.
  */
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import {
   Moon,
   CheckCircle,
@@ -22,6 +22,9 @@ import {
   Zap,
   Eye,
   Save,
+  Search,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +39,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { AdminReservationsNav } from "./reservations/AdminReservationsNav";
+import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
 import { useToast } from "@/hooks/use-toast";
 import {
   getRamadanModerationQueue,
@@ -122,6 +126,9 @@ export default function AdminRamadanModerationPage() {
   const [totalReservations, setTotalReservations] = useState(0);
   const [totalScans, setTotalScans] = useState(0);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(25);
 
   // Upload cover
   const [uploadingCoverId, setUploadingCoverId] = useState<string | null>(null);
@@ -183,12 +190,15 @@ export default function AdminRamadanModerationPage() {
 
     try {
       const result = await uploadRamadanOfferImage({ establishmentId, file });
-      if (slotIds?.length) {
+      if (slotIds && slotIds.length > 0) {
         // Ftour group: update cover on all slots
         await updateFtourGroupCover(slotIds, result.url);
-      } else {
+      } else if (offerId && !offerId.startsWith("ftour_group_")) {
         // Regular ramadan offer
         await updateRamadanOfferCover(offerId, result.url);
+      } else {
+        // Ftour group but no slot_ids — reload to get fresh data
+        toast({ title: "Image uploadée, rechargement…" });
       }
       toast({ title: "Photo mise à jour" });
       await loadOffers();
@@ -392,6 +402,29 @@ export default function AdminRamadanModerationPage() {
     }
   };
 
+  // Reset page quand filtre/recherche/perPage change
+  useEffect(() => { setPage(1); }, [searchQuery, statusFilter, perPage]);
+
+  // Filtrage local par recherche (nom établissement, titre, ville)
+  const filteredOffers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return offers;
+    return offers.filter((o) => {
+      const d = o as any;
+      const name = (d.establishments?.name ?? d.title ?? "").toLowerCase();
+      const city = (d.establishments?.city ?? "").toLowerCase();
+      const title = (d.title ?? "").toLowerCase();
+      return name.includes(q) || city.includes(q) || title.includes(q);
+    });
+  }, [offers, searchQuery]);
+
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(filteredOffers.length / perPage));
+  const paginatedOffers = useMemo(() => {
+    const start = (page - 1) * perPage;
+    return filteredOffers.slice(start, start + perPage);
+  }, [filteredOffers, page, perPage]);
+
   const STATUS_TABS = [
     { value: "pending_moderation", label: "En attente", count: stats.pending_moderation ?? 0 },
     { value: "active", label: "Actives", count: stats.active ?? 0 },
@@ -404,28 +437,30 @@ export default function AdminRamadanModerationPage() {
   ];
 
   return (
-    <div className="space-y-6 p-6">
-      {/* Nav tabs */}
+    <div className="space-y-4">
       <AdminReservationsNav />
 
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Moon className="h-7 w-7 text-amber-500" />
-          <div>
-            <h1 className="text-2xl font-extrabold text-slate-900">
-              Modération Ramadan 2026
-            </h1>
-            <p className="text-sm text-slate-500">
-              {totalReservations} réservations · {totalScans} scans QR validés
-            </p>
+      <AdminPageHeader
+        title="Modération Ramadan 2026"
+        description={`${totalReservations} réservations · ${totalScans} scans QR validés`}
+        actions={
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Input
+                placeholder="Rechercher…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8 h-9 w-56 text-sm"
+              />
+            </div>
+            <Button variant="outline" size="sm" onClick={() => { loadOffers(); loadStats(); }}>
+              <RefreshCw className="h-4 w-4 mr-1" />
+              Actualiser
+            </Button>
           </div>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => { loadOffers(); loadStats(); }}>
-          <RefreshCw className="h-4 w-4 mr-1" />
-          Actualiser
-        </Button>
-      </div>
+        }
+      />
 
       {/* Stats rapides */}
       <div className="grid grid-cols-4 sm:grid-cols-8 gap-3">
@@ -454,13 +489,13 @@ export default function AdminRamadanModerationPage() {
             <div key={i} className="h-28 rounded-lg bg-slate-100 animate-pulse" />
           ))}
         </div>
-      ) : !offers.length ? (
+      ) : !filteredOffers.length ? (
         <div className="text-center py-12 text-slate-500 text-sm">
-          Aucune offre avec le statut sélectionné.
+          {searchQuery.trim() ? "Aucune offre ne correspond à votre recherche." : "Aucune offre avec le statut sélectionné."}
         </div>
       ) : (
         <div className="space-y-3">
-          {offers.map((offer) => {
+          {paginatedOffers.map((offer) => {
             const isLoading = actionLoading === offer.id;
             const isPending = offer.moderation_status === "pending_moderation";
             const isFtourGroup = (offer as any).item_type === "ftour_group";
@@ -530,7 +565,10 @@ export default function AdminRamadanModerationPage() {
                               {d.establishments?.city ?? ""}
                             </div>
                             <div className="text-sm text-primary font-bold mt-0.5">
-                              {formatPrice(d.base_price)}
+                              {d.price_type === "a_la_carte" ? "À la carte"
+                                : d.price_type === "free" ? "Gratuit"
+                                : d.price_type === "starting_from" ? `À partir de ${formatPrice(d.base_price)}`
+                                : formatPrice(d.base_price)}
                               {d.promo_type === "percent" && d.promo_value ? (
                                 <span className="ml-2 text-xs text-emerald-600 font-bold">-{d.promo_value}%</span>
                               ) : null}
@@ -774,6 +812,49 @@ export default function AdminRamadanModerationPage() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {filteredOffers.length > 0 && (
+        <div className="flex items-center justify-between border-t pt-4">
+          <div className="flex items-center gap-2 text-sm text-slate-500">
+            <span>Afficher</span>
+            <select
+              value={perPage}
+              onChange={(e) => setPerPage(Number(e.target.value))}
+              className="rounded border border-slate-200 bg-white px-2 py-1 text-sm"
+            >
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={100}>100</option>
+            </select>
+            <span>par page</span>
+            <span className="ml-2 text-slate-400">
+              {(page - 1) * perPage + 1}–{Math.min(page * perPage, filteredOffers.length)} sur {filteredOffers.length}
+            </span>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="px-3 text-sm text-slate-600">
+              {page} / {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       )}
 

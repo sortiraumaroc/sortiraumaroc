@@ -248,7 +248,7 @@ export function AdminActivityTrackingPage() {
   const summary = data?.summary;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AdminCollaboratorsNav />
       <AdminPageHeader
         title="Suivi d'activité"

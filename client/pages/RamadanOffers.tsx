@@ -1,8 +1,7 @@
 /**
- * Page /ramadan-offers — Listing filtrable des offres Ramadan
+ * Page /ramadan-offers — Listing des offres Ftour Ramadan
  *
- * Filtres : type d'offre, ville, fourchette de prix
- * Tri : populaires, nouveautés, prix
+ * Filtres : ville, fourchette de prix, recherche
  * Pagination
  * Thème : "Mille et Une Nuits" (dark navy + gold)
  */
@@ -11,42 +10,26 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Moon,
+  Search,
   SlidersHorizontal,
   ChevronLeft,
   ChevronRight,
   X,
-  Sparkles,
 } from "lucide-react";
 
 import { Header } from "@/components/Header";
 import { RamadanOfferCard } from "@/components/ramadan/RamadanOfferCard";
 import { RamadanStarryBackground } from "@/components/ramadan/RamadanStarryBackground";
+
 import { CrescentMoonSvg } from "@/components/ramadan/ramadan-assets";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { listPublicRamadanOffers } from "@/lib/ramadanApi";
 import type { RamadanOfferWithEstablishment } from "@/lib/ramadanApi";
-import type { RamadanOfferType } from "../../shared/ramadanTypes";
 
 // =============================================================================
 // Constants
 // =============================================================================
-
-const SORT_OPTIONS = [
-  { id: "featured", label: "Populaires" },
-  { id: "newest", label: "Nouveautés" },
-  { id: "price_asc", label: "Prix croissant" },
-  { id: "price_desc", label: "Prix décroissant" },
-] as const;
-
-const TYPE_FILTERS: { id: RamadanOfferType | "all"; label: string }[] = [
-  { id: "all", label: "Tout" },
-  { id: "ftour", label: "Ftour" },
-  { id: "shour", label: "S'hour" },
-  { id: "traiteur", label: "Traiteur" },
-  { id: "pack_famille", label: "Pack Famille" },
-  { id: "special", label: "Spécial Ramadan" },
-];
 
 const CITY_OPTIONS = [
   "Casablanca",
@@ -58,7 +41,8 @@ const CITY_OPTIONS = [
   "Meknes",
   "Oujda",
   "Kenitra",
-  "Mohammedia",
+  "Mohammédia",
+  "Bouskoura",
 ];
 
 const PER_PAGE = 12;
@@ -77,24 +61,16 @@ export default function RamadanOffers() {
   const [error, setError] = useState<string | null>(null);
 
   // Filters from URL
-  const [activeType, setActiveType] = useState<RamadanOfferType | "all">(
-    "ftour",
-  );
+  const [searchQuery, setSearchQuery] = useState(searchParams.get("search") ?? "");
   const [city, setCity] = useState(searchParams.get("city") ?? "");
   const [minPrice, setMinPrice] = useState(searchParams.get("min_price") ?? "");
   const [maxPrice, setMaxPrice] = useState(searchParams.get("max_price") ?? "");
-  const [sort, setSort] = useState(searchParams.get("sort") ?? "featured");
   const [page, setPage] = useState(Number(searchParams.get("page")) || 1);
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   // Derived
   const totalPages = Math.ceil(total / PER_PAGE);
-  const hasFilters = !!(
-    (activeType !== "all") ||
-    city ||
-    minPrice ||
-    maxPrice
-  );
+  const hasFilters = !!(city || minPrice || maxPrice || searchQuery);
 
   // ---------------------------------------------------------------------------
   // Fetch
@@ -105,14 +81,15 @@ export default function RamadanOffers() {
     setError(null);
     try {
       const filters: Parameters<typeof listPublicRamadanOffers>[0] = {
-        sort: sort as "featured" | "price_asc" | "price_desc" | "newest",
+        type: "ftour",
+        sort: "featured",
         page,
         per_page: PER_PAGE,
       };
-      if (activeType !== "all") filters.type = activeType;
       if (city) filters.city = city;
       if (minPrice) filters.min_price = Number(minPrice) * 100; // centimes
       if (maxPrice) filters.max_price = Number(maxPrice) * 100;
+      if (searchQuery.trim()) filters.search = searchQuery.trim();
 
       const res = await listPublicRamadanOffers(filters);
       setOffers(res.offers);
@@ -122,7 +99,7 @@ export default function RamadanOffers() {
     } finally {
       setLoading(false);
     }
-  }, [sort, page, activeType, city, minPrice, maxPrice]);
+  }, [page, city, minPrice, maxPrice, searchQuery]);
 
   useEffect(() => {
     fetchOffers();
@@ -134,21 +111,20 @@ export default function RamadanOffers() {
 
   useEffect(() => {
     const params = new URLSearchParams();
-    if (activeType !== "all") params.set("type", activeType);
+    if (searchQuery.trim()) params.set("search", searchQuery.trim());
     if (city) params.set("city", city);
     if (minPrice) params.set("min_price", minPrice);
     if (maxPrice) params.set("max_price", maxPrice);
-    if (sort && sort !== "featured") params.set("sort", sort);
     if (page > 1) params.set("page", String(page));
     setSearchParams(params, { replace: true });
-  }, [activeType, city, minPrice, maxPrice, sort, page, setSearchParams]);
+  }, [searchQuery, city, minPrice, maxPrice, page, setSearchParams]);
 
   // ---------------------------------------------------------------------------
   // Actions
   // ---------------------------------------------------------------------------
 
   const clearFilters = () => {
-    setActiveType("all");
+    setSearchQuery("");
     setCity("");
     setMinPrice("");
     setMaxPrice("");
@@ -168,6 +144,9 @@ export default function RamadanOffers() {
               city: offer.establishments.city,
               logo_url: offer.establishments.logo_url,
               universe: offer.establishments.universe,
+              service_types: offer.establishments.service_types,
+              phone: offer.establishments.phone,
+              google_maps_url: offer.establishments.google_maps_url,
             }
           : null,
       })),
@@ -193,11 +172,10 @@ export default function RamadanOffers() {
             Offres Ramadan
           </h1>
           <p className="text-sm md:text-lg text-ramadan-gold-light/80 max-w-xl mx-auto mb-4">
-            Ftour, S'hour & formules exceptionnelles
+            Les meilleures adresses Ftour au Maroc
           </p>
           {total > 0 && !loading && (
             <span className="inline-flex items-center gap-1.5 bg-ramadan-gold/20 text-ramadan-gold px-4 py-1.5 rounded-full text-sm font-semibold">
-              <Sparkles className="h-4 w-4" />
               {total} offre{total > 1 ? "s" : ""} disponible
               {total > 1 ? "s" : ""}
             </span>
@@ -209,34 +187,32 @@ export default function RamadanOffers() {
           Content
           ===================================================================== */}
       <main className="container mx-auto px-4 pt-6 pb-12 max-w-7xl">
-        {/* Type filter removed — only Ftour offers displayed */}
-
         {/* -----------------------------------------------------------------
-            Sort pills + Filter toggle
+            Search + Filter toggle
             ----------------------------------------------------------------- */}
         <div className="flex flex-wrap items-center gap-3 mb-6">
-          <div
-            className="flex gap-2 overflow-x-auto pb-1 flex-1"
-            style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-          >
-            {SORT_OPTIONS.map((opt) => (
+          {/* Search inline */}
+          <div className="relative flex-1 min-w-0 max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ramadan-gold-light/50 pointer-events-none" />
+            <input
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setPage(1);
+              }}
+              type="text"
+              placeholder="Rechercher un restaurant…"
+              className="h-9 w-full pl-8 pr-7 rounded-full border border-ramadan-gold/20 bg-white/5 text-ramadan-cream text-sm focus:outline-none focus:ring-2 focus:ring-ramadan-gold/30 placeholder:text-ramadan-gold-light/40"
+            />
+            {searchQuery && (
               <button
-                key={opt.id}
                 type="button"
-                onClick={() => {
-                  setSort(opt.id);
-                  setPage(1);
-                }}
-                className={cn(
-                  "shrink-0 h-9 rounded-full px-4 text-sm font-semibold border transition",
-                  sort === opt.id
-                    ? "bg-ramadan-bordeaux text-ramadan-cream border-ramadan-bordeaux"
-                    : "bg-white/5 text-ramadan-gold-light border-ramadan-gold/20 hover:bg-white/10",
-                )}
+                onClick={() => { setSearchQuery(""); setPage(1); }}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ramadan-gold-light/50 hover:text-ramadan-gold transition"
               >
-                {opt.label}
+                <X className="h-3.5 w-3.5" />
               </button>
-            ))}
+            )}
           </div>
 
           <button

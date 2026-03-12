@@ -548,6 +548,7 @@ export const MOROCCAN_CITIES = [
   { value: "kenitra", label: "Kénitra" },
   { value: "tetouan", label: "Tétouan" },
   { value: "essaouira", label: "Essaouira" },
-  { value: "mohammedia", label: "Mohammedia" },
+  { value: "mohammedia", label: "Mohammédia" },
   { value: "el_jadida", label: "El Jadida" },
+  { value: "bouskoura", label: "Bouskoura" },
 ];

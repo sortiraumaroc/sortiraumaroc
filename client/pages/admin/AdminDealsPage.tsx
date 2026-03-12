@@ -277,6 +277,8 @@ export function AdminDealsPage() {
 
   return (
     <div className="space-y-4">
+      <AdminReservationsNav />
+
       <AdminPageHeader
         title="Offres & packs"
         description="Achats et configuration par établissement (filtrée)."
@@ -290,8 +292,6 @@ export function AdminDealsPage() {
           />
         }
       />
-
-      <AdminReservationsNav />
 
       <Card className="border-slate-200">
         <CardHeader className="p-4">

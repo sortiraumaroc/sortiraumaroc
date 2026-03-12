@@ -179,11 +179,63 @@ export async function updateConsumerPushPreferences(req: Request, res: Response)
 }
 
 // ---------------------------------------------------------------------------
+// POST /api/public/push/register
+// Register an anonymous FCM token (no auth required)
+// ---------------------------------------------------------------------------
+
+export async function registerAnonymousPushToken(req: Request, res: Response) {
+  try {
+    const { token, device_type, device_name } = req.body as {
+      token?: string;
+      device_type?: string;
+      device_name?: string;
+    };
+
+    if (!token || typeof token !== "string" || token.length < 10) {
+      return res.status(400).json({ ok: false, error: "Invalid token" });
+    }
+
+    const deviceType = ["web", "ios", "android"].includes(device_type ?? "")
+      ? device_type
+      : "web";
+
+    // Upsert with user_id = null (anonymous token)
+    const { error } = await supabase
+      .from("consumer_fcm_tokens")
+      .upsert(
+        {
+          user_id: null,
+          token,
+          device_type: deviceType,
+          device_name: device_name ?? null,
+          active: true,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "token" },
+      );
+
+    if (error) {
+      log.error({ err: error }, "registerAnonymousPushToken error");
+      return res.status(500).json({ ok: false, error: "Failed to register token" });
+    }
+
+    return res.json({ ok: true });
+  } catch (err) {
+    log.error({ err }, "registerAnonymousPushToken unexpected error");
+    return res.status(500).json({ ok: false, error: "Server error" });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Register routes
 // ---------------------------------------------------------------------------
 
 export function registerPushTokenRoutes(app: Express) {
+  // Authenticated consumer routes
   app.post("/api/consumer/push/register", createRateLimiter("push-register", { windowMs: 5 * 60 * 1000, maxRequests: 10 }), zBody(RegisterPushTokenSchema), registerConsumerPushToken);
   app.post("/api/consumer/push/unregister", createRateLimiter("push-unregister", { windowMs: 5 * 60 * 1000, maxRequests: 10 }), zBody(UnregisterPushTokenSchema), unregisterConsumerPushToken);
   app.post("/api/consumer/push/preferences", zBody(UpdatePushPreferencesSchema), updateConsumerPushPreferences);
+
+  // Public (anonymous) route
+  app.post("/api/public/push/register", createRateLimiter("push-register-anon", { windowMs: 5 * 60 * 1000, maxRequests: 5 }), zBody(RegisterPushTokenSchema), registerAnonymousPushToken);
 }

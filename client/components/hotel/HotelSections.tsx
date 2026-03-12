@@ -18,19 +18,23 @@ export function RatingStars({ rating, className }: { rating: number; className?:
 export function FactsGrid({ facts }: { facts: HotelFact[] }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-      {facts.map((f) => (
-        <div key={f.label} className="rounded-2xl border border-slate-200 bg-white p-4">
-          <div className="flex items-start gap-3">
-            <div className="h-10 w-10 rounded-xl bg-[#a3001d]/10 grid place-items-center flex-shrink-0">
-              <f.icon className="h-5 w-5 text-[#a3001d]" />
-            </div>
-            <div className="min-w-0">
-              <div className="text-xs font-semibold text-slate-500">{f.label}</div>
-              <div className="mt-1 text-sm font-bold text-slate-900 leading-snug">{f.value}</div>
+      {facts.map((f) => {
+        const Icon = f.icon;
+        if (!Icon) return null; // Guard: skip entries without a valid icon
+        return (
+          <div key={f.label} className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="flex items-start gap-3">
+              <div className="h-10 w-10 rounded-xl bg-[#a3001d]/10 grid place-items-center flex-shrink-0">
+                <Icon className="h-5 w-5 text-[#a3001d]" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-slate-500">{f.label}</div>
+                <div className="mt-1 text-sm font-bold text-slate-900 leading-snug">{f.value}</div>
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -38,16 +42,20 @@ export function FactsGrid({ facts }: { facts: HotelFact[] }) {
 export function AmenitiesGrid({ amenities }: { amenities: HotelAmenity[] }) {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-      {amenities.map((a) => (
-        <div key={a.label} className="rounded-2xl border border-slate-200 bg-white p-4">
-          <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-xl bg-slate-50 grid place-items-center flex-shrink-0">
-              <a.icon className="h-5 w-5 text-slate-700" />
+      {amenities.map((a) => {
+        const Icon = a.icon;
+        if (!Icon) return null; // Guard: skip entries without a valid icon
+        return (
+          <div key={a.label} className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-xl bg-slate-50 grid place-items-center flex-shrink-0">
+                <Icon className="h-5 w-5 text-slate-700" />
+              </div>
+              <div className="text-sm font-semibold text-slate-900 leading-snug">{a.label}</div>
             </div>
-            <div className="text-sm font-semibold text-slate-900 leading-snug">{a.label}</div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

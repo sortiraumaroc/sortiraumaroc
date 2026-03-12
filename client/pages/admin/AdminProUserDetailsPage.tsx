@@ -339,7 +339,7 @@ export function AdminProUserDetailsPage() {
   }, [userId, isSuspended, suspendReason, profile?.email, refresh, toast]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AdminPageHeader
         title="Compte Pro"
         description={userId ? `ID: ${userId}` : ""}

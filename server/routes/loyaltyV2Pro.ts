@@ -57,21 +57,13 @@ import {
   DistributionIdParams,
   UserIdParams,
 } from "../schemas/loyaltyV2Pro";
+import { parseBearerToken } from "./proHelpers";
 
 // =============================================================================
 // Auth helpers (same pattern as reservationV2Pro.ts)
 // =============================================================================
 
 type ProUser = { id: string; email?: string | null };
-
-function parseBearerToken(header: string | undefined): string | null {
-  if (!header) return null;
-  const trimmed = header.trim();
-  if (!trimmed) return null;
-  const [scheme, token] = trimmed.split(/\s+/, 2);
-  if (!scheme || scheme.toLowerCase() !== "bearer") return null;
-  return token && token.trim() ? token.trim() : null;
-}
 
 async function getProUser(
   req: Parameters<RequestHandler>[0],

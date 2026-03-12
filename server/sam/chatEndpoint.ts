@@ -12,9 +12,11 @@ import type { ChatCompletionMessageParam } from "openai/resources/chat/completio
 import { getAdminSupabase } from "../supabaseAdmin";
 import { createModuleLogger } from "../lib/logger";
 import { SAM_CONFIG } from "./config";
+import { classifyMessage, getOffTopicResponse } from "./messageClassifier";
+import { checkAbuse, recordAbuse } from "./abuseTracker";
 
 const log = createModuleLogger("samChat");
-import { buildSystemPrompt, buildProSystemPrompt } from "./systemPrompt";
+import { buildSystemPrompt, buildProSystemPrompt, buildAdminSystemPrompt } from "./systemPrompt";
 import { SAM_TOOLS, executeTool, getToolsForMode, type ToolContext } from "./tools";
 import {
   getUserProfile,
@@ -301,6 +303,98 @@ async function loadFullEstablishmentContext(
 }
 
 // ---------------------------------------------------------------------------
+// Context reduction — résumé des anciens messages (F10)
+// ---------------------------------------------------------------------------
+
+/**
+ * Génère (ou récupère du cache) un résumé des anciens messages de la conversation.
+ * Retourne null si la conversation est assez courte (≤ maxRecentMessages).
+ */
+async function getOrGenerateContextSummary(
+  conversationId: string,
+  messages: ChatCompletionMessageParam[],
+): Promise<string | null> {
+  if (messages.length <= SAM_CONFIG.maxRecentMessages) return null;
+
+  const supabase = getAdminSupabase();
+
+  // Vérifier le cache dans conversation metadata
+  try {
+    const { data: conv } = await supabase
+      .from("sam_conversations")
+      .select("metadata")
+      .eq("id", conversationId)
+      .maybeSingle();
+
+    const metadata = (conv?.metadata as Record<string, unknown>) ?? {};
+    const cached = metadata.context_summary as
+      | { text: string; at_count: number }
+      | undefined;
+
+    // Réutiliser le cache si encore valide (couvre assez de l'historique)
+    if (cached?.text && cached.at_count >= messages.length - SAM_CONFIG.maxRecentMessages - 4) {
+      return cached.text;
+    }
+
+    // Extraire les anciens messages (avant les N récents) — seulement user + assistant avec contenu
+    const olderMessages = messages.slice(0, -SAM_CONFIG.maxRecentMessages);
+    const summaryInput = olderMessages
+      .filter((m) => (m.role === "user" || m.role === "assistant") && m.content)
+      .map((m) => `${m.role}: ${String(m.content ?? "").slice(0, 200)}`)
+      .join("\n");
+
+    if (!summaryInput.trim()) return null;
+
+    // Générer le résumé via gpt-4o-mini (coût ~$0.0001)
+    const openai = getOpenAI();
+    const resp = await openai.chat.completions.create({
+      model: SAM_CONFIG.modelSimple,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Résume cette conversation en 2-3 phrases en français. Garde les infos clés : ville cherchée, type de lieu, préférences exprimées, établissements mentionnés, décisions prises.",
+        },
+        { role: "user", content: summaryInput },
+      ],
+      max_tokens: 150,
+      temperature: 0.3,
+    });
+
+    const summaryText = resp.choices[0]?.message?.content ?? null;
+
+    // Cacher le résumé dans metadata (fire-and-forget)
+    if (summaryText) {
+      void supabase
+        .from("sam_conversations")
+        .update({
+          metadata: {
+            ...metadata,
+            context_summary: { text: summaryText, at_count: messages.length },
+          },
+        })
+        .eq("id", conversationId);
+    }
+
+    return summaryText;
+  } catch (err) {
+    log.warn({ err }, "Context summary generation failed — using full context");
+    return null;
+  }
+}
+
+/** Vérifie si le dernier message assistant de la conversation avait des tool_calls */
+function lastAssistantUsedTools(messages: ChatCompletionMessageParam[]): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === "assistant") {
+      return Array.isArray((m as any).tool_calls) && (m as any).tool_calls.length > 0;
+    }
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Main chat handler
 // ---------------------------------------------------------------------------
 
@@ -325,8 +419,8 @@ async function handleSamChat(req: Request, res: Response): Promise<void> {
     typeof body.establishment_id === "string"
       ? body.establishment_id.trim()
       : undefined;
-  const mode =
-    typeof body.mode === "string" && body.mode === "pro" ? "pro" : "consumer";
+  const rawMode = typeof body.mode === "string" ? body.mode : "consumer";
+  const mode = rawMode === "pro" || rawMode === "admin" ? rawMode : "consumer";
 
   if (!message) {
     res.status(400).json({ error: "empty_message" });
@@ -355,12 +449,56 @@ async function handleSamChat(req: Request, res: Response): Promise<void> {
   const startTime = Date.now();
 
   try {
+    // ── F11 : Vérification anti-abus ──
+    const abuseCheck = await checkAbuse(sessionId);
+    if (!abuseCheck.allowed) {
+      sseEvent(res, { type: "text_delta", content: abuseCheck.message ?? "Sam est temporairement indisponible." });
+      sseEvent(res, { type: "done", conversation_id: "", tokens: { input: 0, output: 0 } });
+      res.end();
+      return;
+    }
+
+    // Appliquer un délai artificiel si nécessaire (abus modéré)
+    if (abuseCheck.delayMs) {
+      await new Promise((resolve) => setTimeout(resolve, abuseCheck.delayMs));
+    }
+
     // Charger la conversation
     const conversation = await getOrCreateConversation({
       conversationId,
       sessionId,
       userId,
     });
+
+    // ── F3 + F9 : Classification du message ──
+    const hadTools = lastAssistantUsedTools(conversation.messages);
+    const msgClass = classifyMessage(message, hadTools);
+
+    // F3 : Interception off-topic (0 appel LLM)
+    if (SAM_CONFIG.offTopicScreeningEnabled && msgClass === "off_topic") {
+      // F11 : Enregistrer l'abus
+      void recordAbuse(sessionId, "off_topic", message.slice(0, 100));
+
+      let offTopicReply = getOffTopicResponse();
+
+      // Ajouter l'avertissement si seuil atteint
+      if (abuseCheck.warning) {
+        offTopicReply += "\n\n⚠️ " + abuseCheck.warning;
+      }
+
+      // Sauvegarder les messages (analytics)
+      saveMessage(conversation.id, { role: "user", content: message });
+      saveMessage(conversation.id, { role: "assistant", content: offTopicReply });
+
+      sseEvent(res, { type: "text_delta", content: offTopicReply });
+      sseEvent(res, {
+        type: "done",
+        conversation_id: conversation.id,
+        tokens: { input: 0, output: 0 },
+      });
+      res.end();
+      return;
+    }
 
     // Charger le profil utilisateur pour le contexte
     const userProfile = userId ? await getUserProfile(userId) : null;
@@ -371,26 +509,41 @@ async function handleSamChat(req: Request, res: Response): Promise<void> {
       establishmentContext = await loadFullEstablishmentContext(establishmentId);
     }
 
-    // Construire le system prompt (pro = pas de tools, juste le guide)
-    const systemPrompt = mode === "pro"
-      ? buildProSystemPrompt()
-      : buildSystemPrompt({
-          user: userProfile,
-          isAuthenticated,
-          universe,
-          establishment: establishmentContext,
-        });
+    // Construire le system prompt selon le mode
+    const systemPrompt =
+      mode === "admin"
+        ? buildAdminSystemPrompt()
+        : mode === "pro"
+          ? buildProSystemPrompt()
+          : buildSystemPrompt({
+              user: userProfile,
+              isAuthenticated,
+              universe,
+              establishment: establishmentContext,
+            });
 
-    // Sélectionner les tools selon le mode (pro = aucun tool, général ou scoped)
-    const tools = mode === "pro" ? undefined : getToolsForMode(establishmentId);
+    // Sélectionner les tools selon le mode (pro/admin = aucun tool)
+    const tools = mode === "pro" || mode === "admin" ? undefined : getToolsForMode(establishmentId);
 
     // Sauvegarder le message utilisateur
     saveMessage(conversation.id, { role: "user", content: message });
 
+    // ── F10 : Réduction du contexte (résumé + N derniers messages) ──
+    const contextSummary = await getOrGenerateContextSummary(
+      conversation.id,
+      conversation.messages,
+    );
+    const recentMessages = contextSummary
+      ? conversation.messages.slice(-SAM_CONFIG.maxRecentMessages)
+      : conversation.messages;
+
     // Construire les messages pour GPT
     const gptMessages: ChatCompletionMessageParam[] = [
       { role: "system", content: systemPrompt },
-      ...conversation.messages,
+      ...(contextSummary
+        ? [{ role: "system" as const, content: `Résumé de la conversation précédente :\n${contextSummary}` }]
+        : []),
+      ...recentMessages,
       { role: "user", content: message },
     ];
 
@@ -404,14 +557,26 @@ async function handleSamChat(req: Request, res: Response): Promise<void> {
     while (maxRounds > 0) {
       maxRounds--;
 
+      // ── F9 : Routage adaptatif du modèle ──
+      const useSimpleModel =
+        SAM_CONFIG.adaptiveRoutingEnabled &&
+        msgClass === "simple" &&
+        mode === "consumer";
+
+      const selectedModel = useSimpleModel ? SAM_CONFIG.modelSimple : SAM_CONFIG.model;
+      const selectedMaxTokens = useSimpleModel ? SAM_CONFIG.maxTokensSimple : SAM_CONFIG.maxTokens;
+      const selectedTemp = useSimpleModel ? SAM_CONFIG.temperatureSimple : SAM_CONFIG.temperature;
+      // Pas de tools pour le modèle simple (économie de tokens + évite les tool calls involontaires)
+      const effectiveTools = useSimpleModel ? undefined : tools;
+
       const openai = getOpenAI();
       const stream = await openai.chat.completions.create({
-        model: SAM_CONFIG.model,
+        model: selectedModel,
         messages: gptMessages,
-        ...(tools ? { tools, tool_choice: "auto" as const } : {}),
+        ...(effectiveTools ? { tools: effectiveTools, tool_choice: "auto" as const } : {}),
         stream: true,
-        temperature: SAM_CONFIG.temperature,
-        max_tokens: SAM_CONFIG.maxTokens,
+        temperature: selectedTemp,
+        max_tokens: selectedMaxTokens,
       });
 
       let assistantContent = "";

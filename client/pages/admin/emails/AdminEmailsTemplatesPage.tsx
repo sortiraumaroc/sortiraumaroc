@@ -245,6 +245,7 @@ export function AdminEmailsTemplatesPage() {
 
   return (
     <div className="space-y-4">
+      <AdminEmailsNav />
       <AdminPageHeader
         title="Emailing"
         description="Gestion des templates transactionnels & marketing (FR/EN), preview, envoi de test."
@@ -260,7 +261,6 @@ export function AdminEmailsTemplatesPage() {
 
       <Card className="border-slate-200">
         <CardContent className="p-4 space-y-3">
-          <AdminEmailsNav />
 
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
             <div className="w-full sm:w-72">

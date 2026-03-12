@@ -316,8 +316,17 @@ Labels valides pour autres: debutant, intermediaire, avance, famille, enfants, a
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        log.error({ status: response.status, errorData }, "Menu extraction Anthropic API error");
-        return res.status(500).json({ error: "ai_error", message: "Erreur du service IA" });
+        const errorType = (errorData as any)?.error?.type ?? "unknown";
+        const errorMsg = (errorData as any)?.error?.message ?? JSON.stringify(errorData).slice(0, 300);
+        log.error({ status: response.status, errorType, errorMsg, model: "claude-sonnet-4-20250514" }, "Menu extraction Anthropic API error");
+
+        let userMessage = "Erreur du service IA";
+        if (response.status === 401) userMessage = "Clé API Anthropic invalide. Vérifiez ANTHROPIC_API_KEY.";
+        else if (response.status === 429) userMessage = "Limite de requêtes IA atteinte. Réessayez dans quelques minutes.";
+        else if (response.status === 404) userMessage = `Modèle IA introuvable. Erreur: ${errorMsg}`;
+        else if (response.status === 400) userMessage = `Requête IA invalide: ${errorMsg}`;
+
+        return res.status(500).json({ error: "ai_error", message: userMessage });
       }
 
       const data = await response.json();

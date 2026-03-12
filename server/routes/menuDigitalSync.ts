@@ -14,6 +14,7 @@ import { getAdminSupabase } from "../supabaseAdmin";
 import { createModuleLogger } from "../lib/logger";
 import { zParams } from "../lib/validate";
 import { EstablishmentIdParams } from "../schemas/proReservations";
+import { parseBearerToken } from "./proHelpers";
 
 const log = createModuleLogger("menuDigitalSync");
 
@@ -29,15 +30,6 @@ type MembershipRow = {
   user_id: string;
   role: ProRole;
 };
-
-function parseBearerToken(header: string | undefined): string | null {
-  if (!header) return null;
-  const trimmed = header.trim();
-  if (!trimmed) return null;
-  const [scheme, token] = trimmed.split(/\s+/, 2);
-  if (!scheme || scheme.toLowerCase() !== "bearer") return null;
-  return token && token.trim() ? token.trim() : null;
-}
 
 /**
  * Authenticate pro user and verify establishment access

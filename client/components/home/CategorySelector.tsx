@@ -27,6 +27,21 @@ function buildCategoryResultsHref(args: {
   return `/results?${qs.toString()}`;
 }
 
+/** Normalize a city name to a URL-safe slug: remove accents, lowercase, dashes */
+function cityToSlug(city: string): string {
+  return city
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, "-");
+}
+
+/** Build the landing page URL for the Ftour Ramadan category */
+function buildFtourHref(city?: string | null): string {
+  if (city) return `/${`ftour-${cityToSlug(city)}`}`;
+  return "/ftour-maroc";
+}
+
 const CATEGORY_TITLE_KEYS: Record<ActivityCategory, string> = {
   restaurants: "home.categories.restaurants.title",
   sport: "home.categories.sport.title",
@@ -115,7 +130,7 @@ export function CategorySelector({ universe, city, isRamadan }: CategorySelector
               category={category}
               href={
                 category.id === "ramadan-ftour"
-                  ? `/resultats?universe=restaurants&ramadan=1${city ? `&city=${city}` : ""}`
+                  ? buildFtourHref(city)
                   : buildCategoryResultsHref({ universe, categoryId: category.id, city })
               }
               isRamadanCategory={category.id === "ramadan-ftour"}

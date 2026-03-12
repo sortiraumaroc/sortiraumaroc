@@ -203,7 +203,7 @@ export function AdminPayoutRequestsPage() {
   const editingItem = items.find((i) => i.id === editingId);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AdminPaymentsNav />
       <AdminPageHeader
         title="Payout"

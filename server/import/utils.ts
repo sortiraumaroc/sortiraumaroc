@@ -422,7 +422,7 @@ const CITY_PATTERNS: Record<string, RegExp[]> = {
   tetouan: [/t[eé]touan/i],
   essaouira: [/essaouira/i, /mogador/i],
   el_jadida: [/el jadida/i, /el-jadida/i],
-  mohammedia: [/mohammedia/i],
+  mohammedia: [/mohamm[eé]dia/i],
 };
 
 /**

@@ -84,7 +84,7 @@ export function RentalStep5Payment({
   const pricePerDay = quote?.price_per_day ?? 0;
 
   const vehiclePhoto = vehicle?.photos?.[0] ?? null;
-  const vehicleName = vehicle ? `${vehicle.brand} ${vehicle.model}` : "Vehicule";
+  const vehicleName = vehicle ? `${vehicle.brand} ${vehicle.model}` : "Véhicule";
 
   return (
     <div className="space-y-6">

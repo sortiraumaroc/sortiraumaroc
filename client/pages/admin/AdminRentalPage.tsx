@@ -5,7 +5,7 @@
  */
 
 import { lazy, Suspense } from "react";
-import { Car, Shield, Eye, BarChart3 } from "lucide-react";
+import { Car } from "lucide-react";
 
 import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
 import { AdminSettingsNav } from "@/pages/admin/settings/AdminSettingsNav";
@@ -37,7 +37,7 @@ function TabFallback() {
 
 export function AdminRentalPage() {
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-4">
       <AdminSettingsNav />
       <AdminPageHeader
         title={
@@ -51,15 +51,9 @@ export function AdminRentalPage() {
 
       <Tabs defaultValue="assurances">
         <TabsList>
-          <TabsTrigger value="assurances">
-            <Shield className="w-4 h-4 mr-1" /> Assurances
-          </TabsTrigger>
-          <TabsTrigger value="moderation">
-            <Eye className="w-4 h-4 mr-1" /> Moderation
-          </TabsTrigger>
-          <TabsTrigger value="stats">
-            <BarChart3 className="w-4 h-4 mr-1" /> Statistiques
-          </TabsTrigger>
+          <TabsTrigger value="assurances">Assurances</TabsTrigger>
+          <TabsTrigger value="moderation">Moderation</TabsTrigger>
+          <TabsTrigger value="stats">Statistiques</TabsTrigger>
         </TabsList>
 
         <TabsContent value="assurances">

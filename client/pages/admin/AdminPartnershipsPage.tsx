@@ -184,7 +184,7 @@ function DashboardTab() {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {kpis.map((kpi) => (
@@ -307,7 +307,7 @@ function AgreementFormDialog({
 
   const handleSave = async () => {
     if (!form.establishment_id.trim()) {
-      toast({ title: "Erreur", description: "L'ID etablissement est requis", variant: "destructive" });
+      toast({ title: "Erreur", description: "L'ID établissement est requis", variant: "destructive" });
       return;
     }
     setSaving(true);
@@ -326,10 +326,10 @@ function AgreementFormDialog({
       if (editData) {
         const { establishment_id: _, ...updatePayload } = payload as CreateAgreementPayload;
         await updatePartnership(editData.id, updatePayload);
-        toast({ title: "Accord mis a jour" });
+        toast({ title: "Accord mis à jour" });
       } else {
         await createPartnership(payload as CreateAgreementPayload);
-        toast({ title: "Accord cree" });
+        toast({ title: "Accord créé" });
       }
       onSaved();
       onClose();
@@ -349,17 +349,17 @@ function AgreementFormDialog({
         <DialogHeader>
           <DialogTitle>{editData ? "Modifier l'accord" : "Nouvel accord partenaire"}</DialogTitle>
           <DialogDescription>
-            {editData ? "Modifiez les informations de l'accord." : "Creez un nouvel accord pour un etablissement."}
+            {editData ? "Modifiez les informations de l'accord." : "Créez un nouvel accord pour un établissement."}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div>
-            <Label>ID Etablissement *</Label>
+            <Label>ID Établissement *</Label>
             <Input
               value={form.establishment_id}
               onChange={(e) => setField("establishment_id", e.target.value)}
-              placeholder="UUID de l'etablissement"
+              placeholder="UUID de l'établissement"
               disabled={!!editData}
             />
           </div>
@@ -441,7 +441,7 @@ function AgreementFormDialog({
             Annuler
           </Button>
           <Button onClick={handleSave} disabled={saving}>
-            {saving ? "Enregistrement..." : editData ? "Mettre a jour" : "Creer"}
+            {saving ? "Enregistrement..." : editData ? "Mettre à jour" : "Créer"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -566,7 +566,7 @@ function LineFormDialog({
         <DialogHeader>
           <DialogTitle>{editLine ? "Modifier la ligne" : "Nouvelle ligne"}</DialogTitle>
           <DialogDescription>
-            {editLine ? "Modifiez les details de la ligne d'avantage." : "Ajoutez une nouvelle ligne d'avantage a cet accord."}
+            {editLine ? "Modifiez les détails de la ligne d'avantage." : "Ajoutez une nouvelle ligne d'avantage à cet accord."}
           </DialogDescription>
         </DialogHeader>
 
@@ -700,7 +700,7 @@ function LineFormDialog({
             Annuler
           </Button>
           <Button onClick={handleSave} disabled={saving}>
-            {saving ? "Enregistrement..." : editLine ? "Mettre a jour" : "Ajouter"}
+            {saving ? "Enregistrement..." : editLine ? "Mettre à jour" : "Ajouter"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -778,7 +778,7 @@ function DetailInfosTab({
       {/* Info Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-muted/30 rounded-lg p-3 space-y-2">
-          <h4 className="font-semibold text-sm text-muted-foreground">Etablissement</h4>
+          <h4 className="font-semibold text-sm text-muted-foreground">Établissement</h4>
           <p className="font-medium">{detail.establishment_name ?? detail.establishment_id}</p>
           {detail.establishment_city && (
             <p className="text-sm text-muted-foreground">{detail.establishment_city}</p>
@@ -799,7 +799,7 @@ function DetailInfosTab({
           <h4 className="font-semibold text-sm text-muted-foreground">Dates</h4>
           <div className="flex gap-4 text-sm">
             <div>
-              <span className="text-muted-foreground">Debut : </span>
+              <span className="text-muted-foreground">Début : </span>
               {formatDate(detail.start_date)}
             </div>
             <div>
@@ -808,14 +808,14 @@ function DetailInfosTab({
             </div>
           </div>
           {detail.signed_at && (
-            <p className="text-sm text-green-600">Signe le {formatDate(detail.signed_at)}</p>
+            <p className="text-sm text-green-600">Signé le {formatDate(detail.signed_at)}</p>
           )}
         </div>
 
         <div className="bg-muted/30 rounded-lg p-3 space-y-2">
           <h4 className="font-semibold text-sm text-muted-foreground">Commission</h4>
           <p className="text-lg font-bold">
-            {detail.commission_rate != null ? `${detail.commission_rate}%` : "Non definie"}
+            {detail.commission_rate != null ? `${detail.commission_rate}%` : "Non définie"}
           </p>
         </div>
       </div>
@@ -830,8 +830,8 @@ function DetailInfosTab({
 
       {/* Metadata */}
       <div className="text-xs text-muted-foreground pt-2 border-t flex gap-4">
-        <span>Cree le {formatDateTime(detail.created_at)}</span>
-        <span>Mis a jour le {formatDateTime(detail.updated_at)}</span>
+        <span>Créé le {formatDateTime(detail.created_at)}</span>
+        <span>Mis à jour le {formatDateTime(detail.updated_at)}</span>
       </div>
     </div>
   );
@@ -852,7 +852,7 @@ function DetailLinesTab({
     if (!confirm("Supprimer cette ligne ?")) return;
     try {
       await deletePartnershipLine(detail.id, lineId);
-      toast({ title: "Ligne supprimee" });
+      toast({ title: "Ligne supprimée" });
       onReload();
     } catch (e: any) {
       toast({ title: "Erreur", description: e.message, variant: "destructive" });
@@ -1141,7 +1141,7 @@ function AccordsTab() {
     if (!confirm("Supprimer cet accord ?")) return;
     try {
       await deletePartnership(id);
-      toast({ title: "Accord supprime" });
+      toast({ title: "Accord supprimé" });
       load();
     } catch (e: any) {
       toast({ title: "Erreur", description: e.message, variant: "destructive" });
@@ -1185,7 +1185,7 @@ function AccordsTab() {
         <div className="relative max-w-sm flex-1">
           <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Rechercher un etablissement..."
+            placeholder="Rechercher un établissement..."
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
@@ -1260,12 +1260,12 @@ function AccordsTab() {
             <table className="w-full text-sm">
               <thead className="bg-muted/50">
                 <tr>
-                  <th className="text-left p-3 font-medium">Etablissement</th>
+                  <th className="text-left p-3 font-medium">Établissement</th>
                   <th className="text-left p-3 font-medium">Module(s)</th>
                   <th className="text-center p-3 font-medium">Lignes</th>
-                  <th className="text-center p-3 font-medium">Reduction</th>
+                  <th className="text-center p-3 font-medium">Réduction</th>
                   <th className="text-left p-3 font-medium">Statut</th>
-                  <th className="text-left p-3 font-medium">Derniere activite</th>
+                  <th className="text-left p-3 font-medium">Dernière activité</th>
                   <th className="text-right p-3 font-medium">Actions</th>
                 </tr>
               </thead>
@@ -1389,22 +1389,18 @@ function AccordsTab() {
 export function AdminPartnershipsPage() {
   return (
     <div className="space-y-4">
-      <AdminPageHeader
-        title="Accords Partenaires"
-        description="Gerez les accords commerciaux avec les etablissements partenaires (CE, Conciergerie, etc.)"
-      />
-
       <Tabs defaultValue="dashboard">
         <TabsList>
-          <TabsTrigger value="dashboard">
-            <BarChart3 className="w-4 h-4 mr-1.5" />
-            Dashboard
-          </TabsTrigger>
-          <TabsTrigger value="accords">
-            <Handshake className="w-4 h-4 mr-1.5" />
-            Accords
-          </TabsTrigger>
+          <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+          <TabsTrigger value="accords">Accords</TabsTrigger>
         </TabsList>
+
+        <div className="mt-6">
+          <AdminPageHeader
+            title="Accords Partenaires"
+            description="Gérez les accords commerciaux avec les établissements partenaires (CE, Conciergerie, etc.)"
+          />
+        </div>
 
         <TabsContent value="dashboard" className="mt-4">
           <DashboardTab />

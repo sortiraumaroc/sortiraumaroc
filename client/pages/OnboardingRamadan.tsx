@@ -593,7 +593,6 @@ export default function OnboardingRamadan() {
   return (
     <div className="min-h-screen relative" style={{ background: `linear-gradient(to bottom, ${RAMADAN_COLORS.night}, ${RAMADAN_COLORS.deep})` }}>
       <RamadanStarryBackground />
-
       <div className="relative z-10 flex flex-col items-center justify-start min-h-screen py-8 px-4">
         {/* Progress */}
         <OnboardingProgress step={step} />

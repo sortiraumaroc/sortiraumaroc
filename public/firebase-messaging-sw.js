@@ -6,18 +6,18 @@
  */
 
 // Import Firebase scripts
-importScripts("https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js");
-importScripts("https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging-compat.js");
+importScripts("https://www.gstatic.com/firebasejs/11.10.0/firebase-app-compat.js");
+importScripts("https://www.gstatic.com/firebasejs/11.10.0/firebase-messaging-compat.js");
 
-// Initialize Firebase (config will be passed via messaging.onBackgroundMessage)
-// These values should match your VITE_FIREBASE_* environment variables
+// Initialize Firebase — placeholders are replaced at build/serve time
+// by the firebase-sw-config Vite plugin (see vite.config.ts).
 firebase.initializeApp({
-  apiKey: self.FIREBASE_API_KEY || "",
-  authDomain: self.FIREBASE_AUTH_DOMAIN || "",
-  projectId: self.FIREBASE_PROJECT_ID || "",
-  storageBucket: self.FIREBASE_STORAGE_BUCKET || "",
-  messagingSenderId: self.FIREBASE_MESSAGING_SENDER_ID || "",
-  appId: self.FIREBASE_APP_ID || "",
+  apiKey: "__FIREBASE_API_KEY__",
+  authDomain: "__FIREBASE_AUTH_DOMAIN__",
+  projectId: "__FIREBASE_PROJECT_ID__",
+  storageBucket: "__FIREBASE_STORAGE_BUCKET__",
+  messagingSenderId: "__FIREBASE_MESSAGING_SENDER_ID__",
+  appId: "__FIREBASE_APP_ID__",
 });
 
 const messaging = firebase.messaging();

@@ -135,13 +135,13 @@ export function ProRentalVehicleManager({ establishmentId }: Props) {
     setDeleting(true);
     try {
       await deleteProVehicle(deleteTarget.id);
-      toast({ title: "Vehicule supprime", description: `${deleteTarget.brand} ${deleteTarget.model} a ete supprime.` });
+      toast({ title: "Véhicule supprimé", description: `${deleteTarget.brand} ${deleteTarget.model} a été supprimé.` });
       setDeleteTarget(null);
       loadVehicles();
     } catch (err) {
       toast({
         title: "Erreur",
-        description: err instanceof Error ? err.message : "Impossible de supprimer le vehicule",
+        description: err instanceof Error ? err.message : "Impossible de supprimer le véhicule",
         variant: "destructive",
       });
     } finally {

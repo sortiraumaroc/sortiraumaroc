@@ -1,5 +1,6 @@
 import type { RequestHandler, Router } from "express";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { requireAdminKey } from "./adminHelpers";
 import { createModuleLogger } from "../lib/logger";
 
 const log = createModuleLogger("adminDashboard");
@@ -111,6 +112,7 @@ type DashboardStats = {
 export function registerAdminDashboardRoutes(router: Router): void {
   // Main dashboard stats endpoint
   router.get("/api/admin/dashboard/stats", (async (req, res) => {
+    if (!requireAdminKey(req, res)) return;
     try {
       const period = (req.query.period as string) || "7d";
       const { start, end } = getDateRange(period);
@@ -739,7 +741,8 @@ export function registerAdminDashboardRoutes(router: Router): void {
   }) as RequestHandler);
 
   // Endpoint for real-time visitor count (distinct sessions in last 5 min)
-  router.get("/api/admin/dashboard/realtime", (async (_req, res) => {
+  router.get("/api/admin/dashboard/realtime", (async (req, res) => {
+    if (!requireAdminKey(req, res)) return;
     try {
       const supabase = getAdminSupabase();
       const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();

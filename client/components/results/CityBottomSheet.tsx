@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { MapPin, Zap, X, Search, ChevronRight } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
+import { toast } from "@/hooks/use-toast";
 import { NEIGHBORHOODS_BY_CITY, MOROCCAN_CITIES } from "@/hooks/useSuggestions";
 
 interface CityBottomSheetProps {
@@ -48,7 +49,7 @@ export function CityBottomSheet({
     const myPositionLabel = t("suggestions.my_position");
 
     if (!navigator.geolocation) {
-      onSelectCity(myPositionLabel, "geo:unavailable");
+      toast({ title: "Géolocalisation non disponible", description: "Votre navigateur ne supporte pas la géolocalisation.", variant: "destructive" });
       onClose();
       return;
     }
@@ -61,7 +62,7 @@ export function CityBottomSheet({
         onClose();
       },
       () => {
-        onSelectCity(myPositionLabel, "geo:denied");
+        toast({ title: "Géolocalisation refusée", description: "Pour utiliser « Autour de moi », activez la localisation dans les paramètres de votre navigateur, puis rechargez la page.", variant: "destructive" });
         onClose();
       },
       { enableHighAccuracy: true, timeout: 10000 }

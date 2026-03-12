@@ -40,3 +40,25 @@
 - En mode dev (`pnpm run dev`), les routes qui font des queries Supabase retournent 500 "Invalid API key"
 - C'est NORMAL — ne pas confondre avec un vrai bug
 - Pour tester localement avec Supabase : charger les variables d'env manuellement (attention aux guillemets dans .env)
+
+### 8. Service Workers ne peuvent pas utiliser `import.meta.env`
+- **Erreur** : `public/firebase-messaging-sw.js` utilisait `self.FIREBASE_API_KEY` — jamais defini
+- **Symptome** : Firebase s'initialise avec des strings vides → SW crash → `getToken()` echoue → prompt push jamais affiche
+- **Fix** : Plugin Vite `firebase-sw-config` dans `vite.config.ts` qui remplace les placeholders `__FIREBASE_*__` a la volee (middleware dev + `closeBundle` build)
+- **Lecon** : Les fichiers dans `public/` sont copies tel quel par Vite — pas de processing. Pour injecter des env vars, il faut un plugin Vite custom.
+
+### 9. Le push prompt ne s'affiche que pour les consommateurs authentifies
+- Le composant `PushNotificationPrompt` verifie `isAuthed()` qui check `localStorage.sam_auth === "1"` — uniquement pour les consommateurs
+- Les admins et pros utilisent des systemes d'auth separes → le prompt push n'apparait pas dans le panel admin
+- Pour tester le push : se connecter comme consommateur sur le site public
+
+### 10. NE JAMAIS modifier search_path de trigger_set_updated_at()
+- **Erreur** : `ALTER FUNCTION public.trigger_set_updated_at() SET search_path = 'public'` → chatbot Sam cassé
+- **Cause** : Cette fonction trigger est attachée à des dizaines de tables (sam_conversations, sam_messages, etc.). Modifier son search_path provoque des échecs silencieux sur les INSERT/UPDATE
+- **Symptôme** : Toutes les requêtes au chatbot retournent "Oups, j'ai eu un petit souci technique" (le catch-all dans chatEndpoint.ts)
+- **Fix** : `ALTER FUNCTION public.trigger_set_updated_at() RESET search_path;` — revert immédiat
+- **Leçon** : Les fonctions trigger partagées (utilisées par beaucoup de tables) ne doivent JAMAIS être modifiées sans tests exhaustifs. Accepter le warning Security Advisor plutôt que casser la production.
+
+### 11. Toujours tester les API avec les bons noms de champs
+- **Erreur** : Test curl avec `sessionId` (camelCase) au lieu de `session_id` (snake_case) → diagnostic erroné
+- **Leçon** : Lire le code source pour les noms exacts des champs avant de conclure qu'une API est cassée

@@ -191,7 +191,7 @@ export function ProRentalOptionsManager({ establishmentId }: Props) {
           price_type: form.price_type,
           is_mandatory: form.is_mandatory,
         } as Parameters<typeof createProOption>[0]);
-        toast({ title: "Option creee", description: `${form.name} a ete ajoutee.` });
+        toast({ title: "Option créée", description: `${form.name} a été ajoutée.` });
       }
       closeDialog();
       loadOptions();
@@ -474,7 +474,7 @@ export function ProRentalOptionsManager({ establishmentId }: Props) {
             </Button>
             <Button onClick={handleSave} disabled={saving}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              {editingOption ? "Enregistrer" : "Creer l'option"}
+              {editingOption ? "Enregistrer" : "Créer l'option"}
             </Button>
           </DialogFooter>
         </DialogContent>

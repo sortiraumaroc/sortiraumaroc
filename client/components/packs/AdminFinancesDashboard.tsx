@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { AdminPacksNav } from "@/pages/admin/packs/AdminPacksNav";
+import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
 import {
   // Billing
   listAdminInvoices, validateInvoice, contestInvoice,
@@ -544,15 +545,15 @@ export function AdminFinancesDashboard({ className }: { className?: string }) {
   const { t } = useI18n();
   const [tab, setTab] = useState<AdminFinanceTab>("invoices");
 
-  const tabs: Array<{ id: AdminFinanceTab; label: string; icon: typeof FileText }> = [
-    { id: "invoices", label: "Factures", icon: FileText },
-    { id: "payments", label: "Virements", icon: CreditCard },
-    { id: "disputes", label: "Litiges", icon: AlertTriangle },
-    { id: "commissions", label: "Commissions", icon: Percent },
-    { id: "modules", label: "Modules", icon: Layers },
-    { id: "stats", label: "Statistiques", icon: BarChart3 },
-    { id: "promos", label: "Promos", icon: Tag },
-    { id: "refunds", label: "Remboursements", icon: Receipt },
+  const tabs: Array<{ id: AdminFinanceTab; label: string }> = [
+    { id: "invoices", label: "Factures" },
+    { id: "payments", label: "Virements" },
+    { id: "disputes", label: "Litiges" },
+    { id: "commissions", label: "Commissions" },
+    { id: "modules", label: "Modules" },
+    { id: "stats", label: "Statistiques" },
+    { id: "promos", label: "Promos" },
+    { id: "refunds", label: "Remboursements" },
   ];
 
   return (
@@ -561,32 +562,28 @@ export function AdminFinancesDashboard({ className }: { className?: string }) {
       <AdminPacksNav />
 
       {/* Header */}
-      <div className="flex items-center gap-2">
-        <DollarSign className="h-5 w-5 text-[#a3001d]" />
-        <h2 className="text-lg font-bold text-slate-900">Finances</h2>
-      </div>
+      <AdminPageHeader
+        title="Finances"
+        description="Factures, virements, contestations, commissions, modules, statistiques, promos et remboursements."
+      />
 
       {/* Sub-tabs */}
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {tabs.map((t) => {
-          const Icon = t.icon;
-          return (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={cn(
-                "shrink-0 h-8 rounded-full px-3.5 text-xs font-semibold border transition flex items-center gap-1.5",
-                tab === t.id
-                  ? "bg-[#a3001d] text-white border-[#a3001d]"
-                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50",
-              )}
-            >
-              <Icon className="h-3 w-3" />
-              {t.label}
-            </button>
-          );
-        })}
+      <div className="inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={cn(
+              "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-semibold ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+              tab === t.id
+                ? "bg-[#a3001d] text-white shadow-sm"
+                : "hover:bg-background/50 hover:text-foreground",
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
       {/* Content */}

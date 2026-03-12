@@ -201,6 +201,7 @@ export function AdminEmailsCampaignsPage() {
 
   return (
     <div className="space-y-4">
+      <AdminEmailsNav />
       <AdminPageHeader
         title="Emailing"
         description="Création et envoi de campagnes marketing (avec tracking open/click + unsubscribe)."
@@ -216,7 +217,6 @@ export function AdminEmailsCampaignsPage() {
 
       <Card className="border-slate-200">
         <CardContent className="p-4 space-y-3">
-          <AdminEmailsNav />
           {error ? <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
           <div className="text-xs text-slate-500">
             Par sécurité, l’action “Envoyer” envoie par défaut aux <strong>50 premiers</strong> destinataires (modifiable ensuite côté API).

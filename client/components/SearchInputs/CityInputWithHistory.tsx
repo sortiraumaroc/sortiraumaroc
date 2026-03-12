@@ -5,6 +5,7 @@ import { SearchSuggestionsDropdown, SuggestionItem, SuggestionGroup } from "@/co
 import { useCitySuggestions } from "@/hooks/useSuggestions";
 import { useI18n } from "@/lib/i18n";
 import { useScrollContext } from "@/lib/scrollContext";
+import { toast } from "@/hooks/use-toast";
 import type { ActivityCategory } from "@/lib/taxonomy";
 import {
   getSearchHistory,
@@ -114,7 +115,8 @@ export function CityInputWithHistory({
       setInputValue(myPositionLabel);
 
       if (!navigator.geolocation) {
-        onChange(myPositionLabel, "geo:unavailable");
+        toast({ title: "Géolocalisation non disponible", description: "Votre navigateur ne supporte pas la géolocalisation.", variant: "destructive" });
+        setInputValue(value);
         setIsOpen(false);
         return;
       }
@@ -127,7 +129,8 @@ export function CityInputWithHistory({
           setIsOpen(false);
         },
         () => {
-          onChange(myPositionLabel, "geo:denied");
+          toast({ title: "Géolocalisation refusée", description: "Pour utiliser « Autour de moi », activez la localisation dans les paramètres de votre navigateur, puis rechargez la page.", variant: "destructive" });
+          setInputValue(value);
           setIsOpen(false);
         },
         { enableHighAccuracy: true, timeout: 10000 },

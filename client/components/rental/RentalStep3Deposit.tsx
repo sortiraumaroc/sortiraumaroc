@@ -88,16 +88,16 @@ export function RentalStep3Deposit({
         <div className="space-y-2">
           {[
             {
-              title: "Retenue a la prise en charge",
-              text: "Le montant de la caution est retenu sur votre moyen de paiement au moment de la prise en charge du vehicule.",
+              title: "Retenue à la prise en charge",
+              text: "Le montant de la caution est retenu sur votre moyen de paiement au moment de la prise en charge du véhicule.",
             },
             {
-              title: "Inspection du vehicule",
-              text: "Un etat des lieux est realise au depart et au retour du vehicule pour constater d'eventuels dommages.",
+              title: "Inspection du véhicule",
+              text: "Un état des lieux est réalisé au départ et au retour du véhicule pour constater d'éventuels dommages.",
             },
             {
-              title: "Liberation de la caution",
-              text: "Si le vehicule est restitue dans le meme etat, la caution est liberee sous 7 a 14 jours ouvrables.",
+              title: "Libération de la caution",
+              text: "Si le véhicule est restitué dans le même état, la caution est libérée sous 7 à 14 jours ouvrables.",
             },
           ].map((item, idx) => (
             <div

@@ -51,6 +51,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
 import {
   listAdminConciergeries,
   getAdminConciergerie,
@@ -1238,44 +1239,40 @@ export function AdminConciergerieDashboard() {
   // ============================================================================
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Landmark className="h-5 w-5 text-amber-600" />
-          <h2 className="text-xl font-bold">Conciergeries</h2>
-          <Badge variant="outline" className="ml-2">
-            {concierges.length}
-          </Badge>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => void fetchList()}
-            disabled={loading}
-            className="gap-1"
-          >
-            <RefreshCw
-              className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
-            />
-            Actualiser
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => {
-              setShowCreate(true);
-              setSelectedEstablishment(null);
-              setSearchQuery("");
-              setSearchResults([]);
-            }}
-            className="gap-1"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Nouvelle conciergerie
-          </Button>
-        </div>
-      </div>
+    <div className="space-y-4">
+      <AdminPageHeader
+        title="Conciergeries"
+        description="Gestion des conciergeries et de leurs équipes."
+        actions={
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void fetchList()}
+              disabled={loading}
+              className="gap-1"
+            >
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
+              />
+              Actualiser
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                setShowCreate(true);
+                setSelectedEstablishment(null);
+                setSearchQuery("");
+                setSearchResults([]);
+              }}
+              className="gap-1"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Nouvelle conciergerie
+            </Button>
+          </div>
+        }
+      />
 
       {/* Error */}
       {error && (

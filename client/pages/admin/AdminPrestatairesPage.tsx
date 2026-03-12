@@ -1038,7 +1038,7 @@ export function AdminPrestatairesPage() {
   // ---------------------------------------------------------------------------
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AdminPageHeader
         title="Prestataires"
         description="Gérer les prestataires externes et leurs documents"
@@ -1080,16 +1080,13 @@ export function AdminPrestatairesPage() {
             <div className="flex items-center justify-between">
               <TabsList>
                 <TabsTrigger value="liste">
-                  <Building className="h-4 w-4 me-2" />
                   Prestataires ({items.length})
                 </TabsTrigger>
                 <TabsTrigger value="demandes">
-                  <Briefcase className="h-4 w-4 me-2" />
                   Demandes (
                   {demandes.filter((d) => d.statut === "NOUVELLE").length})
                 </TabsTrigger>
                 <TabsTrigger value="audit">
-                  <FileText className="h-4 w-4 me-2" />
                   Journal d'audit
                 </TabsTrigger>
               </TabsList>

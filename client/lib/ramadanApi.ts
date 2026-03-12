@@ -19,6 +19,9 @@ export type RamadanOfferWithEstablishment = RamadanOfferRow & {
     cover_url?: string | null;
     logo_url?: string | null;
     universe?: string | null;
+    service_types?: string[] | null;
+    phone?: string | null;
+    google_maps_url?: string | null;
   } | null;
   reservation_count?: number;
 };
@@ -38,6 +41,7 @@ export async function listPublicRamadanOffers(filters?: {
   sort?: "featured" | "price_asc" | "price_desc" | "newest";
   page?: number;
   per_page?: number;
+  search?: string;
 }): Promise<{ offers: RamadanOfferWithEstablishment[]; total: number; page: number; per_page: number }> {
   const params = new URLSearchParams();
   if (filters?.type) params.set("type", filters.type);
@@ -49,6 +53,7 @@ export async function listPublicRamadanOffers(filters?: {
   if (filters?.sort) params.set("sort", filters.sort);
   if (filters?.page) params.set("page", String(filters.page));
   if (filters?.per_page) params.set("per_page", String(filters.per_page));
+  if (filters?.search) params.set("search", filters.search);
 
   const qs = params.toString();
   const res = await fetch(`/api/public/ramadan-offers${qs ? `?${qs}` : ""}`);

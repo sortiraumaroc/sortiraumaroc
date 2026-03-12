@@ -643,7 +643,7 @@ export default function AdminClaimRequestsPage({ defaultTab }: { defaultTab?: "c
   const leadContactedCount = leadItems.filter((i) => i.status === "contacted").length;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AdminEstablishmentsNav />
       <AdminPageHeader
         title={initialTab === "leads" ? "Nouveaux établissements" : "Revendications"}

@@ -91,6 +91,7 @@ export function AdminEmailsSentPage() {
 
   return (
     <div className="space-y-4">
+      <AdminEmailsNav />
       <AdminPageHeader
         title="Emailing"
         description="Journal des campagnes (statuts + ouvertures/clics)."
@@ -108,7 +109,6 @@ export function AdminEmailsSentPage() {
 
       <Card className="border-slate-200">
         <CardContent className="p-4 space-y-3">
-          <AdminEmailsNav />
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div className="space-y-1">

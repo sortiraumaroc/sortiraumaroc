@@ -22,7 +22,6 @@ import { WellnessTreatmentsTab } from "@/components/wellness/WellnessTreatmentsT
 import { EstablishmentTabs } from "@/components/establishment/EstablishmentTabs";
 import { CeAdvantageSection } from "@/components/ce/CeAdvantageSection";
 import { cn } from "@/lib/utils";
-import { createRng, makeImageSet, makePhoneMa, makeWebsiteUrl, nextDaysYmd, pickMany, pickOne } from "@/lib/mockData";
 import { makeLegacyHoursPreset } from "@/lib/openingHoursPresets";
 import { GOOGLE_MAPS_LOGO_URL, WAZE_LOGO_URL } from "@/lib/mapAppLogos";
 import { useGeocodedQuery } from "@/hooks/useGeocodedQuery";
@@ -222,128 +221,9 @@ function buildFallbackWellness(args: {
   neighborhood?: string;
   city?: string;
 }): WellnessData {
-  const rng = createRng(`wellness-${args.id}-${args.name}`);
-
-  const city = args.city ?? "Marrakech";
-  const neighborhood =
-    args.neighborhood ?? pickOne(rng, ["Médina", "Guéliz", "Hivernage", "Centre-ville", "Palmeraie"] as const);
-
-  const category =
-    args.category ??
-    pickOne(rng, ["Spa & massage", "Hammam", "Yoga", "Fitness", "Beauté", "Cryothérapie"] as const);
-
-  const rating = clampRating(4.1 + rng() * 0.8);
-  const reviewCount = Math.floor(60 + rng() * 520);
-  const phone = makePhoneMa(rng);
-  const website = makeWebsiteUrl(args.name);
-  const images = makeImageSet(rng, "wellness");
-
-  const highlights = pickMany(
-    rng,
-    [
-      "Accueil chaleureux et professionnel",
-      "Réservation par créneaux pour éviter l’attente",
-      "Cabines individuelles et duo",
-      "Produits naturels (argan, ghassoul, huiles)",
-      "Ambiance calme et relaxante",
-      "Hygiène et confort premium",
-      "Option carte cadeau disponible",
-      "Paiement par carte accepté",
-    ] as const,
-    6,
-  );
-
-  const tags = pickMany(rng, ["Hammam", "Massage", "Duo", "Argan", "Rituel", "Sport", "Relax"] as const, 5);
-
-  const baseTreatments: Treatment[] = [
-    { title: "Hammam traditionnel + gommage", duration: "60 min", priceMad: Math.floor(180 + rng() * 220), note: "Idéal première visite" },
-    { title: "Massage relaxant aux huiles", duration: "60 min", priceMad: Math.floor(280 + rng() * 260) },
-    { title: "Soin visage éclat", duration: "45 min", priceMad: Math.floor(220 + rng() * 220) },
-    { title: "Rituel signature (hammam + massage)", duration: "120 min", priceMad: Math.floor(520 + rng() * 420) },
-  ];
-
-  let treatments: Treatment[] =
-    category.toLowerCase().includes("fitness")
-      ? [
-          { title: "Accès salle (1 séance)", duration: "60 min", priceMad: Math.floor(60 + rng() * 80), category: "Séances" },
-          { title: "Coaching privé", duration: "45 min", priceMad: Math.floor(180 + rng() * 220), note: "Sur réservation", category: "Coaching" },
-          { title: "Cours collectif", duration: "50 min", priceMad: Math.floor(80 + rng() * 120), category: "Cours" },
-        ]
-      : category.toLowerCase().includes("yoga")
-        ? [
-            { title: "Yoga Vinyasa", duration: "60 min", priceMad: Math.floor(80 + rng() * 120), category: "Cours" },
-            { title: "Yoga doux", duration: "60 min", priceMad: Math.floor(80 + rng() * 120), category: "Cours" },
-            { title: "Cours privé", duration: "60 min", priceMad: Math.floor(220 + rng() * 260), note: "Débutants bienvenus", category: "Cours" },
-          ]
-        : baseTreatments;
-
-  const isTopkapi = args.name.toLowerCase().includes("hammam") && args.name.toLowerCase().includes("topkapi");
-  if (isTopkapi) {
-    treatments = [
-      { category: "Pack", title: "Pack Découverte Hammam", duration: "60 min", priceMad: 320, note: "Le + demandé" },
-      { category: "Pack", title: "Pack Topkapi Signature (hammam + massage)", duration: "90 min", priceMad: 580, note: "Recommandé" },
-      { category: "Pack", title: "Pack Duo (2 personnes)", duration: "120 min", priceMad: 990, note: "Duo" },
-      { category: "Pack", title: "Pack Beauté (manucure + pédicure)", duration: "90 min", priceMad: 420 },
-
-      { category: "Coiffure", title: "Brushing", duration: "30 min", priceMad: 120 },
-      { category: "Coiffure", title: "Coupe + brushing", duration: "60 min", priceMad: 220 },
-      { category: "Coiffure", title: "Soin capillaire à l’argan + brushing", duration: "45 min", priceMad: 180, note: "Argan" },
-      { category: "Coiffure", title: "Coiffure événement", duration: "60 min", priceMad: 280, note: "Sur RDV" },
-
-      { category: "Soins manucures", title: "Manucure classique", duration: "30 min", priceMad: 90 },
-      { category: "Soins manucures", title: "Pose vernis semi-permanent", duration: "45 min", priceMad: 150 },
-      { category: "Soins manucures", title: "Pose gel / capsules", duration: "75 min", priceMad: 240 },
-      { category: "Soins manucures", title: "Dépose + soin", duration: "30 min", priceMad: 80 },
-
-      { category: "Soins pédicures", title: "Pédicure classique", duration: "30 min", priceMad: 110 },
-      { category: "Soins pédicures", title: "Pédicure spa", duration: "60 min", priceMad: 190, note: "Callosités" },
-      { category: "Soins pédicures", title: "Pose vernis semi-permanent (pieds)", duration: "45 min", priceMad: 160 },
-      { category: "Soins pédicures", title: "Soin anti-callosités", duration: "30 min", priceMad: 120 },
-
-      { category: "Massage", title: "Massage relaxant", duration: "60 min", priceMad: 380 },
-      { category: "Massage", title: "Deep tissue", duration: "60 min", priceMad: 430, note: "Pression forte" },
-      { category: "Massage", title: "Massage aux pierres chaudes", duration: "75 min", priceMad: 520 },
-      { category: "Massage", title: "Massage duo", duration: "60 min", priceMad: 760, note: "Duo" },
-
-      { category: "Cils et sourcils", title: "Épilation sourcils", duration: "15 min", priceMad: 50 },
-      { category: "Cils et sourcils", title: "Teinture sourcils", duration: "20 min", priceMad: 80 },
-      { category: "Cils et sourcils", title: "Rehaussement de cils", duration: "60 min", priceMad: 240 },
-      { category: "Cils et sourcils", title: "Brow lift", duration: "45 min", priceMad: 220 },
-    ];
-  }
-
-  const slots: Slot[] = [
-    { label: "Aujourd’hui", times: ["10:00", "11:00", "12:00", "14:00", "15:00", "16:00", "17:00"] },
-    { label: "Demain", times: ["10:00", "11:00", "13:00", "14:00", "16:00", "17:00"] },
-  ];
-
-  const policies = [
-    "Arrivez 10 minutes avant le créneau.",
-    "Annulation gratuite jusqu’à 6h avant.",
-    "Merci de signaler allergies ou grossesse dans le message.",
-  ];
-
-  const reviewerNames = ["Imane", "Karim", "Leila", "Yassine", "Amina", "Nadia"] as const;
-  const reviewTexts = [
-    "Très bon accueil, expérience relaxante.",
-    "Lieu propre et bien organisé, je recommande.",
-    "Soins de qualité, réservation fluide.",
-    "Très bon rapport qualité-prix.",
-    "Un peu d’attente mais l’équipe est top.",
-  ] as const;
-
-  const reviews: Review[] = Array.from({ length: 4 }, (_, i) => ({
-    id: `w-${args.id}-${i}`,
-    author: pickOne(rng, reviewerNames),
-    rating: Math.max(3, Math.round((3.7 + rng() * 1.3) * 2) / 2),
-    date: nextDaysYmd(30)[Math.floor(rng() * 30)] ?? "2025-01-01",
-    text: pickOne(rng, reviewTexts),
-  }));
-
-  const handle = slugFromName(args.name);
-  const socialMedia: SocialMediaLink[] = [{ platform: "instagram", url: `https://instagram.com/${handle}` }];
-  if (rng() > 0.5) socialMedia.push({ platform: "facebook", url: `https://facebook.com/${handle}` });
-  if (rng() > 0.75) socialMedia.push({ platform: "tiktok", url: `https://tiktok.com/@${handle}` });
+  const city = args.city ?? "";
+  const neighborhood = args.neighborhood ?? "";
+  const category = args.category ?? "";
 
   return {
     id: args.id,
@@ -351,22 +231,22 @@ function buildFallbackWellness(args: {
     category,
     city,
     neighborhood,
-    address: `${Math.floor(10 + rng() * 220)} ${pickOne(rng, ["Rue", "Avenue", "Boulevard"] as const)} ${pickOne(rng, ["Mohamed VI", "Majorelle", "Al Massira"] as const)}, ${city}`,
-    phone,
-    website,
-    rating,
-    reviewCount,
-    description: `Un espace ${category.toLowerCase()} conçu pour une expérience simple: créneaux clairs, accueil pro et ambiance relaxante.`,
-    highlights,
-    images,
-    tags,
-    treatments,
-    slots,
+    address: "",
+    phone: "",
+    website: "",
+    rating: 0,
+    reviewCount: 0,
+    description: "",
+    highlights: [],
+    images: [],
+    tags: [],
+    treatments: [],
+    slots: [],
     hours: makeLegacyHoursPreset("daytime"),
-    policies,
-    reviews,
-    socialMedia,
-    mapQuery: `${args.name} ${city}`,
+    policies: [],
+    reviews: [],
+    socialMedia: [],
+    mapQuery: `${args.name} ${city}`.trim(),
   };
 }
 

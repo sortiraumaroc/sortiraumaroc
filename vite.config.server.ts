@@ -80,10 +80,13 @@ export default defineConfig({
         // External dependencies that are already installed on the server
         "express",
         "cors",
+        // cluster module (used by node-build.ts for multi-process mode)
+        "cluster",
+        "node:cluster",
         // sharp has native binaries (.node files) that cannot be bundled
         "sharp",
-        // ioredis uses native net/tls, better to keep external
-        "ioredis",
+        // NOTE: ioredis is intentionally NOT external — it gets bundled so the
+        // production server doesn't need it in node_modules.
       ],
       output: {
         format: "es",

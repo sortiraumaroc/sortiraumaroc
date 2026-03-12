@@ -139,13 +139,13 @@ export function AdminMediaFactoryJobsPage() {
   );
 
   return (
-    <div className="p-4 lg:p-6 space-y-4">
+    <div className="space-y-4">
+      <AdminVisibilityNav />
+
       <AdminPageHeader
         title="Media Factory"
         description="Pilotage production (RC / Compta / Superadmin)."
       />
-
-      <AdminVisibilityNav />
 
       <div className="flex flex-wrap items-center gap-2">
         <Select

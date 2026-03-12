@@ -304,7 +304,7 @@ export default function ContactFormPage() {
             {/* Hero section */}
             {form.show_hero && (
               <div
-                className="lg:w-1/2 p-8 lg:p-12 flex flex-col justify-center"
+                className="lg:w-1/2 p-8 lg:p-12 flex flex-col justify-center lg:sticky lg:top-0 lg:h-screen"
                 style={{
                   backgroundColor: form.hero_background_color,
                   color: form.hero_text_color,

@@ -8,7 +8,7 @@ export function AdminEstablishmentsPage() {
       <AdminEstablishmentsNav />
       <AdminPageHeader
         title="Établissements"
-        description="Liste, statut, et actions de modération sur les fiches." 
+        description="Liste, statut, et actions de modération sur les fiches."
       />
       <EstablishmentsPanel adminKey={undefined} />
     </div>

@@ -4,13 +4,12 @@ import { NewsletterTab } from "../import-export/NewsletterTab";
 
 export function AdminEmailsNewsletterHomepagePage() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      <AdminEmailsNav />
       <AdminPageHeader
         title="Emailing"
         description="Gérez vos campagnes d'emailing et vos contacts"
       />
-
-      <AdminEmailsNav />
 
       <NewsletterTab />
     </div>

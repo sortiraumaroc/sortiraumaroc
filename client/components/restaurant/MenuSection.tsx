@@ -1,10 +1,12 @@
 import * as React from "react";
 
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { Gift, Minus, Plus, Search, Users } from "lucide-react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { ChevronDown, Gift, Minus, Plus, Search, ThumbsDown, ThumbsUp, Users } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { isAuthed } from "@/lib/auth";
+import { isAuthed, openAuthModal } from "@/lib/auth";
+import { useMenuVotes } from "@/hooks/useMenuVotes";
+import type { VoteStats } from "@/lib/menuVotesApi";
 import { useI18n } from "@/lib/i18n";
 import { scrollElementIntoCenterX } from "@/lib/scroll";
 import { AuthModalV2 } from "@/components/AuthModalV2";
@@ -27,6 +29,8 @@ export type MenuBadge =
 
 export type MenuItem = {
   id: number;
+  inventoryItemId?: string;
+  slug?: string;
   name: string;
   description: string;
   price: string;
@@ -58,6 +62,12 @@ type MenuSectionProps = {
   legacyHours?: LegacyRestaurantHours | null;
   className?: string;
 };
+
+// ---------------------------------------------------------------------------
+// Menu preview constants
+// ---------------------------------------------------------------------------
+const PREVIEW_CATEGORIES = 5;
+const PREVIEW_ITEMS_PER_CAT = 3;
 
 type BookingSelection = {
   id: string;
@@ -143,14 +153,19 @@ function sortMenuItems(items: MenuItem[], mode: MenuSortMode): MenuItem[] {
   return indexed.map((x) => x.item);
 }
 
-function MenuBadges({ item }: { item: MenuItem }) {
+function MenuBadges({ item, isFavorite }: { item: MenuItem; isFavorite?: boolean }) {
   const { t } = useI18n();
   const badges = getNormalizedBadges(item);
 
-  if (!badges.length) return null;
+  if (!badges.length && !isFavorite) return null;
 
   return (
     <div className="mt-2 flex flex-wrap gap-2">
+      {isFavorite && (
+        <span className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+          ❤️ {t("menu.vote.favorite_badge")}
+        </span>
+      )}
       {badges.map((b) => {
         const { text, tone } = badgeLabel(b, t);
         return (
@@ -169,21 +184,79 @@ function MenuBadges({ item }: { item: MenuItem }) {
   );
 }
 
-function MenuItemCard({ item }: { item: MenuItem }) {
+interface MenuItemCardProps {
+  item: MenuItem;
+  restaurantId?: string;
+  voteStats?: VoteStats;
+  myVote?: "like" | "dislike" | null;
+  onVote?: (vote: "like" | "dislike") => void;
+}
+
+function MenuItemCard({ item, restaurantId, voteStats, myVote, onVote }: MenuItemCardProps) {
+  const { t } = useI18n();
+
+  const handleVote = (vote: "like" | "dislike") => {
+    if (!isAuthed()) {
+      openAuthModal();
+      return;
+    }
+    onVote?.(vote);
+  };
+
+  const dishLink = item.slug && restaurantId ? `/restaurant/${encodeURIComponent(restaurantId)}/menu/${encodeURIComponent(item.slug)}` : null;
+
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <div className="text-base sm:text-lg font-semibold text-slate-900 leading-snug">{item.name}</div>
+          {dishLink ? (
+            <Link to={dishLink} className="text-base sm:text-lg font-semibold text-slate-900 leading-snug hover:text-[#a3001d] transition-colors">
+              {item.name}
+            </Link>
+          ) : (
+            <div className="text-base sm:text-lg font-semibold text-slate-900 leading-snug">{item.name}</div>
+          )}
         </div>
         <div className="shrink-0 text-end">
           <div className="text-base sm:text-lg font-semibold text-[#a3001d] tabular-nums whitespace-nowrap">{item.price}</div>
         </div>
       </div>
 
-      <MenuBadges item={item} />
+      <MenuBadges item={item} isFavorite={voteStats?.isFavorite} />
 
       {item.description ? <div className="mt-2 text-sm text-slate-600">{item.description}</div> : null}
+
+      {/* Like / Dislike buttons */}
+      {item.inventoryItemId && (
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => handleVote("like")}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition",
+              myVote === "like"
+                ? "bg-emerald-100 text-emerald-700 border border-emerald-300"
+                : "bg-slate-100 text-slate-500 hover:bg-slate-200 border border-transparent",
+            )}
+          >
+            <ThumbsUp className="h-3.5 w-3.5" />
+            {(voteStats?.likes ?? 0) > 0 && <span>{voteStats!.likes}</span>}
+          </button>
+          <button
+            type="button"
+            onClick={() => handleVote("dislike")}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition",
+              myVote === "dislike"
+                ? "bg-red-100 text-red-700 border border-red-300"
+                : "bg-slate-100 text-slate-500 hover:bg-slate-200 border border-transparent",
+            )}
+          >
+            <ThumbsDown className="h-3.5 w-3.5" />
+            {(voteStats?.dislikes ?? 0) > 0 && <span>{voteStats!.dislikes}</span>}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -413,6 +486,9 @@ export function MenuSection({ establishmentId, categories, packs, legacyHours, c
   const [authOpen, setAuthOpen] = React.useState(false);
   const [pendingUrl, setPendingUrl] = React.useState<string | null>(null);
 
+  // Menu item votes (like/dislike)
+  const { votesMap, myVotesMap, toggleVote } = useMenuVotes(establishmentId);
+
   const hasPacks = Array.isArray(packs) && packs.length > 0;
 
   const menuCategories = React.useMemo(() => {
@@ -451,6 +527,11 @@ export function MenuSection({ establishmentId, categories, packs, legacyHours, c
   const [activeCategoryId, setActiveCategoryId] = React.useState<string>(navItems[0]?.id ?? "");
   const activeCategoryRef = React.useRef(activeCategoryId);
   const manualScrollUntilRef = React.useRef<number>(0);
+
+  // Declare before scroll observer (which depends on menuExpanded)
+  const [menuQuery, setMenuQuery] = React.useState<string>("");
+  const [menuExpanded, setMenuExpanded] = React.useState(false);
+  const [sortMode, setSortMode] = React.useState<MenuSortMode>("default");
 
   React.useEffect(() => {
     activeCategoryRef.current = activeCategoryId;
@@ -533,7 +614,7 @@ export function MenuSection({ establishmentId, categories, packs, legacyHours, c
       if (raf) cancelAnimationFrame(raf);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navItems.length]);
+  }, [navItems.length, menuExpanded]);
 
   const dateParam = searchParams.get("date") || "";
   const timeParam = searchParams.get("time") || "";
@@ -545,9 +626,6 @@ export function MenuSection({ establishmentId, categories, packs, legacyHours, c
     const n = Number(peopleParam);
     return Number.isFinite(n) && n > 0 ? clampInt(n, 1, 20) : 2;
   });
-
-  const [menuQuery, setMenuQuery] = React.useState<string>("");
-  const [sortMode, setSortMode] = React.useState<MenuSortMode>("default");
 
   React.useEffect(() => {
     if (dateParam !== date) setDate(dateParam);
@@ -621,6 +699,42 @@ export function MenuSection({ establishmentId, categories, packs, legacyHours, c
       return { ...c, items: sortMenuItems(c.items ?? [], sortMode) };
     });
   }, [menuCategories, sortMode]);
+
+  // ---------------------------------------------------------------------------
+  // Preview mode: show limited categories/items until user clicks "expand"
+  // ---------------------------------------------------------------------------
+
+  const nonPackCategories = React.useMemo(
+    () => sortedMenuCategories.filter((c) => c.id !== "packs"),
+    [sortedMenuCategories],
+  );
+  const hiddenCategoriesCount = Math.max(0, nonPackCategories.length - PREVIEW_CATEGORIES);
+
+  const visibleCategories = React.useMemo(() => {
+    if (menuExpanded) return nonPackCategories;
+    return nonPackCategories.slice(0, PREVIEW_CATEGORIES);
+  }, [nonPackCategories, menuExpanded]);
+
+  const getVisibleItems = React.useCallback(
+    (cat: MenuCategory): MenuItem[] => {
+      if (menuExpanded) return cat.items;
+      return cat.items.slice(0, PREVIEW_ITEMS_PER_CAT);
+    },
+    [menuExpanded],
+  );
+
+  const visibleNavItems = React.useMemo(() => {
+    if (menuExpanded) return navItems;
+    const items: Array<{ id: string; name: string }> = [];
+    // Always include packs in nav if present
+    for (const c of menuCategories) {
+      if (c.id === "packs") items.push({ id: c.id, name: c.name });
+    }
+    for (const c of nonPackCategories.slice(0, PREVIEW_CATEGORIES)) {
+      items.push({ id: c.id, name: c.name });
+    }
+    return items;
+  }, [menuCategories, nonPackCategories, menuExpanded, navItems]);
 
   const searchResults = React.useMemo(() => {
     if (!normalizedQuery) return null;
@@ -775,7 +889,14 @@ export function MenuSection({ establishmentId, categories, packs, legacyHours, c
               ) : (
                 <div className="space-y-3">
                   {group.items.map((item) => (
-                    <MenuItemCard key={item.id} item={item} />
+                    <MenuItemCard
+                      key={item.id}
+                      item={item}
+                      restaurantId={establishmentId}
+                      voteStats={item.inventoryItemId ? votesMap[item.inventoryItemId] : undefined}
+                      myVote={item.inventoryItemId ? myVotesMap[item.inventoryItemId] ?? null : null}
+                      onVote={(vote) => item.inventoryItemId && toggleVote(item.inventoryItemId, vote)}
+                    />
                   ))}
                 </div>
               )}
@@ -785,9 +906,10 @@ export function MenuSection({ establishmentId, categories, packs, legacyHours, c
         </div>
       ) : (
         <div className="md:grid md:grid-cols-12 md:gap-8">
+          {/* ── Desktop sidebar ── */}
           <aside className="hidden md:block md:col-span-3">
-            <div className="sticky top-28 flex flex-col gap-2 mt-3 md:mt-4">
-              {navItems.map((item) => {
+            <div className="sticky top-28 flex flex-col gap-1.5 mt-3 md:mt-4">
+              {visibleNavItems.map((item) => {
                 const active = activeCategoryId === item.id;
                 return (
                   <button
@@ -795,7 +917,7 @@ export function MenuSection({ establishmentId, categories, packs, legacyHours, c
                     type="button"
                     onClick={() => scrollToCategory(item.id)}
                     className={cn(
-                      "w-full text-start rounded-xl px-4 py-3 text-sm font-semibold border transition",
+                      "w-full text-start rounded-xl px-4 py-2 text-sm font-semibold border transition",
                       active
                         ? "bg-[#a3001d] text-white border-[#a3001d]"
                         : "bg-white text-slate-800 border-slate-200 hover:bg-slate-50",
@@ -805,13 +927,23 @@ export function MenuSection({ establishmentId, categories, packs, legacyHours, c
                   </button>
                 );
               })}
+              {!menuExpanded && hiddenCategoriesCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setMenuExpanded(true)}
+                  className="w-full text-center rounded-xl px-4 py-2 text-xs font-semibold text-[#a3001d] border border-dashed border-[#a3001d]/30 hover:bg-[#a3001d]/5 transition"
+                >
+                  +{hiddenCategoriesCount} {t("menu.preview.categories_suffix")}
+                </button>
+              )}
             </div>
           </aside>
 
           <section className="md:col-span-9">
+            {/* ── Mobile horizontal nav ── */}
             <div className="md:hidden sticky top-[7.25rem] z-20 -mx-4 px-4 py-2 mt-1 bg-white/95 backdrop-blur border-b border-slate-200">
               <div ref={mobileNavRef} className="flex gap-2 overflow-x-auto pb-1">
-                {navItems.map((item) => {
+                {visibleNavItems.map((item) => {
                   const active = activeCategoryId === item.id;
                   return (
                     <button
@@ -830,9 +962,19 @@ export function MenuSection({ establishmentId, categories, packs, legacyHours, c
                     </button>
                   );
                 })}
+                {!menuExpanded && hiddenCategoriesCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setMenuExpanded(true)}
+                    className="shrink-0 px-4 h-10 rounded-full text-sm font-semibold border border-dashed border-[#a3001d]/30 text-[#a3001d]"
+                  >
+                    +{hiddenCategoriesCount}
+                  </button>
+                )}
               </div>
             </div>
 
+            {/* ── Items panel ── */}
             <div className="pt-4 space-y-8">
               {hasPacks ? (
                 <div id={sectionId("packs")} data-cat="packs" className="scroll-mt-44 space-y-4">
@@ -842,21 +984,50 @@ export function MenuSection({ establishmentId, categories, packs, legacyHours, c
                 </div>
               ) : null}
 
-              {sortedMenuCategories
-                .filter((c) => c.id !== "packs")
-                .map((cat) => (
+              {visibleCategories.map((cat) => {
+                const items = getVisibleItems(cat);
+                const hiddenItemsCount = cat.items.length - items.length;
+                return (
                   <div key={cat.id} id={sectionId(cat.id)} data-cat={cat.id} className="scroll-mt-44">
                     <div className="flex items-center justify-between gap-3">
                       <h3 className="text-lg font-semibold text-slate-900">{cat.name}</h3>
                       <span className="text-xs font-semibold text-slate-500">{t("menu.items.count", { count: cat.items.length })}</span>
                     </div>
                     <div className="mt-3 space-y-3">
-                      {cat.items.map((item) => (
-                        <MenuItemCard key={item.id} item={item} />
+                      {items.map((item) => (
+                        <MenuItemCard
+                          key={item.id}
+                          item={item}
+                          restaurantId={establishmentId}
+                          voteStats={item.inventoryItemId ? votesMap[item.inventoryItemId] : undefined}
+                          myVote={item.inventoryItemId ? myVotesMap[item.inventoryItemId] ?? null : null}
+                          onVote={(vote) => item.inventoryItemId && toggleVote(item.inventoryItemId, vote)}
+                        />
                       ))}
                     </div>
+                    {!menuExpanded && hiddenItemsCount > 0 && (
+                      <p className="mt-2 text-center text-sm text-slate-400">
+                        +{hiddenItemsCount} {hiddenItemsCount === 1 ? t("menu.preview.more_item") : t("menu.preview.more_items")}
+                      </p>
+                    )}
                   </div>
-                ))}
+                );
+              })}
+
+              {/* ── Expand button ── */}
+              {!menuExpanded && hiddenCategoriesCount > 0 && (
+                <div className="flex justify-center pt-2 pb-4">
+                  <button
+                    type="button"
+                    onClick={() => setMenuExpanded(true)}
+                    className="flex items-center gap-2 rounded-xl border border-[#a3001d]/20 bg-[#a3001d]/5 px-6 py-3 text-sm font-semibold text-[#a3001d] hover:bg-[#a3001d]/10 transition"
+                  >
+                    <span>{t("menu.preview.see_full_menu")}</span>
+                    <span className="text-xs opacity-70">(+{hiddenCategoriesCount} {t("menu.preview.categories_suffix")})</span>
+                    <ChevronDown className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
             </div>
           </section>
         </div>

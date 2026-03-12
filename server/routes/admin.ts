@@ -577,6 +577,7 @@ import {
   markAdminMediaQuoteAccepted,
   markAdminMediaQuoteRejected,
   convertAdminMediaQuoteToInvoice,
+  createAdminMediaInvoice,
   listAdminMediaInvoices,
   getAdminMediaInvoice,
   sendAdminMediaInvoiceEmail,
@@ -601,6 +602,7 @@ export {
   markAdminMediaQuoteAccepted,
   markAdminMediaQuoteRejected,
   convertAdminMediaQuoteToInvoice,
+  createAdminMediaInvoice,
   listAdminMediaInvoices,
   getAdminMediaInvoice,
   sendAdminMediaInvoiceEmail,
@@ -1265,6 +1267,7 @@ export function registerAdminCoreRoutes(app: Express) {
   );
 
   app.get("/api/admin/media/invoices", zQuery(ListAdminMediaInvoicesQuery), listAdminMediaInvoices);
+  app.post("/api/admin/media/invoices", createAdminMediaInvoice);
   app.get("/api/admin/media/invoices/:id", zParams(zIdParam), getAdminMediaInvoice);
   app.get("/api/admin/media/invoices/:id/pdf", zParams(zIdParam), downloadAdminMediaInvoicePdf);
   app.post(

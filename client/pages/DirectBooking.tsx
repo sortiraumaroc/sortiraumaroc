@@ -165,7 +165,7 @@ export default function DirectBooking() {
     } catch (e: any) {
       console.error("Error fetching establishment:", e);
       if (e.status === 404) {
-        setError("Etablissement non trouve. Ce lien n'est plus valide.");
+        setError("Établissement non trouvé. Ce lien n'est plus valide.");
       } else {
         setError(e.message || "Erreur lors du chargement");
       }
@@ -284,7 +284,7 @@ export default function DirectBooking() {
       console.error("Error creating reservation:", e);
       toast({
         title: "Erreur",
-        description: e.message || "Impossible de creer la reservation",
+        description: e.message || "Impossible de créer la réservation",
         variant: "destructive",
       });
     } finally {
@@ -330,10 +330,10 @@ export default function DirectBooking() {
             <CardContent className="pt-6 text-center">
               <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
               <h1 className="text-xl font-semibold text-slate-900 mb-2">
-                Etablissement non trouve
+                Établissement non trouvé
               </h1>
               <p className="text-slate-600 mb-6">
-                {error || "L'etablissement @" + username + " n'existe pas ou n'est plus disponible."}
+                {error || "L'établissement @" + username + " n'existe pas ou n'est plus disponible."}
               </p>
               <div className="flex flex-col gap-3">
                 <Button

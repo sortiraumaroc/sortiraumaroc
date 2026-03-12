@@ -270,7 +270,7 @@ export function AdminAuditTestsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AdminPageHeader
         title="Audit & Tests"
         description="Checklist QA interne (superadmin) — diagnostics rapides et traçables."

@@ -1579,29 +1579,39 @@ export const listAdminFtourSlots: RequestHandler = async (req, res) => {
 
   try {
     const supabase = getAdminSupabase();
+    const from = typeof req.query.from === "string" ? req.query.from : undefined;
+    const to = typeof req.query.to === "string" ? req.query.to : undefined;
 
-    let query = supabase
-      .from("pro_slots")
-      .select("*, establishments!inner(id, name, city)")
-      .eq("service_label", "Ftour")
-      .in("moderation_status", ["pending_moderation", "active", "suspended"])
-      .order("starts_at", { ascending: true })
-      .limit(2000);
+    // Supabase PostgREST caps at 1000 rows per request — paginate to get all
+    const PAGE_SIZE = 1000;
+    let allData: unknown[] = [];
+    let offset = 0;
+    let hasMore = true;
 
-    if (typeof req.query.from === "string" && req.query.from) {
-      query = query.gte("starts_at", req.query.from);
+    while (hasMore) {
+      let query = supabase
+        .from("pro_slots")
+        .select("*, establishments!inner(id, name, city)")
+        .eq("service_label", "Ftour")
+        .in("moderation_status", ["pending_moderation", "active", "suspended"])
+        .order("starts_at", { ascending: true })
+        .range(offset, offset + PAGE_SIZE - 1);
+
+      if (from) query = query.gte("starts_at", from);
+      if (to) query = query.lte("starts_at", to);
+
+      const { data, error } = await query;
+      if (error) {
+        res.status(500).json({ error: error.message });
+        return;
+      }
+
+      allData = allData.concat(data ?? []);
+      hasMore = (data?.length ?? 0) === PAGE_SIZE;
+      offset += PAGE_SIZE;
     }
-    if (typeof req.query.to === "string" && req.query.to) {
-      query = query.lte("starts_at", req.query.to);
-    }
 
-    const { data, error } = await query;
-    if (error) {
-      res.status(500).json({ error: error.message });
-      return;
-    }
-
-    res.json({ ok: true, slots: data ?? [] });
+    res.json({ ok: true, slots: allData });
   } catch (err) {
     console.error("[admin] listAdminFtourSlots error:", err);
     res.status(500).json({ error: "internal_error" });
@@ -1635,20 +1645,171 @@ export const detectDuplicateEstablishments: RequestHandler = async (req, res) =>
 
   if (allRows.length === 0) return res.json({ groups: [] });
 
-  // Build groups: same normalised name + same normalised city
-  const rows = allRows;
+  // -----------------------------------------------------------------------
+  // Fuzzy duplicate detection
+  // -----------------------------------------------------------------------
 
-  const buckets = new Map<string, Row[]>();
+  // Common French/Moroccan articles & generic prefixes to ignore
+  const STOP_WORDS = new Set([
+    "le", "la", "les", "l", "un", "une", "des", "du", "de", "d",
+    "restaurant", "cafe", "hotel", "riad", "dar", "maison", "chez",
+    "by", "and", "et", "the", "a", "au", "aux", "en",
+  ]);
 
-  for (const row of rows) {
-    const nName = normalizeEstName(row.name as string | null);
-    const nCity = normalizeEstName(row.city as string | null);
-    if (!nName) continue; // skip unnamed establishments
-    const key = `${nName}||${nCity}`;
-    const bucket = buckets.get(key) ?? [];
-    bucket.push(row);
-    buckets.set(key, bucket);
+  /** Normalize + split apostrophes into separate tokens */
+  function tokenize(raw: string | null | undefined): string[] {
+    if (!raw) return [];
+    return raw
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[''`\-_]/g, " ")        // apostrophes & hyphens → space
+      .replace(/[^a-z0-9\s]/g, " ")     // strip remaining punctuation
+      .replace(/\s+/g, " ")
+      .trim()
+      .split(" ")
+      .filter((w) => w.length > 0);
   }
+
+  /** Extract meaningful tokens (no stop words) */
+  function coreTokens(tokens: string[]): string[] {
+    return tokens.filter((w) => !STOP_WORDS.has(w));
+  }
+
+  /** Check if two names (same city) are likely duplicates */
+  function areSimilar(nameA: string | null, nameB: string | null): boolean {
+    const tokFullA = tokenize(nameA);
+    const tokFullB = tokenize(nameB);
+    if (tokFullA.length === 0 || tokFullB.length === 0) return false;
+
+    // 1. Exact normalized match
+    const fullA = tokFullA.join(" ");
+    const fullB = tokFullB.join(" ");
+    if (fullA === fullB) return true;
+
+    const coreA = coreTokens(tokFullA);
+    const coreB = coreTokens(tokFullB);
+    if (coreA.length === 0 || coreB.length === 0) return false;
+
+    const coreStrA = coreA.join(" ");
+    const coreStrB = coreB.join(" ");
+
+    // 2. Core tokens match exactly
+    if (coreStrA === coreStrB) return true;
+
+    // 3. One core string contains the other (min 5 chars for the smaller)
+    const minLen = Math.min(coreStrA.length, coreStrB.length);
+    if (minLen >= 5 && (coreStrA.includes(coreStrB) || coreStrB.includes(coreStrA))) {
+      return true;
+    }
+
+    // 4. Token subset: all tokens of the smaller set are in the larger set
+    const [smaller, larger] =
+      coreA.length <= coreB.length ? [coreA, coreB] : [coreB, coreA];
+    const largerSet = new Set(larger);
+    const smallerCore = smaller.join(" ");
+    if (smallerCore.length >= 5 && smaller.every((t) => largerSet.has(t))) {
+      return true;
+    }
+
+    // 5. High Jaccard similarity (≥ 0.6)
+    const setA = new Set(coreA);
+    const setB = new Set(coreB);
+    const intersection = [...setA].filter((t) => setB.has(t)).length;
+    const union = new Set([...coreA, ...coreB]).size;
+    if (union > 0 && intersection / union >= 0.6) return true;
+
+    // 6. Levenshtein distance ≤ 2 on core strings (catch typos)
+    if (coreStrA.length >= 6 && coreStrB.length >= 6) {
+      const maxLen = Math.max(coreStrA.length, coreStrB.length);
+      if (Math.abs(coreStrA.length - coreStrB.length) <= 2 && maxLen <= 40) {
+        const dist = levenshtein(coreStrA, coreStrB);
+        if (dist <= 2) return true;
+      }
+    }
+
+    return false;
+  }
+
+  /** Simple Levenshtein distance (bounded — returns early if > limit) */
+  function levenshtein(a: string, b: string, limit = 3): number {
+    if (a === b) return 0;
+    const m = a.length;
+    const n = b.length;
+    if (Math.abs(m - n) > limit) return limit + 1;
+    let prev = Array.from({ length: n + 1 }, (_, i) => i);
+    for (let i = 1; i <= m; i++) {
+      const curr = [i];
+      let rowMin = i;
+      for (let j = 1; j <= n; j++) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+        if (curr[j] < rowMin) rowMin = curr[j];
+      }
+      if (rowMin > limit) return limit + 1;
+      prev = curr;
+    }
+    return prev[n];
+  }
+
+  // --- Group establishments by city ---
+  type IndexedRow = { idx: number; row: Row };
+  const byCity = new Map<string, IndexedRow[]>();
+
+  for (let i = 0; i < allRows.length; i++) {
+    const row = allRows[i];
+    const nName = normalizeEstName(row.name as string | null);
+    if (!nName) continue;
+    const nCity = normalizeEstName(row.city as string | null);
+    const bucket = byCity.get(nCity) ?? [];
+    bucket.push({ idx: i, row });
+    byCity.set(nCity, bucket);
+  }
+
+  // --- Union-Find ---
+  const parent = new Map<number, number>();
+  function find(x: number): number {
+    if (!parent.has(x)) parent.set(x, x);
+    if (parent.get(x) !== x) parent.set(x, find(parent.get(x)!));
+    return parent.get(x)!;
+  }
+  function union(a: number, b: number): void {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(rb, ra);
+  }
+
+  // --- Compare all pairs within each city ---
+  for (const [, items] of byCity) {
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        if (areSimilar(items[i].row.name as string, items[j].row.name as string)) {
+          union(items[i].idx, items[j].idx);
+        }
+      }
+    }
+  }
+
+  // --- Collect groups ---
+  const groupMap = new Map<number, Row[]>();
+  for (const [, items] of byCity) {
+    for (const { idx, row } of items) {
+      const root = find(idx);
+      const grp = groupMap.get(root) ?? [];
+      grp.push(row);
+      groupMap.set(root, grp);
+    }
+  }
+
+  // --- Build response ---
+  const totalFields = 23;
+  const fieldKeys = [
+    "name", "description_short", "description_long", "address", "city",
+    "postal_code", "region", "phone", "whatsapp", "email", "website",
+    "cover_url", "gallery_urls", "hours", "universe", "subcategory",
+    "lat", "lng", "tags", "amenities", "social_links", "specialties",
+    "ambiance_tags", "service_types",
+  ];
 
   const groups: Array<{
     name: string;
@@ -1665,44 +1826,35 @@ export const detectDuplicateEstablishments: RequestHandler = async (req, res) =>
     }>;
   }> = [];
 
-  const totalFields = 23; // number of scored fields
-
-  for (const [, bucket] of buckets) {
+  for (const [, bucket] of groupMap) {
     if (bucket.length < 2) continue;
 
-    const first = bucket[0];
+    const itemsMapped = bucket.map((row) => {
+      const score = computeCompletenessScore(row);
+      let filled = 0;
+      for (const k of fieldKeys) {
+        const v = row[k];
+        if (v === null || v === undefined || v === "") continue;
+        if (Array.isArray(v) && v.length === 0) continue;
+        if (typeof v === "object" && !Array.isArray(v) && Object.keys(v as object).length === 0) continue;
+        filled++;
+      }
+      return {
+        id: row.id,
+        name: row.name as string | null,
+        city: row.city as string | null,
+        status: row.status as string | null,
+        created_at: row.created_at as string | null,
+        completeness: score,
+        filledFields: filled,
+        totalFields,
+      };
+    }).sort((a, b) => b.completeness - a.completeness); // richest first
+
     groups.push({
-      name: (first.name as string) ?? "",
-      city: (first.city as string) ?? "",
-      items: bucket.map((row) => {
-        const score = computeCompletenessScore(row);
-        // Count filled fields for display
-        const fieldKeys = [
-          "name", "description_short", "description_long", "address", "city",
-          "postal_code", "region", "phone", "whatsapp", "email", "website",
-          "cover_url", "gallery_urls", "hours", "universe", "subcategory",
-          "lat", "lng", "tags", "amenities", "social_links", "specialties",
-          "ambiance_tags", "service_types",
-        ];
-        let filled = 0;
-        for (const k of fieldKeys) {
-          const v = row[k];
-          if (v === null || v === undefined || v === "") continue;
-          if (Array.isArray(v) && v.length === 0) continue;
-          if (typeof v === "object" && !Array.isArray(v) && Object.keys(v as object).length === 0) continue;
-          filled++;
-        }
-        return {
-          id: row.id,
-          name: row.name as string | null,
-          city: row.city as string | null,
-          status: row.status as string | null,
-          created_at: row.created_at as string | null,
-          completeness: score,
-          filledFields: filled,
-          totalFields,
-        };
-      }).sort((a, b) => b.completeness - a.completeness), // richest first
+      name: (itemsMapped[0].name as string) ?? "",
+      city: (itemsMapped[0].city as string) ?? "",
+      items: itemsMapped,
     });
   }
 

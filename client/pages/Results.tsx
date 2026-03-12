@@ -3,7 +3,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
-import { Map as MapIcon, List, SlidersHorizontal, Star, Heart, Users, Search, Utensils, Clock, Sparkles, BadgePercent, CalendarDays, ChevronDown, Wine, X, Filter, MapPin, Car, Gamepad2, Dumbbell, Building2, Check, Loader2, Zap, TreePalm, ParkingCircle, Wifi, Baby, Coins, Fuel, Gauge } from "lucide-react";
+import { Map as MapIcon, List, SlidersHorizontal, Star, Heart, Users, Search, Utensils, Clock, Sparkles, BadgePercent, CalendarDays, ChevronDown, Wine, X, Filter, MapPin, Car, Gamepad2, Dumbbell, Building2, Check, Loader2, Zap, TreePalm, ParkingCircle, Wifi, Baby, Coins, Fuel, Gauge, AlertCircle, RefreshCw } from "lucide-react";
 import { Header } from "@/components/Header";
 import { CityInput } from "@/components/SearchInputs/CityInput";
 import { DatePickerInput } from "@/components/DatePickerInput";
@@ -146,514 +146,16 @@ const getPromotionBadge = (item: any): string | null => {
   return `-${p}%`;
 };
 
-const RESTAURANTS = [
-  {
-    id: 1,
-    name: "Restaurant Riad Atlas",
-    rating: 4.8,
-    reviews: 245,
-    category: "Gastronomique",
-    neighborhood: "Medina",
-    avgPrice: "350-500 Dhs",
-    nextAvailability: "Today at 7:00 PM",
-    image:
-      "https://images.unsplash.com/photo-1544025162-d76694265947?w=400&h=300&fit=crop",
-    status: "OPEN",
-    badge: "Sponsored",
-    lat: 31.63,
-    lng: -8.01,
-    bookingEnabled: true,
-    nextSlot: "Today at 7:00 PM",
-    slotDiscount: null,
-    dealActive: false,
-    discount: null,
-  },
-  {
-    id: 2,
-    name: "Terrasse Moderne",
-    rating: 4.6,
-    reviews: 189,
-    category: "Rooftop",
-    neighborhood: "Gueliz",
-    avgPrice: "280-400 Dhs",
-    nextAvailability: "Today at 7:30 PM",
-    image:
-      "https://cdn.builder.io/api/v1/image/assets%2F9d79e075af8c480ea94841fd41e63e5c%2F7652d255680241f0a7ecf4494ebe59df?format=webp&width=800",
-    status: "OPEN",
-    badge: "Popular",
-    lat: 31.62,
-    lng: -8.0,
-    bookingEnabled: true,
-    nextSlot: "Today at 7:30 PM",
-    slotDiscount: 30,
-    dealActive: false,
-    discount: null,
-  },
-  {
-    id: 3,
-    name: "Fusion Cuisine",
-    rating: 4.5,
-    reviews: 156,
-    category: "International",
-    neighborhood: "Nouvelle Ville",
-    avgPrice: "200-350 Dhs",
-    nextAvailability: "Today at 8:00 PM",
-    image:
-      "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&h=300&fit=crop",
-    status: "OPEN",
-    badge: "New",
-    lat: 31.64,
-    lng: -8.02,
-    bookingEnabled: false,
-    nextSlot: null,
-    slotDiscount: null,
-    dealActive: true,
-    discount: 50,
-  },
-  {
-    id: 4,
-    name: "Casa de Paco",
-    rating: 4.7,
-    reviews: 312,
-    category: "Gastronomique",
-    neighborhood: "Medina",
-    avgPrice: "400-600 Dhs",
-    nextAvailability: "Today at 7:45 PM",
-    image:
-      "https://cdn.builder.io/api/v1/image/assets%2F9d79e075af8c480ea94841fd41e63e5c%2F8004152491334d5cbcf40daca382c85d?format=webp&width=800",
-    status: "OPEN",
-    badge: "Featured",
-    lat: 31.61,
-    lng: -8.01,
-    bookingEnabled: true,
-    nextSlot: "Today at 7:45 PM",
-    slotDiscount: null,
-    dealActive: false,
-    discount: null,
-  },
-  {
-    id: 5,
-    name: "Le Comptoir",
-    rating: 4.4,
-    reviews: 198,
-    category: "Casual",
-    neighborhood: "Gueliz",
-    avgPrice: "150-250 Dhs",
-    nextAvailability: "Today at 8:30 PM",
-    image:
-      "https://cdn.builder.io/api/v1/image/assets%2F9d79e075af8c480ea94841fd41e63e5c%2F265e7bdf3b7f42d684f0b809adc7fd46?format=webp&width=800",
-    status: "OPEN",
-    badge: "Hot Offer",
-    lat: 31.63,
-    lng: -8.0,
-    bookingEnabled: true,
-    nextSlot: "Today at 8:30 PM",
-    slotDiscount: 15,
-    dealActive: false,
-    discount: null,
-  },
-  {
-    id: 6,
-    name: "Marrakech Sky",
-    rating: 4.9,
-    reviews: 456,
-    category: "Rooftop",
-    neighborhood: "Medina",
-    avgPrice: "500-750 Dhs",
-    nextAvailability: "Today at 6:30 PM",
-    image:
-      "https://cdn.builder.io/api/v1/image/assets%2F9d79e075af8c480ea94841fd41e63e5c%2F0ea6ec34947f467cba5cb49454ceecd5?format=webp&width=800",
-    status: "OPEN",
-    badge: "Premium",
-    lat: 31.62,
-    lng: -8.01,
-    bookingEnabled: true,
-    nextSlot: "Today at 6:30 PM",
-    slotDiscount: null,
-    dealActive: false,
-    discount: null,
-  },
-];
-
-const SPORT_WELLNESS = [
-  {
-    id: 101,
-    name: "Centre Yoga & Bien-être",
-    rating: 4.9,
-    reviews: 187,
-    category: "Yoga",
-    neighborhood: "Gueliz",
-    avgPrice: "150-250 Dhs",
-    nextAvailability: "Today at 9:00 AM",
-    image:
-      "https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=400&h=300&fit=crop",
-    status: "OPEN",
-    badge: "Featured",
-    lat: 31.63,
-    lng: -8.01,
-    bookingEnabled: true,
-    nextSlot: "Today at 9:00 AM",
-    slotDiscount: null,
-    dealActive: false,
-    discount: null,
-  },
-  {
-    id: 102,
-    name: "Spa Luxe Marrakech",
-    rating: 4.8,
-    reviews: 234,
-    category: "Spa",
-    neighborhood: "Medina",
-    avgPrice: "300-500 Dhs",
-    nextAvailability: "Today at 10:00 AM",
-    image:
-      "https://images.unsplash.com/photo-1544367567-0d0fcb009e1d?w=400&h=300&fit=crop",
-    status: "OPEN",
-    badge: "Popular",
-    lat: 31.62,
-    lng: -8.0,
-    bookingEnabled: true,
-    nextSlot: "Today at 10:00 AM",
-    slotDiscount: 20,
-    dealActive: false,
-    discount: null,
-  },
-  {
-    id: 103,
-    name: "Hammam Traditionnel",
-    rating: 4.7,
-    reviews: 156,
-    category: "Hammam",
-    neighborhood: "Medina",
-    avgPrice: "80-150 Dhs",
-    nextAvailability: "Today at 11:00 AM",
-    image:
-      "https://images.unsplash.com/photo-1577720682742-172430c34e5d?w=400&h=300&fit=crop",
-    status: "OPEN",
-    badge: "Traditional",
-    lat: 31.61,
-    lng: -8.01,
-    bookingEnabled: true,
-    nextSlot: "Today at 11:00 AM",
-    slotDiscount: null,
-    dealActive: false,
-    discount: null,
-  },
-  {
-    id: 104,
-    name: "Fitness Club Moderne",
-    rating: 4.6,
-    reviews: 142,
-    category: "Fitness",
-    neighborhood: "Gueliz",
-    avgPrice: "500-800 Dhs/mois",
-    nextAvailability: "Today at 6:00 AM",
-    image:
-      "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=400&h=300&fit=crop",
-    status: "OPEN",
-    badge: "Modern",
-    lat: 31.64,
-    lng: -8.02,
-    bookingEnabled: true,
-    nextSlot: "Today at 6:00 AM",
-    slotDiscount: null,
-    dealActive: true,
-    discount: 30,
-  },
-];
-
-const LOISIRS = [
-  {
-    id: 201,
-    name: "Quad à Agafay",
-    rating: 4.9,
-    reviews: 312,
-    category: "Aventure",
-    neighborhood: "Agafay",
-    avgPrice: "450-650 Dhs",
-    nextAvailability: "Today at 2:00 PM",
-    image:
-      "https://cdn.builder.io/api/v1/image/assets%2F9d79e075af8c480ea94841fd41e63e5c%2F6c79d7ff2ad6489d8149ebb4fedfb7bd?format=webp&width=800",
-    status: "OPEN",
-    badge: "Popular",
-    lat: 31.5,
-    lng: -7.9,
-    bookingEnabled: true,
-    nextSlot: "Today at 2:00 PM",
-    slotDiscount: null,
-    dealActive: false,
-    discount: null,
-  },
-  {
-    id: 202,
-    name: "Cheval au bord de la mer",
-    rating: 4.7,
-    reviews: 278,
-    category: "Équitation",
-    neighborhood: "Essaouira",
-    avgPrice: "350-500 Dhs",
-    nextAvailability: "Today at 3:00 PM",
-    image:
-      "https://cdn.builder.io/api/v1/image/assets%2F9d79e075af8c480ea94841fd41e63e5c%2F4a9bad36b18e48dcb36dd277581569c0?format=webp&width=800",
-    status: "OPEN",
-    badge: "Featured",
-    lat: 31.5,
-    lng: -7.95,
-    bookingEnabled: true,
-    nextSlot: "Today at 3:00 PM",
-    slotDiscount: 15,
-    dealActive: false,
-    discount: null,
-  },
-  {
-    id: 203,
-    name: "Parachute en tandem",
-    rating: 4.8,
-    reviews: 198,
-    category: "Extrême",
-    neighborhood: "Région côtière",
-    avgPrice: "1500-2000 Dhs",
-    nextAvailability: "Today at 4:00 PM",
-    image:
-      "https://images.unsplash.com/photo-1540261967230-7cdedf4ba11b?w=400&h=300&fit=crop",
-    status: "OPEN",
-    badge: "Thrilling",
-    lat: 31.55,
-    lng: -8.05,
-    bookingEnabled: true,
-    nextSlot: "Today at 4:00 PM",
-    slotDiscount: null,
-    dealActive: false,
-    discount: null,
-  },
-];
-
-const HEBERGEMENT = [
-  {
-    id: 301,
-    name: "Riad Luxe Marrakech",
-    rating: 4.9,
-    reviews: 324,
-    category: "Riad",
-    neighborhood: "Medina",
-    avgPrice: "800-1200 Dhs/nuit",
-    nextAvailability: "Disponible",
-    image:
-      "https://images.unsplash.com/photo-1551632786-de41ec6a05ae?w=400&h=300&fit=crop",
-    status: "OPEN",
-    badge: "Luxury",
-    lat: 31.61,
-    lng: -8.01,
-    bookingEnabled: true,
-    nextSlot: "Disponible",
-    slotDiscount: null,
-    dealActive: false,
-    discount: null,
-  },
-  {
-    id: 302,
-    name: "Hôtel Boutique Gueliz",
-    rating: 4.7,
-    reviews: 267,
-    category: "Hôtel",
-    neighborhood: "Gueliz",
-    avgPrice: "500-800 Dhs/nuit",
-    nextAvailability: "Disponible",
-    image:
-      "https://images.unsplash.com/photo-1631049307038-da0ec36d9122?w=400&h=300&fit=crop",
-    status: "OPEN",
-    badge: "Modern",
-    lat: 31.63,
-    lng: -8.0,
-    bookingEnabled: true,
-    nextSlot: "Disponible",
-    slotDiscount: 10,
-    dealActive: false,
-    discount: null,
-  },
-  {
-    id: 303,
-    name: "Maison d'hôtes Palmeraie",
-    rating: 4.8,
-    reviews: 189,
-    category: "Maison d'hôtes",
-    neighborhood: "Palmeraie",
-    avgPrice: "400-600 Dhs/nuit",
-    nextAvailability: "Disponible",
-    image:
-      "https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=400&h=300&fit=crop",
-    status: "OPEN",
-    badge: "Charming",
-    lat: 31.64,
-    lng: -8.02,
-    bookingEnabled: true,
-    nextSlot: "Disponible",
-    slotDiscount: null,
-    dealActive: true,
-    discount: 25,
-  },
-  {
-    id: 304,
-    name: "Mövenpick Hotel & Casino Malabata Tanger",
-    rating: 4.5,
-    reviews: 728,
-    category: "Hôtel 5★",
-    neighborhood: "Malabata",
-    avgPrice: "À partir de 3 252 MAD/nuit",
-    nextAvailability: "Disponible",
-    image:
-      "https://cdn.builder.io/api/v1/image/assets%2F9d79e075af8c480ea94841fd41e63e5c%2Fd332c834fb5c4f018505f206e14b6fd1?format=webp&width=800",
-    status: "OPEN",
-    badge: "Premium",
-    lat: 35.7806,
-    lng: -5.7804,
-    bookingEnabled: true,
-    nextSlot: "Disponible",
-    slotDiscount: null,
-    dealActive: false,
-    discount: null,
-  },
-];
-
-const CULTURE = [
-  {
-    id: 401,
-    name: "Musée Yves Saint Laurent",
-    rating: 4.9,
-    reviews: 456,
-    category: "Musée",
-    neighborhood: "Gueliz",
-    avgPrice: "100-150 Dhs",
-    nextAvailability: "Aujourd'hui à 9:00 AM",
-    image:
-      "https://images.unsplash.com/photo-1564399579883-451a5d44be7f?w=400&h=300&fit=crop",
-    status: "OPEN",
-    badge: "Must-see",
-    lat: 31.63,
-    lng: -8.01,
-    bookingEnabled: true,
-    nextSlot: "Aujourd'hui à 9:00 AM",
-    slotDiscount: null,
-    dealActive: false,
-    discount: null,
-  },
-  {
-    id: 402,
-    name: "Palais de la Bahia",
-    rating: 4.8,
-    reviews: 512,
-    category: "Palais Historique",
-    neighborhood: "Medina",
-    avgPrice: "80-120 Dhs",
-    nextAvailability: "Aujourd'hui à 10:00 AM",
-    image:
-      "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=400&h=300&fit=crop",
-    status: "OPEN",
-    badge: "Historic",
-    lat: 31.62,
-    lng: -8.0,
-    bookingEnabled: true,
-    nextSlot: "Aujourd'hui à 10:00 AM",
-    slotDiscount: 5,
-    dealActive: false,
-    discount: null,
-  },
-  {
-    id: 403,
-    name: "Souk de Marrakech",
-    rating: 4.7,
-    reviews: 678,
-    category: "Marché",
-    neighborhood: "Medina",
-    avgPrice: "Variable",
-    nextAvailability: "Aujourd'hui à 8:00 AM",
-    image:
-      "https://images.unsplash.com/photo-1584299743941-460bbb150da1?w=400&h=300&fit=crop",
-    status: "OPEN",
-    badge: "Authentic",
-    lat: 31.61,
-    lng: -8.01,
-    bookingEnabled: false,
-    nextSlot: null,
-    slotDiscount: null,
-    dealActive: false,
-    discount: null,
-  },
-];
-
-const SHOPPING = [
-  {
-    id: 501,
-    name: "Centre Comercial Menara",
-    rating: 4.7,
-    reviews: 234,
-    category: "Centre Commercial",
-    neighborhood: "Menara",
-    avgPrice: "Variable",
-    nextAvailability: "Aujourd'hui à 10:00 AM",
-    image:
-      "https://images.unsplash.com/photo-1567521464027-f127ff144326?w=400&h=300&fit=crop",
-    status: "OPEN",
-    badge: "Modern",
-    lat: 31.61,
-    lng: -8.02,
-    bookingEnabled: false,
-    nextSlot: null,
-    slotDiscount: null,
-    dealActive: false,
-    discount: null,
-  },
-  {
-    id: 502,
-    name: "Boutique Artisanale Medina",
-    rating: 4.8,
-    reviews: 189,
-    category: "Artisanat",
-    neighborhood: "Medina",
-    avgPrice: "50-500 Dhs",
-    nextAvailability: "Aujourd'hui à 9:00 AM",
-    image:
-      "https://images.unsplash.com/photo-1544909514-2716092651e7?w=400&h=300&fit=crop",
-    status: "OPEN",
-    badge: "Authentic",
-    lat: 31.63,
-    lng: -8.01,
-    bookingEnabled: false,
-    nextSlot: null,
-    slotDiscount: null,
-    dealActive: false,
-    discount: null,
-  },
-  {
-    id: 503,
-    name: "Tapis et Textiles",
-    rating: 4.6,
-    reviews: 145,
-    category: "Textiles",
-    neighborhood: "Medina",
-    avgPrice: "200-2000 Dhs",
-    nextAvailability: "Aujourd'hui à 8:30 AM",
-    image:
-      "https://images.unsplash.com/photo-1562414108-b2ded4de86ca?w=400&h=300&fit=crop",
-    status: "OPEN",
-    badge: "Traditional",
-    lat: 31.62,
-    lng: -8.01,
-    bookingEnabled: false,
-    nextSlot: null,
-    slotDiscount: null,
-    dealActive: false,
-    discount: null,
-  },
-];
 
 export default function Results() {
   const { t, locale, intlLocale } = useI18n();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
+
   const universe = searchParams.get("universe") || "restaurants";
   const promotionsOnly = searchParams.get("promo") === "1";
+  const ramadanMode = searchParams.get("ramadan") === "1";
 
   // Prompt 12 — personalization
   const [personalizationEnabled, setPersonalizationEnabled] = useState(() =>
@@ -731,8 +233,33 @@ export default function Results() {
   // Quick filter bottom sheets (cuisine, ambiance) – mobile only
   const [showQuickFilterSheet, setShowQuickFilterSheet] = useState(false);
   const [quickFilterType, setQuickFilterType] = useState<QuickFilterType>("cuisine");
-  const [selectedCuisineTypes, setSelectedCuisineTypes] = useState<string[]>([]);
-  const [selectedAmbiances, setSelectedAmbiances] = useState<string[]>([]);
+  // Cuisine/ambiance filters — persisted in URL for shareability & refresh survival
+  const selectedCuisineTypes = useMemo(() => {
+    const raw = searchParams.get("cuisines");
+    return raw ? raw.split(",").filter(Boolean) : [];
+  }, [searchParams]);
+  const selectedAmbiances = useMemo(() => {
+    const raw = searchParams.get("ambiances");
+    return raw ? raw.split(",").filter(Boolean) : [];
+  }, [searchParams]);
+  const setSelectedCuisineTypes = useCallback((typesOrFn: string[] | ((prev: string[]) => string[])) => {
+    const next = new URLSearchParams(searchParams);
+    const types = typeof typesOrFn === "function"
+      ? typesOrFn(next.get("cuisines")?.split(",").filter(Boolean) ?? [])
+      : typesOrFn;
+    if (types.length) next.set("cuisines", types.join(","));
+    else next.delete("cuisines");
+    navigate(`/results?${next.toString()}`, { replace: true });
+  }, [searchParams, navigate]);
+  const setSelectedAmbiances = useCallback((typesOrFn: string[] | ((prev: string[]) => string[])) => {
+    const next = new URLSearchParams(searchParams);
+    const types = typeof typesOrFn === "function"
+      ? typesOrFn(next.get("ambiances")?.split(",").filter(Boolean) ?? [])
+      : typesOrFn;
+    if (types.length) next.set("ambiances", types.join(","));
+    else next.delete("ambiances");
+    navigate(`/results?${next.toString()}`, { replace: true });
+  }, [searchParams, navigate]);
 
   // Label adapté à l'univers pour le pill "Type de …"
   const cuisinePillLabel = universe === "restaurants" ? "Spécialité"
@@ -877,6 +404,13 @@ export default function Results() {
     next.delete("amenities");
     next.delete("price_range");
     next.delete("promo");
+    next.delete("cuisines");
+    next.delete("ambiances");
+    next.delete("loisirs_type");
+    next.delete("sport_type");
+    next.delete("accommodation_type");
+    next.delete("culture_type");
+    next.delete("shopping_type");
     navigate(`/results?${next.toString()}`);
   }, [searchParams, navigate]);
 
@@ -903,6 +437,17 @@ export default function Results() {
     } else {
       next.delete("price_range");
     }
+
+    // Persist non-restaurant filter fields in URL
+    const csvOrDelete = (key: string, arr?: string[]) => {
+      if (arr?.length) next.set(key, arr.join(","));
+      else next.delete(key);
+    };
+    csvOrDelete("loisirs_type", filterState.loisirsType);
+    csvOrDelete("sport_type", filterState.sportType);
+    csvOrDelete("accommodation_type", filterState.accommodationType);
+    csvOrDelete("culture_type", filterState.cultureType);
+    csvOrDelete("shopping_type", filterState.shoppingStoreType);
 
     navigate(`/results?${next.toString()}`);
   };
@@ -1067,13 +612,44 @@ export default function Results() {
     if ((location.state as Record<string, unknown>)?.fromSearch) return; // user searched actively — stay on results
     const city = searchParams.get("city") || "";
     const uni = searchParams.get("universe") || "restaurants";
+    const cat = searchParams.get("category") || "";
     if (!city) return; // only redirect when a city is specified
 
     let cancelled = false;
     getLandingSlugMap()
       .then((slugs) => {
         if (cancelled || landingRedirectDone.current) return;
-        const match = findLandingSlug(slugs, uni, city);
+
+        let match: string | null = null;
+
+        if (cat) {
+          // Category-specific redirect: try to find a matching landing page
+          const catNorm = cat.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/s$/, "");
+          const cityLower = city.toLowerCase();
+          const found = slugs.find((s) => {
+            if (s.universe !== "restaurant") return false;
+            if (!s.city || s.city.toLowerCase() !== cityLower) return false;
+            // Match by cuisine_type (case-insensitive, singular)
+            if (s.cuisine_type) {
+              const ct = s.cuisine_type.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/s$/, "");
+              if (ct === catNorm || ct.includes(catNorm) || catNorm.includes(ct)) return true;
+            }
+            // Match by category field
+            if (s.category) {
+              const c = s.category.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/s$/, "");
+              if (c === catNorm || c.includes(catNorm) || catNorm.includes(c)) return true;
+            }
+            // Match by slug containing category stem + city
+            const slugNorm = s.slug.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            if (slugNorm.includes(catNorm)) return true;
+            return false;
+          });
+          match = found?.slug ?? null;
+        } else {
+          // Generic redirect: universe + city only
+          match = findLandingSlug(slugs, uni, city);
+        }
+
         if (match) {
           landingRedirectDone.current = true;
           navigate(`/${match}`, { replace: true });
@@ -1088,6 +664,9 @@ export default function Results() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- only on initial mount
 
   const handleCityChange = useCallback((city: string) => {
+    // Ignore geo:denied / geo:unavailable (toast already shown by CityInput)
+    if (city === "geo:denied" || city === "geo:unavailable") return;
+
     // Detect geo:lat,lng from "Autour de moi" selection
     const geoMatch = city.match(/^geo:([-\d.]+),([-\d.]+)$/);
     if (geoMatch) {
@@ -1239,6 +818,7 @@ export default function Results() {
     isLoading: apiLoading,
     isError: apiIsError,
     error: apiErrorObj,
+    refetch,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
@@ -1258,6 +838,7 @@ export default function Results() {
       activeAmenities,
       activePriceRange,
       personalizationEnabled,
+      ramadanMode,
     ],
     queryFn: async ({ pageParam }) => {
       return listPublicEstablishments({
@@ -1285,6 +866,7 @@ export default function Results() {
         amenities: activeAmenities.length > 0 ? activeAmenities : undefined,
         price_range: activePriceRange.length > 0 ? activePriceRange : undefined,
         personalized: personalizationEnabled ? undefined : false,
+        ramadan: ramadanMode || undefined,
       });
     },
     initialPageParam: null as {
@@ -3151,7 +2733,18 @@ export default function Results() {
               </div>
             </div>
 
-            {apiLoading ? (
+            {apiIsError && !apiLoading ? (
+              /* API error — show retry button */
+              <div className="flex flex-col items-center gap-3 py-16 text-center">
+                <AlertCircle className="h-10 w-10 text-red-400" />
+                <p className="text-gray-600 text-sm">
+                  {t("results.error.load_failed", "Une erreur est survenue lors de la recherche.")}
+                </p>
+                <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-2">
+                  <RefreshCw className="h-4 w-4" /> {t("results.error.retry", "Réessayer")}
+                </Button>
+              </div>
+            ) : apiLoading ? (
               /* Loading skeleton while API fetches results */
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-4">
                 <EstablishmentCardSkeleton count={4} />

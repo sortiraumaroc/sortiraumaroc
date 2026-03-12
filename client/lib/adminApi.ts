@@ -2987,6 +2987,7 @@ export type FtourSlotWithEstablishment = {
   ends_at: string | null;
   capacity: number;
   base_price: number | null;
+  price_type: string | null;
   service_label: string | null;
   promo_type: string | null;
   promo_value: number | null;
@@ -4599,6 +4600,26 @@ export async function convertAdminMediaQuoteToInvoice(
     {
       method: "POST",
       body: JSON.stringify(args ?? {}),
+    },
+  );
+}
+
+export async function createAdminMediaInvoice(
+  adminKey: string | undefined,
+  args: {
+    pro_user_id: string;
+    establishment_id?: string | null;
+    due_at?: string | null;
+    notes?: string | null;
+    payment_method?: "card" | "bank_transfer" | string;
+  },
+): Promise<{ ok: true; invoice: AdminMediaInvoice }> {
+  return requestJson<{ ok: true; invoice: AdminMediaInvoice }>(
+    `/api/admin/media/invoices`,
+    adminKey,
+    {
+      method: "POST",
+      body: JSON.stringify(args),
     },
   );
 }

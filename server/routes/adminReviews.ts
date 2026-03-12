@@ -10,6 +10,7 @@ import { adminSupabase } from "../supabase";
 import { emitAdminNotification } from "../adminNotifications";
 import { notifyProMembers } from "../proNotifications";
 import { getAuditActorInfo } from "./admin";
+import { requireAdminKey, getAdminSessionSub } from "./adminHelpers";
 import { zBody, zParams, zIdParam } from "../lib/validate";
 import { AdminRejectReviewSchema, AdminResolveReportSchema } from "../schemas/adminReviews";
 
@@ -119,6 +120,7 @@ async function getUserEmail(userId: string): Promise<string | null> {
 // ---------------------------------------------------------------------------
 
 export const listAdminReviews: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const {
       status,
@@ -175,6 +177,7 @@ export const listAdminReviews: RequestHandler = async (req, res) => {
 // ---------------------------------------------------------------------------
 
 export const getAdminReview: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { id } = req.params;
 
@@ -212,9 +215,10 @@ export const getAdminReview: RequestHandler = async (req, res) => {
 // ---------------------------------------------------------------------------
 
 export const approveReview: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { id } = req.params;
-    const adminUserId = req.headers["x-admin-user-id"] as string || "admin";
+    const adminUserId = getAdminSessionSub(req) || "admin";
 
     // Get the review
     const { data: review, error: fetchError } = await adminSupabase
@@ -274,10 +278,11 @@ export const approveReview: RequestHandler = async (req, res) => {
 // ---------------------------------------------------------------------------
 
 export const rejectReview: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { id } = req.params;
     const { reason } = req.body;
-    const adminUserId = req.headers["x-admin-user-id"] as string || "admin";
+    const adminUserId = getAdminSessionSub(req) || "admin";
 
     if (!reason || typeof reason !== "string" || reason.trim().length === 0) {
       return res.status(400).json({ ok: false, error: "Rejection reason is required" });
@@ -338,9 +343,10 @@ export const rejectReview: RequestHandler = async (req, res) => {
 // ---------------------------------------------------------------------------
 
 export const sendReviewToPro: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { id } = req.params;
-    const adminUserId = req.headers["x-admin-user-id"] as string || "admin";
+    const adminUserId = getAdminSessionSub(req) || "admin";
 
     // Get the review
     const { data: review, error: fetchError } = await adminSupabase
@@ -428,6 +434,7 @@ export const sendReviewToPro: RequestHandler = async (req, res) => {
 // ---------------------------------------------------------------------------
 
 export const listAdminReports: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const {
       status,
@@ -487,10 +494,11 @@ export const listAdminReports: RequestHandler = async (req, res) => {
 // ---------------------------------------------------------------------------
 
 export const resolveReport: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { id } = req.params;
     const { status, notes, action_taken } = req.body;
-    const adminUserId = req.headers["x-admin-user-id"] as string || "admin";
+    const adminUserId = getAdminSessionSub(req) || "admin";
 
     if (!status || !["resolved", "dismissed"].includes(status)) {
       return res.status(400).json({ ok: false, error: "Invalid status. Must be 'resolved' or 'dismissed'" });
@@ -559,6 +567,7 @@ export const resolveReport: RequestHandler = async (req, res) => {
 // ---------------------------------------------------------------------------
 
 export const getReviewStats: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     // Count reviews by status
     const { data: reviewCounts } = await adminSupabase

@@ -2,6 +2,7 @@ import { useEffect, type ReactNode } from "react";
 
 import { AdminSidebar } from "@/components/admin/layout/AdminSidebar";
 import { AdminTopbar } from "@/components/admin/layout/AdminTopbar";
+import { AdminFAB } from "@/components/admin/AdminFAB";
 import { cleanupStaleRadixScrollLock } from "@/lib/radixScrollLockCleanup";
 import { startTracking, stopTracking } from "@/lib/adminActivityTracker";
 
@@ -33,6 +34,7 @@ export function AdminLayout(props: { children: ReactNode; onSignOut: () => void 
           </div>
         </div>
       </div>
+      <AdminFAB />
     </div>
   );
 }

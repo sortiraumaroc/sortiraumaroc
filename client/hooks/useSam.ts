@@ -22,6 +22,8 @@ export interface SamMessage {
   establishments?: SamEstablishmentItem[];
   isLoading?: boolean;
   isError?: boolean;
+  /** Sam est en train de chercher des établissements (tool_call search détecté) */
+  isSearching?: boolean;
   mood?: SamMood;
   timestamp: number;
 }
@@ -30,7 +32,7 @@ export interface SamMessage {
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useSam(universe?: string | null, establishmentId?: string | null, mode?: "pro" | "consumer") {
+export function useSam(universe?: string | null, establishmentId?: string | null, mode?: "pro" | "consumer" | "admin") {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<SamMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -140,21 +142,27 @@ export function useSam(universe?: string | null, establishmentId?: string | null
               const existing = m.establishments ?? [];
               const existingIds = new Set(existing.map((e) => e.id));
               const newItems = items.filter((e) => !existingIds.has(e.id));
-              if (!newItems.length) return m;
+              if (!newItems.length) return { ...m, isSearching: false };
               return {
                 ...m,
                 establishments: [...existing, ...newItems],
+                isSearching: false,
               };
             }),
           );
         },
 
-        onToolCall: (_name, _args) => {
-          // Optionnel : montrer un indicateur "Sam cherche..."
+        onToolCall: (name, _args) => {
+          // Détecter les outils de recherche pour afficher les skeletons
+          const isSearchTool = name.includes("search") || name === "get_establishment_details";
           setMessages((prev) =>
             prev.map((m) =>
-              m.id === assistantMsgId && !m.content
-                ? { ...m, isLoading: true }
+              m.id === assistantMsgId
+                ? {
+                    ...m,
+                    isLoading: !m.content ? true : m.isLoading,
+                    ...(isSearchTool && { isSearching: true }),
+                  }
                 : m,
             ),
           );
@@ -174,6 +182,7 @@ export function useSam(universe?: string | null, establishmentId?: string | null
                 ? {
                     ...m,
                     isLoading: false,
+                    isSearching: false,
                     mood: detectSamMood(
                       m.content,
                       (m.establishments?.length ?? 0) > 0,

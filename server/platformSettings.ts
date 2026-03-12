@@ -55,6 +55,8 @@ export interface PlatformSettingsSnapshot {
     social_youtube: string;
     social_snapchat: string;
     social_linkedin: string;
+    contact_email: string;
+    contact_phone: string;
   };
   ramadan: {
     enabled: boolean;
@@ -319,6 +321,8 @@ export async function getPlatformSettingsSnapshot(): Promise<PlatformSettingsSna
       social_youtube: getStr("FOOTER_SOCIAL_YOUTUBE", ""),
       social_snapchat: getStr("FOOTER_SOCIAL_SNAPCHAT", ""),
       social_linkedin: getStr("FOOTER_SOCIAL_LINKEDIN", ""),
+      contact_email: getStr("FOOTER_CONTACT_EMAIL", "contact@sam.ma"),
+      contact_phone: getStr("FOOTER_CONTACT_PHONE", "+212520123456"),
     },
     ramadan: {
       enabled: getBool("RAMADAN_ENABLED"),

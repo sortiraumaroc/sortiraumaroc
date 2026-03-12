@@ -743,10 +743,10 @@ export function AdminMediaFactoryQaPage() {
   };
 
   return (
-    <div className="p-4 lg:p-6 space-y-6">
+    <div className="space-y-4">
       <div>
         <div className="text-xs text-slate-500">MEDIA FACTORY</div>
-        <div className="text-xl font-extrabold text-slate-900">
+        <div className="text-2xl font-extrabold text-slate-900">
           QA Checklist
         </div>
         <div className="mt-1 text-sm text-slate-600">

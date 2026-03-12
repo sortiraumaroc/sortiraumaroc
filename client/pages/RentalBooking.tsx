@@ -219,7 +219,7 @@ export default function RentalBooking() {
     if (vehicleError || !vehicle) {
       return (
         <div className="text-center py-20">
-          <p className="text-red-600 font-medium">{vehicleError ?? "Vehicule introuvable"}</p>
+          <p className="text-red-600 font-medium">{vehicleError ?? "Véhicule introuvable"}</p>
           <Button variant="outline" className="mt-4" onClick={() => navigate(-1)}>
             Retour
           </Button>

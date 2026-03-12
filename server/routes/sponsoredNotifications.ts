@@ -33,17 +33,12 @@ import {
   SponsoredNotifIdNotifIdParams,
   SponsoredNotifNotifIdParams,
 } from "../schemas/sponsoredNotifications";
+import { parseBearerToken } from "./proHelpers";
 const log = createModuleLogger("sponsoredNotifications");
 
 // =============================================================================
 // AUTH HELPERS
 // =============================================================================
-
-function parseBearerToken(header: string | undefined): string | null {
-  if (!header) return null;
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  return match?.[1] ?? null;
-}
 
 type UserResult =
   | { ok: true; user: { id: string; email?: string | null } }

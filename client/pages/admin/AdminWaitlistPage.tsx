@@ -225,6 +225,8 @@ export function AdminWaitlistPage() {
 
   return (
     <div className="space-y-4">
+      <AdminReservationsNav />
+
       <AdminPageHeader
         title="Liste d'attente"
         description="Vue globale des demandes waitlist (tous établissements)."
@@ -232,8 +234,6 @@ export function AdminWaitlistPage() {
           <RefreshIconButton className="h-9 w-9" loading={loading} label="Rafraîchir" onClick={() => void refresh()} />
         }
       />
-
-      <AdminReservationsNav />
 
       <Card className="border-slate-200">
         <CardHeader className="p-4">

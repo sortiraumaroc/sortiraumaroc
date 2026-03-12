@@ -31,7 +31,6 @@ import { useGeocodedQuery } from "@/hooks/useGeocodedQuery";
 import { useUserLocation } from "@/hooks/useUserLocation";
 import { useTrackEstablishmentVisit } from "@/hooks/useTrackEstablishmentVisit";
 import { formatDistanceBetweenCoords } from "@/lib/geo";
-import { createRng, makeImageSet, makePhoneMa, makeWebsiteUrl, nextDaysYmd, pickMany, pickOne } from "@/lib/mockData";
 import { useI18n } from "@/lib/i18n";
 import { ReportEstablishmentDialog } from "@/components/ReportEstablishmentDialog";
 import { EstablishmentReviewsSection, useHasReviews } from "@/components/EstablishmentReviewsSection";
@@ -122,90 +121,35 @@ function RatingCard({ value, count, source }: { value: number; count: number; so
 }
 
 function buildFallbackHotel(args: { id: string; name?: string; city?: string; neighborhood?: string }): HotelData {
-  const rng = createRng(`hotel-${args.id}-${args.name ?? ""}`);
-
-  const name = args.name ?? `Hôtel ${args.id}`;
-  const city = args.city ?? pickOne(rng, ["Marrakech", "Casablanca", "Rabat", "Tanger", "Agadir", "Fès"] as const);
-  const neighborhood = args.neighborhood ?? pickOne(rng, ["Centre-ville", "Médina", "Guéliz", "Palmeraie", "Corniche"] as const);
-
-  const stars = pickOne(rng, [3, 4, 5] as const);
-  const ratingValue = Math.round((3.7 + rng() * 1.2) * 10) / 10;
-  const ratingSource = pickOne(rng, ["Google", "Tripadvisor", "Booking", "Expedia", "Autre"] as const);
-  const reviewCount = Math.floor(120 + rng() * 1600);
-
-  const address = `${Math.floor(1 + rng() * 260)} ${pickOne(rng, ["Avenue", "Boulevard", "Rue"] as const)} ${pickOne(
-    rng,
-    ["Mohamed VI", "Al Massira", "Hassan II", "Majorelle", "Corniche"] as const,
-  )}, ${city}`;
-
-  const phone = makePhoneMa(rng);
-  const website = makeWebsiteUrl(name);
-
-  const amenities = pickMany(rng, Object.values(hotelAmenityPresets), 11);
-  const images = makeImageSet(rng, "hotel");
-
-  const rooms: HotelData["rooms"] = [
-    {
-      name: "Chambre Standard",
-      occupancy: "Jusqu’à 2 personnes",
-      highlights: ["Wi‑Fi", "Climatisation", "Salle de bain privée"],
-      priceFromMad: Math.floor(450 + rng() * 2200),
-    },
-    {
-      name: "Chambre Supérieure",
-      occupancy: "Jusqu’à 3 personnes",
-      highlights: ["Vue (selon disponibilité)", "Wi‑Fi", "Climatisation"],
-      priceFromMad: Math.floor(650 + rng() * 2600),
-    },
-    {
-      name: "Suite",
-      occupancy: "Jusqu’à 4 personnes",
-      highlights: ["Espace salon", "Vue (selon disponibilité)", "Wi‑Fi"],
-      priceFromMad: Math.floor(950 + rng() * 4200),
-    },
-  ];
+  const name = args.name ?? "";
+  const city = args.city ?? "";
+  const neighborhood = args.neighborhood ?? "";
 
   return {
     id: args.id,
     name,
     city,
     neighborhood,
-    stars,
-    rating: { value: ratingValue, source: ratingSource as HotelData["rating"]["source"], reviewCount },
-    address,
-    phone,
-    email: `contact-${args.id}@example.com`,
-    website,
-    checkIn: "À partir de 14:00",
-    checkOut: "Jusqu’à 12:00",
-    description:
-      "Un hôtel sélectionné pour une expérience simple: chambres confortables, emplacement pratique et services essentiels. Cette fiche est un contenu de démonstration.",
-    highlights: pickMany(
-      rng,
-      [
-        "Emplacement pratique",
-        "Petit-déjeuner disponible",
-        "Wi‑Fi gratuit",
-        "Réception 24/7",
-        "Chambres climatisées",
-        "Services et équipements variés",
-        "Idéal en séjour business ou loisirs",
-      ] as const,
-      6,
-    ),
-    images,
-    amenities,
-    rooms,
+    stars: 0 as any,
+    rating: { value: 0, source: "" as HotelData["rating"]["source"], reviewCount: 0 },
+    address: "",
+    phone: "",
+    email: "",
+    website: "",
+    checkIn: "",
+    checkOut: "",
+    description: "",
+    highlights: [],
+    images: [],
+    amenities: [],
+    rooms: [],
     mapQuery: `${name} ${city}`,
-    reviewUrl: `https://www.google.com/search?q=${encodeURIComponent(name + " avis")}`,
+    reviewUrl: "",
     reviewSummary: {
-      pros: pickMany(rng, ["Emplacement apprécié", "Personnel accueillant", "Bon confort des chambres", "Petit-déjeuner correct"] as const, 3),
-      cons: pickMany(rng, ["Expérience variable selon la saison", "Disponibilités limitées en période de pointe"] as const, 2),
+      pros: [],
+      cons: [],
     },
-    socialMedia: [
-      { platform: "instagram", url: "https://instagram.com/" },
-      { platform: "website", url: website },
-    ],
+    socialMedia: [],
   };
 }
 
@@ -213,30 +157,31 @@ function buildFallbackHotel(args: { id: string; name?: string; city?: string; ne
  * Convert a PublicEstablishment from the API into a HotelData object
  */
 function buildHotelFromApi(establishment: PublicEstablishment): HotelData {
-  const rng = createRng(`hotel-api-${establishment.id}`);
-
-  const name = establishment.name ?? `Hôtel ${establishment.id}`;
+  const name = establishment.name ?? "";
   const city = establishment.city ?? "";
   const neighborhood = establishment.address ?? "";
 
   // Extract stars from amenities or extra data
   const extra = establishment.extra as Record<string, unknown> | null;
-  const stars = (typeof extra?.stars === "number" ? extra.stars : 4) as 3 | 4 | 5;
+  const stars = (typeof extra?.stars === "number" ? extra.stars : 0) as 3 | 4 | 5;
 
   // Rating from extra or fallback
-  const ratingValue = typeof extra?.rating === "number" ? extra.rating : Math.round((3.7 + rng() * 1.2) * 10) / 10;
-  const ratingSource = (typeof extra?.ratingSource === "string" ? extra.ratingSource : "Google") as HotelData["rating"]["source"];
-  const reviewCount = typeof extra?.reviewCount === "number" ? extra.reviewCount : Math.floor(120 + rng() * 1600);
+  const ratingValue = typeof extra?.rating === "number" ? extra.rating : 0;
+  const ratingSource = (typeof extra?.ratingSource === "string" ? extra.ratingSource : "") as HotelData["rating"]["source"];
+  const reviewCount = typeof extra?.reviewCount === "number" ? extra.reviewCount : 0;
 
   // Parse amenities
   const amenitiesArr = Array.isArray(establishment.amenities) ? establishment.amenities : [];
-  const amenities: HotelAmenity[] = amenitiesArr.map((a) => {
-    if (typeof a === "string") {
-      const preset = hotelAmenityPresets[a as keyof typeof hotelAmenityPresets];
-      return preset ?? { label: a, icon: null as any };
-    }
-    return a as HotelAmenity;
-  });
+  const amenities: HotelAmenity[] = amenitiesArr
+    .map((a) => {
+      if (typeof a === "string") {
+        return hotelAmenityPresets[a as keyof typeof hotelAmenityPresets] ?? null;
+      }
+      // Only keep entries that have a valid icon component
+      const item = a as HotelAmenity;
+      return item.icon ? item : null;
+    })
+    .filter((a): a is HotelAmenity => a !== null);
 
   // Images (using snake_case from API)
   const images: string[] = [];
@@ -244,34 +189,13 @@ function buildHotelFromApi(establishment: PublicEstablishment): HotelData {
   if (Array.isArray(establishment.gallery_urls)) {
     images.push(...establishment.gallery_urls.filter((u): u is string => typeof u === "string"));
   }
-  if (images.length === 0) {
-    images.push(...makeImageSet(rng, "hotel"));
-  }
+  // No fallback images — leave empty if none provided
 
   // Rooms from extra or fallback
   const roomsFromExtra = Array.isArray(extra?.rooms) ? extra.rooms : null;
   const rooms: HotelData["rooms"] = roomsFromExtra
     ? (roomsFromExtra as HotelData["rooms"])
-    : [
-        {
-          name: "Chambre Standard",
-          occupancy: "Jusqu'à 2 personnes",
-          highlights: ["Wi‑Fi", "Climatisation", "Salle de bain privée"],
-          priceFromMad: Math.floor(450 + rng() * 2200),
-        },
-        {
-          name: "Chambre Supérieure",
-          occupancy: "Jusqu'à 3 personnes",
-          highlights: ["Vue (selon disponibilité)", "Wi‑Fi", "Climatisation"],
-          priceFromMad: Math.floor(650 + rng() * 2600),
-        },
-        {
-          name: "Suite",
-          occupancy: "Jusqu'à 4 personnes",
-          highlights: ["Espace salon", "Vue (selon disponibilité)", "Wi‑Fi"],
-          priceFromMad: Math.floor(950 + rng() * 4200),
-        },
-      ];
+    : [];
 
   // Social media (using snake_case from API)
   const socialLinks = establishment.social_links as Record<string, string> | null;
@@ -294,22 +218,22 @@ function buildHotelFromApi(establishment: PublicEstablishment): HotelData {
     rating: { value: ratingValue, source: ratingSource, reviewCount },
     address: establishment.address ?? "",
     phone: establishment.phone ?? "",
-    email: `contact@${name.toLowerCase().replace(/\s+/g, "-")}.ma`,
+    email: "",
     website: establishment.website ?? "",
     checkIn: typeof extra?.checkIn === "string" ? extra.checkIn : "À partir de 14:00",
     checkOut: typeof extra?.checkOut === "string" ? extra.checkOut : "Jusqu'à 12:00",
     description: establishment.description_long ?? establishment.description_short ?? "",
     highlights: Array.isArray(establishment.tags) ? establishment.tags.slice(0, 6) : [],
     images,
-    amenities: amenities.length > 0 ? amenities : pickMany(rng, Object.values(hotelAmenityPresets), 11),
+    amenities,
     rooms,
     mapQuery: `${name} ${city}`,
     reviewUrl: `https://www.google.com/search?q=${encodeURIComponent(name + " avis")}`,
     reviewSummary: {
-      pros: pickMany(rng, ["Emplacement apprécié", "Personnel accueillant", "Bon confort des chambres", "Petit-déjeuner correct"] as const, 3),
-      cons: pickMany(rng, ["Expérience variable selon la saison", "Disponibilités limitées en période de pointe"] as const, 2),
+      pros: [],
+      cons: [],
     },
-    socialMedia: socialMedia.length > 0 ? socialMedia : [{ platform: "website", url: establishment.website ?? "" }],
+    socialMedia: socialMedia.length > 0 ? socialMedia : [],
   };
 }
 
@@ -514,38 +438,7 @@ export default function Hotel() {
       : null;
 
   const reviewsList = useMemo((): HotelReview[] => {
-    const rng = createRng(`hotel-reviews-${hotelId}-${hotel.name}`);
-
-    const reviewerNames = [
-      "Sarah M.",
-      "Jean D.",
-      "Maria L.",
-      "Yassine A.",
-      "Amina B.",
-      "Nadia K.",
-      "Omar S.",
-      "Imane R.",
-    ] as const;
-
-    const reviewTexts = [
-      "Séjour impeccable : chambre confortable, service attentionné et emplacement pratique.",
-      "Très bon rapport qualité-prix. Petit-déjeuner correct et personnel accueillant.",
-      "Belle expérience globale, un peu d’attente à l’accueil mais tout s’est bien passé.",
-      "Propreté au top et literie très confortable. Je recommande.",
-      "Hôtel agréable, calme, et bonne organisation. Réservation simple.",
-      "Très satisfait du séjour. Les équipements sont variés et le service est réactif.",
-    ] as const;
-
-    const dates = nextDaysYmd(90);
-
-    return Array.from({ length: 6 }, (_, i) => ({
-      id: `h-${hotelId}-${i}`,
-      author: pickOne(rng, reviewerNames),
-      rating: Math.max(3, Math.min(5, Math.round(3.8 + rng() * 1.2))),
-      date: dates[Math.floor(rng() * dates.length)] ?? "2025-01-01",
-      text: pickOne(rng, reviewTexts),
-      helpful: Math.floor(rng() * 40),
-    }));
+    return [];
   }, [hotelId, hotel.name]);
 
 

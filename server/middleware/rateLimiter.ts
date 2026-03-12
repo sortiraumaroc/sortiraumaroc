@@ -896,6 +896,18 @@ export const samChatRateLimiter = createRateLimiter("sam-chat", {
 });
 
 // ============================================
+// SEARCH PUBLIC
+// ============================================
+
+/** Public search — max 60 per minute per IP */
+export const searchPublicRateLimiter = createRateLimiter("search-public", {
+  windowMs: 60_000,
+  maxRequests: 60,
+  message: "Trop de requêtes de recherche. Veuillez patienter.",
+  keyGenerator: getClientIp,
+});
+
+// ============================================
 // SEARCH HISTORY
 // ============================================
 

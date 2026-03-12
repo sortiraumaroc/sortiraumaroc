@@ -1,6 +1,7 @@
 import { defineConfig, Plugin, PluginOption } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
+import fs from "fs";
 
 // Optional bundle analyzer: enabled via `ANALYZE=true pnpm run build` (or your CI env)
 // Note: rollup-plugin-visualizer is optional and only needed for bundle analysis.
@@ -53,6 +54,10 @@ const plugins: PluginOption[] = [
 // Vitest uses Vite's dev server internally; mounting the Express middleware during tests
 // can trigger SSR module runner transport errors after the suite completes.
 if (!isVitest) plugins.push(expressPlugin());
+
+// Inject Firebase env vars into the service worker (public/firebase-messaging-sw.js).
+// The SW can't use import.meta.env so we replace __PLACEHOLDER__ tokens at serve/build time.
+plugins.push(firebaseSwPlugin());
 
 if (analyze && visualizer) {
   plugins.push(
@@ -111,6 +116,76 @@ export default defineConfig({
     force: false,
   },
 });
+
+// ---------------------------------------------------------------------------
+// Firebase Service Worker Config Injection
+// ---------------------------------------------------------------------------
+// The service worker (public/firebase-messaging-sw.js) can't use import.meta.env.
+// This plugin replaces __FIREBASE_*__ placeholders with actual env var values
+// during both dev serve and production build.
+
+function firebaseSwPlugin(): Plugin {
+  // Read Firebase env vars from .env (Vite doesn't expose them in process.env)
+  const firebaseEnv: Record<string, string> = {};
+  try {
+    const envContent = fs.readFileSync(path.resolve(__dirname, ".env"), "utf-8");
+    for (const line of envContent.split("\n")) {
+      const match = line.match(/^(VITE_FIREBASE_\w+)\s*=\s*"?([^"\r\n]*)"?/);
+      if (match) firebaseEnv[match[1]] = match[2];
+    }
+  } catch {
+    // .env not found — placeholders will resolve to empty strings
+  }
+
+  function injectConfig(content: string): string {
+    return content
+      .replace(/__FIREBASE_API_KEY__/g, firebaseEnv.VITE_FIREBASE_API_KEY || "")
+      .replace(/__FIREBASE_AUTH_DOMAIN__/g, firebaseEnv.VITE_FIREBASE_AUTH_DOMAIN || "")
+      .replace(/__FIREBASE_PROJECT_ID__/g, firebaseEnv.VITE_FIREBASE_PROJECT_ID || "")
+      .replace(/__FIREBASE_STORAGE_BUCKET__/g, firebaseEnv.VITE_FIREBASE_STORAGE_BUCKET || "")
+      .replace(/__FIREBASE_MESSAGING_SENDER_ID__/g, firebaseEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || "")
+      .replace(/__FIREBASE_APP_ID__/g, firebaseEnv.VITE_FIREBASE_APP_ID || "");
+  }
+
+  return {
+    name: "firebase-sw-config",
+
+    // DEV: intercept /firebase-messaging-sw.js before Vite's static file server
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url === "/firebase-messaging-sw.js") {
+          const swPath = path.resolve(__dirname, "public/firebase-messaging-sw.js");
+          try {
+            let content = fs.readFileSync(swPath, "utf-8");
+            content = injectConfig(content);
+            res.setHeader("Content-Type", "application/javascript");
+            res.setHeader("Service-Worker-Allowed", "/");
+            res.end(content);
+          } catch {
+            next();
+          }
+          return;
+        }
+        next();
+      });
+    },
+
+    // BUILD: post-process the SW file copied to dist/spa/
+    closeBundle() {
+      const swPath = path.resolve(__dirname, "dist/spa/firebase-messaging-sw.js");
+      try {
+        if (fs.existsSync(swPath)) {
+          let content = fs.readFileSync(swPath, "utf-8");
+          content = injectConfig(content);
+          fs.writeFileSync(swPath, content);
+          console.log("[firebase-sw-config] Injected Firebase config into SW");
+        }
+      } catch {
+        // Non-blocking — SW will work without background message handling
+      }
+    },
+  };
+}
 
 function expressPlugin(): Plugin {
   return {

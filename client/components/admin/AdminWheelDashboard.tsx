@@ -18,7 +18,9 @@ import {
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AdminVisibilityNav } from "@/pages/admin/visibility/AdminVisibilityNav";
+import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
 
 // =============================================================================
 // Admin auth helper
@@ -26,9 +28,9 @@ import { AdminVisibilityNav } from "@/pages/admin/visibility/AdminVisibilityNav"
 
 function getAdminHeaders(): Record<string, string> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const sessionToken = sessionStorage.getItem("admin_session_token") || sessionStorage.getItem("admin-session-token");
+  const sessionToken = sessionStorage.getItem("sam_admin_session_token");
   if (sessionToken) headers["x-admin-session"] = sessionToken;
-  const adminKey = sessionStorage.getItem("admin_api_key");
+  const adminKey = sessionStorage.getItem("sam_admin_api_key");
   if (adminKey) headers["x-admin-key"] = adminKey;
   return headers;
 }
@@ -1094,51 +1096,37 @@ export default function AdminWheelDashboard({ className }: { className?: string 
     setSavingForm(false);
   }, [fetchEvents]);
 
-  const tabs: Array<{ id: WheelTab; label: string; icon: typeof RotateCw }> = [
-    { id: "events", label: "Événements Roue", icon: RotateCw },
-    { id: "form", label: "Créer / Modifier", icon: Edit },
-    { id: "prizes", label: "Lots & Probabilités", icon: Trophy },
-    { id: "stats", label: "Statistiques & Fraude", icon: BarChart3 },
+  const tabs: Array<{ id: WheelTab; label: string }> = [
+    { id: "events", label: "Événements Roue" },
+    { id: "form", label: "Créer / Modifier" },
+    { id: "prizes", label: "Lots & Probabilités" },
+    { id: "stats", label: "Statistiques & Fraude" },
   ];
 
   return (
     <div className={cn("space-y-4", className)}>
+      {/* Header */}
+      <AdminPageHeader
+        title="Roue de la Fortune"
+        description="Événements roue, lots, probabilités et statistiques."
+        actions={
+          <button onClick={fetchEvents} disabled={loading} className="text-sm text-slate-500 hover:text-slate-700">
+            <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+          </button>
+        }
+      />
+
       {/* Marketing sub-navigation */}
       <AdminVisibilityNav />
 
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <RotateCw className="h-5 w-5 text-[#a3001d]" />
-          <h2 className="text-lg font-bold text-slate-900">Roue de la Fortune</h2>
-        </div>
-        <button onClick={fetchEvents} disabled={loading} className="text-sm text-slate-500 hover:text-slate-700">
-          <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-        </button>
-      </div>
-
       {/* Tabs */}
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {tabs.map((t) => {
-          const Icon = t.icon;
-          return (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={cn(
-                "shrink-0 h-8 rounded-full px-3.5 text-xs font-semibold border transition flex items-center gap-1.5",
-                tab === t.id
-                  ? "bg-[#a3001d] text-white border-[#a3001d]"
-                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50",
-              )}
-            >
-              <Icon className="h-3 w-3" />
-              {t.label}
-            </button>
-          );
-        })}
-      </div>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as WheelTab)}>
+        <TabsList>
+          {tabs.map((t) => (
+            <TabsTrigger key={t.id} value={t.id}>{t.label}</TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
 
       {/* Feedback message */}
       {msg && (

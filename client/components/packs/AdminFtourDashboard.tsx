@@ -56,6 +56,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { AdminReservationsNav } from "@/pages/admin/reservations/AdminReservationsNav";
+import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
 import {
   listAdminFtourSlots,
   adminUpsertSlots,
@@ -96,7 +97,22 @@ function formatTime(iso: string | null | undefined): string {
   }
 }
 
-function formatPrice(cents: number | null): string {
+const PRICE_TYPE_LABELS: Record<string, string> = {
+  a_la_carte: "À la carte",
+  free: "Gratuit",
+  starting_from: "À partir de",
+};
+
+function formatPrice(cents: number | null, priceType?: string | null): string {
+  // Si un prix existe, il prime sur un price_type "free" incohérent
+  if (cents && cents > 0) {
+    if (priceType === "a_la_carte") return "À la carte";
+    if (priceType === "starting_from") return `À partir de ${Math.round(cents / 100)} MAD`;
+    return `${Math.round(cents / 100)} MAD`;
+  }
+  // Pas de prix
+  if (priceType === "a_la_carte") return "À la carte";
+  if (priceType === "free") return "Gratuit";
   if (cents === null || cents === 0) return "Gratuit";
   return `${Math.round(cents / 100)} MAD`;
 }
@@ -354,15 +370,20 @@ export function AdminFtourDashboard() {
       const first = estabSlots[0];
       const totalCapacity = estabSlots.reduce((sum, s) => sum + s.capacity, 0);
 
-      // Prix : valeur unique ou plage
-      const prices = [...new Set(estabSlots.map((s) => s.base_price ?? 0))];
+      // Prix : utiliser price_type si disponible, sinon valeur numérique
+      const priceType = first.price_type;
       let priceDisplay: string;
-      if (prices.length === 1) {
-        priceDisplay = formatPrice(prices[0]);
+      if (priceType && priceType !== "fixed" && priceType !== "nc") {
+        priceDisplay = formatPrice(first.base_price, priceType);
       } else {
-        const min = Math.min(...prices);
-        const max = Math.max(...prices);
-        priceDisplay = `${formatPrice(min)} — ${formatPrice(max)}`;
+        const prices = [...new Set(estabSlots.map((s) => s.base_price ?? 0))];
+        if (prices.length === 1) {
+          priceDisplay = formatPrice(prices[0]);
+        } else {
+          const min = Math.min(...prices);
+          const max = Math.max(...prices);
+          priceDisplay = `${formatPrice(min)} — ${formatPrice(max)}`;
+        }
       }
 
       // Promo : identique ou "Variable"
@@ -665,43 +686,38 @@ export function AdminFtourDashboard() {
   // ============================================================================
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
-      {/* Navigation */}
+    <div className="space-y-4">
       <AdminReservationsNav />
 
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Moon className="h-5 w-5 text-amber-600" />
-          <h2 className="text-xl font-bold">Créneaux Ftour</h2>
-          <Badge variant="outline" className="ml-2">
-            {slots.length}
-          </Badge>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => void fetchSlots()}
-            disabled={loading}
-            className="gap-1"
-          >
-            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-            Actualiser
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => {
-              resetCreateForm();
-              setCreateOpen(true);
-            }}
-            className="gap-1"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Créer créneaux
-          </Button>
-        </div>
-      </div>
+      <AdminPageHeader
+        title={`Créneaux Ftour${slots.length > 0 ? ` (${slots.length})` : ""}`}
+        description="Gestion centralisée des créneaux Ftour pour le Ramadan."
+        actions={
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void fetchSlots()}
+              disabled={loading}
+              className="gap-1"
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+              Actualiser
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                resetCreateForm();
+                setCreateOpen(true);
+              }}
+              className="gap-1"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Créer créneaux
+            </Button>
+          </>
+        }
+      />
 
       {/* Batch actions bar */}
       {someSelected && (
@@ -896,7 +912,7 @@ export function AdminFtourDashboard() {
                               {slot.capacity}
                             </td>
                             <td className="px-3 py-1.5 text-right text-xs tabular-nums whitespace-nowrap">
-                              {formatPrice(slot.base_price)}
+                              {formatPrice(slot.base_price, slot.price_type)}
                             </td>
                             <td className="px-3 py-1.5 text-xs">
                               {formatPromo(slot) !== "—" ? (

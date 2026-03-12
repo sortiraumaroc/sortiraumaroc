@@ -17,6 +17,7 @@ import {
   FieldIdParams,
   SubmissionIdParams,
 } from "../schemas/adminContactForms";
+import { requireAdminKey } from "./adminHelpers";
 import { createModuleLogger } from "../lib/logger";
 const log = createModuleLogger("adminContactForms");
 
@@ -124,7 +125,8 @@ export type ContactFormStats = {
 /**
  * List all contact forms with stats
  */
-export const listAdminContactForms: RequestHandler = async (_req, res) => {
+export const listAdminContactForms: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const supabase = getAdminSupabase();
 
@@ -146,6 +148,7 @@ export const listAdminContactForms: RequestHandler = async (_req, res) => {
  * Get single contact form with fields
  */
 export const getAdminContactForm: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { id } = req.params;
     const supabase = getAdminSupabase();
@@ -180,6 +183,7 @@ export const getAdminContactForm: RequestHandler = async (req, res) => {
  * Create new contact form
  */
 export const createAdminContactForm: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const supabase = getAdminSupabase();
     const { name, slug, ...rest } = req.body;
@@ -218,6 +222,7 @@ export const createAdminContactForm: RequestHandler = async (req, res) => {
  * Update contact form
  */
 export const updateAdminContactForm: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { id } = req.params;
     const supabase = getAdminSupabase();
@@ -257,6 +262,7 @@ export const updateAdminContactForm: RequestHandler = async (req, res) => {
  * Delete contact form
  */
 export const deleteAdminContactForm: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { id } = req.params;
     const supabase = getAdminSupabase();
@@ -279,6 +285,7 @@ export const deleteAdminContactForm: RequestHandler = async (req, res) => {
  * Duplicate contact form
  */
 export const duplicateAdminContactForm: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { id } = req.params;
     const supabase = getAdminSupabase();
@@ -343,6 +350,7 @@ export const duplicateAdminContactForm: RequestHandler = async (req, res) => {
  * Add field to form
  */
 export const addAdminContactFormField: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { formId } = req.params;
     const supabase = getAdminSupabase();
@@ -380,6 +388,7 @@ export const addAdminContactFormField: RequestHandler = async (req, res) => {
  * Update field
  */
 export const updateAdminContactFormField: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { fieldId } = req.params;
     const supabase = getAdminSupabase();
@@ -405,6 +414,7 @@ export const updateAdminContactFormField: RequestHandler = async (req, res) => {
  * Delete field
  */
 export const deleteAdminContactFormField: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { fieldId } = req.params;
     const supabase = getAdminSupabase();
@@ -427,6 +437,7 @@ export const deleteAdminContactFormField: RequestHandler = async (req, res) => {
  * Reorder fields
  */
 export const reorderAdminContactFormFields: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { formId } = req.params;
     const { fieldIds } = req.body; // Array of field IDs in new order
@@ -458,6 +469,7 @@ export const reorderAdminContactFormFields: RequestHandler = async (req, res) =>
  * List submissions for a form
  */
 export const listAdminContactFormSubmissions: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { formId } = req.params;
     const { status, search, limit = 50, offset = 0 } = req.query;
@@ -493,6 +505,7 @@ export const listAdminContactFormSubmissions: RequestHandler = async (req, res) 
  * List all submissions (across all forms)
  */
 export const listAllAdminContactFormSubmissions: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { status, search, formId, limit = 50, offset = 0 } = req.query;
     const supabase = getAdminSupabase();
@@ -530,6 +543,7 @@ export const listAllAdminContactFormSubmissions: RequestHandler = async (req, re
  * Get single submission with form details
  */
 export const getAdminContactFormSubmission: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { submissionId } = req.params;
     const supabase = getAdminSupabase();
@@ -569,6 +583,7 @@ export const getAdminContactFormSubmission: RequestHandler = async (req, res) =>
  * Update submission status
  */
 export const updateAdminContactFormSubmission: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { submissionId } = req.params;
     const { status, admin_notes, handled_by } = req.body;
@@ -602,6 +617,7 @@ export const updateAdminContactFormSubmission: RequestHandler = async (req, res)
  * Bulk update submissions
  */
 export const bulkUpdateAdminContactFormSubmissions: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { submissionIds, status } = req.body;
     const supabase = getAdminSupabase();
@@ -624,6 +640,7 @@ export const bulkUpdateAdminContactFormSubmissions: RequestHandler = async (req,
  * Delete submission
  */
 export const deleteAdminContactFormSubmission: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { submissionId } = req.params;
     const supabase = getAdminSupabase();
@@ -646,6 +663,7 @@ export const deleteAdminContactFormSubmission: RequestHandler = async (req, res)
  * Export submissions to CSV
  */
 export const exportAdminContactFormSubmissions: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { formId } = req.params;
     const { status } = req.query;
@@ -713,7 +731,8 @@ export const exportAdminContactFormSubmissions: RequestHandler = async (req, res
 /**
  * Get unread submissions count (for notifications badge)
  */
-export const getAdminContactFormsUnreadCount: RequestHandler = async (_req, res) => {
+export const getAdminContactFormsUnreadCount: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const supabase = getAdminSupabase();
 
@@ -742,6 +761,7 @@ const CONTACT_FORM_IMAGES_BUCKET = "contact-form-images";
  * Expects multipart/form-data with a "file" field
  */
 export const uploadAdminContactFormImage: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const file = (req as any).file as
       | { buffer: Buffer; mimetype: string; originalname: string; size: number }

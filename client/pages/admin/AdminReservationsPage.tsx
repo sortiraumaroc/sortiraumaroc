@@ -320,6 +320,8 @@ export function AdminReservationsPage() {
 
   return (
     <div className="space-y-4">
+      <AdminReservationsNav />
+
       <AdminPageHeader
         title="Réservations"
         description="Vue par établissement (filtrée)."
@@ -333,8 +335,6 @@ export function AdminReservationsPage() {
           />
         }
       />
-
-      <AdminReservationsNav />
 
       <Card className="border-slate-200">
         <CardHeader className="p-4">

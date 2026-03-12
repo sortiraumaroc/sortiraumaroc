@@ -338,7 +338,7 @@ export default function AdminContactFormsPage() {
   }, [forms]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AdminPageHeader
         title="Formulaires de contact"
         description="Créez et gérez vos formulaires de contact personnalisés"

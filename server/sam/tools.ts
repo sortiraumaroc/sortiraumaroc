@@ -73,8 +73,8 @@ async function hasUserConfirmation(conversationId: string): Promise<boolean> {
     }
     return false;
   } catch (err) {
-    log.warn({ err }, "Best-effort: booking confirmation check failed, allowing");
-    return true;
+    log.warn({ err }, "Booking confirmation check failed — blocking by default for safety");
+    return false;
   }
 }
 
@@ -135,6 +135,16 @@ export const SAM_TOOLS: ChatCompletionTool[] = [
           promo_only: {
             type: "boolean",
             description: "Ne montrer que les établissements avec des promotions",
+          },
+          price_range: {
+            type: "string",
+            enum: ["€", "€€", "€€€", "€€€€"],
+            description: "Gamme de prix : € (économique/pas cher), €€ (moyen/correct), €€€ (haut de gamme/chic), €€€€ (luxe/gastronomique)",
+          },
+          ambiance: {
+            type: "string",
+            description:
+              "Ambiance ou cadre recherché (ex: romantique, festif, cosy, brunch, familial, rooftop, terrasse, vue mer, lounge, chic, décontracté)",
           },
           limit: {
             type: "number",
@@ -397,6 +407,14 @@ export const SAM_TOOLS: ChatCompletionTool[] = [
             type: "number",
             description: "Nombre max de résultats (1-10, défaut 5)",
           },
+          max_price: {
+            type: "number",
+            description: "Budget maximum en MAD par personne",
+          },
+          min_price: {
+            type: "number",
+            description: "Budget minimum en MAD par personne",
+          },
         },
         required: [],
       },
@@ -530,6 +548,8 @@ export async function executeTool(
         sort: args.sort as string | undefined,
         promoOnly: args.promo_only as boolean | undefined,
         limit: args.limit as number | undefined,
+        priceRange: args.price_range as string | undefined,
+        ambiance: args.ambiance as string | undefined,
       });
       return { data: result, hasEstablishments: result.establishments.length > 0 };
     }
@@ -651,26 +671,49 @@ export async function executeTool(
         type: args.type as string | undefined,
         city: args.city as string | undefined,
         limit: args.limit as number | undefined,
+        min_price: args.min_price as number | undefined,
+        max_price: args.max_price as number | undefined,
       });
 
-      // Mapper les offres vers des items "establishment" pour l'affichage des cartes côté client.
-      // chatEndpoint.ts cherche result.data.establishments pour envoyer l'event SSE.
-      const seen = new Set<string>();
-      const establishments = result.offers
-        .filter((o) => {
-          if (!o.establishment_id || seen.has(o.establishment_id)) return false;
-          seen.add(o.establishment_id);
-          return true;
-        })
-        .map((o) => ({
-          id: o.establishment_id,
-          slug: o.establishment_slug,
-          name: o.establishment_name ?? o.title,
-          city: o.establishment_city,
-          cover_url: o.cover_url,
-          universe: "restaurants",
-          booking_enabled: true,
-        }));
+      // Mapper chaque offre vers un item "establishment" AVEC ramadan_offer embarqué.
+      // PAS de déduplication : chaque offre = 1 carte (un restaurant peut avoir ftour + shour).
+      const establishments = result.offers.map((o) => ({
+        id: o.establishment_id ?? o.id,
+        slug: o.establishment_slug,
+        name: o.establishment_name ?? o.title,
+        universe: o.establishment_universe ?? "restaurants",
+        subcategory: o.establishment_subcategory ?? null,
+        city: o.establishment_city,
+        address: null,
+        neighborhood: o.establishment_neighborhood ?? null,
+        phone: null,
+        cover_url: o.cover_url ?? null,
+        booking_enabled: o.establishment_booking_enabled ?? true,
+        google_rating: o.establishment_google_rating ?? null,
+        google_review_count: o.establishment_google_review_count ?? null,
+        avg_rating: o.establishment_avg_rating ?? null,
+        review_count: o.establishment_review_count ?? null,
+        cuisine_types: null,
+        price_range: null,
+        is_online: o.establishment_is_online ?? false,
+        promo_percent: null,
+        next_slot_at: null,
+        reservations_30d: 0,
+        lat: null,
+        lng: null,
+        ramadan_offer: {
+          offer_id: o.id,
+          offer_title: o.title,
+          offer_type: o.type,
+          price: typeof o.price === "number" ? Math.round(o.price) / 100 : null,
+          original_price: typeof o.original_price === "number" ? Math.round(o.original_price) / 100 : null,
+          service_types: o.establishment_service_types ?? null,
+          time_slots: o.time_slots as Array<{ start: string; end: string; label?: string }> | null,
+          capacity_per_slot: o.capacity_per_slot,
+          valid_from: o.valid_from,
+          valid_to: o.valid_to,
+        },
+      }));
 
       return {
         data: { ...result, establishments },

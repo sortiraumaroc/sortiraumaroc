@@ -463,6 +463,7 @@ export function AdminEmailsProspectsPage() {
 
   return (
     <div className="space-y-4">
+      <AdminEmailsNav />
       <AdminPageHeader
         title="Emailing"
         description="Gérez vos contacts pour les campagnes email"
@@ -470,7 +471,6 @@ export function AdminEmailsProspectsPage() {
 
       <Card className="border-slate-200">
         <CardContent className="p-4 space-y-3">
-          <AdminEmailsNav />
         </CardContent>
       </Card>
 

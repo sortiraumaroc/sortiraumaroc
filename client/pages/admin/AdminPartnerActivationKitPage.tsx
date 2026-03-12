@@ -141,7 +141,7 @@ export function AdminPartnerActivationKitPage() {
   const badgeNotMeaning = "Aucune sanction manuelle, pas de pénalisation arbitraire, pas de note client affichée.";
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AdminPageHeader
         title="Kit Activation Partenaire"
         description="Éléments de langage prêts à l’emploi (vente & onboarding). Aucun argument de prix."

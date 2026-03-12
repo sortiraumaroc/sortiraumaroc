@@ -266,7 +266,7 @@ export function Header({ isRamadan }: { isRamadan?: boolean } = {}) {
                 <Link to={addLocalePrefix("/ajouter-mon-etablissement", locale)} className="inline-flex">
                   <Button
                     className={cn(
-                      "h-10 rounded-md font-bold px-4 transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
+                      "min-h-10 rounded-md font-bold px-4 transition-all duration-300 whitespace-normal text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
                       showScrolledHeader
                         ? "bg-white text-primary hover:bg-white/90 focus-visible:ring-white"
                         : "bg-primary text-white hover:bg-primary/90 focus-visible:ring-primary"

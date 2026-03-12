@@ -7,7 +7,7 @@
 
 import { Router, type RequestHandler } from "express";
 import bcrypt from "bcryptjs";
-import { getAdminSupabase } from "../supabaseAdmin";
+import { getAdminSupabase, checkAdminKey } from "../supabaseAdmin";
 import { requireAdminKey, getAuditActorInfo } from "./adminHelpers";
 import { createModuleLogger } from "../lib/logger";
 import { zBody } from "../lib/validate";
@@ -48,18 +48,23 @@ function asBoolean(value: unknown): boolean | null {
   return null;
 }
 
-// Require superadmin (SAM team only)
+// Require superadmin (SAM team only) — uses verified session role, NOT spoofable header
 function requireSuperadmin(
   req: Parameters<RequestHandler>[0],
   res: Parameters<RequestHandler>[1]
 ): boolean {
   if (!requireAdminKey(req, res)) return false;
-  const role = req.headers["x-admin-role"];
-  if (role !== "superadmin" && role !== "admin") {
-    res.status(403).json({ error: "Accès superadmin requis" });
-    return false;
-  }
-  return true;
+
+  // API key-based access is treated as superadmin
+  const headerKey = req.header("x-admin-key") ?? undefined;
+  if (checkAdminKey(headerKey)) return true;
+
+  // Check verified session role (set by requireAdminKey from JWT)
+  const session = (req as any).adminSession;
+  if (session?.role === "superadmin" || session?.role === "admin") return true;
+
+  res.status(403).json({ error: "Accès superadmin requis" });
+  return false;
 }
 
 // ============================================================================

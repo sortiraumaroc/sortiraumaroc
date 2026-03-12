@@ -714,7 +714,7 @@ function AdvantagesTab() {
 
 export function AdminCePage() {
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-4">
       <AdminUsersNav />
       <AdminPageHeader
         title="Comités d'Entreprise"
@@ -724,9 +724,9 @@ export function AdminCePage() {
 
       <Tabs defaultValue="dashboard">
         <TabsList>
-          <TabsTrigger value="dashboard"><BarChart3 className="w-4 h-4 mr-1" /> Dashboard</TabsTrigger>
-          <TabsTrigger value="companies"><Building2 className="w-4 h-4 mr-1" /> Entreprises</TabsTrigger>
-          <TabsTrigger value="advantages"><Gift className="w-4 h-4 mr-1" /> Avantages</TabsTrigger>
+          <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+          <TabsTrigger value="companies">Entreprises</TabsTrigger>
+          <TabsTrigger value="advantages">Avantages</TabsTrigger>
         </TabsList>
 
         <TabsContent value="dashboard"><DashboardTab /></TabsContent>

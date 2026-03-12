@@ -86,11 +86,6 @@ export async function createCampaign(input: CreateCampaignInput): Promise<{ ok: 
     return { ok: false, error: `Le message doit faire entre 1 et ${LIMITS.CAMPAIGN_MESSAGE_MAX_PUSH} caractères` };
   }
 
-  // Validate CTA URL
-  if (!input.cta_url) {
-    return { ok: false, error: "L'URL CTA est obligatoire" };
-  }
-
   // Validate channels
   const validChannels = ["push", "in_app", "email"];
   if (!input.channels || input.channels.length === 0) {
@@ -115,7 +110,7 @@ export async function createCampaign(input: CreateCampaignInput): Promise<{ ok: 
       message: input.message,
       type: input.type,
       image_url: input.image_url ?? null,
-      cta_url: input.cta_url,
+      cta_url: input.cta_url || null,
       channels: input.channels,
       audience_type: input.audience_type,
       audience_filters: input.audience_type === "segment" ? (input.audience_filters ?? {}) : {},
@@ -192,6 +187,33 @@ export async function updateCampaign(
 
   if (error) return { ok: false, error: error.message };
   return { ok: true, campaign: data as PushCampaign };
+}
+
+/**
+ * Delete a campaign (any status).
+ */
+export async function deleteCampaign(
+  campaignId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const supabase = getAdminSupabase();
+
+  // Delete associated deliveries first
+  await supabase
+    .from("push_campaign_deliveries")
+    .delete()
+    .eq("campaign_id", campaignId);
+
+  const { error } = await supabase
+    .from("push_campaigns")
+    .delete()
+    .eq("id", campaignId);
+
+  if (error) {
+    log.error({ err: error.message }, "deleteCampaign error");
+    return { ok: false, error: error.message };
+  }
+
+  return { ok: true };
 }
 
 /**

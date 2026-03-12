@@ -11,21 +11,14 @@ import { getAdminSupabase } from "../supabaseAdmin";
 import { notifyProMembers } from "../proNotifications";
 import { zBody, zParams, zIdParam } from "../lib/validate";
 import { RespondToReviewSchema, AddPublicResponseSchema } from "../schemas/proMisc";
+import { sendSAMEmail } from "../email";
+import { parseBearerToken } from "./proHelpers";
 
 const log = createModuleLogger("proReviews");
 
 // ---------------------------------------------------------------------------
 // Auth helpers (same pattern as pro.ts)
 // ---------------------------------------------------------------------------
-
-function parseBearerToken(header: string | undefined): string | null {
-  if (!header) return null;
-  const trimmed = header.trim();
-  if (!trimmed) return null;
-  const [scheme, token] = trimmed.split(/\s+/, 2);
-  if (!scheme || scheme.toLowerCase() !== "bearer") return null;
-  return token && token.trim() ? token.trim() : null;
-}
 
 async function getUserFromBearerToken(token: string): Promise<
   { ok: true; user: { id: string; email?: string | null } } | { ok: false; error: string; status: number }
@@ -266,8 +259,28 @@ export async function respondToReview(req: Request, res: Response) {
         updatePayload.status = "pro_responded_hidden";
       }
 
-      // TODO: Send email to customer with promo code
-      // await sendPromoCodeEmail(review.user_id, promoCode.code, ...);
+      // Send email to customer with promo code
+      try {
+        const { data: reviewer } = await getAdminSupabase().auth.admin.getUserById(review.user_id);
+        const reviewerEmail = reviewer?.user?.email;
+        if (reviewerEmail) {
+          const { data: est } = await getAdminSupabase()
+            .from("establishments")
+            .select("name")
+            .eq("id", review.establishment_id)
+            .single();
+          const estName = est?.name || "l'établissement";
+          await sendSAMEmail({
+            emailId: `promo-review-${id}`,
+            fromKey: "noreply",
+            to: [reviewerEmail],
+            subject: `Votre code promo chez ${estName}`,
+            bodyText: `Bonjour,\n\nSuite à votre avis, ${estName} vous offre un code promo !\n\nVotre code : ${promoCode.code}\n\nPrésentez ce code lors de votre prochaine visite pour en profiter.\n\nMerci de votre confiance.`,
+          });
+        }
+      } catch (emailErr) {
+        log.warn({ err: emailErr, reviewId: id }, "Failed to send promo code email to reviewer");
+      }
 
     } else if (response_type === "publish") {
       // Pro chooses to publish directly

@@ -86,6 +86,8 @@ import {
   completePasswordReset as _completePasswordReset,
   requestPublicPasswordResetLink as _requestPublicPasswordResetLink,
   sendWelcomeEmail as _sendWelcomeEmail,
+  checkConsumerUsername as _checkConsumerUsername,
+  sendConsumerInvitations as _sendConsumerInvitations,
 } from "./publicConsumerAccount";
 import {
   getPublicSitemapXml as _getPublicSitemapXml,
@@ -177,6 +179,8 @@ export {
   completePasswordReset,
   requestPublicPasswordResetLink,
   sendWelcomeEmail,
+  checkConsumerUsername,
+  sendConsumerInvitations,
 } from "./publicConsumerAccount";
 
 // ── Establishments / Discovery / Search / Home Feed ─────────────────────────
@@ -258,7 +262,7 @@ export {
   getPublicLandingPage,
   getPublicLandingSlugMap,
 } from "./publicConfig";
-import { getPublicContentPage } from "./adminContent";
+import { getPublicContentPage, listPublicFaqArticles } from "./adminContent";
 
 // ── Route registration ──────────────────────────────────────────────────────
 
@@ -520,6 +524,9 @@ export function registerPublicRoutes(app: Express) {
   // ── Content pages (public, no auth) ─────────────────────────────────────
   app.get("/api/public/content/pages/:slug", getPublicContentPage);
 
+  // ── FAQ articles (public, no auth) ─────────────────────────────────────
+  app.get("/api/public/faq", listPublicFaqArticles);
+
   // ── Consumer demo routes ──────────────────────────────────────────────────
   if (allowDemoRoutes) {
     app.post("/api/consumer/demo/ensure", _ensureConsumerDemoAccount);
@@ -543,6 +550,10 @@ export function registerPublicRoutes(app: Express) {
   app.get("/api/consumer/account/trusted-devices", _listConsumerTrustedDevices);
   app.post("/api/consumer/account/trusted-devices/revoke-all", _revokeAllConsumerTrustedDevices);
   app.post("/api/consumer/account/trusted-devices/:deviceId/revoke", zParams(DeviceIdParams), _revokeConsumerTrustedDevice);
+
+  // Consumer: onboarding (check username, invitations)
+  app.get("/api/consumer/check-username", _checkConsumerUsername);
+  app.post("/api/consumer/invitations/send", _sendConsumerInvitations);
 
   // ── Consumer: reservations ────────────────────────────────────────────────
   app.post("/api/consumer/reservations", zBody(CreateConsumerReservationSchema), _createConsumerReservation);

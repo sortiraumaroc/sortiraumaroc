@@ -35,19 +35,11 @@ import {
 } from "../schemas/reviews";
 import { zBody, zParams } from "../lib/validate";
 import { ProposeGestureV2BodySchema, SubmitProResponseV2BodySchema, EidParams, EidIdParams } from "../schemas/proMisc";
+import { parseBearerToken } from "./proHelpers";
 
 // ---------------------------------------------------------------------------
 // Auth helpers (same pattern as pro.ts)
 // ---------------------------------------------------------------------------
-
-function parseBearerToken(header: string | undefined): string | null {
-  if (!header) return null;
-  const trimmed = header.trim();
-  if (!trimmed) return null;
-  const [scheme, token] = trimmed.split(/\s+/, 2);
-  if (!scheme || scheme.toLowerCase() !== "bearer") return null;
-  return token && token.trim() ? token.trim() : null;
-}
 
 async function getUserFromBearerToken(token: string): Promise<
   { ok: true; user: { id: string; email?: string | null } } | { ok: false; error: string; status: number }

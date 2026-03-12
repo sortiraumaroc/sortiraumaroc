@@ -22,7 +22,7 @@ import { LoisirTreatmentsTab, type LoisirTreatment } from "@/components/loisir/L
 import { cn } from "@/lib/utils";
 import { EstablishmentTabs } from "@/components/establishment/EstablishmentTabs";
 import { CeAdvantageSection } from "@/components/ce/CeAdvantageSection";
-import { createRng, makeImageSet, makePhoneMa, makeWebsiteUrl, nextDaysYmd, pickMany, pickOne } from "@/lib/mockData";
+
 import { makeLegacyHoursPreset } from "@/lib/openingHoursPresets";
 import { GOOGLE_MAPS_LOGO_URL, WAZE_LOGO_URL } from "@/lib/mapAppLogos";
 import { useGeocodedQuery } from "@/hooks/useGeocodedQuery";
@@ -236,208 +236,9 @@ const LOISIR_DETAILS: Record<string, LoisirData> = {
 };
 
 function buildFallbackLoisir(args: { id: string; name: string; category?: string; location?: string; city?: string }): LoisirData {
-  const rng = createRng(`loisir-${args.id}-${args.name}`);
-  const city = args.city ?? "Marrakech";
-  const neighborhood = args.location ?? pickOne(rng, ["Médina", "Agafay", "Imlil", "Essaouira", "Taghazout", "Saidia"] as const);
-  const category = args.category ?? pickOne(rng, ["Aventure", "Nautique", "Nature", "Extrême", "Découverte"] as const);
-
-  const rating = clampRating(4.2 + rng() * 0.7);
-  const reviewCount = Math.floor(70 + rng() * 700);
-  const phone = makePhoneMa(rng);
-  const website = makeWebsiteUrl(args.name);
-
-  const images = makeImageSet(rng, "loisir");
-
-  const highlights = pickMany(
-    rng,
-    [
-      "Guide professionnel et briefing sécurité",
-      "Arrêts photo panoramiques",
-      "Matériel inclus selon l’activité",
-      "Petits groupes pour plus de confort",
-      "Idéal en couple ou entre amis",
-      "Confirmation rapide après réservation",
-      "Option transfert disponible (selon zone)",
-      "Accessible aux débutants",
-      "Expérience authentique",
-    ] as const,
-    6,
-  );
-
-  const safety = pickMany(
-    rng,
-    [
-      "Briefing obligatoire avant départ",
-      "Équipement fourni",
-      "Respect des consignes du guide",
-      "Chaussures fermées recommandées",
-      "Déconseillé en cas de condition médicale spécifique",
-    ] as const,
-    5,
-  );
-
-  const policies = [
-    "Annulation gratuite jusqu’à 24h avant.",
-    "Arrivez 10 minutes avant l’horaire.",
-    "En cas de météo extrême, un report est proposé.",
-  ];
-
-  const slots: Slot[] = [
-    { label: "Aujourd’hui", times: ["10:00", "11:00", "14:00", "16:00"], durationLabel: pickOne(rng, ["1h", "1h30", "2h"] as const), fromMad: Math.floor(250 + rng() * 900) },
-    { label: "Demain", times: ["09:30", "11:30", "15:00", "17:00"], durationLabel: pickOne(rng, ["1h", "1h30", "2h"] as const), fromMad: Math.floor(250 + rng() * 900) },
-  ];
-
-  const slotBasePrice = (() => {
-    const prices = slots.map((s) => s.fromMad).filter((p) => Number.isFinite(p) && p > 0);
-    return prices.length ? Math.min(...prices) : 300;
-  })();
-
-  const treatments: LoisirTreatment[] = [
-    {
-      category: "Packs",
-      title: "Pack Buggy + Quad (combo)",
-      duration: "2h",
-      priceMad: Math.round(slotBasePrice * 2.6),
-      note: "Best-seller",
-    },
-    {
-      category: "Packs",
-      title: "Pack Quad sunset + thé au camp",
-      duration: "1h30",
-      priceMad: Math.round(slotBasePrice * 2.2),
-      note: "Coucher du soleil",
-    },
-    {
-      category: "Packs",
-      title: "Pack Famille (quad enfant + chameau)",
-      duration: "1h",
-      priceMad: Math.round(slotBasePrice * 1.7),
-      note: "Famille",
-    },
-
-    {
-      category: "Buggy",
-      title: "Buggy 2 places — découverte",
-      duration: "1h",
-      priceMad: Math.round(slotBasePrice * 1.55),
-      note: "2 places",
-    },
-    {
-      category: "Buggy",
-      title: "Buggy 2 places — aventure",
-      duration: "2h",
-      priceMad: Math.round(slotBasePrice * 2.45),
-      note: "2 places",
-    },
-    {
-      category: "Buggy",
-      title: "Buggy 4 places — aventure",
-      duration: "2h",
-      priceMad: Math.round(slotBasePrice * 3.2),
-      note: "4 places",
-    },
-
-    {
-      category: "Quad",
-      title: "Quad — initiation",
-      duration: "1h",
-      priceMad: Math.round(slotBasePrice * 0.85),
-      note: "Débutants",
-    },
-    {
-      category: "Quad",
-      title: "Quad — aventure",
-      duration: "1h30",
-      priceMad: slotBasePrice,
-    },
-    {
-      category: "Quad",
-      title: "Quad — circuit extrême",
-      duration: "2h",
-      priceMad: Math.round(slotBasePrice * 1.35),
-      note: "Confirmés",
-    },
-
-    {
-      category: "Motocross",
-      title: "Motocross — initiation",
-      duration: "30 min",
-      priceMad: Math.round(slotBasePrice * 0.75),
-      note: "Dès 16 ans",
-    },
-    {
-      category: "Motocross",
-      title: "Motocross — session",
-      duration: "60 min",
-      priceMad: Math.round(slotBasePrice * 1.15),
-      note: "Confirmés",
-    },
-
-    {
-      category: "Enfants",
-      title: "Quad enfant",
-      duration: "15 min",
-      priceMad: Math.max(120, Math.round(slotBasePrice * 0.32)),
-      note: "6-12 ans",
-    },
-    {
-      category: "Enfants",
-      title: "Quad enfant",
-      duration: "30 min",
-      priceMad: Math.max(200, Math.round(slotBasePrice * 0.5)),
-      note: "6-12 ans",
-    },
-
-    {
-      category: "Balades",
-      title: "Balade à cheval",
-      duration: "1h",
-      priceMad: Math.round(slotBasePrice * 0.95),
-      note: rng() > 0.5 ? "Sunset" : "Matin",
-    },
-    {
-      category: "Balades",
-      title: "Balade à chameau",
-      duration: "45 min",
-      priceMad: Math.round(slotBasePrice * 0.8),
-    },
-
-    {
-      category: "Options",
-      title: "Transfert A/R Marrakech",
-      duration: "Selon zone",
-      priceMad: Math.floor(120 + rng() * 180),
-      note: "Sur demande",
-    },
-    {
-      category: "Options",
-      title: "Photos/vidéo (GoPro)",
-      duration: "Pendant l’activité",
-      priceMad: Math.floor(80 + rng() * 120),
-    },
-  ];
-
-  const reviewerNames = ["Salma", "Yassine", "Nadia", "Hamza", "Meriem", "Bilal", "Othmane"] as const;
-  const reviewTexts = [
-    "Super organisation, très bon guide, on a adoré.",
-    "Expérience au top, paysages magnifiques.",
-    "Réservation facile, timing respecté.",
-    "Très fun, je recommande pour une sortie entre amis.",
-    "Bonne expérience, prévoir une tenue adaptée.",
-  ] as const;
-
-  const reviews: Review[] = Array.from({ length: 4 }, (_, i) => ({
-    id: `l-${args.id}-${i}`,
-    author: pickOne(rng, reviewerNames),
-    rating: Math.max(3, Math.round((3.6 + rng() * 1.4) * 2) / 2),
-    date: nextDaysYmd(30)[Math.floor(rng() * 30)] ?? "2025-01-01",
-    text: pickOne(rng, reviewTexts),
-  }));
-
-  const handle = slugFromName(args.name);
-  const socialMedia: SocialMediaLink[] = [{ platform: "instagram", url: `https://instagram.com/${handle}` }];
-  if (rng() > 0.5) socialMedia.push({ platform: "facebook", url: `https://facebook.com/${handle}` });
-  if (rng() > 0.75) socialMedia.push({ platform: "tiktok", url: `https://tiktok.com/@${handle}` });
+  const city = args.city ?? "";
+  const neighborhood = args.location ?? "";
+  const category = args.category ?? "";
 
   return {
     id: args.id,
@@ -445,23 +246,23 @@ function buildFallbackLoisir(args: { id: string; name: string; category?: string
     category,
     city,
     neighborhood,
-    address: `${pickOne(rng, ["Parking principal", "Point de rendez-vous", "Accueil"] as const)} — ${neighborhood}, ${city}`,
-    phone,
-    website,
-    rating,
-    reviewCount,
-    description: `Une activité ${category.toLowerCase()} pensée pour profiter du Maroc autrement. Parcours encadré, organisation simple et réservation rapide.`,
-    highlights,
-    images,
-    meetingPoint: `Point de rendez-vous: ${neighborhood} (détails envoyés après réservation)`,
-    safety,
-    treatments,
-    slots,
+    address: "",
+    phone: "",
+    website: "",
+    rating: 0,
+    reviewCount: 0,
+    description: "",
+    highlights: [],
+    images: [],
+    meetingPoint: "",
+    safety: [],
+    treatments: [],
+    slots: [],
     hours: makeLegacyHoursPreset("daytime"),
-    policies,
-    reviews,
-    socialMedia,
-    mapQuery: `${args.name} ${city}`,
+    policies: [],
+    reviews: [],
+    socialMedia: [],
+    mapQuery: `${args.name} ${city}`.trim(),
   };
 }
 

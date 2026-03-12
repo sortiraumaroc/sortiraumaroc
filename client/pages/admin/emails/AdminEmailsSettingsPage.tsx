@@ -209,10 +209,10 @@ export function AdminEmailsSettingsPage() {
     try {
       await deleteEmailBrandingLogo(undefined);
       setDraft((p) => ({ ...p, logo_url: "" }));
-      toast({ title: "Logo supprime" });
+      toast({ title: "Logo supprimé" });
     } catch (e) {
       const msg = e instanceof AdminApiError ? e.message : "Erreur lors de la suppression";
-      toast({ title: "Echec de la suppression", description: msg, variant: "destructive" });
+      toast({ title: "Échec de la suppression", description: msg, variant: "destructive" });
     } finally {
       setDeleting(false);
     }
@@ -225,6 +225,7 @@ export function AdminEmailsSettingsPage() {
 
   return (
     <div className="space-y-4">
+      <AdminEmailsNav />
       <AdminPageHeader
         title="Emailing"
         description="Branding du template unique (logo/couleurs/signature) + liens legaux."
@@ -242,7 +243,6 @@ export function AdminEmailsSettingsPage() {
 
       <Card className="border-slate-200">
         <CardContent className="p-4 space-y-3">
-          <AdminEmailsNav />
           {error ? <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
         </CardContent>
       </Card>

@@ -3,7 +3,7 @@ import { AdminReferralDashboard } from "@/components/admin/referral/AdminReferra
 
 export function AdminReferralPage() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AdminPageHeader
         title="Programme de parrainage"
         description="Gérez les parrains, commissions et configuration du programme"

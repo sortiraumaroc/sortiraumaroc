@@ -13,7 +13,7 @@ export const MOROCCAN_REGIONS: { name: string; cities: string[] }[] = [
   },
   {
     name: "Casablanca-Settat",
-    cities: ["Casablanca", "Mohammedia", "El Jadida", "Settat"],
+    cities: ["Casablanca", "Mohammédia", "El Jadida", "Settat", "Bouskoura"],
   },
   {
     name: "Dakhla-Oued Ed-Dahab",

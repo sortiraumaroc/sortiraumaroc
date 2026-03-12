@@ -408,7 +408,7 @@ export function AdminReviewsPage() {
   // ---------------------------------------------------------------------------
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AdminPageHeader
         title="Modération des avis"
         description="Gérez les avis clients, réponses pro et signalements"

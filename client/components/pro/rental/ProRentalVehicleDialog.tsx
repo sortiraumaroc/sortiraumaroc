@@ -285,17 +285,17 @@ export function ProRentalVehicleDialog({ open, onClose, establishmentId, vehicle
 
       if (isEdit && vehicle) {
         await updateProVehicle(vehicle.id, payload as Partial<RentalVehicle>);
-        toast({ title: "Vehicule mis a jour", description: `${form.brand} ${form.model} a ete modifie.` });
+        toast({ title: "Véhicule mis à jour", description: `${form.brand} ${form.model} a été modifié.` });
       } else {
         await createProVehicle(payload as Parameters<typeof createProVehicle>[0]);
-        toast({ title: "Vehicule cree", description: `${form.brand} ${form.model} a ete ajoute.` });
+        toast({ title: "Véhicule créé", description: `${form.brand} ${form.model} a été ajouté.` });
       }
 
       onSaved();
     } catch (err) {
       toast({
         title: "Erreur",
-        description: err instanceof Error ? err.message : "Impossible d'enregistrer le vehicule",
+        description: err instanceof Error ? err.message : "Impossible d'enregistrer le véhicule",
         variant: "destructive",
       });
     } finally {
@@ -311,11 +311,11 @@ export function ProRentalVehicleDialog({ open, onClose, establishmentId, vehicle
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Modifier le vehicule" : "Ajouter un vehicule"}</DialogTitle>
+          <DialogTitle>{isEdit ? "Modifier le véhicule" : "Ajouter un véhicule"}</DialogTitle>
           <DialogDescription>
             {isEdit
-              ? "Modifiez les informations du vehicule."
-              : "Remplissez les informations pour ajouter un nouveau vehicule."}
+              ? "Modifiez les informations du véhicule."
+              : "Remplissez les informations pour ajouter un nouveau véhicule."}
           </DialogDescription>
         </DialogHeader>
 
@@ -745,7 +745,7 @@ export function ProRentalVehicleDialog({ open, onClose, establishmentId, vehicle
           </Button>
           <Button onClick={handleSubmit} disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-            {isEdit ? "Enregistrer" : "Creer le vehicule"}
+            {isEdit ? "Enregistrer" : "Créer le véhicule"}
           </Button>
         </DialogFooter>
       </DialogContent>

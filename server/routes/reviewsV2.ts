@@ -56,21 +56,13 @@ import {
 import { getClientIp } from "../middleware/rateLimiter";
 import { reportSuspiciousActivity } from "../suspiciousActivity";
 import { createModuleLogger } from "../lib/logger";
+import { parseBearerToken } from "./proHelpers";
 
 const log = createModuleLogger("reviewsV2");
 
 // ---------------------------------------------------------------------------
 // Auth helper: Extract user from Bearer token
 // ---------------------------------------------------------------------------
-
-function parseBearerToken(header: string | undefined): string | null {
-  if (!header) return null;
-  const trimmed = header.trim();
-  if (!trimmed) return null;
-  const [scheme, token] = trimmed.split(/\s+/, 2);
-  if (!scheme || scheme.toLowerCase() !== "bearer") return null;
-  return token && token.trim() ? token.trim() : null;
-}
 
 async function getUserFromBearerToken(token: string): Promise<
   { ok: true; user: { id: string; email?: string | null } } | { ok: false; error: string; status: number }

@@ -1139,29 +1139,14 @@ function ConfigurationTab() {
 
 export function AdminAdsPanel() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <Tabs defaultValue="overview" className="w-full">
         <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">
-          <TabsTrigger value="overview" className="gap-2">
-            <BarChart3 className="h-4 w-4" />
-            <span className="hidden sm:inline">Vue d'ensemble</span>
-          </TabsTrigger>
-          <TabsTrigger value="moderation" className="gap-2">
-            <Clock className="h-4 w-4" />
-            <span className="hidden sm:inline">Modération</span>
-          </TabsTrigger>
-          <TabsTrigger value="campaigns" className="gap-2">
-            <TrendingUp className="h-4 w-4" />
-            <span className="hidden sm:inline">Campagnes</span>
-          </TabsTrigger>
-          <TabsTrigger value="home-takeover" className="gap-2">
-            <Home className="h-4 w-4" />
-            <span className="hidden sm:inline">Home Takeover</span>
-          </TabsTrigger>
-          <TabsTrigger value="config" className="gap-2">
-            <Settings2 className="h-4 w-4" />
-            <span className="hidden sm:inline">Configuration</span>
-          </TabsTrigger>
+          <TabsTrigger value="overview">Vue d'ensemble</TabsTrigger>
+          <TabsTrigger value="moderation">Modération</TabsTrigger>
+          <TabsTrigger value="campaigns">Campagnes</TabsTrigger>
+          <TabsTrigger value="home-takeover">Home Takeover</TabsTrigger>
+          <TabsTrigger value="config">Configuration</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-6">

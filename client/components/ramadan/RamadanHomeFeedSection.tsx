@@ -23,6 +23,8 @@ import { RAMADAN_OFFER_TYPE_LABELS } from "../../../shared/ramadanTypes";
 
 type Props = {
   onReserve?: (offerId: string) => void;
+  /** Ville sélectionnée — filtre les offres. Ignoré si géolocalisation. */
+  city?: string | null;
 };
 
 const TYPE_ORDER: RamadanOfferType[] = ["ftour", "shour", "traiteur", "pack_famille", "special"];
@@ -31,7 +33,10 @@ const TYPE_ORDER: RamadanOfferType[] = ["ftour", "shour", "traiteur", "pack_fami
 // Component
 // =============================================================================
 
-export function RamadanHomeFeedSection({ onReserve }: Props) {
+// Geo-like values that should NOT be passed as city filter
+const GEO_PATTERN = /autour|position|geo:/i;
+
+export function RamadanHomeFeedSection({ onReserve, city }: Props) {
   const [offers, setOffers] = useState<RamadanOfferWithEstablishment[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeType, setActiveType] = useState<RamadanOfferType | "all">("all");
@@ -39,12 +44,16 @@ export function RamadanHomeFeedSection({ onReserve }: Props) {
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
 
+  // Effective city for API filter (ignore geo-like values)
+  const effectiveCity = city && !GEO_PATTERN.test(city) ? city : undefined;
+
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
 
     (async () => {
       try {
-        const res = await listPublicRamadanOffers({ limit: 50 });
+        const res = await listPublicRamadanOffers({ limit: 50, city: effectiveCity });
         if (!cancelled) setOffers(res.offers);
       } catch {
         // silent
@@ -54,7 +63,7 @@ export function RamadanHomeFeedSection({ onReserve }: Props) {
     })();
 
     return () => { cancelled = true; };
-  }, []);
+  }, [effectiveCity]);
 
   // Track impressions (une seule fois par offre par session)
   const trackedRef = useRef(new Set<string>());
@@ -206,6 +215,9 @@ export function RamadanHomeFeedSection({ onReserve }: Props) {
                       city: offer.establishments.city,
                       logo_url: offer.establishments.logo_url,
                       universe: offer.establishments.universe,
+                      service_types: offer.establishments.service_types,
+                      phone: offer.establishments.phone,
+                      google_maps_url: offer.establishments.google_maps_url,
                     }
                   : null,
               }}

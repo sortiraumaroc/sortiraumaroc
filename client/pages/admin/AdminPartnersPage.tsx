@@ -400,7 +400,7 @@ export function AdminPartnersPage() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AdminPageHeader
         title="Media Factory"
         description="Prestataires (caméramans, monteurs, blogueurs...)"

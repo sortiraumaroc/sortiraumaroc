@@ -16,6 +16,7 @@ import type { RequestHandler } from "express";
 import type { Express } from "express";
 import { createModuleLogger } from "../lib/logger";
 import { getAdminSupabase } from "../supabaseAdmin";
+import { requireAdminKey, getAdminSessionSub } from "./adminHelpers";
 
 const log = createModuleLogger("adminReviewsV2");
 import { getAuditActorInfo } from "./admin";
@@ -49,6 +50,7 @@ import type { ReviewStatus } from "../../shared/reviewTypes";
 // =============================================================================
 
 export const listAdminReviewsV2: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const parsed = adminListReviewsSchema.safeParse(req.query);
     if (!parsed.success) {
@@ -154,6 +156,7 @@ export const listAdminReviewsV2: RequestHandler = async (req, res) => {
 // =============================================================================
 
 export const getReviewStatsV2: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const supabase = getAdminSupabase();
 
@@ -216,6 +219,7 @@ export const getReviewStatsV2: RequestHandler = async (req, res) => {
 // =============================================================================
 
 export const getAdminReviewV2: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { id } = req.params;
     const supabase = getAdminSupabase();
@@ -305,9 +309,10 @@ export const getAdminReviewV2: RequestHandler = async (req, res) => {
 // =============================================================================
 
 export const moderateReviewV2: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { id } = req.params;
-    const adminUserId = req.headers["x-admin-user-id"] as string || "admin";
+    const adminUserId = getAdminSessionSub(req) || "admin";
 
     const parsed = moderateReviewSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -377,6 +382,7 @@ export const moderateReviewV2: RequestHandler = async (req, res) => {
 // =============================================================================
 
 export const listPendingResponsesV2: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const supabase = getAdminSupabase();
 
@@ -410,9 +416,10 @@ export const listPendingResponsesV2: RequestHandler = async (req, res) => {
 // =============================================================================
 
 export const moderateResponseV2: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { id } = req.params;
-    const adminUserId = req.headers["x-admin-user-id"] as string || "admin";
+    const adminUserId = getAdminSessionSub(req) || "admin";
 
     const parsed = moderateResponseSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -487,6 +494,7 @@ export const moderateResponseV2: RequestHandler = async (req, res) => {
 // =============================================================================
 
 export const listReviewReportsV2: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const parsed = adminListReportsSchema.safeParse(req.query);
     if (!parsed.success) {
@@ -539,9 +547,10 @@ export const listReviewReportsV2: RequestHandler = async (req, res) => {
 // =============================================================================
 
 export const resolveReviewReportV2: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   try {
     const { id } = req.params;
-    const adminUserId = req.headers["x-admin-user-id"] as string || "admin";
+    const adminUserId = getAdminSessionSub(req) || "admin";
 
     const parsed = resolveReportSchema.safeParse(req.body);
     if (!parsed.success) {

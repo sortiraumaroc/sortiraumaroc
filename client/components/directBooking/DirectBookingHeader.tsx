@@ -61,7 +61,7 @@ export function DirectBookingHeader({ establishmentName, establishmentUsername }
         <div className="flex items-center gap-2 text-end max-w-[60%]">
           <div className="min-w-0">
             <div className="text-sm font-semibold text-slate-900 truncate">
-              {establishmentName || "Etablissement"}
+              {establishmentName || "Établissement"}
             </div>
             {establishmentUsername && (
               <div className="text-xs text-slate-500 truncate">

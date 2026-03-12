@@ -87,6 +87,7 @@ export const MOROCCAN_CITIES = [
   "ouarzazate",
   "settat",
   "khouribga",
+  "bouskoura",
 ] as const;
 
 export type MoroccanCity = (typeof MOROCCAN_CITIES)[number];

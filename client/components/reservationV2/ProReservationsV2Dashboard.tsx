@@ -106,18 +106,22 @@ function getStatusLabel(s: string) {
 function ReservationsListTab({ estId, statusFilter, setStatusFilter }: { estId: string; statusFilter: string; setStatusFilter: (v: string) => void }) {
   const [reservations, setReservations] = useState<ProReservationRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [actionDialog, setActionDialog] = useState<{ type: string; reservation: ProReservationRow } | null>(null);
   const [customMessage, setCustomMessage] = useState("");
 
   const fetchList = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const opts: any = {};
       if (statusFilter !== "all") opts.status = statusFilter;
       const res = await proListReservationsV2(estId, opts);
       setReservations(res.reservations ?? []);
-    } catch { /* ignore */ }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur lors du chargement des réservations");
+    }
     setLoading(false);
   }, [estId, statusFilter]);
 
@@ -125,6 +129,7 @@ function ReservationsListTab({ estId, statusFilter, setStatusFilter }: { estId: 
 
   const handleAction = async (action: string, resId: string) => {
     setActionLoading(resId);
+    setError(null);
     try {
       switch (action) {
         case "accept": await proAcceptReservation(resId, estId, customMessage || undefined); break;
@@ -137,7 +142,9 @@ function ReservationsListTab({ estId, statusFilter, setStatusFilter }: { estId: 
       setActionDialog(null);
       setCustomMessage("");
       await fetchList();
-    } catch { /* show error */ }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur lors de l'action");
+    }
     setActionLoading(null);
   };
 
@@ -146,11 +153,17 @@ function ReservationsListTab({ estId, statusFilter, setStatusFilter }: { estId: 
 
   return (
     <div className="space-y-4">
+      {error ? (
+        <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      ) : null}
       {loading && !reservations.length ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
-      ) : reservations.length === 0 ? (
+      ) : reservations.length === 0 && !error ? (
         <div className="text-center py-12 text-muted-foreground">
           <CalendarDays className="h-10 w-10 mx-auto mb-2 opacity-40" />
           <p className="text-sm">Aucune réservation trouvée</p>
@@ -260,12 +273,14 @@ export function CapacityTab({ estId }: { estId: string }) {
   const [slots, setSlots] = useState<EstablishmentCapacityRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
+    setError(null);
     proGetCapacity(estId)
       .then((r) => setSlots(r.capacity ?? []))
-      .catch(() => {})
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Erreur lors du chargement de la capacité"))
       .finally(() => setLoading(false));
   }, [estId]);
 
@@ -284,9 +299,12 @@ export function CapacityTab({ estId }: { estId: string }) {
 
   const handleSave = async () => {
     setSaving(true);
+    setError(null);
     try {
       await proUpdateCapacity(estId, slots);
-    } catch { /* error */ }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur lors de la sauvegarde");
+    }
     setSaving(false);
   };
 
@@ -296,7 +314,13 @@ export function CapacityTab({ estId }: { estId: string }) {
 
   return (
     <div className="space-y-4">
-      {slots.length === 0 ? (
+      {error ? (
+        <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      ) : null}
+      {slots.length === 0 && !error ? (
         <div className="py-8 text-center space-y-2">
           <Layers className="mx-auto h-10 w-10 text-slate-300" />
           <p className="text-sm text-muted-foreground">
@@ -365,29 +389,42 @@ export function CapacityTab({ estId }: { estId: string }) {
 export function DiscountsTab({ estId }: { estId: string }) {
   const [discounts, setDiscounts] = useState<EstablishmentSlotDiscountRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchDiscounts = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const r = await proGetDiscounts(estId);
       setDiscounts(r.discounts ?? []);
-    } catch { /* ignore */ }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur lors du chargement des remises");
+    }
     setLoading(false);
   }, [estId]);
 
   useEffect(() => { fetchDiscounts(); }, [fetchDiscounts]);
 
   const handleDelete = async (id: string) => {
+    setError(null);
     try {
       await proDeleteDiscount(id, estId);
       setDiscounts((prev) => prev.filter((d) => d.id !== id));
-    } catch { /* ignore */ }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur lors de la suppression");
+    }
   };
 
   if (loading) return <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin" /></div>;
 
   return (
     <div className="space-y-4">
+      {error ? (
+        <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      ) : null}
       {discounts.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-6">Aucune remise configurée</p>
       ) : (
@@ -427,16 +464,19 @@ export function DiscountsTab({ estId }: { estId: string }) {
 function StatsTab({ estId }: { estId: string }) {
   const [stats, setStats] = useState<ProReservationStats | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
+    setError(null);
     proGetReservationStats(estId)
       .then((r) => setStats(r.stats))
-      .catch(() => {})
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Erreur lors du chargement des statistiques"))
       .finally(() => setLoading(false));
   }, [estId]);
 
   if (loading) return <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin" /></div>;
+  if (error) return <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700 flex items-start gap-2"><AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" /><span>{error}</span></div>;
   if (!stats) return <p className="text-sm text-muted-foreground text-center py-6">Statistiques non disponibles</p>;
 
   const kpis = [
@@ -470,16 +510,19 @@ function StatsTab({ estId }: { estId: string }) {
 function QuotesTab({ estId }: { estId: string }) {
   const [quotes, setQuotes] = useState<QuoteRequestRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
+    setError(null);
     proListQuotes(estId)
       .then((r) => setQuotes(r.quotes ?? []))
-      .catch(() => {})
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Erreur lors du chargement des devis"))
       .finally(() => setLoading(false));
   }, [estId]);
 
   if (loading) return <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin" /></div>;
+  if (error) return <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700 flex items-start gap-2"><AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" /><span>{error}</span></div>;
   if (!quotes.length) return <p className="text-sm text-muted-foreground text-center py-6">Aucune demande de devis</p>;
 
   return (

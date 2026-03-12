@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { isDemoModeEnabled } from "@/lib/demoMode";
+import { isAuthed } from "@/lib/auth";
+import { toggleFavoriteServer, getFavoriteIdsFromServer } from "@/lib/favoritesApi";
 
 export const USER_PROFILE_STORAGE_KEY = "sam_profile_v1";
 export const USER_BOOKINGS_STORAGE_KEY = "sam_bookings_v1";
@@ -838,11 +840,49 @@ export function addFavorite(item: FavoriteItem): void {
   const list = getFavorites();
   if (list.some((f) => f.kind === item.kind && f.id === item.id)) return;
   writeJson(USER_FAVORITES_STORAGE_KEY, [item, ...list]);
+
+  // Sync with server if authenticated
+  if (isAuthed()) {
+    void toggleFavoriteServer(item.id);
+  }
 }
 
 export function removeFavorite(params: { kind: FavoriteItem["kind"]; id: string }): void {
   const next = getFavorites().filter((f) => !(f.kind === params.kind && f.id === params.id));
   writeJson(USER_FAVORITES_STORAGE_KEY, next);
+
+  // Sync with server if authenticated
+  if (isAuthed()) {
+    void toggleFavoriteServer(params.id);
+  }
+}
+
+/** Sync favorites from server to localStorage. Call on login/app init. */
+export async function syncFavoritesFromServer(): Promise<void> {
+  if (!isAuthed()) return;
+  const serverIds = await getFavoriteIdsFromServer();
+  if (!serverIds) return;
+
+  const localFavorites = getFavorites();
+  const localIds = new Set(localFavorites.map((f) => f.id));
+  const serverIdSet = new Set(serverIds);
+
+  // Merge: keep local items that are on server, add server-only items
+  const merged: FavoriteItem[] = [];
+
+  // Keep local favorites that exist on server (preserves title/kind metadata)
+  for (const fav of localFavorites) {
+    if (serverIdSet.has(fav.id)) merged.push(fav);
+  }
+
+  // Add server-only favorites (without full metadata — will be enriched on display)
+  for (const id of serverIds) {
+    if (!localIds.has(id)) {
+      merged.push({ kind: "restaurant", id, title: "", createdAtIso: new Date().toISOString() });
+    }
+  }
+
+  writeJson(USER_FAVORITES_STORAGE_KEY, merged);
 }
 
 const packUniverseSchema = z.enum(["restaurant", "loisir", "wellness"]);

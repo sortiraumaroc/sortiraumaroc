@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import crypto from "node:crypto";
 import { sendSambookingEmail } from "../email";
 import { requireSuperadmin } from "./admin";
+import { requireAdminKey } from "./adminHelpers";
 import ExcelJS from "exceljs";
 import { createModuleLogger } from "../lib/logger";
 import { zBody } from "../lib/validate";
@@ -481,7 +482,7 @@ const AMENITIES_BY_UNIVERSE: Record<string, string[]> = {
 
 const MOROCCAN_CITIES = [
   "Casablanca", "Rabat", "Marrakech", "Fès", "Tanger", "Agadir", "Meknès", "Oujda",
-  "Kénitra", "Tétouan", "Salé", "Nador", "Mohammedia", "El Jadida", "Béni Mellal",
+  "Kénitra", "Tétouan", "Salé", "Nador", "Mohammédia", "El Jadida", "Béni Mellal",
   "Taza", "Khémisset", "Taourirt", "Khouribga", "Safi", "Settat", "Larache",
   "Guelmim", "Berrechid", "Essaouira", "Ouarzazate", "Al Hoceïma", "Dakhla",
   "Laâyoune", "Ifrane", "Errachidia", "Tinghir", "Chefchaouen", "Asilah", "Oualidia"
@@ -496,6 +497,7 @@ const MOROCCAN_REGIONS = [
 export function registerAdminImportExportRoutes(router: Router): void {
   // Download Excel template with dropdowns and validation
   router.get("/api/admin/import-export/excel-template", (async (req, res) => {
+    if (!requireAdminKey(req, res)) return;
     try {
       const workbook = new ExcelJS.Workbook();
       workbook.creator = "Sortir Au Maroc";
@@ -815,6 +817,7 @@ export function registerAdminImportExportRoutes(router: Router): void {
 
   // Keep CSV taxonomy for backwards compatibility
   router.get("/api/admin/import-export/taxonomy", ((req, res) => {
+    if (!requireAdminKey(req, res)) return;
     // Create a comprehensive taxonomy reference file
     const lines: string[] = [];
 
@@ -871,6 +874,7 @@ export function registerAdminImportExportRoutes(router: Router): void {
 
   // Download CSV template
   router.get("/api/admin/import-export/template", ((req, res) => {
+    if (!requireAdminKey(req, res)) return;
     // Headers avec tous les champs supportés
     const headers = [
       // Infos de base (obligatoires: nom, ville)
@@ -1019,6 +1023,7 @@ export function registerAdminImportExportRoutes(router: Router): void {
 
   // Preview import (validate without saving + check for existing establishments)
   router.post("/api/admin/import-export/preview", zBody(ImportExportPreviewSchema), (async (req, res) => {
+    if (!requireAdminKey(req, res)) return;
     try {
       const { content, format } = req.body as { content: string; format?: "csv" | "json" };
 
@@ -1147,6 +1152,7 @@ export function registerAdminImportExportRoutes(router: Router): void {
 
   // Execute import
   router.post("/api/admin/import-export/import", zBody(ImportExportImportSchema), (async (req, res) => {
+    if (!requireAdminKey(req, res)) return;
     try {
       const { content, format, sendEmails } = req.body as {
         content: string;
@@ -1494,6 +1500,7 @@ export function registerAdminImportExportRoutes(router: Router): void {
 
   // Get stats for import/export page
   router.get("/api/admin/import-export/stats", (async (req, res) => {
+    if (!requireAdminKey(req, res)) return;
     try {
       const supabase = getSupabaseAdmin();
 

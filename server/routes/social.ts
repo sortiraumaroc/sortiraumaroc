@@ -831,6 +831,91 @@ async function enrichPosts(supabase: any, posts: any[], currentUserId: string) {
 }
 
 // ============================================================================
+// USER SEARCH
+// ============================================================================
+
+/** GET /api/consumer/social/users/search?q=xxx — Search users by name */
+const searchUsers: RequestHandler = async (req, res) => {
+  try {
+    const currentUserId = await getAuthUserId(req);
+    if (!currentUserId) { res.status(401).json({ error: "Non autorisé" }); return; }
+
+    const q = safeString(req.query.q, 200).toLowerCase();
+    if (q.length < 2) {
+      res.json({ items: [] });
+      return;
+    }
+
+    const supabase = getAdminSupabase();
+
+    // Fetch users from Supabase auth (paginated, max 50)
+    const { data: usersData, error: usersError } = await supabase.auth.admin.listUsers({
+      page: 1,
+      perPage: 200,
+    });
+
+    if (usersError) {
+      log.error({ err: usersError }, "searchUsers listUsers failed");
+      res.status(500).json({ error: "Erreur serveur" });
+      return;
+    }
+
+    // Filter by name match (case-insensitive)
+    const cleanQ = q.replace("@", "");
+    const matchedUsers = (usersData?.users ?? []).filter((u) => {
+      const meta = u.user_metadata ?? {};
+      const fullName = `${meta.first_name || ""} ${meta.last_name || ""}`.toLowerCase();
+      const email = (u.email || "").toLowerCase();
+      return fullName.includes(cleanQ) || email.includes(cleanQ);
+    }).slice(0, 20);
+
+    if (matchedUsers.length === 0) {
+      res.json({ items: [] });
+      return;
+    }
+
+    // Get follow status for each matched user
+    const matchedIds = matchedUsers.map((u) => u.id);
+    const { data: follows } = await supabase
+      .from("social_user_follows")
+      .select("following_id")
+      .eq("follower_id", currentUserId)
+      .in("following_id", matchedIds);
+
+    const followedSet = new Set((follows ?? []).map((f: any) => f.following_id));
+
+    // Get followers count for each user
+    const { data: followersCounts } = await supabase
+      .from("social_user_follows")
+      .select("following_id")
+      .in("following_id", matchedIds);
+
+    const followersCountMap = new Map<string, number>();
+    for (const f of (followersCounts ?? []) as any[]) {
+      followersCountMap.set(f.following_id, (followersCountMap.get(f.following_id) ?? 0) + 1);
+    }
+
+    const items = matchedUsers.map((u) => {
+      const meta = u.user_metadata ?? {};
+      return {
+        id: u.id,
+        firstName: meta.first_name || meta.firstName || "",
+        lastName: meta.last_name || meta.lastName || "",
+        avatar: meta.avatar_url || meta.avatar || null,
+        bio: meta.bio || "",
+        followersCount: followersCountMap.get(u.id) ?? 0,
+        isFollowing: followedSet.has(u.id),
+      };
+    });
+
+    res.json({ items });
+  } catch (err) {
+    log.error({ err }, "searchUsers error");
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+};
+
+// ============================================================================
 // REGISTER
 // ============================================================================
 
@@ -855,6 +940,9 @@ export function registerSocialRoutes(app: Express) {
 
   // Follow
   app.post("/api/consumer/social/users/:id/follow", zParams(SocialUserIdParams), toggleFollow);
+
+  // User search (must come before /users/:id routes)
+  app.get("/api/consumer/social/users/search", searchUsers);
 
   // User profiles
   app.get("/api/consumer/social/users/:id/profile", zParams(SocialUserIdParams), getUserProfile);

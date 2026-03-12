@@ -5,17 +5,30 @@
  * Uses admin auth pattern (session token + API key from sessionStorage).
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Bell, Send, BarChart3, Truck, Plus, Eye, Edit, Play,
+  Bell, Send, Plus, Eye, Edit, Play, Trash2,
   Clock, XCircle, CheckCircle, RefreshCw, TestTube,
   Users, MousePointerClick, MailOpen, TrendingUp,
   ChevronDown, Filter, Search, ArrowLeft,
+  ChevronLeft, ChevronRight, Image, Loader2, X,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { AdminVisibilityNav } from "@/pages/admin/visibility/AdminVisibilityNav";
+import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
 
 // =============================================================================
 // Types
@@ -57,7 +70,7 @@ interface Campaign {
   priority: Priority;
   scheduled_at: string | null;
   sent_at: string | null;
-  stats: CampaignStats;
+  stats?: CampaignStats;
   created_at: string;
   updated_at: string;
 }
@@ -173,6 +186,10 @@ async function cancelCampaign(id: string): Promise<void> {
   await adminFetch(`/api/admin/push-campaigns/${id}/cancel`, { method: "POST" });
 }
 
+async function deleteCampaignApi(id: string): Promise<void> {
+  await adminFetch(`/api/admin/push-campaigns/${id}`, { method: "DELETE" });
+}
+
 async function previewAudience(filters: AudienceFilters, audienceType: AudienceType): Promise<number> {
   const data = await adminFetch<{ count: number }>("/api/admin/push-campaigns/preview-audience", {
     method: "POST",
@@ -247,9 +264,9 @@ const ACTIVITY_OPTIONS = [
   { value: "inactive_90d", label: "Inactifs > 90 jours" },
 ];
 
-const CITIES_OPTIONS = [
-  "Casablanca", "Rabat", "Marrakech", "Tanger", "Fès", "Agadir",
-  "Meknès", "Oujda", "Kenitra", "Essaouira", "El Jadida", "Tétouan",
+const SAM_CITIES = [
+  "Casablanca", "Marrakech", "Rabat", "Tanger", "Fès", "Agadir",
+  "Meknès", "Oujda", "Kenitra", "Mohammédia", "Essaouira", "Tétouan", "Bouskoura",
 ];
 
 const DELIVERY_STATUS_OPTIONS = [
@@ -379,10 +396,10 @@ function CampagnesSection({
                       {c.audience_count.toLocaleString("fr-FR")}
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-500">{formatDate(c.scheduled_at)}</td>
-                    <td className="px-4 py-3 text-end text-xs tabular-nums">{c.stats.sent.toLocaleString("fr-FR")}</td>
-                    <td className="px-4 py-3 text-end text-xs tabular-nums">{c.stats.delivered.toLocaleString("fr-FR")}</td>
-                    <td className="px-4 py-3 text-end text-xs tabular-nums">{c.stats.opened.toLocaleString("fr-FR")}</td>
-                    <td className="px-4 py-3 text-end text-xs tabular-nums">{c.stats.clicked.toLocaleString("fr-FR")}</td>
+                    <td className="px-4 py-3 text-end text-xs tabular-nums">{(c.stats?.sent ?? 0).toLocaleString("fr-FR")}</td>
+                    <td className="px-4 py-3 text-end text-xs tabular-nums">{(c.stats?.delivered ?? 0).toLocaleString("fr-FR")}</td>
+                    <td className="px-4 py-3 text-end text-xs tabular-nums">{(c.stats?.opened ?? 0).toLocaleString("fr-FR")}</td>
+                    <td className="px-4 py-3 text-end text-xs tabular-nums">{(c.stats?.clicked ?? 0).toLocaleString("fr-FR")}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1 flex-wrap">
                         <button
@@ -443,6 +460,14 @@ function CampagnesSection({
                             <XCircle className="h-3 w-3" />
                           </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => { if (window.confirm("Supprimer cette campagne ?")) onAction("delete", c.id); }}
+                          title="Supprimer"
+                          className="h-7 w-7 rounded-lg border border-red-200 flex items-center justify-center text-red-500 hover:bg-red-50"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
                       </div>
                       {/* Schedule inline input */}
                       {scheduleId === c.id && (
@@ -708,7 +733,7 @@ function CampaignFormSection({
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">Villes</label>
               <div className="flex flex-wrap gap-1.5">
-                {CITIES_OPTIONS.map((city) => (
+                {SAM_CITIES.map((city) => (
                   <button
                     key={city}
                     type="button"
@@ -902,13 +927,13 @@ function StatsSection({ campaigns }: { campaigns: Campaign[] }) {
                 {sentCampaigns.map((c) => (
                   <tr key={c.id} className="bg-white">
                     <td className="px-4 py-2.5 text-slate-900 font-medium max-w-[200px] truncate">{c.title}</td>
-                    <td className="px-4 py-2.5 text-end tabular-nums">{c.stats.sent.toLocaleString("fr-FR")}</td>
-                    <td className="px-4 py-2.5 text-end tabular-nums">{c.stats.delivered.toLocaleString("fr-FR")}</td>
-                    <td className="px-4 py-2.5 text-end tabular-nums">{pct(c.stats.delivered, c.stats.sent)}</td>
-                    <td className="px-4 py-2.5 text-end tabular-nums">{c.stats.opened.toLocaleString("fr-FR")}</td>
-                    <td className="px-4 py-2.5 text-end tabular-nums">{pct(c.stats.opened, c.stats.delivered)}</td>
-                    <td className="px-4 py-2.5 text-end tabular-nums">{c.stats.clicked.toLocaleString("fr-FR")}</td>
-                    <td className="px-4 py-2.5 text-end tabular-nums">{pct(c.stats.clicked, c.stats.delivered)}</td>
+                    <td className="px-4 py-2.5 text-end tabular-nums">{(c.stats?.sent ?? 0).toLocaleString("fr-FR")}</td>
+                    <td className="px-4 py-2.5 text-end tabular-nums">{(c.stats?.delivered ?? 0).toLocaleString("fr-FR")}</td>
+                    <td className="px-4 py-2.5 text-end tabular-nums">{pct(c.stats?.delivered ?? 0, c.stats?.sent ?? 0)}</td>
+                    <td className="px-4 py-2.5 text-end tabular-nums">{(c.stats?.opened ?? 0).toLocaleString("fr-FR")}</td>
+                    <td className="px-4 py-2.5 text-end tabular-nums">{pct(c.stats?.opened ?? 0, c.stats?.delivered ?? 0)}</td>
+                    <td className="px-4 py-2.5 text-end tabular-nums">{(c.stats?.clicked ?? 0).toLocaleString("fr-FR")}</td>
+                    <td className="px-4 py-2.5 text-end tabular-nums">{pct(c.stats?.clicked ?? 0, c.stats?.delivered ?? 0)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1039,10 +1064,449 @@ function DeliveriesSection({ campaigns }: { campaigns: Campaign[] }) {
 }
 
 // =============================================================================
+// Push campaign wizard dialog
+// =============================================================================
+
+const PUSH_STEP_LABELS = ["Message & Visuel", "Ciblage & Envoi"];
+
+interface PushFormData {
+  title: string;
+  message: string;
+  image_url: string;
+  cta_url: string;
+  channels: ("push" | "in_app")[];
+  audience_type: "all" | "segment";
+  target_cities: string[];
+  priority: "normal" | "high";
+}
+
+const EMPTY_PUSH_FORM: PushFormData = {
+  title: "",
+  message: "",
+  image_url: "",
+  cta_url: "",
+  channels: ["push"],
+  audience_type: "all",
+  target_cities: [],
+  priority: "normal",
+};
+
+function pushFormFromCampaign(c: Campaign): PushFormData {
+  return {
+    title: c.title,
+    message: c.message,
+    image_url: c.image_url || "",
+    cta_url: c.cta_url || "",
+    channels: (c.channels || ["push"]).filter((ch): ch is "push" | "in_app" => ch === "push" || ch === "in_app"),
+    audience_type: c.audience_type || "all",
+    target_cities: c.audience_filters?.cities || [],
+    priority: c.priority || "normal",
+  };
+}
+
+// --- Compact media upload (same pattern as banners) ---
+function PushMediaUploadZone({
+  mediaUrl,
+  onMediaUrlChange,
+}: {
+  mediaUrl: string;
+  onMediaUrlChange: (url: string) => void;
+}) {
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useCallback((node: HTMLInputElement | null) => {
+    if (node) node.value = "";
+  }, []);
+
+  const handleFile = (file: File) => {
+    if (!file.type.startsWith("image/") && !file.name.match(/\.(heic|heif|avif)$/i)) return;
+    onMediaUrlChange(URL.createObjectURL(file));
+  };
+
+  const hasMedia = Boolean(mediaUrl);
+
+  return (
+    <div className="space-y-2">
+      <Label className="text-xs font-semibold">Image de la notification</Label>
+      <div
+        className={cn(
+          "flex items-center gap-3 rounded-xl border-2 border-dashed p-3 transition-all",
+          dragOver ? "border-[#a3001d] bg-red-50" : "border-slate-300 bg-slate-50 hover:border-slate-400",
+        )}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) handleFile(f); }}
+      >
+        <div
+          onClick={() => (document.getElementById("push-media-upload") as HTMLInputElement)?.click()}
+          className="relative shrink-0 rounded-lg border border-slate-200 bg-white cursor-pointer overflow-hidden flex items-center justify-center"
+          style={{ width: 80, height: 80 }}
+        >
+          {hasMedia ? (
+            <>
+              <img src={mediaUrl} alt="Aperçu" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+              <div className="absolute inset-0 bg-black/0 hover:bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-all">
+                <RefreshCw className="h-3.5 w-3.5 text-white" />
+              </div>
+            </>
+          ) : (
+            <Image className="h-4 w-4 text-slate-300" />
+          )}
+        </div>
+        <div className="flex-1 min-w-0 space-y-1.5">
+          <p className="text-[10px] text-slate-400">PNG, JPG, WebP, HEIC · Format 2:1 · Recommandé 1024×512</p>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => (document.getElementById("push-media-upload") as HTMLInputElement)?.click()} className="h-7 text-[11px] px-2.5">
+              <Image className="h-3 w-3 me-1" />
+              {hasMedia ? "Remplacer" : "Charger une image"}
+            </Button>
+            {hasMedia && (
+              <Button type="button" variant="ghost" size="sm" onClick={() => onMediaUrlChange("")} className="h-7 text-[11px] px-2 text-red-600 hover:text-red-700 hover:bg-red-50">
+                <X className="h-3 w-3" />
+              </Button>
+            )}
+          </div>
+          <Input
+            value={mediaUrl.startsWith("blob:") ? "" : mediaUrl}
+            onChange={(e) => onMediaUrlChange(e.target.value)}
+            placeholder="ou coller une URL..."
+            className="h-7 text-[11px]"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      </div>
+      <input
+        id="push-media-upload"
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/heic,image/heif,image/avif,image/gif"
+        className="hidden"
+        ref={fileInputRef}
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+      />
+    </div>
+  );
+}
+
+// --- City multi-select (same pattern as banners) ---
+function PushCityMultiSelect({
+  cities,
+  onChange,
+}: {
+  cities: string[];
+  onChange: (cities: string[]) => void;
+}) {
+  const toggle = (city: string) => {
+    const next = cities.includes(city) ? cities.filter((c) => c !== city) : [...cities, city];
+    onChange(next);
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <Label className="text-[11px]">Villes ciblées</Label>
+        {cities.length > 0 && (
+          <button type="button" onClick={() => onChange([])} className="text-[10px] text-red-600 hover:underline">
+            Tout désélectionner
+          </button>
+        )}
+      </div>
+      <p className="text-[10px] text-slate-400">Aucune sélection = toutes les villes</p>
+      <div className="flex flex-wrap gap-1.5">
+        {SAM_CITIES.map((city) => {
+          const selected = cities.includes(city);
+          return (
+            <button
+              key={city}
+              type="button"
+              onClick={() => toggle(city)}
+              className={cn(
+                "rounded-full px-2.5 py-1 text-[11px] font-medium border transition-all",
+                selected
+                  ? "bg-[#a3001d] text-white border-[#a3001d]"
+                  : "bg-white text-slate-600 border-slate-200 hover:border-slate-400",
+              )}
+            >
+              {city}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// --- Wizard Dialog ---
+function PushCampaignWizardDialog({
+  open,
+  onOpenChange,
+  initial,
+  onSave,
+  saving,
+  saveError,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  initial: Campaign | null;
+  onSave: (data: CampaignFormData, action: "draft" | "send") => void;
+  saving: boolean;
+  saveError: string | null;
+}) {
+  const [step, setStep] = useState(1);
+  const [form, setForm] = useState<PushFormData>(() =>
+    initial ? pushFormFromCampaign(initial) : { ...EMPTY_PUSH_FORM },
+  );
+
+  // Reset when dialog opens
+  useEffect(() => {
+    if (open) {
+      setForm(initial ? pushFormFromCampaign(initial) : { ...EMPTY_PUSH_FORM });
+      setStep(1);
+    }
+  }, [open, initial]);
+
+  const update = <K extends keyof PushFormData>(key: K, value: PushFormData[K]) =>
+    setForm((prev) => ({ ...prev, [key]: value }));
+
+  const toggleChannel = (ch: "push" | "in_app") => {
+    const next = form.channels.includes(ch)
+      ? form.channels.filter((c) => c !== ch)
+      : [...form.channels, ch];
+    if (next.length > 0) update("channels", next);
+  };
+
+  const handleSave = (action: "draft" | "send") => {
+    // Build full CampaignFormData for the API
+    const payload: CampaignFormData = {
+      title: form.title,
+      message: form.message,
+      type: "custom",
+      image_url: form.image_url,
+      cta_url: form.cta_url,
+      channels: form.channels,
+      audience_type: form.audience_type,
+      audience_filters: form.audience_type === "segment"
+        ? { cities: form.target_cities, seniority: "", recent_activity: "" }
+        : { cities: [], seniority: "", recent_activity: "" },
+      priority: form.priority,
+    };
+    onSave(payload, action);
+  };
+
+  const canProceed = step === 1 ? Boolean(form.title.trim()) : form.channels.length > 0;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="text-base">
+            {initial ? "Modifier la campagne" : "Créer une campagne push"}
+          </DialogTitle>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Étape {step}/2 — {PUSH_STEP_LABELS[step - 1]}
+          </p>
+        </DialogHeader>
+
+        {/* Progress bar */}
+        <div className="flex items-center gap-1.5 pt-1 pb-2">
+          {[1, 2].map((s) => (
+            <div
+              key={s}
+              className={cn(
+                "h-1.5 flex-1 rounded-full transition-colors",
+                s <= step ? "bg-[#a3001d]" : "bg-slate-200",
+              )}
+            />
+          ))}
+        </div>
+
+        {/* Step content */}
+        <div className="py-1">
+          {step === 1 && (
+            <div className="space-y-5">
+              {/* Titre */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold">Titre *</Label>
+                  <span className="text-[10px] text-slate-400">{form.title.length}/60</span>
+                </div>
+                <Input
+                  value={form.title}
+                  onChange={(e) => update("title", e.target.value.slice(0, 60))}
+                  placeholder="Titre de la notification"
+                  className="h-9 text-sm"
+                />
+              </div>
+
+              {/* Message */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold">Message *</Label>
+                  <span className="text-[10px] text-slate-400">{form.message.length}/250</span>
+                </div>
+                <Textarea
+                  value={form.message}
+                  onChange={(e) => update("message", e.target.value.slice(0, 250))}
+                  placeholder="Corps du message..."
+                  rows={4}
+                  className="text-sm"
+                />
+              </div>
+
+              {/* Image upload */}
+              <PushMediaUploadZone
+                mediaUrl={form.image_url}
+                onMediaUrlChange={(url) => update("image_url", url)}
+              />
+
+              {/* CTA URL */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold">URL au clic</Label>
+                <Input
+                  value={form.cta_url}
+                  onChange={(e) => update("cta_url", e.target.value)}
+                  placeholder="https://sam.ma/..."
+                  className="h-9 text-sm"
+                />
+              </div>
+            </div>
+          )}
+
+          {step === 2 && (
+            <div className="space-y-5">
+              {/* Canaux */}
+              <fieldset className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+                <legend className="text-xs font-bold text-slate-700 px-1">Canaux *</legend>
+                <div className="flex items-center gap-4">
+                  {(["push", "in_app"] as const).map((ch) => {
+                    const selected = form.channels.includes(ch);
+                    return (
+                      <label key={ch} className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => toggleChannel(ch)}
+                          className="h-4 w-4 rounded border-slate-300 text-[#a3001d] focus:ring-[#a3001d]"
+                        />
+                        <span className="text-sm font-medium text-slate-700">
+                          {ch === "push" ? "Push" : "In-App"}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+
+              {/* Audience */}
+              <fieldset className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+                <legend className="text-xs font-bold text-slate-700 px-1">Audience</legend>
+                <div className="flex items-center gap-4">
+                  {([
+                    { value: "all", label: "Tous les utilisateurs" },
+                    { value: "segment", label: "Zone de chalandise" },
+                  ] as const).map((opt) => (
+                    <label key={opt.value} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="push-audience"
+                        checked={form.audience_type === opt.value}
+                        onChange={() => update("audience_type", opt.value)}
+                        className="h-4 w-4 text-[#a3001d] focus:ring-[#a3001d]"
+                      />
+                      <span className="text-sm font-medium text-slate-700">{opt.label}</span>
+                    </label>
+                  ))}
+                </div>
+                {form.audience_type === "segment" && (
+                  <PushCityMultiSelect
+                    cities={form.target_cities}
+                    onChange={(cities) => update("target_cities", cities)}
+                  />
+                )}
+              </fieldset>
+
+              {/* Priorité */}
+              <fieldset className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+                <legend className="text-xs font-bold text-slate-700 px-1">Priorité</legend>
+                <div className="flex items-center gap-4">
+                  {([
+                    { value: "normal", label: "Normale" },
+                    { value: "high", label: "Haute" },
+                  ] as const).map((opt) => (
+                    <label key={opt.value} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="push-priority"
+                        checked={form.priority === opt.value}
+                        onChange={() => update("priority", opt.value)}
+                        className="h-4 w-4 text-[#a3001d] focus:ring-[#a3001d]"
+                      />
+                      <span className="text-sm font-medium text-slate-700">{opt.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            </div>
+          )}
+        </div>
+
+        {/* Erreur */}
+        {saveError && (
+          <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">
+            {saveError}
+          </div>
+        )}
+
+        {/* Navigation footer */}
+        <DialogFooter className="flex items-center justify-between sm:justify-between gap-2 pt-3 border-t border-slate-100">
+          {step > 1 ? (
+            <Button variant="outline" size="sm" onClick={() => setStep((s) => s - 1)} className="h-8 text-xs">
+              <ChevronLeft className="h-3.5 w-3.5 me-1" /> Précédent
+            </Button>
+          ) : (
+            <div />
+          )}
+          {step < 2 ? (
+            <Button
+              size="sm"
+              onClick={() => setStep((s) => s + 1)}
+              disabled={!canProceed}
+              className="h-8 text-xs bg-[#a3001d] hover:bg-[#8a0019] text-white"
+            >
+              Suivant <ChevronRight className="h-3.5 w-3.5 ms-1" />
+            </Button>
+          ) : (
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleSave("draft")}
+                disabled={saving || !form.title.trim()}
+                className="h-8 text-xs"
+              >
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin me-1" /> : null}
+                Brouillon
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => handleSave("send")}
+                disabled={saving || !form.title.trim()}
+                className="h-8 text-xs bg-[#a3001d] hover:bg-[#8a0019] text-white"
+              >
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin me-1" /> : <Send className="h-3.5 w-3.5 me-1" />}
+                Envoyer maintenant
+              </Button>
+            </div>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// =============================================================================
 // Main component
 // =============================================================================
 
-type TabId = "campaigns" | "form" | "stats" | "deliveries";
+type TabId = "campaigns" | "stats" | "deliveries";
 
 export default function AdminPushCampaignsDashboard({ className }: { className?: string }) {
   const [tab, setTab] = useState<TabId>("campaigns");
@@ -1051,6 +1515,9 @@ export default function AdminPushCampaignsDashboard({ className }: { className?:
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
   const [viewingCampaign, setViewingCampaign] = useState<Campaign | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardSaving, setWizardSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const loadCampaigns = useCallback(async () => {
     setLoading(true);
@@ -1081,6 +1548,10 @@ export default function AdminPushCampaignsDashboard({ className }: { className?:
         await scheduleCampaign(id, date);
         setActionMsg("Campagne programmée");
         loadCampaigns();
+      } else if (action === "delete") {
+        await deleteCampaignApi(idOrPayload);
+        setActionMsg("Campagne supprimée");
+        loadCampaigns();
       }
     } catch (e: any) {
       setActionMsg(e.message);
@@ -1093,25 +1564,44 @@ export default function AdminPushCampaignsDashboard({ className }: { className?:
 
   const handleEdit = (c: Campaign) => {
     setEditingCampaign(c);
-    setTab("form");
-  };
-
-  const handleFormSaved = () => {
-    setEditingCampaign(null);
-    setTab("campaigns");
-    loadCampaigns();
+    setSaveError(null);
+    setWizardOpen(true);
   };
 
   const handleNewCampaign = () => {
     setEditingCampaign(null);
-    setTab("form");
+    setSaveError(null);
+    setWizardOpen(true);
   };
 
-  const tabs: { id: TabId; label: string; icon: typeof Bell }[] = [
-    { id: "campaigns", label: "Campagnes", icon: Bell },
-    { id: "form", label: "Créer / Modifier", icon: Edit },
-    { id: "stats", label: "Statistiques", icon: BarChart3 },
-    { id: "deliveries", label: "Livraisons", icon: Truck },
+  const handleWizardSave = async (data: CampaignFormData, action: "draft" | "send") => {
+    setWizardSaving(true);
+    setSaveError(null);
+    try {
+      let campaign: Campaign;
+      if (editingCampaign) {
+        campaign = await updateCampaign(editingCampaign.id, data);
+      } else {
+        campaign = await createCampaign(data);
+      }
+      if (action === "send") {
+        await sendCampaign(campaign.id);
+      }
+      setWizardOpen(false);
+      setEditingCampaign(null);
+      loadCampaigns();
+      setActionMsg(action === "send" ? "Campagne envoyée avec succès" : "Brouillon sauvegardé");
+    } catch (e: any) {
+      setSaveError(e.message);
+    } finally {
+      setWizardSaving(false);
+    }
+  };
+
+  const tabs: { id: TabId; label: string }[] = [
+    { id: "campaigns", label: "Campagnes" },
+    { id: "stats", label: "Statistiques" },
+    { id: "deliveries", label: "Livraisons" },
   ];
 
   return (
@@ -1120,43 +1610,27 @@ export default function AdminPushCampaignsDashboard({ className }: { className?:
       <AdminVisibilityNav />
 
       {/* Header */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Bell className="h-5 w-5 text-[#a3001d]" />
-          <h2 className="text-lg font-bold text-slate-900">Campagnes Push</h2>
-        </div>
-        {tab === "campaigns" && (
+      <AdminPageHeader
+        title="Campagnes Push"
+        description="Notifications push marketing — ciblage, programmation et suivi."
+        actions={
           <Button
             onClick={handleNewCampaign}
             className="h-8 px-3 bg-[#a3001d] text-white text-xs font-semibold rounded-lg hover:bg-[#8a0018]"
           >
-            <Plus className="h-3 w-3 me-1" /> Nouvelle campagne
+            <Plus className="h-3 w-3 me-1" /> Créer une campagne
           </Button>
-        )}
-      </div>
+        }
+      />
 
       {/* Tabs */}
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {tabs.map((t) => {
-          const Icon = t.icon;
-          return (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={cn(
-                "shrink-0 h-8 rounded-full px-3.5 text-xs font-semibold border transition flex items-center gap-1.5",
-                tab === t.id
-                  ? "bg-[#a3001d] text-white border-[#a3001d]"
-                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50",
-              )}
-            >
-              <Icon className="h-3 w-3" />
-              {t.label}
-            </button>
-          );
-        })}
-      </div>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as TabId)}>
+        <TabsList>
+          {tabs.map((t) => (
+            <TabsTrigger key={t.id} value={t.id}>{t.label}</TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
 
       {/* View campaign dialog */}
       {viewingCampaign && (
@@ -1182,10 +1656,10 @@ export default function AdminPushCampaignsDashboard({ className }: { className?:
               <div className="pt-2 border-t border-slate-100">
                 <span className="font-semibold">Stats :</span>
                 <div className="grid grid-cols-2 gap-2 mt-1 text-xs">
-                  <div>Envoyés : {viewingCampaign.stats.sent.toLocaleString("fr-FR")}</div>
-                  <div>Livrés : {viewingCampaign.stats.delivered.toLocaleString("fr-FR")}</div>
-                  <div>Ouverts : {viewingCampaign.stats.opened.toLocaleString("fr-FR")}</div>
-                  <div>Cliqués : {viewingCampaign.stats.clicked.toLocaleString("fr-FR")}</div>
+                  <div>Envoyés : {(viewingCampaign.stats?.sent ?? 0).toLocaleString("fr-FR")}</div>
+                  <div>Livrés : {(viewingCampaign.stats?.delivered ?? 0).toLocaleString("fr-FR")}</div>
+                  <div>Ouverts : {(viewingCampaign.stats?.opened ?? 0).toLocaleString("fr-FR")}</div>
+                  <div>Cliqués : {(viewingCampaign.stats?.clicked ?? 0).toLocaleString("fr-FR")}</div>
                 </div>
               </div>
             </div>
@@ -1205,15 +1679,18 @@ export default function AdminPushCampaignsDashboard({ className }: { className?:
           actionMsg={actionMsg}
         />
       )}
-      {tab === "form" && (
-        <CampaignFormSection
-          editingCampaign={editingCampaign}
-          onSaved={handleFormSaved}
-          onCancel={() => { setEditingCampaign(null); setTab("campaigns"); }}
-        />
-      )}
       {tab === "stats" && <StatsSection campaigns={campaigns} />}
       {tab === "deliveries" && <DeliveriesSection campaigns={campaigns} />}
+
+      {/* Wizard dialog */}
+      <PushCampaignWizardDialog
+        open={wizardOpen}
+        onOpenChange={(open) => { setWizardOpen(open); if (!open) setSaveError(null); }}
+        initial={editingCampaign}
+        onSave={handleWizardSave}
+        saving={wizardSaving}
+        saveError={saveError}
+      />
     </div>
   );
 }

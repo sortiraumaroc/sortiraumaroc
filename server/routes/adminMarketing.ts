@@ -9,6 +9,8 @@ import { sendSAMEmail } from "../email";
 import crypto from "crypto";
 import { createModuleLogger } from "../lib/logger";
 import { zBody } from "../lib/validate";
+import { requireAdminKey } from "./adminHelpers";
+import { checkAdminKey } from "../supabaseAdmin";
 import {
   sendEmailSchema,
   sendBulkEmailSchema,
@@ -36,21 +38,23 @@ function asStringArray(value: unknown): string[] | null {
   return value.filter((v) => typeof v === "string");
 }
 
+// Require superadmin — uses verified session, NOT spoofable header
 function requireSuperadmin(
   req: Parameters<RequestHandler>[0],
   res: Parameters<RequestHandler>[1]
 ): boolean {
-  const adminKey = req.headers["x-admin-key"] as string | undefined;
-  if (!adminKey || adminKey !== process.env.ADMIN_KEY) {
-    res.status(401).json({ error: "Non autorisé" });
-    return false;
-  }
-  const role = req.headers["x-admin-role"] as string | undefined;
-  if (role !== "superadmin" && role !== "admin") {
-    res.status(403).json({ error: "Accès superadmin requis" });
-    return false;
-  }
-  return true;
+  if (!requireAdminKey(req, res)) return false;
+
+  // API key-based access is treated as superadmin
+  const headerKey = req.header("x-admin-key") ?? undefined;
+  if (checkAdminKey(headerKey)) return true;
+
+  // Check verified session role (set by requireAdminKey from JWT)
+  const session = (req as any).adminSession;
+  if (session?.role === "superadmin" || session?.role === "admin") return true;
+
+  res.status(403).json({ error: "Accès superadmin requis" });
+  return false;
 }
 
 // ============================================================================

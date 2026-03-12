@@ -304,21 +304,12 @@ export function AdminDashboardPage() {
   const categoryColors = ["#a3001d", "#dc2626", "#f97316", "#eab308", "#22c55e"];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AdminPageHeader
         title="Tableau de bord"
         description="Vue d'ensemble de l'activité Sortir Au Maroc."
         actions={
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={fetchStats}
-              disabled={loading}
-              title="Actualiser"
-            >
-              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-            </Button>
             <div className="space-y-1">
               <div className="text-xs font-semibold text-slate-500 leading-none">Période</div>
               <div className="flex flex-col sm:flex-row sm:items-center gap-2">
@@ -393,6 +384,15 @@ export function AdminDashboardPage() {
                 )}
               </div>
             </div>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={fetchStats}
+              disabled={loading}
+              title="Actualiser"
+            >
+              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+            </Button>
           </div>
         }
       />

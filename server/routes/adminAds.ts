@@ -9,6 +9,7 @@
  */
 
 import type { Router, RequestHandler } from "express";
+import { requireAdminKey } from "./adminHelpers";
 import { createModuleLogger } from "../lib/logger";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { zQuery, zParams } from "../lib/validate";
@@ -57,6 +58,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
  * Récupère la file de modération (campagnes en attente)
  */
 export const getModerationQueue: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   const supabase = getAdminSupabase();
 
   try {
@@ -117,6 +119,7 @@ export const getModerationQueue: RequestHandler = async (req, res) => {
  * Récupère les détails d'une campagne pour modération
  */
 export const getCampaignForModeration: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   const supabase = getAdminSupabase();
   const campaignId = req.params.campaignId;
 
@@ -177,6 +180,7 @@ export const getCampaignForModeration: RequestHandler = async (req, res) => {
  * Modère une campagne (approve, reject, request_changes)
  */
 export const moderateCampaign: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   const supabase = getAdminSupabase();
   const campaignId = req.params.campaignId;
   const adminUser = (req as any).adminUser;
@@ -348,6 +352,7 @@ export const moderateCampaign: RequestHandler = async (req, res) => {
  * Liste toutes les campagnes (avec filtres)
  */
 export const listAllCampaigns: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   const supabase = getAdminSupabase();
 
   const status = asString(req.query.status);
@@ -416,6 +421,7 @@ export const listAllCampaigns: RequestHandler = async (req, res) => {
  * Met en pause une campagne active
  */
 export const pauseCampaign: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   const supabase = getAdminSupabase();
   const campaignId = req.params.campaignId;
   const adminUser = (req as any).adminUser;
@@ -467,6 +473,7 @@ export const pauseCampaign: RequestHandler = async (req, res) => {
  * Reprend une campagne en pause
  */
 export const resumeCampaign: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   const supabase = getAdminSupabase();
   const campaignId = req.params.campaignId;
   const adminUser = (req as any).adminUser;
@@ -526,6 +533,7 @@ export const resumeCampaign: RequestHandler = async (req, res) => {
  * Récupère toute la configuration des enchères
  */
 export const getAuctionConfigs: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   const supabase = getAdminSupabase();
 
   try {
@@ -551,6 +559,7 @@ export const getAuctionConfigs: RequestHandler = async (req, res) => {
  * Met à jour la configuration d'enchères pour un type de produit
  */
 export const updateAuctionConfig: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   const supabase = getAdminSupabase();
   const productType = req.params.productType;
   const adminUser = (req as any).adminUser;
@@ -626,6 +635,7 @@ export const updateAuctionConfig: RequestHandler = async (req, res) => {
  * Récupère les statistiques de revenus
  */
 export const getRevenueStats: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   const supabase = getAdminSupabase();
 
   const period = asString(req.query.period) || "month"; // day, week, month
@@ -767,6 +777,7 @@ export const getRevenueStats: RequestHandler = async (req, res) => {
  * Vue d'ensemble rapide pour le dashboard admin
  */
 export const getAdsOverview: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   const supabase = getAdminSupabase();
 
   try {
@@ -842,6 +853,7 @@ export const getAdsOverview: RequestHandler = async (req, res) => {
  * Récupère le calendrier admin de l'habillage home
  */
 export const getAdminHomeTakeoverCalendar: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   const supabase = getAdminSupabase();
 
   const startDate =
@@ -907,6 +919,7 @@ export const getAdminHomeTakeoverCalendar: RequestHandler = async (req, res) => 
  * Modifier le statut/prix/assets d'un jour
  */
 export const updateHomeTakeoverDay: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   const supabase = getAdminSupabase();
   const date = req.params.date;
 
@@ -1004,6 +1017,7 @@ export const updateHomeTakeoverDay: RequestHandler = async (req, res) => {
  * Confirmer une réservation et facturer le PRO
  */
 export const confirmHomeTakeoverReservation: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   const supabase = getAdminSupabase();
   const date = req.params.date;
 
@@ -1087,6 +1101,7 @@ export const confirmHomeTakeoverReservation: RequestHandler = async (req, res) =
  * Rejeter une réservation home takeover
  */
 export const rejectHomeTakeoverReservation: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   const supabase = getAdminSupabase();
   const date = req.params.date; // YYYY-MM-DD
   const { reason } = req.body;
@@ -1156,6 +1171,7 @@ export const rejectHomeTakeoverReservation: RequestHandler = async (req, res) =>
  * Crée une campagne directement en tant qu'admin (skip modération → approved + active).
  */
 export const createAdminCampaign: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
   const supabase = getAdminSupabase();
 
   const parsed = CreateAdminAdCampaignSchema.safeParse(req.body);

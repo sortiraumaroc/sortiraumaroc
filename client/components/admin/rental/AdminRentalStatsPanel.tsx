@@ -131,18 +131,18 @@ export function AdminRentalStatsPanel() {
       {/* KPI Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
         <KpiCard
-          label="Vehicules totaux"
+          label="Véhicules totaux"
           value={stats.total_vehicles}
           icon={Car}
         />
         <KpiCard
-          label="Vehicules actifs"
+          label="Véhicules actifs"
           value={stats.active_vehicles}
           icon={Car}
           color="text-green-600"
         />
         <KpiCard
-          label="Etablissements location"
+          label="Établissements location"
           value={stats.rental_establishments}
           icon={Building2}
           color="text-blue-600"

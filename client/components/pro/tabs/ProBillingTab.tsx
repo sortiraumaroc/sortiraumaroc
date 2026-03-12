@@ -15,7 +15,6 @@ import { getBillingCompanyProfile, type BillingCompanyProfile } from "@/lib/publ
 
 import { getProInvoiceFinanceInvoice, listProInvoices, listProOffers, listProPackBilling, listProPayoutWindows, createProPayoutRequest, listProPayoutRequests, listProVisibilityOrders, getProVisibilityOrderInvoice, getProBankDetails, type PayoutWindow, type PayoutRequestWithPayout, type VisibilityOrder, type ProBankDetails } from "@/lib/pro/api";
 import { formatMoney } from "@/lib/money";
-import { isDemoModeEnabled } from "@/lib/demoMode";
 import type { Establishment, ProInvoice, ProRole } from "@/lib/pro/types";
 
 type Props = {
@@ -59,79 +58,6 @@ function packPaymentBadge(status: string) {
   if (status === "pending") return { label: "En attente", cls: "bg-amber-100 text-amber-700 border-amber-200" };
   if (status === "failed") return { label: "Échoué", cls: "bg-red-100 text-red-700 border-red-200" };
   return { label: status, cls: "bg-slate-100 text-slate-700 border-slate-200" };
-}
-
-function buildDemoPackBilling(establishmentId: string) {
-  const now = Date.now();
-  const pack1: PackMetaRow = { id: "demo-pack-ftour", title: "Pack Ftour Ramadan", label: "10 ftours" };
-  const pack2: PackMetaRow = { id: "demo-pack-spa", title: "Pack Spa", label: "5 séances" };
-
-  const purchases: PackPurchaseRow[] = [
-    {
-      id: `demo-purchase-${establishmentId}-1`,
-      establishment_id: establishmentId,
-      pack_id: pack1.id,
-      buyer_name: "Fatima Z.",
-      buyer_email: "fatima@example.com",
-      quantity: 10,
-      unit_price: 25000,
-      total_price: 250000,
-      currency: "MAD",
-      payment_status: "paid",
-      status: "active",
-      valid_until: new Date(now + 15 * 24 * 60 * 60 * 1000).toISOString(),
-      created_at: new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString(),
-    },
-    {
-      id: `demo-purchase-${establishmentId}-2`,
-      establishment_id: establishmentId,
-      pack_id: pack2.id,
-      buyer_name: "Youssef A.",
-      buyer_email: "youssef@example.com",
-      quantity: 5,
-      unit_price: 18000,
-      total_price: 90000,
-      currency: "MAD",
-      payment_status: "paid",
-      status: "active",
-      valid_until: new Date(now + 45 * 24 * 60 * 60 * 1000).toISOString(),
-      created_at: new Date(now - 6 * 24 * 60 * 60 * 1000).toISOString(),
-    },
-  ];
-
-  const redemptions: PackRedemptionRow[] = [
-    {
-      id: `demo-redeem-${establishmentId}-1`,
-      purchase_id: purchases[0]!.id,
-      establishment_id: establishmentId,
-      redeemed_at: new Date(now - 36 * 60 * 60 * 1000).toISOString(),
-      redeemed_by_user_id: null,
-      notes: "1 ftour consommé",
-    },
-    {
-      id: `demo-redeem-${establishmentId}-2`,
-      purchase_id: purchases[0]!.id,
-      establishment_id: establishmentId,
-      redeemed_at: new Date(now - 12 * 60 * 60 * 1000).toISOString(),
-      redeemed_by_user_id: null,
-      notes: "1 ftour consommé",
-    },
-    {
-      id: `demo-redeem-${establishmentId}-3`,
-      purchase_id: purchases[1]!.id,
-      establishment_id: establishmentId,
-      redeemed_at: new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString(),
-      redeemed_by_user_id: null,
-      notes: "1 séance consommée",
-    },
-  ];
-
-  const packMeta: Record<string, PackMetaRow> = {
-    [pack1.id]: pack1,
-    [pack2.id]: pack2,
-  };
-
-  return { purchases, redemptions, packMeta };
 }
 
 function statusBadge(status: string) {
@@ -547,24 +473,9 @@ export function ProBillingTab({ establishment, role }: Props) {
     return { due, paid };
   }, [items]);
 
-  const demoPackBilling = useMemo(() => buildDemoPackBilling(establishment.id), [establishment.id]);
-  const canShowDemoPackBilling = isDemoModeEnabled();
-  const showingDemoPackBilling = canShowDemoPackBilling && !loadingPacks && purchases.length === 0;
-
-  const basePurchases = useMemo(
-    () => (purchases.length ? purchases : canShowDemoPackBilling ? demoPackBilling.purchases : []),
-    [canShowDemoPackBilling, demoPackBilling.purchases, purchases],
-  );
-
-  const baseRedemptions = useMemo(
-    () => (redemptions.length ? redemptions : canShowDemoPackBilling ? demoPackBilling.redemptions : []),
-    [canShowDemoPackBilling, demoPackBilling.redemptions, redemptions],
-  );
-
-  const effectivePackMeta = useMemo(
-    () => ({ ...demoPackBilling.packMeta, ...packMeta }),
-    [demoPackBilling.packMeta, packMeta],
-  );
+  const basePurchases = purchases;
+  const baseRedemptions = redemptions;
+  const effectivePackMeta = packMeta;
 
   const packTotals = useMemo(() => {
     const consumedByPurchase = buildConsumedByPurchase(baseRedemptions);
@@ -1044,7 +955,7 @@ export function ProBillingTab({ establishment, role }: Props) {
           title="Packs · Historique (achetés / consommés / restants)"
           description="Achats de packs, consommations (redeem) et reste à consommer."
           icon={PackageCheck}
-          actions={showingDemoPackBilling ? <Badge className="bg-white/20 text-slate-900 border-slate-200">Démo</Badge> : null}
+          actions={null}
         />
       </CardHeader>
       <CardContent className="space-y-4">

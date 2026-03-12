@@ -68,7 +68,7 @@ INSERT INTO admin_neighborhoods (city, name) VALUES
   ('Meknès', 'Toulal'), ('Meknès', 'Bassatine'), ('Meknès', 'Aïn Slougui'),
   ('Meknès', 'Belle Vue'),
   -- Mohammedia
-  ('Mohammedia', 'Centre Ville'), ('Mohammedia', 'Plage'), ('Mohammedia', 'Kasbah'),
+  ('Mohammédia', 'Centre Ville'), ('Mohammédia', 'Plage'), ('Mohammédia', 'Kasbah'),
   -- El Jadida
   ('El Jadida', 'Centre Ville'), ('El Jadida', 'Cité Portugaise'), ('El Jadida', 'Plage'),
   -- Essaouira

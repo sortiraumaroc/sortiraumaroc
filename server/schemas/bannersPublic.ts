@@ -28,6 +28,8 @@ export const EligibleBannerQuery = z.object({
   trigger: z.string().optional(),
   page: z.string().optional(),
   session_id: z.string().optional(),
+  city: z.string().optional(),
+  slot: z.string().optional(),
 });
 
 // =============================================================================

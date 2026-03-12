@@ -2068,6 +2068,94 @@ export const convertAdminMediaQuoteToInvoice: RequestHandler = async (
   }
 };
 
+// ---------------------------------------------------------------------------
+// Create standalone invoice (no quote required)
+// ---------------------------------------------------------------------------
+
+type CreateMediaInvoiceInput = {
+  pro_user_id?: string;
+  establishment_id?: string | null;
+  due_at?: string | null;
+  notes?: string | null;
+  payment_method?: string;
+};
+
+export const createAdminMediaInvoice: RequestHandler = async (req, res) => {
+  if (!requireAdminKey(req, res)) return;
+
+  const body = isRecord(req.body)
+    ? (req.body as CreateMediaInvoiceInput)
+    : ({} as CreateMediaInvoiceInput);
+
+  const proUserId = safeString(body.pro_user_id);
+  if (!proUserId || !isUuid(proUserId))
+    return res.status(400).json({ error: "pro_user_id requis (UUID)" });
+
+  const supabase = getAdminSupabase();
+
+  try {
+    const invoiceNumber = await nextMediaInvoiceNumber(supabase);
+    const dueAt = safeIsoOrNull(body.due_at);
+    const paymentMethod = normalizeMediaPaymentMethod(body.payment_method);
+    const establishmentId =
+      body.establishment_id && isUuid(body.establishment_id)
+        ? body.establishment_id
+        : null;
+
+    const payload: Record<string, unknown> = {
+      invoice_number: invoiceNumber,
+      status: "draft",
+      source_quote_id: null,
+      client_type: "pro",
+      pro_user_id: proUserId,
+      establishment_id: establishmentId,
+      issued_at: new Date().toISOString(),
+      due_at: dueAt,
+      currency: "MAD",
+      payment_method: paymentMethod,
+      notes: safeString(body.notes),
+      subtotal_amount: 0,
+      tax_amount: 0,
+      total_amount: 0,
+      paid_amount: 0,
+      created_by_admin_id: (() => {
+        const actorSub = getAdminSessionSubAny(req);
+        return actorSub && isUuid(actorSub) ? actorSub : null;
+      })(),
+    };
+
+    const { data: created, error: createErr } = await supabase
+      .from("media_invoices")
+      .insert(payload)
+      .select("id")
+      .single();
+    if (createErr) return res.status(500).json({ error: createErr.message });
+
+    const invoiceId = (created as any).id as string;
+
+    const auditActor = getAuditActorInfo(req);
+    await supabase.from("admin_audit_log").insert({
+      actor_id: auditActor.actor_id,
+      action: "media.invoice.create_standalone",
+      entity_type: "media_invoices",
+      entity_id: invoiceId,
+      metadata: {
+        invoice_number: invoiceNumber,
+        pro_user_id: proUserId,
+        actor_email: auditActor.actor_email,
+        actor_name: auditActor.actor_name,
+        actor_role: auditActor.actor_role,
+      },
+    });
+
+    const invoice = await getMediaInvoiceWithItems({ supabase, invoiceId });
+    return res.json({ ok: true, invoice });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e ?? "Error");
+    return res.status(500).json({ error: msg });
+  }
+};
+
 export const listAdminMediaInvoices: RequestHandler = async (req, res) => {
   if (!requireAdminKey(req, res)) return;
 

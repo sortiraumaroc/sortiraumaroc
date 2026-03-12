@@ -7,7 +7,7 @@
 
 import { useState, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { Clock, MapPin, Users, Info, X, ExternalLink } from "lucide-react";
+import { Clock, MapPin, Users, Info, X, ExternalLink, Phone, Navigation } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -44,6 +44,9 @@ export type RamadanOfferCardData = {
     city: string;
     logo_url?: string | null;
     universe?: string | null;
+    service_types?: string[] | null;
+    phone?: string | null;
+    google_maps_url?: string | null;
   } | null;
 };
 
@@ -72,6 +75,20 @@ function typeBadgeColor(type: RamadanOfferType): string {
     default:
       return "bg-slate-100 text-slate-700 border-slate-200";
   }
+}
+
+const SERVICE_TYPE_LABELS: Record<string, string> = {
+  buffet: "Buffet à volonté",
+  "buffet_a_volonte": "Buffet à volonté",
+  "Buffet à volonté": "Buffet à volonté",
+  servi_a_table: "Servi à table",
+  "Servi à table": "Servi à table",
+  a_la_carte: "À la carte",
+  "À la carte": "À la carte",
+};
+
+function formatServiceType(raw: string): string {
+  return SERVICE_TYPE_LABELS[raw] ?? raw;
 }
 
 function formatPrice(centimes: number): string {
@@ -158,7 +175,7 @@ function RamadanOfferDetailDialog({
             <X className="h-4 w-4" />
           </button>
           <Badge className={cn("absolute top-3 left-3 text-xs px-2 py-0.5", typeBadgeColor(offer.type))}>
-            {RAMADAN_OFFER_TYPE_LABELS[offer.type] ?? offer.type}
+            {offer.establishment?.service_types?.[0] ? formatServiceType(offer.establishment.service_types[0]) : (RAMADAN_OFFER_TYPE_LABELS[offer.type] ?? offer.type)}
           </Badge>
         </div>
 
@@ -262,15 +279,43 @@ function RamadanOfferDetailDialog({
               ) : null}
             </div>
 
-            {onReserve ? (
-              <Button
-                size="lg"
-                className="bg-[#0f1b3d] hover:bg-[#1a2d5e] text-white font-bold px-4 sm:px-6 text-sm sm:text-base"
-                onClick={() => { onReserve(offer.id); onClose(); }}
-              >
-                Réserver
-              </Button>
-            ) : null}
+            <div className="flex items-center gap-2">
+              {/* Google Maps */}
+              {offer.establishment?.google_maps_url && (
+                <a
+                  href={offer.establishment.google_maps_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="h-10 w-10 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition"
+                  title="Voir sur Google Maps"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Navigation className="h-4.5 w-4.5 text-slate-600" />
+                </a>
+              )}
+
+              {/* Appeler */}
+              {offer.establishment?.phone && (
+                <a
+                  href={`tel:${offer.establishment.phone}`}
+                  className="h-10 w-10 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition"
+                  title="Appeler"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Phone className="h-4.5 w-4.5 text-slate-600" />
+                </a>
+              )}
+
+              {onReserve ? (
+                <Button
+                  size="lg"
+                  className="bg-[#0f1b3d] hover:bg-[#1a2d5e] text-white font-bold px-4 sm:px-6 text-sm sm:text-base"
+                  onClick={() => { onReserve(offer.id); onClose(); }}
+                >
+                  Réserver
+                </Button>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>
@@ -318,7 +363,7 @@ export function RamadanOfferCard({ offer, onReserve, className }: Props) {
             <div className="flex items-center justify-center h-full text-3xl bg-gradient-to-br from-[#0f1b3d] to-[#1a2d5e]">🌙</div>
           )}
           <Badge className={cn("absolute top-2 left-2 text-[10px] px-1.5 py-0.5", typeBadgeColor(offer.type))}>
-            {RAMADAN_OFFER_TYPE_LABELS[offer.type] ?? offer.type}
+            {offer.establishment?.service_types?.[0] ? formatServiceType(offer.establishment.service_types[0]) : (RAMADAN_OFFER_TYPE_LABELS[offer.type] ?? offer.type)}
           </Badge>
           {discount > 0 ? (
             <Badge className="absolute top-2 right-2 bg-red-500 text-white text-[10px] px-1.5 py-0.5">-{discount}%</Badge>

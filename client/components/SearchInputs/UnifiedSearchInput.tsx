@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import {
@@ -497,11 +497,24 @@ export function UnifiedSearchInput({
     }
   }, [isDesktopSearchOpen, isDesktopCityOpen]);
 
-  // Handle keyboard navigation (desktop)
+  // Build unified navigable items list for keyboard navigation
+  const allNavigableItems = useMemo(() => {
+    const items: Array<{ type: "suggestion" | "recent" | "popular" | "temporal"; item: any }> = [];
+    if (suggestions.length > 0) {
+      suggestions.forEach((s) => items.push({ type: "suggestion", item: s }));
+    } else {
+      recentSearches.forEach((r) => items.push({ type: "recent", item: r }));
+      popularSearches.forEach((p) => items.push({ type: "popular", item: p }));
+    }
+    temporalSuggestions.forEach((t) => items.push({ type: "temporal", item: t }));
+    return items;
+  }, [suggestions, popularSearches, recentSearches, temporalSuggestions]);
+
+  // Handle keyboard navigation (desktop) — traverses all sections
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      const items = suggestions.length > 0 ? suggestions : popularSearches;
-      const maxIndex = items.length - 1;
+      const maxIndex = allNavigableItems.length - 1;
+      if (maxIndex < 0 && e.key !== "Enter" && e.key !== "Escape") return;
 
       switch (e.key) {
         case "ArrowDown":
@@ -515,11 +528,15 @@ export function UnifiedSearchInput({
         case "Enter":
           e.preventDefault();
           if (activeIndex >= 0 && activeIndex <= maxIndex) {
-            const item = items[activeIndex];
-            if ("id" in item) {
-              handleSelectSuggestion(item as AutocompleteSuggestion);
+            const nav = allNavigableItems[activeIndex];
+            if (nav.type === "suggestion") {
+              handleSelectSuggestion(nav.item as AutocompleteSuggestion);
+            } else if (nav.type === "recent") {
+              handleSelectRecentSearch(nav.item);
+            } else if (nav.type === "temporal") {
+              handleSelectTemporalSuggestion(nav.item);
             } else {
-              handleSelectPopular(item);
+              handleSelectPopular(nav.item);
             }
           } else {
             handleSubmit();
@@ -531,7 +548,7 @@ export function UnifiedSearchInput({
           break;
       }
     },
-    [suggestions, popularSearches, activeIndex]
+    [allNavigableItems, activeIndex]
   );
 
   const handleSelectSuggestion = (suggestion: AutocompleteSuggestion) => {
@@ -648,7 +665,7 @@ export function UnifiedSearchInput({
         <div className="flex gap-2">
           <button
             type="button"
-            onClick={() => setIsMobileSearchModalOpen(true)}
+            onClick={() => { setMobileSearchInput(inputValue); setIsMobileSearchModalOpen(true); }}
             className="flex-1 flex items-center bg-white rounded-lg border border-slate-200 h-14 px-4 text-start"
           >
             <Search className="w-5 h-5 text-slate-400 flex-shrink-0" />
@@ -981,6 +998,11 @@ export function UnifiedSearchInput({
           <input
             ref={inputRef}
             type="text"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={isDesktopSearchOpen}
+            aria-controls="search-suggestions-listbox"
+            aria-activedescendant={activeIndex >= 0 ? `search-suggestion-${activeIndex}` : undefined}
             value={inputValue}
             onChange={(e) => {
               setInputValue(e.target.value);
@@ -1038,7 +1060,7 @@ export function UnifiedSearchInput({
 
       {/* Desktop Search Dropdown */}
       {showDesktopDropdown && (
-        <div className="hidden md:block absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden">
+        <div id="search-suggestions-listbox" role="listbox" aria-label="Suggestions de recherche" className="hidden md:block absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden">
           {/* Recent searches — above popular */}
           {showDesktopRecent && (
             <div className="p-3 border-b border-slate-100">

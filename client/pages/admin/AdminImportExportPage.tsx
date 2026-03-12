@@ -758,7 +758,7 @@ export function AdminImportExportPage() {
   }, [importResults, toast]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AdminEstablishmentsNav />
       <AdminPageHeader
         title="Import / Export"
@@ -818,28 +818,18 @@ export function AdminImportExportPage() {
 
       <Tabs defaultValue="import" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="import" className="gap-2">
-            <Upload className="h-4 w-4" />
-            Import
-          </TabsTrigger>
+          <TabsTrigger value="import">Import</TabsTrigger>
           {isAdminSuperadmin() && (
-            <TabsTrigger value="export" className="gap-2">
-              <Download className="h-4 w-4" />
-              Export
-            </TabsTrigger>
+            <TabsTrigger value="export">Export</TabsTrigger>
           )}
-          <TabsTrigger value="chr" className="gap-2" onClick={() => {
+          <TabsTrigger value="chr" onClick={() => {
             if (!chrStats) {
               loadChrInitialData();
             }
           }}>
-            <Database className="h-4 w-4" />
             CHR
           </TabsTrigger>
-          <TabsTrigger value="sql" className="gap-2">
-            <FileCode className="h-4 w-4" />
-            SQL
-          </TabsTrigger>
+          <TabsTrigger value="sql">SQL</TabsTrigger>
         </TabsList>
 
         {/* Import Tab */}

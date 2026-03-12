@@ -197,7 +197,7 @@ export function AdminKeyGate(props: {
               loading="lazy"
             />
           </Link>
-          <p className="mt-2 text-sm text-black font-bold" style={{ fontFamily: "Poppins, sans-serif" }}>La plateforme de réservation en ligne</p>
+          <p className="mt-2 text-sm text-white font-bold" style={{ fontFamily: "Poppins, sans-serif" }}>La plateforme de réservation en ligne</p>
         </div>
 
         <div className="rounded-lg border-2 border-slate-200 bg-white p-6 md:p-8">

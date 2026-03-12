@@ -56,6 +56,9 @@ importers:
       express:
         specifier: ^5.1.0
         version: 5.1.0
+      express-rate-limit:
+        specifier: ^8.3.1
+        version: 8.3.1(express@5.1.0)
       firebase:
         specifier: ^11.2.0
         version: 11.10.0
@@ -3120,6 +3123,12 @@ packages:
   expect-type@1.2.2:
     resolution: {integrity: sha512-JhFGDVJ7tmDJItKhYgJCGLOWjuK9vPxiXoUFLwLDc99NlmklilbiQJwoctZtt13+xMw91MCk/REan6MWHqDjyA==}
     engines: {node: '>=12.0.0'}
+
+  express-rate-limit@8.3.1:
+    resolution: {integrity: sha512-D1dKN+cmyPWuvB+G2SREQDzPY1agpBIcTa9sJxOPMCNeH3gwzhqJRDWCXW3gg0y//+LQ/8j52JbMROWyrKdMdw==}
+    engines: {node: '>= 16'}
+    peerDependencies:
+      express: '>= 4.11'
 
   express@5.1.0:
     resolution: {integrity: sha512-DT9ck5YIRU+8GYzzU5kT3eHGA5iL+1Zd0EutOmTE9Dtk+Tvuzd23VBU+ec7HPNSTxXYO55gPV/hq4pSBJDjFpA==}
@@ -7958,6 +7967,11 @@ snapshots:
       uuid: 8.3.2
 
   expect-type@1.2.2: {}
+
+  express-rate-limit@8.3.1(express@5.1.0):
+    dependencies:
+      express: 5.1.0
+      ip-address: 10.1.0
 
   express@5.1.0:
     dependencies:

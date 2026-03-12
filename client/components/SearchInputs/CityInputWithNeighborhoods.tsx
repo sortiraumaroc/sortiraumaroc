@@ -4,6 +4,7 @@ import { useI18n } from "@/lib/i18n";
 import { useScrollContext } from "@/lib/scrollContext";
 import { NEIGHBORHOODS_BY_CITY, MOROCCAN_CITIES } from "@/hooks/useSuggestions";
 import { cn } from "@/lib/utils";
+import { toast } from "@/hooks/use-toast";
 
 interface CityInputWithNeighborhoodsProps {
   value: string;
@@ -79,7 +80,8 @@ export function CityInputWithNeighborhoods({
     setInputValue(myPositionLabel);
 
     if (!navigator.geolocation) {
-      onChange(myPositionLabel, "geo:unavailable");
+      toast({ title: "Géolocalisation non disponible", description: "Votre navigateur ne supporte pas la géolocalisation.", variant: "destructive" });
+      setInputValue(value);
       setIsOpen(false);
       return;
     }
@@ -92,7 +94,8 @@ export function CityInputWithNeighborhoods({
         setIsOpen(false);
       },
       () => {
-        onChange(myPositionLabel, "geo:denied");
+        toast({ title: "Géolocalisation refusée", description: "Pour utiliser « Autour de moi », activez la localisation dans les paramètres de votre navigateur, puis rechargez la page.", variant: "destructive" });
+        setInputValue(value);
         setIsOpen(false);
       },
       { enableHighAccuracy: true, timeout: 10000 }

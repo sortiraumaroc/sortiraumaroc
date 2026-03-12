@@ -15,7 +15,9 @@
  *  - GET    /api/admin/banners/:id/views                — list banner views
  */
 
-import type { Router, Request, Response } from "express";
+import type { Router, Request, Response, RequestHandler } from "express";
+import multer from "multer";
+import { randomBytes } from "crypto";
 import { getAdminSupabase } from "../supabaseAdmin";
 import { requireAdminKey } from "./adminHelpers";
 import {
@@ -25,6 +27,7 @@ import {
   activateBanner,
   pauseBanner,
   disableBanner,
+  deleteBanner,
   getBannerStats,
 } from "../bannerLogic";
 import { exportFormResponses } from "../bannerFormLogic";
@@ -449,10 +452,114 @@ async function listBannerViews(req: Request, res: Response) {
 }
 
 // =============================================================================
+// DELETE /api/admin/banners/:id — Permanently delete a banner (superadmin only)
+// =============================================================================
+
+async function deleteBannerRoute(req: Request, res: Response) {
+  try {
+    const bannerId = req.params.id;
+    if (!bannerId) {
+      res.status(400).json({ error: "missing_banner_id" });
+      return;
+    }
+
+    const result = await deleteBanner(bannerId);
+    if (!result.ok) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    log.error({ err }, "deleteBanner error");
+    res.status(500).json({ error: "internal_error" });
+  }
+}
+
+// =============================================================================
+// Media upload — Upload banner image/video to Supabase Storage
+// =============================================================================
+
+const BANNER_MEDIA_BUCKET = "public";
+const MAX_BANNER_MEDIA_BYTES = 10 * 1024 * 1024; // 10 MB
+
+const bannerMediaUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_BANNER_MEDIA_BYTES },
+  fileFilter: (_req, file, cb) => {
+    const allowed = [
+      "image/jpeg", "image/png", "image/webp", "image/gif",
+      "image/heic", "image/heif", "image/avif", "image/svg+xml",
+      "video/mp4", "video/webm", "video/ogg", "video/quicktime",
+    ];
+    if (allowed.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Type de fichier non supporté"));
+    }
+  },
+});
+
+async function uploadBannerMedia(req: Request, res: Response) {
+  try {
+    if (!requireAdminKey(req, res)) return;
+
+    const file = (req as any).file as Express.Multer.File | undefined;
+    if (!file) {
+      res.status(400).json({ error: "Aucun fichier fourni" });
+      return;
+    }
+
+    const supabase = getAdminSupabase();
+
+    // Build a unique storage path: banners/{year}/{month}/{randomHex}.{ext}
+    const now = new Date();
+    const y = String(now.getUTCFullYear());
+    const m = String(now.getUTCMonth() + 1).padStart(2, "0");
+    const ext = file.originalname.split(".").pop()?.toLowerCase() || "jpg";
+    const id = randomBytes(12).toString("hex");
+    const storagePath = `banners/${y}/${m}/${id}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from(BANNER_MEDIA_BUCKET)
+      .upload(storagePath, file.buffer, {
+        contentType: file.mimetype,
+        cacheControl: "3600",
+        upsert: false,
+      });
+
+    if (uploadError) {
+      log.error({ err: uploadError }, "Banner media upload failed");
+      res.status(500).json({ error: "Erreur lors de l'upload du média" });
+      return;
+    }
+
+    const { data: urlData } = supabase.storage
+      .from(BANNER_MEDIA_BUCKET)
+      .getPublicUrl(storagePath);
+
+    res.json({
+      ok: true,
+      url: urlData.publicUrl,
+      path: storagePath,
+      mime_type: file.mimetype,
+      size_bytes: file.size,
+    });
+
+    log.info({ path: storagePath, size: file.size }, "Banner media uploaded");
+  } catch (err) {
+    log.error({ err }, "uploadBannerMedia error");
+    res.status(500).json({ error: "internal_error" });
+  }
+}
+
+// =============================================================================
 // Route registration
 // =============================================================================
 
 export function registerBannerAdminRoutes(app: Router): void {
+  // Media upload (must be before parametric :id routes)
+  app.post("/api/admin/banners/upload-media", bannerAdminRateLimiter, bannerMediaUpload.single("media"), uploadBannerMedia as RequestHandler);
   app.get("/api/admin/banners", bannerAdminRateLimiter, zQuery(ListBannersQuery), listBanners);
   app.get("/api/admin/banners/:id", zParams(zIdParam), bannerAdminRateLimiter, getBanner);
   app.post("/api/admin/banners", bannerAdminRateLimiter, zBody(BannerCreateSchema), createBannerRoute);
@@ -465,4 +572,5 @@ export function registerBannerAdminRoutes(app: Router): void {
   app.get("/api/admin/banners/:id/form-responses", zParams(zIdParam), bannerAdminRateLimiter, zQuery(ListBannerFormResponsesQuery), listFormResponses);
   app.get("/api/admin/banners/:id/form-responses/export", zParams(zIdParam), bannerAdminRateLimiter, exportFormResponsesRoute);
   app.get("/api/admin/banners/:id/views", zParams(zIdParam), bannerAdminRateLimiter, zQuery(ListBannerViewsQuery), listBannerViews);
+  app.delete("/api/admin/banners/:id", zParams(zIdParam), bannerAdminRateLimiter, deleteBannerRoute);
 }

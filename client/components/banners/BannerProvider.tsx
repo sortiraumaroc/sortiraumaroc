@@ -15,10 +15,14 @@ import {
   useState,
   useEffect,
   useCallback,
+  lazy,
+  Suspense,
   type ReactNode,
 } from "react";
 import { getConsumerAccessToken } from "@/lib/auth";
 import { AUTH_CHANGED_EVENT } from "@/lib/auth";
+
+const BannerRenderer = lazy(() => import("@/components/banners/BannerRenderer"));
 
 // ---------------------------------------------------------------------------
 // Types
@@ -114,7 +118,8 @@ async function fetchEligibleBanner(): Promise<Banner | null> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers.authorization = `Bearer ${token}`;
 
-    const res = await fetch("/api/banners/eligible?platform=web&trigger=on_app_open", { headers });
+    const page = encodeURIComponent(window.location.pathname);
+    const res = await fetch(`/api/banners/eligible?platform=web&trigger=on_app_open&page=${page}`, { headers });
     if (!res.ok) return null;
 
     const json = await res.json();
@@ -134,10 +139,11 @@ async function postBannerEvent(
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers.authorization = `Bearer ${token}`;
 
-    await fetch(`/api/banners/${bannerId}/events`, {
+    const endpoint = event === "view" ? "view" : "click";
+    await fetch(`/api/banners/${bannerId}/${endpoint}`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ event, session_id: sessionId }),
+      body: JSON.stringify({ session_id: sessionId }),
     });
   } catch {
     // best-effort
@@ -152,7 +158,7 @@ async function postBannerFormSubmission(
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (token) headers.authorization = `Bearer ${token}`;
 
-  const res = await fetch(`/api/banners/${bannerId}/form`, {
+  const res = await fetch(`/api/banners/${bannerId}/form-submit`, {
     method: "POST",
     headers,
     body: JSON.stringify(data),
@@ -237,6 +243,17 @@ export function BannerProvider({ children }: { children: ReactNode }) {
       value={{ currentBanner, dismissBanner, trackBannerView, trackBannerClick, submitBannerForm }}
     >
       {children}
+      {currentBanner && (
+        <Suspense fallback={null}>
+          <BannerRenderer
+            banner={currentBanner as any}
+            sessionId={sessionId}
+            onClose={dismissBanner}
+            onCtaClick={() => trackBannerClick(currentBanner.id)}
+            onFormSubmit={(data) => void submitBannerForm(currentBanner.id, data)}
+          />
+        </Suspense>
+      )}
     </BannerContext.Provider>
   );
 }

@@ -35,6 +35,7 @@ import {
   ProAdsIdParams,
   ProAdsIdCampaignIdParams,
 } from "../schemas/proAds";
+import { parseBearerToken } from "./proHelpers";
 
 // =============================================================================
 // TYPES & HELPERS
@@ -42,15 +43,6 @@ import {
 
 type ProUser = { id: string; email?: string | null };
 type ProRole = "owner" | "manager" | "reception" | "accounting" | "marketing" | string;
-
-function parseBearerToken(header: string | undefined): string | null {
-  if (!header) return null;
-  const trimmed = header.trim();
-  if (!trimmed) return null;
-  const [scheme, token] = trimmed.split(/\s+/, 2);
-  if (!scheme || scheme.toLowerCase() !== "bearer") return null;
-  return token && token.trim() ? token.trim() : null;
-}
 
 async function getUserFromBearerToken(token: string): Promise<
   { ok: true; user: ProUser } | { ok: false; error: string; status: number }

@@ -83,16 +83,18 @@ async function getEligibleBannerHandler(req: Request, res: Response) {
     const trigger = asString(req.query.trigger);
     const page = asString(req.query.page);
     const sessionId = asString(req.query.session_id);
+    const city = asString(req.query.city);
 
-    const banner = await getEligibleBanner({
+    const result = await getEligibleBanner({
       userId,
       platform: (platform === "mobile" ? "mobile" : "web") as "web" | "mobile",
       trigger: (trigger ?? "on_app_open") as import("../../shared/notificationsBannersWheelTypes").BannerTrigger,
       page: page ?? undefined,
       sessionId: sessionId ?? "anonymous",
+      city: city ?? undefined,
     });
 
-    res.json({ ok: true, banner });
+    res.json({ ok: true, banner: result.banner ?? null });
   } catch (err) {
     log.error({ err }, "getEligibleBanner error");
     res.status(500).json({ error: "internal_error" });

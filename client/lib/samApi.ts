@@ -16,16 +16,36 @@ export interface SamEstablishmentItem {
   subcategory: string | null;
   city: string | null;
   address: string | null;
+  neighborhood: string | null;
   phone: string | null;
   cover_url: string | null;
   booking_enabled: boolean;
   google_rating: number | null;
   google_review_count: number | null;
+  avg_rating: number | null;
+  review_count: number | null;
+  cuisine_types: string[] | null;
+  price_range: string | null;
+  is_online: boolean;
   promo_percent: number | null;
   next_slot_at: string | null;
   reservations_30d: number;
   lat: number | null;
   lng: number | null;
+
+  /** Données d'offre Ramadan (présent uniquement pour les résultats de search_ramadan_offers) */
+  ramadan_offer?: {
+    offer_id: string;
+    offer_title: string;
+    offer_type: string; // "ftour" | "shour" | "traiteur" | "pack_famille" | "special"
+    price: number | null; // MAD (déjà divisé par 100)
+    original_price: number | null; // MAD
+    service_types: string[] | null;
+    time_slots: Array<{ start: string; end: string; label?: string }> | null;
+    capacity_per_slot: number | null;
+    valid_from: string | null;
+    valid_to: string | null;
+  };
 }
 
 export interface SamSSEEvent {
@@ -55,8 +75,8 @@ export interface StreamSamChatParams {
   universe?: string;
   /** ID ou slug de l'établissement — active le mode scoped (assistant dédié) */
   establishment_id?: string;
-  /** Mode : "pro" pour l'assistant pro */
-  mode?: "pro" | "consumer";
+  /** Mode : "pro" pour l'assistant pro, "admin" pour le back-office */
+  mode?: "pro" | "consumer" | "admin";
   onTextDelta: (text: string) => void;
   onEstablishments: (items: SamEstablishmentItem[]) => void;
   onToolCall: (name: string, args: Record<string, unknown>) => void;

@@ -35,6 +35,7 @@ import {
   ListRewardsQuery,
 } from "../schemas/ambassadorProgram";
 import { sendPushToConsumerUser } from "../pushNotifications";
+import { parseBearerToken } from "./proHelpers";
 
 const log = createModuleLogger("ambassadorPro");
 
@@ -43,15 +44,6 @@ const log = createModuleLogger("ambassadorPro");
 // =============================================================================
 
 type ProUser = { id: string; email?: string | null };
-
-function parseBearerToken(header: string | undefined): string | null {
-  if (!header) return null;
-  const trimmed = header.trim();
-  if (!trimmed) return null;
-  const [scheme, token] = trimmed.split(/\s+/, 2);
-  if (!scheme || scheme.toLowerCase() !== "bearer") return null;
-  return token && token.trim() ? token.trim() : null;
-}
 
 async function getProUser(
   req: Parameters<RequestHandler>[0],

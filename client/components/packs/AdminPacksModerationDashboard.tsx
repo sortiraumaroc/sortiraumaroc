@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { AdminPacksNav } from "@/pages/admin/packs/AdminPacksNav";
+import { AdminPageHeader } from "@/components/admin/layout/AdminPageHeader";
 import {
   getModerationQueue, approvePack, rejectPack,
   requestPackModification, featurePack, unfeaturePack,
@@ -888,32 +889,29 @@ export function AdminPacksModerationDashboard({ className }: { className?: strin
 
   return (
     <div className={cn("space-y-4", className)}>
-      {/* Packs sub-navigation */}
       <AdminPacksNav />
-
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Shield className="h-5 w-5 text-[#a3001d]" />
-          <h2 className="text-lg font-bold text-slate-900">Modération Packs</h2>
-        </div>
-        <button onClick={fetchQueue} disabled={loading} className="text-sm text-slate-500 hover:text-slate-700">
-          <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-        </button>
-      </div>
+      <AdminPageHeader
+        title="Modération Packs"
+        description="Queue de modération des packs et offres."
+        actions={
+          <button onClick={fetchQueue} disabled={loading} className="text-sm text-slate-500 hover:text-slate-700">
+            <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+          </button>
+        }
+      />
 
       {/* Status filter */}
-      <div className="flex gap-2 overflow-x-auto pb-1">
+      <div className="inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground">
         {STATUS_FILTERS.map((f) => (
           <button
             key={f.id}
             type="button"
             onClick={() => setFilter(f.id)}
             className={cn(
-              "shrink-0 h-8 rounded-full px-3.5 text-xs font-semibold border transition",
+              "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-semibold ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
               filter === f.id
-                ? "bg-[#a3001d] text-white border-[#a3001d]"
-                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50",
+                ? "bg-[#a3001d] text-white shadow-sm"
+                : "hover:bg-background/50 hover:text-foreground",
             )}
           >
             {f.label}

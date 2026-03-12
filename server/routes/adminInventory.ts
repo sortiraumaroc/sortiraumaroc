@@ -207,6 +207,15 @@ function isSuperAdmin(session: AdminSessionPayload): boolean {
   return session.role === "superadmin";
 }
 
+/** Roles allowed to use AI features (aligned with adminAI.ts hasAIAccess) */
+const AI_ALLOWED_ROLES = ["superadmin", "admin", "ops", "content", "marketing"];
+
+function hasAIAccess(session: AdminSessionPayload): boolean {
+  if (!session.collaborator_id && session.role === "superadmin") return true;
+  const role = session.role?.toLowerCase() ?? "";
+  return AI_ALLOWED_ROLES.includes(role);
+}
+
 /** Roles allowed to manage establishment media (gallery, contact-info, tags-services) */
 function canManageEstablishments(session: AdminSessionPayload): boolean {
   return session.role === "superadmin" || session.role === "admin" || session.role === "marketing";
@@ -1380,12 +1389,13 @@ export function registerAdminInventoryRoutes(router: Router): void {
         return res.status(401).json({ error: "Unauthorized" });
       }
 
-      if (!isSuperAdmin(session)) {
-        return res.status(403).json({ error: "Forbidden", message: "Accès réservé aux super administrateurs" });
+      if (!hasAIAccess(session)) {
+        return res.status(403).json({ error: "Forbidden", message: "L'extraction IA est réservée aux administrateurs SAM" });
       }
 
       if (!ANTHROPIC_API_KEY) {
-        return res.status(500).json({ error: "ai_not_configured", message: "Le service IA n'est pas configuré" });
+        log.error("ANTHROPIC_API_KEY is not set — AI extraction unavailable");
+        return res.status(500).json({ error: "ai_not_configured", message: "Le service IA n'est pas configuré. Contactez l'administrateur pour configurer la clé API Anthropic." });
       }
 
       const file = req.file;
@@ -1495,12 +1505,23 @@ export function registerAdminInventoryRoutes(router: Router): void {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        log.error({ status: response.status, errorData }, "AI file extraction Anthropic API error");
-        return res.status(500).json({ error: "ai_error", message: "Erreur du service IA" });
+        const errorType = (errorData as any)?.error?.type ?? "unknown";
+        const errorMsg = (errorData as any)?.error?.message ?? JSON.stringify(errorData).slice(0, 300);
+        log.error({ status: response.status, errorType, errorMsg, model: "claude-sonnet-4-20250514" }, "AI file extraction Anthropic API error");
+
+        // Provide actionable error messages
+        let userMessage = "Erreur du service IA";
+        if (response.status === 401) userMessage = "Clé API Anthropic invalide. Vérifiez ANTHROPIC_API_KEY.";
+        else if (response.status === 429) userMessage = "Limite de requêtes IA atteinte. Réessayez dans quelques minutes.";
+        else if (response.status === 404) userMessage = `Modèle IA introuvable. Erreur: ${errorMsg}`;
+        else if (response.status === 400) userMessage = `Requête IA invalide: ${errorMsg}`;
+
+        return res.status(500).json({ error: "ai_error", message: userMessage });
       }
 
       const data = await response.json();
       const generatedText = data.content?.[0]?.text ?? "";
+      log.info({ textLength: generatedText.length, model: "claude-sonnet-4-20250514" }, "AI file extraction completed");
 
       // Parse the JSON response
       type ExtractedMenuItem = {

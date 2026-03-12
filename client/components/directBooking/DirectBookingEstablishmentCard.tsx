@@ -36,12 +36,12 @@ function formatHours(hours: unknown): string | null {
 }
 
 function getUniverseLabel(universe: string | null): string {
-  if (!universe) return "Etablissement";
+  if (!universe) return "Établissement";
 
   const u = universe.toLowerCase();
   if (u === "restaurant" || u === "restaurants") return "Restaurant";
-  if (u === "hotel" || u === "hotels" || u === "hebergement") return "Hebergement";
-  if (u === "wellness" || u === "bien-etre") return "Bien-etre";
+  if (u === "hotel" || u === "hotels" || u === "hebergement") return "Hébergement";
+  if (u === "wellness" || u === "bien-etre") return "Bien-être";
   if (u === "loisir" || u === "loisirs") return "Loisir";
   if (u === "culture") return "Culture";
   if (u === "shopping") return "Shopping";
@@ -87,7 +87,7 @@ export function DirectBookingEstablishmentCard({ establishment }: Props) {
         <div className="relative aspect-[16/9] bg-slate-100">
           <img
             src={coverImage}
-            alt={name || "Etablissement"}
+            alt={name || "Établissement"}
             className="w-full h-full object-cover"
             loading="eager"
             decoding="async"
@@ -119,7 +119,7 @@ export function DirectBookingEstablishmentCard({ establishment }: Props) {
               {subcategory && <span className="text-slate-500"> · {subcategory}</span>}
             </Badge>
             <h1 className="text-xl font-bold text-white drop-shadow-lg line-clamp-2">
-              {name || "Etablissement"}
+              {name || "Établissement"}
             </h1>
           </div>
         </div>
@@ -135,7 +135,7 @@ export function DirectBookingEstablishmentCard({ establishment }: Props) {
               {subcategory && <span className="text-slate-500"> · {subcategory}</span>}
             </Badge>
             <h1 className="text-xl font-bold text-slate-900">
-              {name || "Etablissement"}
+              {name || "Établissement"}
             </h1>
             {avg_rating != null && avg_rating > 0 && (
               <div className="flex items-center gap-1 mt-2">

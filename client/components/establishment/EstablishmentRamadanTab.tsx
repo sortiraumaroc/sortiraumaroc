@@ -27,6 +27,7 @@ import {
 type Props = {
   establishmentId: string;
   establishmentName?: string;
+  serviceTypes?: string[] | null;
   onReserve?: (offerId: string) => void;
 };
 
@@ -51,6 +52,20 @@ function typeBadgeColor(type: RamadanOfferType): string {
   }
 }
 
+const SERVICE_TYPE_LABELS: Record<string, string> = {
+  buffet: "Buffet à volonté",
+  buffet_a_volonte: "Buffet à volonté",
+  "Buffet à volonté": "Buffet à volonté",
+  servi_a_table: "Servi à table",
+  "Servi à table": "Servi à table",
+  a_la_carte: "À la carte",
+  "À la carte": "À la carte",
+};
+
+function formatServiceType(raw: string): string {
+  return SERVICE_TYPE_LABELS[raw] ?? raw;
+}
+
 function formatPrice(centimes: number): string {
   return `${(centimes / 100).toFixed(0)} Dhs`;
 }
@@ -66,9 +81,11 @@ function formatTimeSlots(slots: RamadanOfferTimeSlot[]): string {
 
 function CompactRamadanCard({
   offer,
+  serviceTypes,
   onReserve,
 }: {
   offer: RamadanOfferRow;
+  serviceTypes?: string[] | null;
   onReserve?: (offerId: string) => void;
 }) {
   const discount =
@@ -94,7 +111,7 @@ function CompactRamadanCard({
               typeBadgeColor(offer.type),
             )}
           >
-            {RAMADAN_OFFER_TYPE_LABELS[offer.type] ?? offer.type}
+            {serviceTypes?.[0] ? formatServiceType(serviceTypes[0]) : (RAMADAN_OFFER_TYPE_LABELS[offer.type] ?? offer.type)}
           </Badge>
           <h3 className="text-sm font-bold text-slate-900 line-clamp-2 leading-snug">
             {offer.title}
@@ -158,6 +175,7 @@ function CompactRamadanCard({
 export function EstablishmentRamadanTab({
   establishmentId,
   establishmentName,
+  serviceTypes,
   onReserve,
 }: Props) {
   const [offers, setOffers] = useState<RamadanOfferRow[]>([]);
@@ -231,6 +249,7 @@ export function EstablishmentRamadanTab({
             <CompactRamadanCard
               key={offer.id}
               offer={offer}
+              serviceTypes={serviceTypes}
               onReserve={onReserve}
             />
           ))}
